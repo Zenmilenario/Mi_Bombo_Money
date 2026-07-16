@@ -1,3 +1,4 @@
+import Charts
 import SwiftData
 import SwiftUI
 
@@ -30,8 +31,8 @@ struct TransactionsView: View {
     @State private var selectedCategoryID: UUID?
     @State private var selectedType: TransactionType?
     @State private var dateFilter: TransactionDateFilter = .all
+    @State private var showOnlyDuplicates = false
     @State private var showingFilters = false
-    @State private var showingAdd = false
     @State private var editingTransaction: FinancialTransaction?
     @State private var deletionError: String?
 
@@ -43,12 +44,32 @@ struct TransactionsView: View {
             {
                 return false
             }
-            if let selectedCategoryID, transaction.category?.id != selectedCategoryID { return false }
-            if let selectedType, transaction.type != selectedType { return false }
-            if !matchesDateFilter(transaction.date) { return false }
+
+            if let selectedCategoryID,
+               transaction.category?.id != selectedCategoryID
+            {
+                return false
+            }
+
+            if let selectedType,
+               transaction.type != selectedType
+            {
+                return false
+            }
+
+            if showOnlyDuplicates,
+               transaction.duplicateState != .possible
+            {
+                return false
+            }
+
+            if !matchesDateFilter(transaction.date) {
+                return false
+            }
 
             let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !query.isEmpty else { return true }
+
             return [
                 transaction.descriptionText,
                 transaction.notes,
@@ -61,9 +82,28 @@ struct TransactionsView: View {
     }
 
     private var groupedDates: [Date] {
-        Array(Dictionary(grouping: filteredTransactions) {
-            Calendar.autoupdatingCurrent.startOfDay(for: $0.date)
-        }.keys).sorted(by: >)
+        Array(
+            Dictionary(grouping: filteredTransactions) {
+                Calendar.autoupdatingCurrent.startOfDay(for: $0.date)
+            }.keys
+        )
+        .sorted(by: >)
+    }
+
+    private var filteredIncomeMinor: Int64 {
+        filteredTransactions
+            .filter { $0.type.countsAsIncome }
+            .reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
+    }
+
+    private var filteredExpenseMinor: Int64 {
+        filteredTransactions
+            .filter { $0.type.countsAsExpense }
+            .reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
+    }
+
+    private var duplicateCount: Int {
+        transactions.filter { $0.duplicateState == .possible }.count
     }
 
     var body: some View {
@@ -73,26 +113,121 @@ struct TransactionsView: View {
                     ContentUnavailableView(
                         "Sin movimientos",
                         systemImage: "list.bullet.rectangle",
-                        description: Text("Añade un movimiento manual o importa un archivo CSV.")
+                        description: Text("Añade un movimiento con el botón azul o importa un archivo CSV.")
                     )
-                } else if filteredTransactions.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
                 } else {
                     List {
-                        ForEach(groupedDates, id: \.self) { date in
-                            Section(date.formatted(.dateTime.weekday(.wide).day().month(.wide).year())) {
-                                ForEach(transactions(for: date)) { transaction in
-                                    Button {
-                                        editingTransaction = transaction
-                                    } label: {
-                                        TransactionRow(transaction: transaction)
+                        Section {
+                            TransactionPeriodSummaryCard(
+                                transactionCount: filteredTransactions.count,
+                                incomeMinor: filteredIncomeMinor,
+                                expenseMinor: filteredExpenseMinor
+                            )
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
+                        }
+
+                        if duplicateCount > 0 && !showOnlyDuplicates {
+                            Section {
+                                Button {
+                                    showOnlyDuplicates = true
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: "doc.on.doc.fill")
+                                            .foregroundStyle(.orange)
+                                            .frame(width: 36, height: 36)
+                                            .background(Color.orange.opacity(0.11), in: Circle())
+
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(
+                                                duplicateCount == 1
+                                                    ? "Revisar 1 posible duplicado"
+                                                    : "Revisar \(duplicateCount) posibles duplicados"
+                                            )
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(.primary)
+
+                                            Text("Comprueba los movimientos antes de conservarlos.")
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
+
+                                        Spacer()
+
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.tertiary)
                                     }
-                                    .buttonStyle(.plain)
-                                    .swipeActions(edge: .trailing) {
-                                        Button(role: .destructive) {
-                                            delete(transaction)
+                                    .padding(.vertical, 4)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        if activeFilterCount > 0 {
+                            Section {
+                                activeFilters
+                                    .listRowInsets(
+                                        EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
+                                    )
+                            } header: {
+                                HStack {
+                                    Text("Filtros activos")
+                                    Spacer()
+                                    Button("Limpiar") {
+                                        resetFilters()
+                                    }
+                                    .font(.caption.weight(.semibold))
+                                    .textCase(nil)
+                                }
+                            }
+                        }
+
+                        Section {
+                            NavigationLink {
+                                SpendingAnalysisView()
+                            } label: {
+                                Label("Análisis de gastos", systemImage: "chart.bar.xaxis")
+                            }
+                        }
+
+                        if filteredTransactions.isEmpty {
+                            Section {
+                                ContentUnavailableView(
+                                    "Sin resultados",
+                                    systemImage: "line.3.horizontal.decrease.circle",
+                                    description: Text("Prueba a cambiar la búsqueda o limpiar los filtros.")
+                                )
+                                .frame(maxWidth: .infinity, minHeight: 220)
+                            }
+                        } else {
+                            ForEach(groupedDates, id: \.self) { date in
+                                Section(
+                                    date.formatted(
+                                        .dateTime.weekday(.wide).day().month(.wide).year()
+                                    )
+                                ) {
+                                    ForEach(transactions(for: date)) { transaction in
+                                        Button {
+                                            editingTransaction = transaction
                                         } label: {
-                                            Label("Eliminar", systemImage: "trash")
+                                            TransactionRow(transaction: transaction)
+                                        }
+                                        .buttonStyle(.plain)
+                                        .swipeActions(edge: .leading) {
+                                            Button {
+                                                editingTransaction = transaction
+                                            } label: {
+                                                Label("Editar", systemImage: "pencil")
+                                            }
+                                            .tint(.blue)
+                                        }
+                                        .swipeActions(edge: .trailing) {
+                                            Button(role: .destructive) {
+                                                delete(transaction)
+                                            } label: {
+                                                Label("Eliminar", systemImage: "trash")
+                                            }
                                         }
                                     }
                                 }
@@ -103,22 +238,22 @@ struct TransactionsView: View {
                 }
             }
             .navigationTitle("Movimientos")
-            .searchable(text: $searchText, prompt: "Buscar descripción, cuenta o categoría")
+            .searchable(
+                text: $searchText,
+                prompt: "Buscar descripción, cuenta o categoría"
+            )
             .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showingFilters = true
                     } label: {
-                        Image(systemName: activeFilterCount > 0 ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                        Image(
+                            systemName: activeFilterCount > 0
+                                ? "line.3.horizontal.decrease.circle.fill"
+                                : "line.3.horizontal.decrease.circle"
+                        )
                     }
                     .accessibilityLabel("Filtros")
-
-                    Button {
-                        showingAdd = true
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .accessibilityLabel("Añadir movimiento")
                 }
             }
             .sheet(isPresented: $showingFilters) {
@@ -128,22 +263,29 @@ struct TransactionsView: View {
                         selectedCategoryID: $selectedCategoryID,
                         selectedType: $selectedType,
                         dateFilter: $dateFilter,
+                        showOnlyDuplicates: $showOnlyDuplicates,
                         accounts: accounts.filter { !$0.isArchived },
                         categories: categories.filter { !$0.isArchived }
                     )
                 }
             }
-            .sheet(isPresented: $showingAdd) {
-                TransactionFormView()
-            }
             .sheet(item: $editingTransaction) { transaction in
                 TransactionFormView(transaction: transaction)
             }
-            .alert("No se pudo eliminar", isPresented: Binding(
-                get: { deletionError != nil },
-                set: { if !$0 { deletionError = nil } }
-            )) {
-                Button("Aceptar", role: .cancel) { deletionError = nil }
+            .alert(
+                "No se pudo eliminar",
+                isPresented: Binding(
+                    get: { deletionError != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            deletionError = nil
+                        }
+                    }
+                )
+            ) {
+                Button("Aceptar", role: .cancel) {
+                    deletionError = nil
+                }
             } message: {
                 Text(deletionError ?? "Error desconocido")
             }
@@ -151,9 +293,67 @@ struct TransactionsView: View {
     }
 
     private var activeFilterCount: Int {
-        [selectedAccountID != nil, selectedCategoryID != nil, selectedType != nil, dateFilter != .all]
-            .filter { $0 }
-            .count
+        [
+            selectedAccountID != nil,
+            selectedCategoryID != nil,
+            selectedType != nil,
+            dateFilter != .all,
+            showOnlyDuplicates,
+        ]
+        .filter { $0 }
+        .count
+    }
+
+    private var activeFilters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                if let selectedAccountID,
+                   let account = accounts.first(where: { $0.id == selectedAccountID })
+                {
+                    FilterChip(
+                        title: account.name,
+                        systemImage: "building.columns",
+                        onRemove: { self.selectedAccountID = nil }
+                    )
+                }
+
+                if let selectedCategoryID,
+                   let category = categories.first(where: { $0.id == selectedCategoryID })
+                {
+                    FilterChip(
+                        title: category.name,
+                        systemImage: category.systemImage,
+                        tint: Color(hex: category.colorHex),
+                        onRemove: { self.selectedCategoryID = nil }
+                    )
+                }
+
+                if let selectedType {
+                    FilterChip(
+                        title: selectedType.title,
+                        systemImage: selectedType.systemImage,
+                        onRemove: { self.selectedType = nil }
+                    )
+                }
+
+                if dateFilter != .all {
+                    FilterChip(
+                        title: dateFilter.title,
+                        systemImage: "calendar",
+                        onRemove: { dateFilter = .all }
+                    )
+                }
+
+                if showOnlyDuplicates {
+                    FilterChip(
+                        title: "Posibles duplicados",
+                        systemImage: "doc.on.doc",
+                        tint: .orange,
+                        onRemove: { showOnlyDuplicates = false }
+                    )
+                }
+            }
+        }
     }
 
     private func transactions(for date: Date) -> [FinancialTransaction] {
@@ -164,6 +364,7 @@ struct TransactionsView: View {
 
     private func matchesDateFilter(_ date: Date) -> Bool {
         let calendar = Calendar.autoupdatingCurrent
+
         switch dateFilter {
         case .all:
             return true
@@ -178,6 +379,14 @@ struct TransactionsView: View {
         }
     }
 
+    private func resetFilters() {
+        selectedAccountID = nil
+        selectedCategoryID = nil
+        selectedType = nil
+        dateFilter = .all
+        showOnlyDuplicates = false
+    }
+
     private func delete(_ transaction: FinancialTransaction) {
         modelContext.delete(transaction)
         do {
@@ -185,6 +394,66 @@ struct TransactionsView: View {
         } catch {
             deletionError = error.localizedDescription
         }
+    }
+}
+
+private struct TransactionPeriodSummaryCard: View {
+    let transactionCount: Int
+    let incomeMinor: Int64
+    let expenseMinor: Int64
+
+    private var netMinor: Int64 {
+        incomeMinor - expenseMinor
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Resumen del periodo")
+                    .font(.headline)
+                Spacer()
+                Text("\(transactionCount) movimientos")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 14) {
+                FinancialSummaryTile(
+                    title: "Ingresos",
+                    minorUnits: incomeMinor,
+                    tint: .green
+                )
+
+                Divider()
+
+                FinancialSummaryTile(
+                    title: "Gastos",
+                    minorUnits: expenseMinor,
+                    tint: .red
+                )
+            }
+            .frame(minHeight: 54)
+
+            Divider()
+
+            HStack {
+                Label("Balance del periodo", systemImage: "equal.circle")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                PrivacyAmountText(
+                    minorUnits: netMinor,
+                    font: .headline,
+                    weight: .semibold,
+                    signed: true
+                )
+                .foregroundStyle(netMinor >= 0 ? .blue : .red)
+            }
+        }
+        .padding(AppDesign.cardPadding)
+        .background(
+            AppDesign.cardBackground,
+            in: RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
+        )
     }
 }
 
@@ -199,11 +468,12 @@ private struct TransactionRow: View {
                 .frame(width: 38, height: 38)
                 .background(Color.secondary.opacity(0.09), in: Circle())
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 5) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
                     Text(transaction.descriptionText)
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
+
                     if transaction.duplicateState == .possible {
                         Image(systemName: "doc.on.doc.fill")
                             .font(.caption2)
@@ -212,25 +482,36 @@ private struct TransactionRow: View {
                     }
                 }
 
-                Text(accountSubtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(accountSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if transaction.type == .transfer {
+                        StatusPill(
+                            text: "Transferencia",
+                            systemImage: "arrow.left.arrow.right",
+                            tint: .blue
+                        )
+                    }
+                }
             }
 
-            Spacer()
+            Spacer(minLength: 8)
 
-            VStack(alignment: .trailing, spacing: 3) {
+            VStack(alignment: .trailing, spacing: 4) {
                 Text(displayAmount)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(amountColor)
+
                 Text(transaction.category?.name ?? transaction.type.title)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
         }
-        .padding(.vertical, 3)
+        .padding(.vertical, 4)
     }
 
     private var accountSubtitle: String {
@@ -242,14 +523,19 @@ private struct TransactionRow: View {
 
     private var displayAmount: String {
         guard !hideAmounts else { return "••••••" }
+
         let base = MoneyFormatter.string(
             minorUnits: transaction.amountMinor,
             currencyCode: transaction.sourceAccount?.currencyCode ?? "EUR"
         )
+
         switch transaction.type {
-        case .income, .interest: return "+\(base)"
-        case .expense, .fee: return "−\(base)"
-        case .transfer: return base
+        case .income, .interest:
+            return "+\(base)"
+        case .expense, .fee:
+            return "−\(base)"
+        case .transfer:
+            return base
         }
     }
 
@@ -264,57 +550,245 @@ private struct TransactionRow: View {
 
 private struct TransactionFiltersView: View {
     @Environment(\.dismiss) private var dismiss
+
     @Binding var selectedAccountID: UUID?
     @Binding var selectedCategoryID: UUID?
     @Binding var selectedType: TransactionType?
     @Binding var dateFilter: TransactionDateFilter
+    @Binding var showOnlyDuplicates: Bool
 
     let accounts: [FinancialAccount]
     let categories: [FinanceCategory]
 
     var body: some View {
         Form {
-            Picker("Fecha", selection: $dateFilter) {
-                ForEach(TransactionDateFilter.allCases) { option in
-                    Text(option.title).tag(option)
+            Section("Periodo") {
+                Picker("Fecha", selection: $dateFilter) {
+                    ForEach(TransactionDateFilter.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
                 }
             }
 
-            Picker("Cuenta", selection: $selectedAccountID) {
-                Text("Todas").tag(nil as UUID?)
-                ForEach(accounts) { account in
-                    Text(account.name).tag(Optional(account.id))
+            Section("Clasificación") {
+                Picker("Cuenta", selection: $selectedAccountID) {
+                    Text("Todas").tag(nil as UUID?)
+                    ForEach(accounts) { account in
+                        Text(account.name).tag(Optional(account.id))
+                    }
+                }
+
+                Picker("Categoría", selection: $selectedCategoryID) {
+                    Text("Todas").tag(nil as UUID?)
+                    ForEach(categories) { category in
+                        Text(category.name).tag(Optional(category.id))
+                    }
+                }
+
+                Picker("Tipo", selection: $selectedType) {
+                    Text("Todos").tag(nil as TransactionType?)
+                    ForEach(TransactionType.allCases) { type in
+                        Text(type.title).tag(Optional(type))
+                    }
                 }
             }
 
-            Picker("Categoría", selection: $selectedCategoryID) {
-                Text("Todas").tag(nil as UUID?)
-                ForEach(categories) { category in
-                    Text(category.name).tag(Optional(category.id))
-                }
+            Section("Revisión") {
+                Toggle("Solo posibles duplicados", isOn: $showOnlyDuplicates)
             }
 
-            Picker("Tipo", selection: $selectedType) {
-                Text("Todos").tag(nil as TransactionType?)
-                ForEach(TransactionType.allCases) { type in
-                    Text(type.title).tag(Optional(type))
+            Section {
+                Button("Restablecer filtros", role: .destructive) {
+                    selectedAccountID = nil
+                    selectedCategoryID = nil
+                    selectedType = nil
+                    dateFilter = .all
+                    showOnlyDuplicates = false
                 }
-            }
-
-            Button("Restablecer filtros", role: .destructive) {
-                selectedAccountID = nil
-                selectedCategoryID = nil
-                selectedType = nil
-                dateFilter = .all
             }
         }
         .navigationTitle("Filtros")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
-                Button("Hecho") { dismiss() }
+                Button("Hecho") {
+                    dismiss()
+                }
             }
         }
+    }
+}
+
+private struct SpendingAnalysisView: View {
+    @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
+    @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
+
+    @AppStorage("hideAmounts") private var hideAmounts = false
+    @State private var selectedMonth = Date.now.startOfMonth()
+
+    private var summary: MonthlySummary {
+        FinanceCalculator.monthlySummary(
+            for: selectedMonth,
+            transactions: transactions
+        )
+    }
+
+    private var spending: [CategorySpend] {
+        FinanceCalculator.spendingByCategory(
+            for: selectedMonth,
+            categories: categories,
+            transactions: transactions
+        )
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: AppDesign.sectionSpacing) {
+                monthSelector
+
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 12),
+                        GridItem(.flexible(), spacing: 12),
+                    ],
+                    spacing: 12
+                ) {
+                    MetricCard(
+                        title: "Gastos",
+                        value: hidden(MoneyFormatter.string(minorUnits: summary.expenseMinor)),
+                        systemImage: "arrow.up",
+                        tint: .red
+                    )
+
+                    MetricCard(
+                        title: "Categorías activas",
+                        value: "\(spending.count)",
+                        systemImage: "tag",
+                        tint: .blue
+                    )
+                }
+
+                SectionCard(
+                    "Gastos por categoría",
+                    subtitle: "Ordenados de mayor a menor"
+                ) {
+                    if hideAmounts {
+                        Label("Gráfico oculto por privacidad", systemImage: "eye.slash")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, minHeight: 180)
+                    } else if spending.isEmpty {
+                        Text("No hay gastos en el mes seleccionado.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, minHeight: 150)
+                    } else {
+                        Chart(spending.prefix(8)) { item in
+                            BarMark(
+                                x: .value("Gasto", Double(item.spentMinor) / 100),
+                                y: .value("Categoría", item.category.name)
+                            )
+                            .foregroundStyle(Color(hex: item.category.colorHex))
+                            .cornerRadius(5)
+                        }
+                        .frame(height: CGFloat(Swift.max(220, spending.prefix(8).count * 42)))
+                        .chartXAxis {
+                            AxisMarks { value in
+                                AxisGridLine()
+                                AxisValueLabel {
+                                    if let number = value.as(Double.self) {
+                                        Text(
+                                            number,
+                                            format: .currency(code: "EUR")
+                                                .precision(.fractionLength(0))
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Gastos por categoría")
+                        .accessibilityValue(
+                            spending.first.map {
+                                "La categoría con más gasto es \($0.category.name), con \(MoneyFormatter.string(minorUnits: $0.spentMinor))."
+                            } ?? "Sin datos"
+                        )
+                    }
+                }
+
+                if !spending.isEmpty {
+                    SectionCard("Detalle") {
+                        VStack(spacing: 0) {
+                            ForEach(Array(spending.enumerated()), id: \.element.id) { index, item in
+                                HStack(spacing: 12) {
+                                    Image(systemName: item.category.systemImage)
+                                        .foregroundStyle(Color(hex: item.category.colorHex))
+                                        .frame(width: 34, height: 34)
+                                        .background(
+                                            Color(hex: item.category.colorHex).opacity(0.11),
+                                            in: Circle()
+                                        )
+
+                                    Text(item.category.name)
+                                        .font(.subheadline.weight(.medium))
+
+                                    Spacer()
+
+                                    PrivacyAmountText(
+                                        minorUnits: item.spentMinor,
+                                        font: .subheadline,
+                                        weight: .semibold
+                                    )
+                                }
+                                .padding(.vertical, 10)
+
+                                if index < spending.count - 1 {
+                                    Divider()
+                                        .padding(.leading, 46)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(16)
+            .padding(.bottom, 24)
+        }
+        .background(AppDesign.pageBackground)
+        .navigationTitle("Análisis de gastos")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var monthSelector: some View {
+        HStack {
+            Button {
+                selectedMonth = selectedMonth.addingMonths(-1).startOfMonth()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Mes anterior")
+
+            Spacer()
+
+            Text(selectedMonth.formatted(.dateTime.month(.wide).year()))
+                .font(.headline)
+
+            Spacer()
+
+            Button {
+                selectedMonth = selectedMonth.addingMonths(1).startOfMonth()
+            } label: {
+                Image(systemName: "chevron.right")
+                    .frame(width: 34, height: 34)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityLabel("Mes siguiente")
+        }
+    }
+
+    private func hidden(_ value: String) -> String {
+        hideAmounts ? "••••••" : value
     }
 }
 

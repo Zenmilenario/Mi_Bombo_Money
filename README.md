@@ -4,6 +4,21 @@ Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e 
 
 El archivo Excel original no se incluye dentro del proyecto empaquetado; solo se incorporan la estructura, las reglas y los datos iniciales necesarios para el seed.
 
+
+## Rediseño 0.2.0
+
+Esta entrega incorpora un rediseño completo de la experiencia de uso sin cambiar el modelo financiero ni los datos guardados:
+
+- Inicio más corto y jerarquizado, con métricas mensuales en cuadrícula 2 × 2.
+- Avisos accionables y resumen global de presupuesto.
+- Botón rápido de movimiento abajo a la derecha, solo en Inicio y Movimientos.
+- Análisis de gastos dentro de Movimientos y comparativa presupuestaria dentro de Presupuestos.
+- Resumen de activos, deudas y patrimonio neto en Cuentas.
+- Ajustes simplificados y redactados para usuarios no técnicos.
+- Sistema visual común, modo oscuro y mejoras de accesibilidad.
+
+Consulta `CAMBIOS_REDISENO.md` para el detalle y `PRUEBAS_REDISENO.md` para una lista práctica de comprobaciones en Appetize o en un iPhone.
+
 ## Requisitos
 
 - macOS con Xcode 16 o posterior recomendado.

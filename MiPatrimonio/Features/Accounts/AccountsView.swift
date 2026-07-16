@@ -32,8 +32,37 @@ struct AccountsView: View {
         cards.filter { !$0.isArchived }
     }
 
-    private var archivedCards: [PaymentCard] {
-        cards.filter(\.isArchived)
+    private var archivedItemCount: Int {
+        accounts.filter(\.isArchived).count + cards.filter(\.isArchived).count
+    }
+
+    private var assetTotalMinor: Int64 {
+        assetAccounts.reduce(Int64.zero) { partial, account in
+            partial + FinanceCalculator.balance(
+                of: account,
+                transactions: transactions,
+                snapshots: snapshots
+            )
+        }
+    }
+
+    private var debtTotalMinor: Int64 {
+        liabilityAccounts.reduce(Int64.zero) { partial, account in
+            let balance = FinanceCalculator.balance(
+                of: account,
+                transactions: transactions,
+                snapshots: snapshots
+            )
+            return partial + Swift.max(0, -balance)
+        }
+    }
+
+    private var netWorthMinor: Int64 {
+        FinanceCalculator.netWorth(
+            accounts: activeAccounts,
+            transactions: transactions,
+            snapshots: snapshots
+        )
     }
 
     var body: some View {
@@ -47,53 +76,45 @@ struct AccountsView: View {
                     )
                 } else {
                     List {
-                        Section("Resumen") {
-                            HStack {
-                                Text("Patrimonio incluido")
-                                Spacer()
-                                PrivacyAmountText(
-                                    minorUnits: FinanceCalculator.netWorth(
-                                        accounts: activeAccounts,
-                                        transactions: transactions,
-                                        snapshots: snapshots
-                                    ),
-                                    font: .headline,
-                                    weight: .semibold
+                        if !activeAccounts.isEmpty {
+                            Section {
+                                AccountOverviewCard(
+                                    assetMinor: assetTotalMinor,
+                                    debtMinor: debtTotalMinor,
+                                    netWorthMinor: netWorthMinor
                                 )
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(Color.clear)
                             }
                         }
 
                         accountSection(title: "Activos", items: assetAccounts)
-                        accountSection(title: "Pasivos", items: liabilityAccounts)
+                        accountSection(title: "Deudas", items: liabilityAccounts)
                         cardSection(title: "Tarjetas", items: activeCards)
 
-                        if accounts.contains(where: \.isArchived) {
-                            Section("Archivadas") {
-                                ForEach(accounts.filter(\.isArchived)) { account in
-                                    accountRow(account)
-                                        .swipeActions {
-                                            Button("Restaurar") {
-                                                account.isArchived = false
-                                                try? modelContext.save()
-                                            }
-                                            .tint(.blue)
-                                        }
-                                }
+                        if activeAccounts.isEmpty && activeCards.isEmpty {
+                            Section {
+                                ContentUnavailableView(
+                                    "Todo está archivado",
+                                    systemImage: "archivebox",
+                                    description: Text("Restaura una cuenta o añade una nueva para volver a verla aquí.")
+                                )
+                                .frame(maxWidth: .infinity, minHeight: 180)
                             }
                         }
 
-                        if !archivedCards.isEmpty {
-                            Section("Tarjetas archivadas") {
-                                ForEach(archivedCards) { card in
-                                    cardRow(card)
-                                        .swipeActions {
-                                            Button("Restaurar") {
-                                                card.isArchived = false
-                                                card.updatedAt = .now
-                                                try? modelContext.save()
-                                            }
-                                            .tint(.blue)
-                                        }
+                        if archivedItemCount > 0 {
+                            Section("Otros") {
+                                NavigationLink {
+                                    ArchivedFinancialItemsView()
+                                } label: {
+                                    HStack {
+                                        Label("Elementos archivados", systemImage: "archivebox")
+                                        Spacer()
+                                        Text("\(archivedItemCount)")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
@@ -110,6 +131,7 @@ struct AccountsView: View {
                         } label: {
                             Label("Añadir cuenta o saldo", systemImage: "building.columns")
                         }
+
                         Button {
                             showingCardAdd = true
                         } label: {
@@ -133,11 +155,20 @@ struct AccountsView: View {
             .sheet(item: $editingCard) { card in
                 PaymentCardFormView(card: card)
             }
-            .alert("No se pudo completar la operación", isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
-            )) {
-                Button("Aceptar", role: .cancel) { errorMessage = nil }
+            .alert(
+                "No se pudo completar la operación",
+                isPresented: Binding(
+                    get: { errorMessage != nil },
+                    set: { isPresented in
+                        if !isPresented {
+                            errorMessage = nil
+                        }
+                    }
+                )
+            ) {
+                Button("Aceptar", role: .cancel) {
+                    errorMessage = nil
+                }
             } message: {
                 Text(errorMessage ?? "Error desconocido")
             }
@@ -165,6 +196,7 @@ struct AccountsView: View {
                     .swipeActions(edge: .trailing) {
                         Button {
                             account.isArchived = true
+                            account.updatedAt = .now
                             try? modelContext.save()
                         } label: {
                             Label("Archivar", systemImage: "archivebox")
@@ -186,17 +218,35 @@ struct AccountsView: View {
         HStack(spacing: 12) {
             Image(systemName: account.type.systemImage)
                 .foregroundStyle(Color(hex: account.institution?.colorHex ?? "#1F6B7A"))
-                .frame(width: 40, height: 40)
+                .frame(width: 42, height: 42)
                 .background(Color.secondary.opacity(0.09), in: Circle())
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(account.name)
-                    .font(.subheadline.weight(.medium))
-                Text(account.institution?.name ?? account.type.title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.subheadline.weight(.semibold))
+
+                HStack(spacing: 6) {
+                    Text(account.institution?.name ?? account.type.title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if isStale(account) {
+                        StatusPill(
+                            text: "Sin actualizar",
+                            systemImage: "clock",
+                            tint: .orange
+                        )
+                    }
+                }
+
+                Text("Actualizada \(relativeUpdateText(account.lastUpdatedAt))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
             }
-            Spacer()
+
+            Spacer(minLength: 8)
+
             PrivacyAmountText(
                 minorUnits: FinanceCalculator.balance(
                     of: account,
@@ -208,7 +258,7 @@ struct AccountsView: View {
                 weight: .semibold
             )
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 5)
     }
 
     @ViewBuilder
@@ -255,18 +305,22 @@ struct AccountsView: View {
         HStack(spacing: 12) {
             Image(systemName: card.type.systemImage)
                 .foregroundStyle(Color(hex: card.institution?.colorHex ?? "#1F6B7A"))
-                .frame(width: 40, height: 40)
+                .frame(width: 42, height: 42)
                 .background(Color.secondary.opacity(0.09), in: Circle())
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(card.name)
-                    .font(.subheadline.weight(.medium))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
+
                 Text(cardSubtitle(card))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            Spacer()
+
+            Spacer(minLength: 8)
+
             if let account = card.linkedAccount {
                 PrivacyAmountText(
                     minorUnits: FinanceCalculator.balance(
@@ -280,14 +334,34 @@ struct AccountsView: View {
                 )
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 5)
     }
 
     private func cardSubtitle(_ card: PaymentCard) -> String {
         var parts = [card.type.title]
-        if !card.lastFour.isEmpty { parts.append("•••• \(card.lastFour)") }
-        if let account = card.linkedAccount { parts.append(account.name) }
+        if !card.lastFour.isEmpty {
+            parts.append("•••• \(card.lastFour)")
+        }
+        if let account = card.linkedAccount {
+            parts.append(account.name)
+        }
         return parts.joined(separator: " · ")
+    }
+
+    private func isStale(_ account: FinancialAccount) -> Bool {
+        let limit = Calendar.autoupdatingCurrent.date(
+            byAdding: .day,
+            value: -30,
+            to: .now
+        ) ?? .now
+        return account.lastUpdatedAt < limit
+    }
+
+    private func relativeUpdateText(_ date: Date) -> String {
+        let calendar = Calendar.autoupdatingCurrent
+        if calendar.isDateInToday(date) { return "hoy" }
+        if calendar.isDateInYesterday(date) { return "ayer" }
+        return "el \(date.formatted(.dateTime.day().month(.abbreviated)))"
     }
 
     private func delete(_ card: PaymentCard) {
@@ -309,6 +383,7 @@ struct AccountsView: View {
         let hasRecurring = recurringMovements.contains {
             $0.sourceAccount?.id == account.id || $0.destinationAccount?.id == account.id
         }
+
         guard !hasTransactions && !hasSnapshots && !hasCards && !hasGoals && !hasRecurring else {
             errorMessage = "Esta cuenta está vinculada a movimientos, valoraciones, tarjetas, objetivos o reglas periódicas. Archívala para conservar el historial."
             return
@@ -323,6 +398,141 @@ struct AccountsView: View {
     }
 }
 
+private struct AccountOverviewCard: View {
+    let assetMinor: Int64
+    let debtMinor: Int64
+    let netWorthMinor: Int64
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Resumen patrimonial")
+                .font(.headline)
+
+            HStack(spacing: 14) {
+                FinancialSummaryTile(
+                    title: "Activos",
+                    minorUnits: assetMinor,
+                    tint: .green
+                )
+
+                Divider()
+
+                FinancialSummaryTile(
+                    title: "Deudas",
+                    minorUnits: debtMinor,
+                    tint: debtMinor > 0 ? .red : .secondary
+                )
+            }
+            .frame(minHeight: 54)
+
+            Divider()
+
+            HStack {
+                Label("Patrimonio neto", systemImage: "sum")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                PrivacyAmountText(
+                    minorUnits: netWorthMinor,
+                    font: .title3,
+                    weight: .bold
+                )
+            }
+        }
+        .padding(AppDesign.cardPadding)
+        .background(
+            AppDesign.cardBackground,
+            in: RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
+        )
+    }
+}
+
+private struct ArchivedFinancialItemsView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
+    @Query(sort: \PaymentCard.name) private var cards: [PaymentCard]
+
+    private var archivedAccounts: [FinancialAccount] {
+        accounts.filter(\.isArchived)
+    }
+
+    private var archivedCards: [PaymentCard] {
+        cards.filter(\.isArchived)
+    }
+
+    var body: some View {
+        List {
+            if archivedAccounts.isEmpty && archivedCards.isEmpty {
+                ContentUnavailableView(
+                    "Sin elementos archivados",
+                    systemImage: "archivebox",
+                    description: Text("Las cuentas y tarjetas que archives aparecerán aquí.")
+                )
+            }
+
+            if !archivedAccounts.isEmpty {
+                Section("Cuentas") {
+                    ForEach(archivedAccounts) { account in
+                        HStack(spacing: 12) {
+                            Image(systemName: account.type.systemImage)
+                                .foregroundStyle(Color(hex: account.institution?.colorHex ?? "#1F6B7A"))
+                                .frame(width: 38, height: 38)
+                                .background(Color.secondary.opacity(0.09), in: Circle())
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(account.name)
+                                    .font(.subheadline.weight(.medium))
+                                Text(account.institution?.name ?? account.type.title)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Button("Restaurar") {
+                                account.isArchived = false
+                                account.updatedAt = .now
+                                try? modelContext.save()
+                            }
+                            .font(.caption.weight(.semibold))
+                        }
+                    }
+                }
+            }
+
+            if !archivedCards.isEmpty {
+                Section("Tarjetas") {
+                    ForEach(archivedCards) { card in
+                        HStack(spacing: 12) {
+                            Image(systemName: card.type.systemImage)
+                                .foregroundStyle(Color(hex: card.institution?.colorHex ?? "#1F6B7A"))
+                                .frame(width: 38, height: 38)
+                                .background(Color.secondary.opacity(0.09), in: Circle())
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(card.name)
+                                    .font(.subheadline.weight(.medium))
+                                Text(card.type.title)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Button("Restaurar") {
+                                card.isArchived = false
+                                card.updatedAt = .now
+                                try? modelContext.save()
+                            }
+                            .font(.caption.weight(.semibold))
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Archivados")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
 
 private struct PaymentCardFormView: View {
     @Environment(\.dismiss) private var dismiss

@@ -1,0 +1,17 @@
+MI BOMBO MONEY — APLICAR REDISEÑO 0.2.0 DESDE WINDOWS
+
+1. Cierra cualquier editor que tenga abierto el proyecto.
+2. Descomprime el archivo Mi_Bombo_Money_Parche_Rediseno_0.2.0.zip.
+3. Abre la carpeta local del repositorio, normalmente:
+   C:\Users\TU_USUARIO\Documents\GitHub\Mi_Bombo_Money
+4. Copia TODO el contenido interior del parche dentro de esa carpeta.
+5. Cuando Windows lo pregunte, elige "Reemplazar los archivos en el destino".
+6. Abre GitHub Desktop.
+7. Revisa que aparezcan los archivos modificados y usa este mensaje:
+   Rediseño profesional de interfaz 0.2.0
+8. Pulsa "Commit to main" y después "Push origin".
+9. En GitHub, abre Actions y espera a que "Compilar para iOS Simulator" termine en verde.
+10. Descarga el artefacto MiPatrimonio-iOS-Simulator.
+11. Descomprime el artefacto una vez y actualiza en Appetize el archivo MiPatrimonio-Simulator.zip.
+
+El rediseño mantiene el modelo SwiftData y las reglas financieras. No cambia las entidades persistentes.

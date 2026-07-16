@@ -31,7 +31,7 @@ struct RecurringMovementsView: View {
                 movementSection("Inactivos", items: inactiveMovements)
             }
         }
-        .navigationTitle("Periódicos")
+        .navigationTitle("Movimientos recurrentes")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -304,7 +304,7 @@ private struct RecurringMovementFormView: View {
                     }
                 }
             }
-            .navigationTitle(movement == nil ? "Nuevo periódico" : "Editar periódico")
+            .navigationTitle(movement == nil ? "Nuevo movimiento recurrente" : "Editar movimiento recurrente")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

@@ -13,6 +13,19 @@ Fecha de validación: 16 de julio de 2026.
 - Los casos del Excel reproducen: Bankinter 850,00 €, Trade Republic 650,00 €, BBVA 540,66 € y patrimonio 2.040,66 €.
 - Las dos transferencias iniciales no alteran ingresos, gastos ni ahorro mensual.
 
+
+## Comprobaciones específicas del rediseño 0.2.0
+
+- Los 26 archivos Swift pasan `swiftc -frontend -parse` después del rediseño.
+- `swift-format lint --recursive MiPatrimonio` finaliza sin incidencias.
+- El proyecto Xcode se ha regenerado y conserva los 26 archivos Swift en la fase `Sources`.
+- No se utilizan las APIs de formato compacto que exigían iOS 18; el deployment target se mantiene en iOS 17.
+- Se conserva el mismo esquema SwiftData: el rediseño no añade, elimina ni modifica entidades persistentes.
+- El resumen de deuda suma únicamente saldos negativos pendientes; un saldo positivo en una cuenta de crédito no se presenta como deuda.
+- La versión del proyecto se incrementa a `0.2.0` (build `2`).
+
+La comprobación definitiva de tipos SwiftUI y del SDK de iOS se realizará al ejecutar el workflow `Compilar para iOS Simulator` en GitHub Actions.
+
 ## Comprobaciones de seguridad y privacidad
 
 - CloudKit está desactivado en `ModelConfiguration`.

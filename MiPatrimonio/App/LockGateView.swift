@@ -14,6 +14,7 @@ struct LockGateView: View {
                 lockedContent
             }
         }
+        .tint(Color(hex: "#176B87"))
         .preferredColorScheme(AppAppearance(rawValue: appearanceMode)?.colorScheme)
         .task(id: appLockEnabled) {
             if appLockEnabled {
