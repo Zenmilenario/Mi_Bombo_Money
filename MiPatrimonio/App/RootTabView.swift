@@ -20,10 +20,18 @@ struct RootTabView: View {
         ZStack(alignment: .bottomTrailing) {
             TabView(selection: $selectedTab) {
                 DashboardView(
-                    onOpenTransactions: { selectedTab = .transactions },
-                    onOpenAccounts: { selectedTab = .accounts },
-                    onOpenBudgets: { selectedTab = .budgets },
-                    onOpenSettings: { selectedTab = .settings }
+                    onOpenTransactions: {
+                        selectedTab = .transactions
+                    },
+                    onOpenAccounts: {
+                        selectedTab = .accounts
+                    },
+                    onOpenBudgets: {
+                        selectedTab = .budgets
+                    },
+                    onOpenSettings: {
+                        selectedTab = .settings
+                    }
                 )
                 .tag(AppTab.home)
                 .tabItem {
@@ -33,25 +41,37 @@ struct RootTabView: View {
                 TransactionsView()
                     .tag(AppTab.transactions)
                     .tabItem {
-                        Label("Movimientos", systemImage: "list.bullet.rectangle")
+                        Label(
+                            "Movimientos",
+                            systemImage: "list.bullet.rectangle"
+                        )
                     }
 
                 AccountsView()
                     .tag(AppTab.accounts)
                     .tabItem {
-                        Label("Cuentas", systemImage: "building.columns")
+                        Label(
+                            "Cuentas",
+                            systemImage: "building.columns"
+                        )
                     }
 
                 BudgetsView()
                     .tag(AppTab.budgets)
                     .tabItem {
-                        Label("Presupuestos", systemImage: "chart.pie")
+                        Label(
+                            "Presupuestos",
+                            systemImage: "chart.pie"
+                        )
                     }
 
                 SettingsView()
                     .tag(AppTab.settings)
                     .tabItem {
-                        Label("Ajustes", systemImage: "gearshape")
+                        Label(
+                            "Ajustes",
+                            systemImage: "gearshape"
+                        )
                     }
             }
 
@@ -64,21 +84,32 @@ struct RootTabView: View {
                         .foregroundStyle(.white)
                         .frame(width: 56, height: 56)
                         .background(.tint, in: Circle())
-                        .shadow(color: .black.opacity(0.18), radius: 9, y: 5)
+                        .shadow(
+                            color: .black.opacity(0.18),
+                            radius: 9,
+                            y: 5
+                        )
                 }
                 .accessibilityLabel("Añadir movimiento")
                 .padding(.trailing, 18)
                 .padding(.bottom, 76)
-                .transition(.scale.combined(with: .opacity))
+                .transition(
+                    .scale.combined(with: .opacity)
+                )
             }
         }
-        .animation(.easeInOut(duration: 0.18), value: selectedTab)
+        .animation(
+            .easeInOut(duration: 0.18),
+            value: selectedTab
+        )
         .sheet(isPresented: $showingQuickAdd) {
             TransactionFormView()
         }
         .task {
             do {
-                try WorkbookSeedData.seedIfNeeded(in: modelContext)
+                try WorkbookSeedData.seedIfNeeded(
+                    in: modelContext
+                )
             } catch {
                 seedError = error.localizedDescription
             }
@@ -86,7 +117,9 @@ struct RootTabView: View {
         .alert(
             "No se pudieron cargar los datos iniciales",
             isPresented: Binding(
-                get: { seedError != nil },
+                get: {
+                    seedError != nil
+                },
                 set: { isPresented in
                     if !isPresented {
                         seedError = nil
@@ -98,7 +131,9 @@ struct RootTabView: View {
                 seedError = nil
             }
         } message: {
-            Text(seedError ?? "Error desconocido")
+            Text(
+                seedError ?? "Error desconocido"
+            )
         }
     }
 }
