@@ -1,0 +1,58 @@
+name: Compilar para iOS Simulator
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    name: Compilar MiPatrimonio
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      - name: Mostrar version de Xcode
+        run: xcodebuild -version
+
+      - name: Comprobar proyecto y esquema
+        run: xcodebuild -list -project MiPatrimonio.xcodeproj
+
+      - name: Compilar para iOS Simulator
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project MiPatrimonio.xcodeproj \
+            -scheme MiPatrimonio \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build | tee xcodebuild.log
+
+      - name: Comprimir la aplicacion del simulador
+        run: |
+          APP_PATH=$(find build/Build/Products/Debug-iphonesimulator -maxdepth 1 -type d -name "*.app" -print -quit)
+          if [ -z "$APP_PATH" ]; then
+            echo "No se encontro la aplicacion compilada."
+            exit 1
+          fi
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" MiPatrimonio-Simulator.zip
+
+      - name: Guardar aplicacion y registro
+        uses: actions/upload-artifact@v4
+        with:
+          name: MiPatrimonio-iOS-Simulator
+          path: |
+            MiPatrimonio-Simulator.zip
+            xcodebuild.log
+          if-no-files-found: error
+          retention-days: 14

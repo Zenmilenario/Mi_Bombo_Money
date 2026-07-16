@@ -1,0 +1,5 @@
+Fecha;Tipo;Cuenta origen;Cuenta destino;Categoría;Descripción;Importe;Conciliado;Notas;ID
+15/07/2026;Transferencia;BBVA - Cuenta joven;Bankinter - Nómina;Transferencia entre cuentas;Transferencia inicial para activar Bankinter;850,00;Sí;Ejemplo basado en el Excel;excel-transfer-001
+15/07/2026;Transferencia;BBVA - Cuenta joven;Trade Republic - Ahorro;Transferencia entre cuentas;Ingreso para activar Trade Republic;650,00;Sí;Ejemplo basado en el Excel;excel-transfer-002
+16/07/2026;Gasto;Bankinter - Nómina;;Supermercado;Compra semanal;-42,80;Sí;;example-expense-001
+16/07/2026;Ingreso;Bankinter - Nómina;;Nómina;Nómina mensual;1850,00;Sí;;example-income-001

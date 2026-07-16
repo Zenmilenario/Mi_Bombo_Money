@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Xcode - datos locales y compilaciones
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.xcscmblueprint
+
+# Resultados de compilacion
+*.ipa
+*.dSYM
+*.dSYM.zip
+
+# Swift Package Manager
+.build/
+.swiftpm/xcode/package.xcworkspace/xcuserdata/
+
+# Editores
+.vscode/
+.idea/
