@@ -9,7 +9,7 @@ struct GoalsView: View {
     @Query private var snapshots: [BalanceSnapshot]
 
     @State private var showingAdd = false
-    @State private var editingGoal: SavingsGoal?
+    @State private var selectedGoal: SavingsGoal?
     @State private var errorMessage: String?
 
     var body: some View {
@@ -23,7 +23,7 @@ struct GoalsView: View {
             } else {
                 ForEach(goals) { goal in
                     Button {
-                        editingGoal = goal
+                        selectedGoal = goal
                     } label: {
                         goalRow(goal)
                     }
@@ -52,8 +52,8 @@ struct GoalsView: View {
         .sheet(isPresented: $showingAdd) {
             GoalFormView()
         }
-        .sheet(item: $editingGoal) { goal in
-            GoalFormView(goal: goal)
+        .sheet(item: $selectedGoal) { goal in
+            GoalDetailView(goal: goal)
         }
         .alert("No se pudo completar la operación", isPresented: Binding(
             get: { errorMessage != nil },
@@ -127,6 +127,245 @@ struct GoalsView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+
+struct GoalDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Query private var transactions: [FinancialTransaction]
+    @Query private var snapshots: [BalanceSnapshot]
+
+    @AppStorage("hideAmounts") private var hideAmounts = false
+
+    let goal: SavingsGoal
+
+    @State private var showingEdit = false
+    @State private var showingAdd = false
+
+    private var currentAmount: Int64 {
+        guard let account = goal.linkedAccount else {
+            return Swift.max(0, goal.currentAmountMinor)
+        }
+
+        return Swift.max(
+            0,
+            FinanceCalculator.balance(
+                of: account,
+                transactions: transactions,
+                snapshots: snapshots
+            )
+        )
+    }
+
+    private var targetAmount: Int64 {
+        Swift.max(0, goal.targetAmountMinor)
+    }
+
+    private var remainingAmount: Int64 {
+        Swift.max(0, targetAmount - currentAmount)
+    }
+
+    private var progress: Double {
+        guard targetAmount > 0 else { return 0 }
+        return Swift.min(1, Double(currentAmount) / Double(targetAmount))
+    }
+
+    private var tint: Color {
+        Color(hex: goal.colorHex)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: AppDesign.sectionSpacing) {
+                    summaryCard
+                    amountSummary
+                    detailSection
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
+            }
+            .background(AppDesign.pageBackground)
+            .navigationTitle("Objetivo de ahorro")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cerrar") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button {
+                        showingAdd = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .accessibilityLabel("Añadir otro objetivo")
+
+                    Button {
+                        showingEdit = true
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .accessibilityLabel("Editar objetivo")
+                }
+            }
+            .sheet(isPresented: $showingAdd) {
+                GoalFormView()
+            }
+            .sheet(isPresented: $showingEdit) {
+                GoalFormView(goal: goal)
+            }
+        }
+    }
+
+    private var summaryCard: some View {
+        VStack(spacing: 14) {
+            Image(systemName: progress >= 1 ? "checkmark.seal.fill" : "target")
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(tint)
+                .frame(width: 58, height: 58)
+                .background(tint.opacity(0.12), in: Circle())
+
+            Text(goal.name)
+                .font(.title3.weight(.bold))
+                .multilineTextAlignment(.center)
+
+            Text(progress, format: .percent.precision(.fractionLength(0)))
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+                .foregroundStyle(tint)
+
+            ProgressView(value: progress)
+                .tint(tint)
+
+            Text(statusText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(
+            AppDesign.cardBackground,
+            in: RoundedRectangle(cornerRadius: AppDesign.heroRadius, style: .continuous)
+        )
+    }
+
+    private var amountSummary: some View {
+        LazyVGrid(
+            columns: [
+                GridItem(.flexible(), spacing: 12),
+                GridItem(.flexible(), spacing: 12),
+            ],
+            spacing: 12
+        ) {
+            MetricCard(
+                title: "Ahorrado",
+                value: hidden(MoneyFormatter.string(minorUnits: currentAmount)),
+                systemImage: "banknote",
+                tint: tint
+            )
+
+            MetricCard(
+                title: "Objetivo",
+                value: hidden(MoneyFormatter.string(minorUnits: targetAmount)),
+                systemImage: "flag.checkered",
+                tint: .blue
+            )
+
+            MetricCard(
+                title: progress >= 1 ? "Superado por" : "Falta",
+                value: hidden(MoneyFormatter.string(
+                    minorUnits: progress >= 1 ? Swift.max(0, currentAmount - targetAmount) : remainingAmount
+                )),
+                systemImage: progress >= 1 ? "checkmark.circle" : "hourglass",
+                tint: progress >= 1 ? .green : .orange
+            )
+
+            MetricCard(
+                title: "Seguimiento",
+                value: goal.linkedAccount == nil ? "Manual" : "Automático",
+                systemImage: goal.linkedAccount == nil ? "hand.tap" : "link",
+                tint: .purple
+            )
+        }
+    }
+
+    private var detailSection: some View {
+        SectionCard("Detalles") {
+            VStack(spacing: 0) {
+                detailRow(
+                    title: "Cuenta vinculada",
+                    value: goal.linkedAccount?.name ?? "Ninguna",
+                    systemImage: "building.columns"
+                )
+
+                Divider().padding(.leading, 38)
+
+                detailRow(
+                    title: "Fecha objetivo",
+                    value: goal.targetDate?.formatted(date: .long, time: .omitted) ?? "Sin fecha",
+                    systemImage: "calendar"
+                )
+
+                if !goal.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Divider().padding(.leading, 38)
+
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: "note.text")
+                            .foregroundStyle(tint)
+                            .frame(width: 26)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Notas")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Text(goal.notes)
+                                .font(.subheadline.weight(.medium))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(.vertical, 12)
+                }
+            }
+        }
+    }
+
+    private func detailRow(title: String, value: String, systemImage: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+                .frame(width: 26)
+
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 12)
+
+            Text(value)
+                .font(.subheadline.weight(.medium))
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, 12)
+    }
+
+    private var statusText: String {
+        if progress >= 1 {
+            return "Objetivo completado"
+        }
+
+        if let targetDate = goal.targetDate {
+            return "Te faltan \(hidden(MoneyFormatter.string(minorUnits: remainingAmount))) antes del \(targetDate.formatted(date: .abbreviated, time: .omitted))."
+        }
+
+        return "Te faltan \(hidden(MoneyFormatter.string(minorUnits: remainingAmount))) para completar el objetivo."
+    }
+
+    private func hidden(_ value: String) -> String {
+        hideAmounts ? "••••••" : value
     }
 }
 

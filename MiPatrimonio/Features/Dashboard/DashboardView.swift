@@ -59,6 +59,7 @@ struct DashboardView: View {
 
     @State private var selectedMonth = Date.now.startOfMonth()
     @State private var chartRange: NetWorthRange = .oneYear
+    @State private var selectedGoal: SavingsGoal?
 
     let onOpenTransactions: () -> Void
     let onOpenAccounts: () -> Void
@@ -190,6 +191,22 @@ struct DashboardView: View {
         )
     }
 
+    private var netWorthChartYDomain: ClosedRange<Double> {
+        let values = netWorthHistory.map { Double($0.valueMinor) / 100 }
+        guard let minimum = values.min(), let maximum = values.max() else {
+            return 0...1
+        }
+
+        let spread = maximum - minimum
+        let reference = Swift.max(
+            Swift.max(Swift.abs(minimum), Swift.abs(maximum)),
+            100
+        )
+        let padding = Swift.max(Swift.max(spread * 0.12, reference * 0.05), 50)
+
+        return (minimum - padding)...(maximum + padding)
+    }
+
     private var duplicateCount: Int {
         transactions.filter { $0.duplicateState == .possible }.count
     }
@@ -313,6 +330,9 @@ struct DashboardView: View {
                     }
                     .accessibilityLabel(hideAmounts ? "Mostrar importes" : "Ocultar importes")
                 }
+            }
+            .sheet(item: $selectedGoal) { goal in
+                GoalDetailView(goal: goal)
             }
         }
     }
@@ -676,6 +696,7 @@ struct DashboardView: View {
                                 endPoint: .bottom
                             )
                         )
+                        .interpolationMethod(.monotone)
 
                         LineMark(
                             x: .value("Mes", point.date),
@@ -683,9 +704,13 @@ struct DashboardView: View {
                         )
                         .foregroundStyle(Color.accentColor)
                         .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round))
-                        .interpolationMethod(.catmullRom)
+                        .interpolationMethod(.monotone)
                     }
                     .frame(height: 220)
+                    .chartXScale(
+                        range: .plotDimension(startPadding: 10, endPadding: 10)
+                    )
+                    .chartYScale(domain: netWorthChartYDomain)
                     .chartXAxis {
                         AxisMarks(values: .automatic(desiredCount: 5)) { _ in
                             AxisGridLine()
@@ -720,39 +745,54 @@ struct DashboardView: View {
             SectionCard(
                 "Objetivo destacado",
                 subtitle: "Tu próximo hito financiero",
-                actionTitle: "Ver objetivos",
-                action: onOpenSettings
+                actionTitle: "Ver detalle",
+                action: { selectedGoal = goal }
             ) {
                 let current = goalCurrentAmount(goal)
                 let target = Swift.max(0, goal.targetAmountMinor)
                 let fraction = goalProgress(goal)
 
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 12) {
-                        Image(systemName: fraction >= 1 ? "checkmark.seal.fill" : "target")
-                            .font(.title3)
-                            .foregroundStyle(Color(hex: goal.colorHex))
-                            .frame(width: 42, height: 42)
-                            .background(Color(hex: goal.colorHex).opacity(0.11), in: Circle())
+                Button {
+                    selectedGoal = goal
+                } label: {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 12) {
+                            Image(systemName: fraction >= 1 ? "checkmark.seal.fill" : "target")
+                                .font(.title3)
+                                .foregroundStyle(Color(hex: goal.colorHex))
+                                .frame(width: 42, height: 42)
+                                .background(
+                                    Color(hex: goal.colorHex).opacity(0.11),
+                                    in: Circle()
+                                )
 
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(goal.name)
-                                .font(.subheadline.weight(.semibold))
-                            Text(goalStatusText(current: current, target: target))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(goal.name)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text(goalStatusText(current: current, target: target))
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Text(fraction, format: .percent.precision(.fractionLength(0)))
+                                .font(.headline)
+                                .foregroundStyle(Color(hex: goal.colorHex))
+
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.tertiary)
                         }
 
-                        Spacer()
-
-                        Text(fraction, format: .percent.precision(.fractionLength(0)))
-                            .font(.headline)
-                            .foregroundStyle(Color(hex: goal.colorHex))
+                        ProgressView(value: fraction)
+                            .tint(Color(hex: goal.colorHex))
                     }
-
-                    ProgressView(value: fraction)
-                        .tint(Color(hex: goal.colorHex))
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityHint("Abre el detalle del objetivo")
             }
         }
     }

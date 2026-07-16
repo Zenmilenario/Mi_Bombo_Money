@@ -33,7 +33,7 @@ struct TransactionsView: View {
     @State private var dateFilter: TransactionDateFilter = .all
     @State private var showOnlyDuplicates = false
     @State private var showingFilters = false
-    @State private var editingTransaction: FinancialTransaction?
+    @State private var selectedTransaction: FinancialTransaction?
     @State private var deletionError: String?
 
     private var filteredTransactions: [FinancialTransaction] {
@@ -209,19 +209,12 @@ struct TransactionsView: View {
                                 ) {
                                     ForEach(transactions(for: date)) { transaction in
                                         Button {
-                                            editingTransaction = transaction
+                                            selectedTransaction = transaction
                                         } label: {
                                             TransactionRow(transaction: transaction)
                                         }
                                         .buttonStyle(.plain)
-                                        .swipeActions(edge: .leading) {
-                                            Button {
-                                                editingTransaction = transaction
-                                            } label: {
-                                                Label("Editar", systemImage: "pencil")
-                                            }
-                                            .tint(.blue)
-                                        }
+                                        .accessibilityHint("Abre el detalle del movimiento")
                                         .swipeActions(edge: .trailing) {
                                             Button(role: .destructive) {
                                                 delete(transaction)
@@ -269,8 +262,8 @@ struct TransactionsView: View {
                     )
                 }
             }
-            .sheet(item: $editingTransaction) { transaction in
-                TransactionFormView(transaction: transaction)
+            .sheet(item: $selectedTransaction) { transaction in
+                TransactionDetailView(transaction: transaction)
             }
             .alert(
                 "No se pudo eliminar",
@@ -482,20 +475,10 @@ private struct TransactionRow: View {
                     }
                 }
 
-                HStack(spacing: 6) {
-                    Text(accountSubtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-
-                    if transaction.type == .transfer {
-                        StatusPill(
-                            text: "Transferencia",
-                            systemImage: "arrow.left.arrow.right",
-                            tint: .blue
-                        )
-                    }
-                }
+                Text(accountSubtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             Spacer(minLength: 8)
@@ -505,10 +488,16 @@ private struct TransactionRow: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(amountColor)
 
-                Text(transaction.category?.name ?? transaction.type.title)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if transaction.type != .transfer {
+                    Text(transaction.category?.name ?? transaction.type.title)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                } else {
+                    Text(transaction.date.formatted(date: .omitted, time: .shortened))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
         .padding(.vertical, 4)
@@ -527,6 +516,202 @@ private struct TransactionRow: View {
         let base = MoneyFormatter.string(
             minorUnits: transaction.amountMinor,
             currencyCode: transaction.sourceAccount?.currencyCode ?? "EUR"
+        )
+
+        switch transaction.type {
+        case .income, .interest:
+            return "+\(base)"
+        case .expense, .fee:
+            return "−\(base)"
+        case .transfer:
+            return base
+        }
+    }
+
+    private var amountColor: Color {
+        switch transaction.type {
+        case .income, .interest: .green
+        case .expense, .fee: .primary
+        case .transfer: .blue
+        }
+    }
+}
+
+
+private struct TransactionDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("hideAmounts") private var hideAmounts = false
+
+    let transaction: FinancialTransaction
+
+    @State private var showingEdit = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: AppDesign.sectionSpacing) {
+                    summaryCard
+                    movementDetails
+
+                    if !transaction.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        SectionCard("Notas") {
+                            Text(transaction.notes)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+
+                    if transaction.duplicateState == .possible {
+                        SectionCard("Revisión pendiente") {
+                            Label(
+                                "Este movimiento se parece a otro y podría estar duplicado.",
+                                systemImage: "doc.on.doc.fill"
+                            )
+                            .font(.subheadline)
+                            .foregroundStyle(.orange)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 16)
+            }
+            .background(AppDesign.pageBackground)
+            .navigationTitle("Detalle del movimiento")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cerrar") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showingEdit = true
+                    } label: {
+                        Image(systemName: "pencil")
+                    }
+                    .accessibilityLabel("Editar movimiento")
+                }
+            }
+            .sheet(isPresented: $showingEdit) {
+                TransactionFormView(transaction: transaction)
+            }
+        }
+    }
+
+    private var summaryCard: some View {
+        VStack(spacing: 14) {
+            Image(systemName: transaction.category?.systemImage ?? transaction.type.systemImage)
+                .font(.title2.weight(.semibold))
+                .foregroundStyle(accentColor)
+                .frame(width: 56, height: 56)
+                .background(accentColor.opacity(0.12), in: Circle())
+
+            Text(transaction.descriptionText)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+
+            Text(displayAmount)
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundStyle(amountColor)
+                .minimumScaleFactor(0.75)
+                .lineLimit(1)
+
+            Text(transaction.type.title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Color.secondary.opacity(0.10), in: Capsule())
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(
+            AppDesign.cardBackground,
+            in: RoundedRectangle(cornerRadius: AppDesign.heroRadius, style: .continuous)
+        )
+    }
+
+    private var movementDetails: some View {
+        SectionCard("Información") {
+            VStack(spacing: 0) {
+                detailRow(
+                    title: "Fecha",
+                    value: transaction.date.formatted(date: .long, time: .shortened),
+                    systemImage: "calendar"
+                )
+
+                Divider().padding(.leading, 38)
+
+                if transaction.type == .transfer {
+                    detailRow(
+                        title: "Cuenta de origen",
+                        value: transaction.sourceAccount?.name ?? "Sin cuenta",
+                        systemImage: "arrow.up.right.circle"
+                    )
+
+                    Divider().padding(.leading, 38)
+
+                    detailRow(
+                        title: "Cuenta de destino",
+                        value: transaction.destinationAccount?.name ?? "Sin cuenta",
+                        systemImage: "arrow.down.left.circle"
+                    )
+                } else {
+                    detailRow(
+                        title: "Cuenta",
+                        value: transaction.sourceAccount?.name ?? "Sin cuenta",
+                        systemImage: "building.columns"
+                    )
+
+                    if let category = transaction.category {
+                        Divider().padding(.leading, 38)
+
+                        detailRow(
+                            title: "Categoría",
+                            value: category.name,
+                            systemImage: category.systemImage
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func detailRow(title: String, value: String, systemImage: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .foregroundStyle(accentColor)
+                .frame(width: 26)
+
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 12)
+
+            Text(value)
+                .font(.subheadline.weight(.medium))
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.vertical, 12)
+    }
+
+    private var accentColor: Color {
+        Color(hex: transaction.category?.colorHex ?? "#237F98")
+    }
+
+    private var displayAmount: String {
+        guard !hideAmounts else { return "••••••" }
+
+        let base = MoneyFormatter.string(
+            minorUnits: transaction.amountMinor,
+            currencyCode: transaction.sourceAccount?.currencyCode
+                ?? transaction.destinationAccount?.currencyCode
+                ?? "EUR"
         )
 
         switch transaction.type {
