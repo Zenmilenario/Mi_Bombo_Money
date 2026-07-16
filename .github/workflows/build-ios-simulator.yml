@@ -47,12 +47,19 @@ jobs:
           fi
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" MiPatrimonio-Simulator.zip
 
-      - name: Guardar aplicacion y registro
+      - name: Guardar aplicacion compilada
         uses: actions/upload-artifact@v4
         with:
           name: MiPatrimonio-iOS-Simulator
-          path: |
-            MiPatrimonio-Simulator.zip
-            xcodebuild.log
+          path: MiPatrimonio-Simulator.zip
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Guardar registro de compilacion
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Registro-compilacion-Xcode
+          path: xcodebuild.log
+          if-no-files-found: warn
           retention-days: 14

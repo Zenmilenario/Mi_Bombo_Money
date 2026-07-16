@@ -162,7 +162,7 @@ private struct GoalFormView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Objetivo") {
+                Section {
                     TextField("Nombre", text: $name)
                     TextField("Importe objetivo", text: $targetText)
                         .keyboardType(.decimalPad)
@@ -172,6 +172,8 @@ private struct GoalFormView: View {
                             Text(account.name).tag(Optional(account.id))
                         }
                     }
+                } header: {
+                    Text("Objetivo")
                 } footer: {
                     Text("Al vincular una cuenta, el progreso usa automáticamente su saldo actual. Sin vínculo, puedes actualizar el importe acumulado manualmente.")
                 }

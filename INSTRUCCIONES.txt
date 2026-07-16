@@ -1,0 +1,15 @@
+PARCHE DE COMPILACION - MI BOMBO MONEY
+
+1. Descomprime este ZIP.
+2. Copia TODO el contenido de esta carpeta.
+3. Pegalo en la raiz de tu repositorio local Mi_Bombo_Money.
+4. Cuando Windows pregunte, elige "Reemplazar los archivos en el destino".
+5. Abre GitHub Desktop.
+6. Escribe como resumen: Corregir compilacion iOS 17
+7. Pulsa Commit to main y despues Push origin.
+8. GitHub Actions se ejecutara automaticamente.
+
+Cambios incluidos:
+- Sintaxis correcta de Section con cabecera y pie.
+- Eliminacion de NumberFormatStyle.notation, disponible solo desde iOS 18.
+- El workflow guarda el registro de Xcode incluso cuando la compilacion falla.

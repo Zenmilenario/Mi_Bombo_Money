@@ -35,7 +35,7 @@ struct CSVImportView: View {
 
     var body: some View {
         Form {
-            Section("Archivo") {
+            Section {
                 Button {
                     showingImporter = true
                 } label: {
@@ -55,6 +55,8 @@ struct CSVImportView: View {
                 .onChange(of: selectedAccountID) { _, _ in
                     resetDefaultSelection()
                 }
+            } header: {
+                Text("Archivo")
             } footer: {
                 Text("La cuenta por defecto se usa cuando el CSV no incluye una columna de cuenta. Para transferencias, el archivo debe identificar también la cuenta destino.")
             }
@@ -83,7 +85,7 @@ struct CSVImportView: View {
                     }
                 }
 
-                Section("Revisión") {
+                Section {
                     ForEach(Array(previewRows.prefix(200))) { row in
                         Toggle(isOn: inclusionBinding(for: row)) {
                             importRowLabel(row)
@@ -96,6 +98,8 @@ struct CSVImportView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                } header: {
+                    Text("Revisión")
                 } footer: {
                     Text("Los duplicados exactos se omiten. Los posibles duplicados quedan desmarcados para que decidas si deben importarse.")
                 }

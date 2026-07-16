@@ -22,7 +22,6 @@ enum MoneyFormatter {
         (Double(minorUnits) / 100).formatted(
             .currency(code: currencyCode)
                 .locale(locale)
-                .notation(.compactName)
                 .precision(.fractionLength(0...1))
         )
     }

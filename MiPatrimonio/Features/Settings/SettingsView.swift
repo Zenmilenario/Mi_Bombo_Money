@@ -14,7 +14,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Privacidad y seguridad") {
+                Section {
                     Toggle(isOn: $appLockEnabled) {
                         Label("Face ID o código", systemImage: "faceid")
                     }
@@ -40,6 +40,8 @@ struct SettingsView: View {
                     } label: {
                         Label("Protección de archivos", systemImage: "lock.shield")
                     }
+                } header: {
+                    Text("Privacidad y seguridad")
                 } footer: {
                     Text("El MVP desactiva CloudKit, protege el almacén cuando el iPhone está bloqueado e incluye cifrado AES-GCM con claves en Keychain para secretos o exportaciones. No almacena contraseñas bancarias.")
                 }

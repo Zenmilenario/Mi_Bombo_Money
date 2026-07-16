@@ -399,7 +399,7 @@ struct DashboardView: View {
                         AxisGridLine()
                         AxisValueLabel {
                             if let number = value.as(Double.self) {
-                                Text(number, format: .currency(code: "EUR").notation(.compactName))
+                                Text(number, format: .currency(code: "EUR").precision(.fractionLength(0)))
                             }
                         }
                     }
@@ -431,7 +431,7 @@ struct DashboardView: View {
                         AxisGridLine()
                         AxisValueLabel {
                             if let number = value.as(Double.self) {
-                                Text(number, format: .currency(code: "EUR").notation(.compactName))
+                                Text(number, format: .currency(code: "EUR").precision(.fractionLength(0)))
                             }
                         }
                     }

@@ -353,7 +353,7 @@ private struct PaymentCardFormView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Tarjeta") {
+                Section {
                     TextField("Nombre", text: $name)
                     Picker("Tipo", selection: $type) {
                         ForEach(PaymentCardType.allCases) { type in
@@ -374,6 +374,8 @@ private struct PaymentCardFormView: View {
                             Text(account.name).tag(Optional(account.id))
                         }
                     }
+                } header: {
+                    Text("Tarjeta")
                 } footer: {
                     Text("La tarjeta es un medio de pago y no suma patrimonio por separado. Su saldo se toma de la cuenta vinculada. No se guarda el número completo ni el CVV.")
                 }
@@ -621,7 +623,7 @@ struct AccountFormView: View {
                     }
                 }
 
-                Section("Saldo y rentabilidad") {
+                Section {
                     TextField("Saldo inicial", text: $openingBalanceText)
                         .keyboardType(.numbersAndPunctuation)
                     DatePicker("Fecha del saldo inicial", selection: $openingDate, displayedComponents: .date)
@@ -633,6 +635,8 @@ struct AccountFormView: View {
                         TextField("Límite de crédito", text: $creditLimitText)
                             .keyboardType(.decimalPad)
                     }
+                } header: {
+                    Text("Saldo y rentabilidad")
                 } footer: {
                     if type == .creditCard {
                         Text("En tarjetas, guarda la deuda como saldo negativo. Un pago desde otra cuenta se registra como transferencia hacia la tarjeta.")

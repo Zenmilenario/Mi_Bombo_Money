@@ -41,7 +41,7 @@ struct BudgetsView: View {
                     }
                 }
 
-                Section("Categorías") {
+                Section {
                     ForEach(expenseCategories) { category in
                         Button {
                             selectedCategory = category
@@ -53,6 +53,8 @@ struct BudgetsView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                } header: {
+                    Text("Categorías")
                 } footer: {
                     Text("Las transferencias propias no consumen presupuesto. Los gastos y las comisiones sí se incluyen en su categoría.")
                 }
