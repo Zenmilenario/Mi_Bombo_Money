@@ -1,0 +1,583 @@
+diff --git a/.github/workflows/build-ios-ipa-signed.yml b/.github/workflows/build-ios-ipa-signed.yml
+new file mode 100644
+index 0000000..696a4c0
+--- /dev/null
++++ b/.github/workflows/build-ios-ipa-signed.yml
+@@ -0,0 +1,266 @@
++name: Generar IPA firmado
++
++on:
++  workflow_dispatch:
++
++permissions:
++  contents: read
++
++concurrency:
++  group: ios-ipa-signed-${{ github.ref }}
++  cancel-in-progress: false
++
++jobs:
++  build:
++    name: Compilar y firmar MiPatrimonio
++    runs-on: macos-latest
++    timeout-minutes: 30
++
++    env:
++      PROJECT: MiPatrimonio.xcodeproj
++      SCHEME: MiPatrimonio
++      CONFIGURATION: Release
++      DERIVED_DATA: build/DerivedDataSigned
++      OUTPUT_DIR: build/output-signed
++      BUILD_NUMBER: ${{ github.run_number }}
++      BUNDLE_IDENTIFIER: ${{ secrets.BUNDLE_IDENTIFIER }}
++
++    steps:
++      - name: Descargar el repositorio
++        uses: actions/checkout@v7
++
++      - name: Comprobar secretos de firma
++        shell: bash
++        env:
++          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
++          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
++          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
++          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
++          BUNDLE_IDENTIFIER_SECRET: ${{ secrets.BUNDLE_IDENTIFIER }}
++        run: |
++          set -euo pipefail
++
++          missing=0
++
++          if [ -z "$BUILD_CERTIFICATE_BASE64" ]; then
++            echo "Falta el secret BUILD_CERTIFICATE_BASE64"
++            missing=1
++          fi
++          if [ -z "$P12_PASSWORD" ]; then
++            echo "Falta el secret P12_PASSWORD"
++            missing=1
++          fi
++          if [ -z "$BUILD_PROVISION_PROFILE_BASE64" ]; then
++            echo "Falta el secret BUILD_PROVISION_PROFILE_BASE64"
++            missing=1
++          fi
++          if [ -z "$KEYCHAIN_PASSWORD" ]; then
++            echo "Falta el secret KEYCHAIN_PASSWORD"
++            missing=1
++          fi
++          if [ -z "$BUNDLE_IDENTIFIER_SECRET" ]; then
++            echo "Falta el secret BUNDLE_IDENTIFIER"
++            missing=1
++          fi
++
++          if [ "$missing" -ne 0 ]; then
++            echo "Configura los secrets indicados en Settings > Secrets and variables > Actions."
++            exit 1
++          fi
++
++      - name: Instalar certificado y perfil de aprovisionamiento
++        shell: bash
++        env:
++          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
++          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
++          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
++          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
++        run: |
++          set -euo pipefail
++
++          CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
++          PROFILE_SOURCE_PATH="$RUNNER_TEMP/build_profile.mobileprovision"
++          PROFILE_PLIST_PATH="$RUNNER_TEMP/build_profile.plist"
++          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
++
++          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
++          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o "$PROFILE_SOURCE_PATH"
++          security cms -D -i "$PROFILE_SOURCE_PATH" > "$PROFILE_PLIST_PATH"
++
++          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$PROFILE_PLIST_PATH")
++          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "$PROFILE_PLIST_PATH")
++          TEAM_ID=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" "$PROFILE_PLIST_PATH")
++          APP_PREFIX=$(/usr/libexec/PlistBuddy -c "Print :ApplicationIdentifierPrefix:0" "$PROFILE_PLIST_PATH")
++          PROFILE_APP_ID=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$PROFILE_PLIST_PATH")
++          PROFILE_BUNDLE_PATTERN="${PROFILE_APP_ID#${APP_PREFIX}.}"
++
++          case "$PROFILE_BUNDLE_PATTERN" in
++            *\*)
++              PROFILE_PREFIX="${PROFILE_BUNDLE_PATTERN%\*}"
++              if [[ "$BUNDLE_IDENTIFIER" != "$PROFILE_PREFIX"* ]]; then
++                echo "El Bundle ID $BUNDLE_IDENTIFIER no coincide con el perfil $PROFILE_BUNDLE_PATTERN"
++                exit 1
++              fi
++              ;;
++            *)
++              if [ "$BUNDLE_IDENTIFIER" != "$PROFILE_BUNDLE_PATTERN" ]; then
++                echo "El Bundle ID $BUNDLE_IDENTIFIER no coincide con el perfil $PROFILE_BUNDLE_PATTERN"
++                exit 1
++              fi
++              ;;
++          esac
++
++          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
++          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
++          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
++          security import "$CERTIFICATE_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
++          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
++          security list-keychains -d user -s "$KEYCHAIN_PATH"
++
++          SIGNING_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(.*\)"/\1/p' | head -n 1)
++          if [ -z "$SIGNING_IDENTITY" ]; then
++            echo "No se encontro una identidad valida de firma dentro del certificado P12."
++            exit 1
++          fi
++
++          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
++          INSTALLED_PROFILE="$PROFILES_DIR/$PROFILE_UUID.mobileprovision"
++          mkdir -p "$PROFILES_DIR"
++          cp "$PROFILE_SOURCE_PATH" "$INSTALLED_PROFILE"
++
++          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
++          echo "CERTIFICATE_PATH=$CERTIFICATE_PATH" >> "$GITHUB_ENV"
++          echo "PROFILE_SOURCE_PATH=$PROFILE_SOURCE_PATH" >> "$GITHUB_ENV"
++          echo "PROFILE_PLIST_PATH=$PROFILE_PLIST_PATH" >> "$GITHUB_ENV"
++          echo "INSTALLED_PROFILE=$INSTALLED_PROFILE" >> "$GITHUB_ENV"
++          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
++          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
++          echo "TEAM_ID=$TEAM_ID" >> "$GITHUB_ENV"
++          echo "SIGNING_IDENTITY=$SIGNING_IDENTITY" >> "$GITHUB_ENV"
++
++          echo "Perfil instalado: $PROFILE_NAME"
++          echo "Equipo de Apple: $TEAM_ID"
++          echo "Identidad de firma: $SIGNING_IDENTITY"
++
++      - name: Compilar y firmar para dispositivo iOS
++        shell: bash
++        run: |
++          set -euo pipefail
++          rm -rf build
++          mkdir -p "$OUTPUT_DIR"
++
++          xcodebuild \
++            -project "$PROJECT" \
++            -scheme "$SCHEME" \
++            -configuration "$CONFIGURATION" \
++            -sdk iphoneos \
++            -destination "generic/platform=iOS" \
++            -derivedDataPath "$DERIVED_DATA" \
++            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_IDENTIFIER" \
++            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
++            DEVELOPMENT_TEAM="$TEAM_ID" \
++            CODE_SIGN_STYLE=Manual \
++            CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" \
++            PROVISIONING_PROFILE="$PROFILE_UUID" \
++            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
++            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
++            COMPILER_INDEX_STORE_ENABLE=NO \
++            clean build | tee build/xcodebuild-signed.log
++
++      - name: Verificar firma y crear IPA
++        shell: bash
++        run: |
++          set -euo pipefail
++
++          APP_DIR="$DERIVED_DATA/Build/Products/${CONFIGURATION}-iphoneos"
++          APP_PATH=$(find "$APP_DIR" -maxdepth 1 -type d -name "*.app" -print -quit)
++
++          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
++            echo "No se encontro la aplicacion compilada en $APP_DIR"
++            exit 1
++          fi
++
++          if [ ! -f "$APP_PATH/embedded.mobileprovision" ]; then
++            echo "La aplicacion no contiene embedded.mobileprovision."
++            exit 1
++          fi
++
++          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
++
++          INFO_PLIST="$APP_PATH/Info.plist"
++          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST")
++          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO_PLIST")
++          ACTUAL_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST")
++
++          if [ "$ACTUAL_BUNDLE_ID" != "$BUNDLE_IDENTIFIER" ]; then
++            echo "El Bundle ID compilado no coincide con el configurado."
++            exit 1
++          fi
++
++          IPA_FILENAME="MiPatrimonio-${VERSION}-${BUILD}-signed.ipa"
++          rm -rf "$OUTPUT_DIR/Payload"
++          mkdir -p "$OUTPUT_DIR/Payload"
++          xattr -cr "$APP_PATH" || true
++          PAYLOAD_APP="$OUTPUT_DIR/Payload/$(basename "$APP_PATH")"
++          ditto "$APP_PATH" "$PAYLOAD_APP"
++          codesign --verify --deep --strict --verbose=2 "$PAYLOAD_APP"
++
++          (
++            cd "$OUTPUT_DIR"
++            ditto -c -k --sequesterRsrc --keepParent Payload "$IPA_FILENAME"
++            unzip -tq "$IPA_FILENAME"
++            shasum -a 256 "$IPA_FILENAME" > "${IPA_FILENAME}.sha256"
++          )
++
++          IPA_PATH="$OUTPUT_DIR/$IPA_FILENAME"
++          CHECKSUM_PATH="$OUTPUT_DIR/${IPA_FILENAME}.sha256"
++
++          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
++          echo "CHECKSUM_PATH=$CHECKSUM_PATH" >> "$GITHUB_ENV"
++          echo "IPA_FILENAME=$IPA_FILENAME" >> "$GITHUB_ENV"
++
++          {
++            echo "## IPA firmado generado"
++            echo ""
++            echo "- Archivo: \`$IPA_FILENAME\`"
++            echo "- Version: \`$VERSION ($BUILD)\`"
++            echo "- Bundle ID: \`$ACTUAL_BUNDLE_ID\`"
++            echo "- Perfil: \`$PROFILE_NAME\`"
++            echo "- Tamano: \`$(du -h "$IPA_PATH" | awk '{print $1}')\`"
++            echo ""
++            echo "> Solo se podra instalar en dispositivos admitidos por el perfil de aprovisionamiento y mientras el certificado y el perfil sean validos."
++          } >> "$GITHUB_STEP_SUMMARY"
++
++      - name: Publicar IPA firmado
++        uses: actions/upload-artifact@v7
++        with:
++          name: MiPatrimonio-IPA-Firmado-${{ github.run_number }}
++          path: ${{ env.IPA_PATH }}
++          if-no-files-found: error
++          retention-days: 30
++          archive: false
++
++      - name: Guardar checksum y registro de compilacion
++        if: always()
++        uses: actions/upload-artifact@v7
++        with:
++          name: Diagnostico-IPA-Firmado-${{ github.run_number }}
++          path: |
++            build/xcodebuild-signed.log
++            build/output-signed/*.sha256
++          if-no-files-found: warn
++          retention-days: 14
++
++      - name: Eliminar certificado, perfil y keychain temporales
++        if: always()
++        shell: bash
++        run: |
++          set +e
++          if [ -n "${KEYCHAIN_PATH:-}" ]; then
++            security delete-keychain "$KEYCHAIN_PATH"
++          fi
++          rm -f \
++            "${CERTIFICATE_PATH:-}" \
++            "${PROFILE_SOURCE_PATH:-}" \
++            "${PROFILE_PLIST_PATH:-}" \
++            "${INSTALLED_PROFILE:-}"
+diff --git a/.github/workflows/build-ios-ipa.yml b/.github/workflows/build-ios-ipa.yml
+new file mode 100644
+index 0000000..99909fe
+--- /dev/null
++++ b/.github/workflows/build-ios-ipa.yml
+@@ -0,0 +1,139 @@
++name: Generar IPA sin firmar
++
++on:
++  workflow_dispatch:
++    inputs:
++      bundle_identifier:
++        description: Identificador de la app que se incluira en el IPA
++        required: true
++        default: com.zenmilenario.mibombomoney
++        type: string
++  push:
++    tags:
++      - "v*"
++
++permissions:
++  contents: read
++
++concurrency:
++  group: ios-ipa-unsigned-${{ github.ref }}
++  cancel-in-progress: true
++
++jobs:
++  build:
++    name: Compilar MiPatrimonio para iPhone
++    runs-on: macos-latest
++    timeout-minutes: 30
++
++    env:
++      PROJECT: MiPatrimonio.xcodeproj
++      SCHEME: MiPatrimonio
++      CONFIGURATION: Release
++      DERIVED_DATA: build/DerivedData
++      OUTPUT_DIR: build/output
++      BUNDLE_IDENTIFIER: ${{ inputs.bundle_identifier || 'com.zenmilenario.mibombomoney' }}
++      BUILD_NUMBER: ${{ github.run_number }}
++
++    steps:
++      - name: Descargar el repositorio
++        uses: actions/checkout@v7
++
++      - name: Comprobar Xcode, proyecto y esquema
++        shell: bash
++        run: |
++          set -euo pipefail
++          test -d "$PROJECT"
++          xcodebuild -version
++          xcodebuild -list -project "$PROJECT"
++
++      - name: Compilar para dispositivo iOS sin firma
++        shell: bash
++        run: |
++          set -euo pipefail
++          rm -rf build
++          mkdir -p "$OUTPUT_DIR"
++
++          xcodebuild \
++            -project "$PROJECT" \
++            -scheme "$SCHEME" \
++            -configuration "$CONFIGURATION" \
++            -sdk iphoneos \
++            -destination "generic/platform=iOS" \
++            -derivedDataPath "$DERIVED_DATA" \
++            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_IDENTIFIER" \
++            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
++            CODE_SIGNING_ALLOWED=NO \
++            CODE_SIGNING_REQUIRED=NO \
++            CODE_SIGN_IDENTITY="" \
++            VALIDATE_PRODUCT=NO \
++            COMPILER_INDEX_STORE_ENABLE=NO \
++            clean build | tee build/xcodebuild-iphoneos.log
++
++      - name: Crear el archivo IPA
++        shell: bash
++        run: |
++          set -euo pipefail
++
++          APP_DIR="$DERIVED_DATA/Build/Products/${CONFIGURATION}-iphoneos"
++          APP_PATH=$(find "$APP_DIR" -maxdepth 1 -type d -name "*.app" -print -quit)
++
++          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
++            echo "No se encontro la aplicacion compilada en $APP_DIR"
++            exit 1
++          fi
++
++          INFO_PLIST="$APP_PATH/Info.plist"
++          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST")
++          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO_PLIST")
++          ACTUAL_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST")
++          IPA_FILENAME="MiPatrimonio-${VERSION}-${BUILD}-unsigned.ipa"
++
++          rm -rf "$OUTPUT_DIR/Payload"
++          mkdir -p "$OUTPUT_DIR/Payload"
++          xattr -cr "$APP_PATH" || true
++          ditto "$APP_PATH" "$OUTPUT_DIR/Payload/$(basename "$APP_PATH")"
++
++          (
++            cd "$OUTPUT_DIR"
++            ditto -c -k --sequesterRsrc --keepParent Payload "$IPA_FILENAME"
++            unzip -tq "$IPA_FILENAME"
++            shasum -a 256 "$IPA_FILENAME" > "${IPA_FILENAME}.sha256"
++          )
++
++          IPA_PATH="$OUTPUT_DIR/$IPA_FILENAME"
++          CHECKSUM_PATH="$OUTPUT_DIR/${IPA_FILENAME}.sha256"
++
++          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
++          echo "CHECKSUM_PATH=$CHECKSUM_PATH" >> "$GITHUB_ENV"
++          echo "IPA_FILENAME=$IPA_FILENAME" >> "$GITHUB_ENV"
++
++          {
++            echo "## IPA generado"
++            echo ""
++            echo "- Archivo: \`$IPA_FILENAME\`"
++            echo "- Version: \`$VERSION ($BUILD)\`"
++            echo "- Bundle ID: \`$ACTUAL_BUNDLE_ID\`"
++            echo "- Tamano: \`$(du -h "$IPA_PATH" | awk '{print $1}')\`"
++            echo ""
++            echo "> Este IPA no esta firmado. Debe firmarse al instalarlo con una herramienta como AltStore o Sideloadly, o utilizar el workflow de IPA firmado."
++          } >> "$GITHUB_STEP_SUMMARY"
++
++      - name: Publicar IPA
++        uses: actions/upload-artifact@v7
++        with:
++          name: MiPatrimonio-IPA-${{ github.run_number }}
++          path: ${{ env.IPA_PATH }}
++          if-no-files-found: error
++          retention-days: 30
++          archive: false
++
++      - name: Guardar checksum y registro de compilacion
++        if: always()
++        uses: actions/upload-artifact@v7
++        with:
++          name: Diagnostico-IPA-${{ github.run_number }}
++          path: |
++            build/xcodebuild-iphoneos.log
++            build/output/*.sha256
++          if-no-files-found: warn
++          retention-days: 14
+diff --git a/.github/workflows/build-ios-simulator.yml b/.github/workflows/build-ios-simulator.yml
+index 91c9ba4..524b6e3 100644
+--- a/.github/workflows/build-ios-simulator.yml
++++ b/.github/workflows/build-ios-simulator.yml
+@@ -17,7 +17,7 @@ jobs:
+ 
+     steps:
+       - name: Descargar el repositorio
+-        uses: actions/checkout@v4
++        uses: actions/checkout@v7
+ 
+       - name: Mostrar version de Xcode
+         run: xcodebuild -version
+@@ -48,7 +48,7 @@ jobs:
+           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" MiPatrimonio-Simulator.zip
+ 
+       - name: Guardar aplicacion compilada
+-        uses: actions/upload-artifact@v4
++        uses: actions/upload-artifact@v7
+         with:
+           name: MiPatrimonio-iOS-Simulator
+           path: MiPatrimonio-Simulator.zip
+@@ -57,7 +57,7 @@ jobs:
+ 
+       - name: Guardar registro de compilacion
+         if: always()
+-        uses: actions/upload-artifact@v4
++        uses: actions/upload-artifact@v7
+         with:
+           name: Registro-compilacion-Xcode
+           path: xcodebuild.log
+diff --git a/.gitignore b/.gitignore
+index 82c4da3..6e12698 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -22,3 +22,12 @@ xcuserdata/
+ # Editores
+ .vscode/
+ .idea/
++
++# Firma y aprovisionamiento de Apple
++*.p12
++*.mobileprovision
++*.provisionprofile
++*.cer
++*.keychain-db
++*certificate_base64*.txt
++*provision*_base64*.txt
+diff --git a/DISTRIBUCION_IPA.md b/DISTRIBUCION_IPA.md
+new file mode 100644
+index 0000000..7e27a2f
+--- /dev/null
++++ b/DISTRIBUCION_IPA.md
+@@ -0,0 +1,64 @@
++# Generación de IPA mediante GitHub Actions
++
++El proyecto incluye dos workflows independientes dentro de `.github/workflows/`.
++
++## Opción inmediata: IPA sin firmar
++
++El workflow **Generar IPA sin firmar** compila la aplicación para un iPhone real y crea un archivo `.ipa` sin necesitar certificados ni secretos.
++
++1. Abre el repositorio en GitHub.
++2. Entra en **Actions**.
++3. Selecciona **Generar IPA sin firmar**.
++4. Pulsa **Run workflow**.
++5. Mantén el Bundle ID propuesto o introduce otro identificador único.
++6. Cuando finalice, descarga el artefacto `MiPatrimonio-IPA-...`.
++
++Este IPA debe firmarse durante la instalación con una herramienta compatible, por ejemplo AltStore o Sideloadly. No se puede instalar directamente en iOS mientras siga sin firmar.
++
++El workflow también se ejecuta cuando se publica una etiqueta de Git cuyo nombre empiece por `v`, por ejemplo `v0.2.2`.
++
++## Opción instalable directamente: IPA firmado
++
++El workflow **Generar IPA firmado** usa un certificado Apple y un perfil de aprovisionamiento guardados como GitHub Actions Secrets. El dispositivo debe estar admitido por el perfil.
++
++Configura estos secretos en **Settings > Secrets and variables > Actions > New repository secret**:
++
++| Secret | Contenido |
++|---|---|
++| `BUILD_CERTIFICATE_BASE64` | Certificado `.p12` convertido a Base64. Debe incluir la clave privada. |
++| `P12_PASSWORD` | Contraseña del archivo `.p12`. |
++| `BUILD_PROVISION_PROFILE_BASE64` | Perfil `.mobileprovision` convertido a Base64. |
++| `KEYCHAIN_PASSWORD` | Contraseña temporal y aleatoria para el keychain del runner. |
++| `BUNDLE_IDENTIFIER` | Bundle ID incluido en el perfil, por ejemplo `com.zenmilenario.mibombomoney`. |
++
++### Convertir los archivos a Base64 en macOS
++
++```bash
++base64 -i Certificado.p12 | pbcopy
++base64 -i MiPatrimonio.mobileprovision | pbcopy
++```
++
++Ejecuta cada comando por separado y pega el contenido del portapapeles en el secret correspondiente.
++
++### Convertir los archivos a Base64 en Windows PowerShell
++
++```powershell
++[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\ruta\Certificado.p12")) | Set-Clipboard
++[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\ruta\MiPatrimonio.mobileprovision")) | Set-Clipboard
++```
++
++Después:
++
++1. Entra en **Actions**.
++2. Selecciona **Generar IPA firmado**.
++3. Pulsa **Run workflow**.
++4. Descarga `MiPatrimonio-IPA-Firmado-...` cuando el proceso termine.
++
++El workflow valida que el Bundle ID coincide con el perfil, instala el certificado en un keychain temporal, firma la aplicación, comprueba la firma, crea el IPA y elimina el material de firma del runner al finalizar.
++
++## Seguridad
++
++- No subas nunca al repositorio archivos `.p12`, `.mobileprovision`, contraseñas ni textos Base64 de firma.
++- Mantén el workflow firmado como ejecución manual para evitar usos involuntarios.
++- Si un certificado o perfil se expone, revócalo y sustitúyelo.
++- El repositorio puede ser público; los valores guardados como Actions Secrets no se incluyen en el código ni en los artefactos de diagnóstico.
+diff --git a/README.md b/README.md
+index ab5fb4d..7e78ab8 100644
+--- a/README.md
++++ b/README.md
+@@ -1,9 +1,6 @@
+ # Mi Patrimonio — MVP iPhone
+ 
+-Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones. El proyecto parte del Excel `Control_financiero_3_bancos(3).xlsx` y carga sus datos iniciales la primera vez que se ejecuta.
+-
+-El archivo Excel original no se incluye dentro del proyecto empaquetado; solo se incorporan la estructura, las reglas y los datos iniciales necesarios para el seed.
+-
++Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones.
+ 
+ ## Rediseño 0.2.0
+ 
+@@ -50,17 +47,9 @@ No hay dependencias de terceros ni pasos de instalación.
+ - Ocultación de importes y apariencia clara, oscura o automática.
+ - Almacenamiento SwiftData local con CloudKit desactivado.
+ 
+-## Datos iniciales del Excel
+-
+-La primera ejecución crea:
+-
+-- Bankinter — Nómina: 850,00 € después de la transferencia.
+-- Trade Republic — Ahorro: 650,00 € después de la transferencia.
+-- BBVA — Cuenta joven: 540,66 €.
+-- Patrimonio: 2.040,66 €.
+-- Presupuesto de julio de 2026: 900,00 €.
++## Inicialización local
+ 
+-El seed se ejecuta una sola vez y únicamente si la base está vacía. Para repetirlo durante desarrollo, elimina la app del simulador o dispositivo y vuelve a instalarla.
++La configuración inicial se ejecuta una sola vez y únicamente si la base está vacía. Para repetirla durante desarrollo, elimina la app del simulador o dispositivo y vuelve a instalarla. Los importes personales no se documentan en este repositorio.
+ 
+ ## Importación CSV
+ 
+@@ -116,3 +105,12 @@ El repositorio incluye `.github/workflows/build-ios-simulator.yml`. Cada subida
+ Desde Windows, entra en **Actions**, abre **Compilar para iOS Simulator** y ejecuta **Run workflow**. Al terminar, descarga el artefacto desde la pagina de la ejecucion. El archivo `MiPatrimonio-Simulator.zip` contiene la aplicacion `.app` compilada para el simulador; no es un `.ipa` instalable directamente en un iPhone.
+ 
+ Consulta `SUBIR_DESDE_WINDOWS.md` para las instrucciones de subida.
++
++## Generar un IPA desde GitHub Actions
++
++El repositorio dispone de dos procesos adicionales:
++
++- `.github/workflows/build-ios-ipa.yml`: crea inmediatamente un IPA sin firmar para instalarlo posteriormente mediante AltStore, Sideloadly u otro proceso de firma.
++- `.github/workflows/build-ios-ipa-signed.yml`: crea un IPA firmado e instalable en los dispositivos incluidos en el perfil de aprovisionamiento, una vez configurados los certificados como GitHub Actions Secrets.
++
++Desde GitHub entra en **Actions**, selecciona el workflow correspondiente y pulsa **Run workflow**. Consulta `DISTRIBUCION_IPA.md` para la configuración completa y las medidas de seguridad.

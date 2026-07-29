@@ -1,0 +1,17 @@
+ARCHIVOS PREPARADOS PARA EL REPOSITORIO Mi_Bombo_Money
+
+1. Copia el contenido de esta carpeta sobre la raiz de tu repositorio local.
+2. Confirma que existen:
+   .github/workflows/build-ios-ipa.yml
+   .github/workflows/build-ios-ipa-signed.yml
+   DISTRIBUCION_IPA.md
+3. Sube los cambios a GitHub:
+
+   git add .
+   git commit -m "Añadir generación de IPA con GitHub Actions"
+   git push origin main
+
+4. En GitHub abre Actions > Generar IPA sin firmar > Run workflow.
+5. Al terminar, descarga el artefacto MiPatrimonio-IPA-...
+
+Para un IPA firmado, sigue DISTRIBUCION_IPA.md y configura antes los GitHub Actions Secrets.

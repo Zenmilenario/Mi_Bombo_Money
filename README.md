@@ -1,9 +1,6 @@
 # Mi Patrimonio — MVP iPhone
 
-Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones. El proyecto parte del Excel `Control_financiero_3_bancos(3).xlsx` y carga sus datos iniciales la primera vez que se ejecuta.
-
-El archivo Excel original no se incluye dentro del proyecto empaquetado; solo se incorporan la estructura, las reglas y los datos iniciales necesarios para el seed.
-
+Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones.
 
 ## Rediseño 0.2.0
 
@@ -50,17 +47,9 @@ No hay dependencias de terceros ni pasos de instalación.
 - Ocultación de importes y apariencia clara, oscura o automática.
 - Almacenamiento SwiftData local con CloudKit desactivado.
 
-## Datos iniciales del Excel
+## Inicialización local
 
-La primera ejecución crea:
-
-- Bankinter — Nómina: 850,00 € después de la transferencia.
-- Trade Republic — Ahorro: 650,00 € después de la transferencia.
-- BBVA — Cuenta joven: 540,66 €.
-- Patrimonio: 2.040,66 €.
-- Presupuesto de julio de 2026: 900,00 €.
-
-El seed se ejecuta una sola vez y únicamente si la base está vacía. Para repetirlo durante desarrollo, elimina la app del simulador o dispositivo y vuelve a instalarla.
+La configuración inicial se ejecuta una sola vez y únicamente si la base está vacía. Para repetirla durante desarrollo, elimina la app del simulador o dispositivo y vuelve a instalarla. Los importes personales no se documentan en este repositorio.
 
 ## Importación CSV
 
@@ -116,3 +105,12 @@ El repositorio incluye `.github/workflows/build-ios-simulator.yml`. Cada subida 
 Desde Windows, entra en **Actions**, abre **Compilar para iOS Simulator** y ejecuta **Run workflow**. Al terminar, descarga el artefacto desde la pagina de la ejecucion. El archivo `MiPatrimonio-Simulator.zip` contiene la aplicacion `.app` compilada para el simulador; no es un `.ipa` instalable directamente en un iPhone.
 
 Consulta `SUBIR_DESDE_WINDOWS.md` para las instrucciones de subida.
+
+## Generar un IPA desde GitHub Actions
+
+El repositorio dispone de dos procesos adicionales:
+
+- `.github/workflows/build-ios-ipa.yml`: crea inmediatamente un IPA sin firmar para instalarlo posteriormente mediante AltStore, Sideloadly u otro proceso de firma.
+- `.github/workflows/build-ios-ipa-signed.yml`: crea un IPA firmado e instalable en los dispositivos incluidos en el perfil de aprovisionamiento, una vez configurados los certificados como GitHub Actions Secrets.
+
+Desde GitHub entra en **Actions**, selecciona el workflow correspondiente y pulsa **Run workflow**. Consulta `DISTRIBUCION_IPA.md` para la configuración completa y las medidas de seguridad.

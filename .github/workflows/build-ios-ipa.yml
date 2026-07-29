@@ -1,0 +1,139 @@
+name: Generar IPA sin firmar
+
+on:
+  workflow_dispatch:
+    inputs:
+      bundle_identifier:
+        description: Identificador de la app que se incluira en el IPA
+        required: true
+        default: com.zenmilenario.mibombomoney
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ipa-unsigned-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compilar MiPatrimonio para iPhone
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    env:
+      PROJECT: MiPatrimonio.xcodeproj
+      SCHEME: MiPatrimonio
+      CONFIGURATION: Release
+      DERIVED_DATA: build/DerivedData
+      OUTPUT_DIR: build/output
+      BUNDLE_IDENTIFIER: ${{ inputs.bundle_identifier || 'com.zenmilenario.mibombomoney' }}
+      BUILD_NUMBER: ${{ github.run_number }}
+
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v7
+
+      - name: Comprobar Xcode, proyecto y esquema
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$PROJECT"
+          xcodebuild -version
+          xcodebuild -list -project "$PROJECT"
+
+      - name: Compilar para dispositivo iOS sin firma
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build
+          mkdir -p "$OUTPUT_DIR"
+
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$DERIVED_DATA" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_IDENTIFIER" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            VALIDATE_PRODUCT=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            clean build | tee build/xcodebuild-iphoneos.log
+
+      - name: Crear el archivo IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_DIR="$DERIVED_DATA/Build/Products/${CONFIGURATION}-iphoneos"
+          APP_PATH=$(find "$APP_DIR" -maxdepth 1 -type d -name "*.app" -print -quit)
+
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "No se encontro la aplicacion compilada en $APP_DIR"
+            exit 1
+          fi
+
+          INFO_PLIST="$APP_PATH/Info.plist"
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST")
+          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO_PLIST")
+          ACTUAL_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST")
+          IPA_FILENAME="MiPatrimonio-${VERSION}-${BUILD}-unsigned.ipa"
+
+          rm -rf "$OUTPUT_DIR/Payload"
+          mkdir -p "$OUTPUT_DIR/Payload"
+          xattr -cr "$APP_PATH" || true
+          ditto "$APP_PATH" "$OUTPUT_DIR/Payload/$(basename "$APP_PATH")"
+
+          (
+            cd "$OUTPUT_DIR"
+            ditto -c -k --sequesterRsrc --keepParent Payload "$IPA_FILENAME"
+            unzip -tq "$IPA_FILENAME"
+            shasum -a 256 "$IPA_FILENAME" > "${IPA_FILENAME}.sha256"
+          )
+
+          IPA_PATH="$OUTPUT_DIR/$IPA_FILENAME"
+          CHECKSUM_PATH="$OUTPUT_DIR/${IPA_FILENAME}.sha256"
+
+          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
+          echo "CHECKSUM_PATH=$CHECKSUM_PATH" >> "$GITHUB_ENV"
+          echo "IPA_FILENAME=$IPA_FILENAME" >> "$GITHUB_ENV"
+
+          {
+            echo "## IPA generado"
+            echo ""
+            echo "- Archivo: \`$IPA_FILENAME\`"
+            echo "- Version: \`$VERSION ($BUILD)\`"
+            echo "- Bundle ID: \`$ACTUAL_BUNDLE_ID\`"
+            echo "- Tamano: \`$(du -h "$IPA_PATH" | awk '{print $1}')\`"
+            echo ""
+            echo "> Este IPA no esta firmado. Debe firmarse al instalarlo con una herramienta como AltStore o Sideloadly, o utilizar el workflow de IPA firmado."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: MiPatrimonio-IPA-${{ github.run_number }}
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
+
+      - name: Guardar checksum y registro de compilacion
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Diagnostico-IPA-${{ github.run_number }}
+          path: |
+            build/xcodebuild-iphoneos.log
+            build/output/*.sha256
+          if-no-files-found: warn
+          retention-days: 14

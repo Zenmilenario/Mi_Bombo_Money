@@ -1,0 +1,266 @@
+name: Generar IPA firmado
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-ipa-signed-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Compilar y firmar MiPatrimonio
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    env:
+      PROJECT: MiPatrimonio.xcodeproj
+      SCHEME: MiPatrimonio
+      CONFIGURATION: Release
+      DERIVED_DATA: build/DerivedDataSigned
+      OUTPUT_DIR: build/output-signed
+      BUILD_NUMBER: ${{ github.run_number }}
+      BUNDLE_IDENTIFIER: ${{ secrets.BUNDLE_IDENTIFIER }}
+
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v7
+
+      - name: Comprobar secretos de firma
+        shell: bash
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          BUNDLE_IDENTIFIER_SECRET: ${{ secrets.BUNDLE_IDENTIFIER }}
+        run: |
+          set -euo pipefail
+
+          missing=0
+
+          if [ -z "$BUILD_CERTIFICATE_BASE64" ]; then
+            echo "Falta el secret BUILD_CERTIFICATE_BASE64"
+            missing=1
+          fi
+          if [ -z "$P12_PASSWORD" ]; then
+            echo "Falta el secret P12_PASSWORD"
+            missing=1
+          fi
+          if [ -z "$BUILD_PROVISION_PROFILE_BASE64" ]; then
+            echo "Falta el secret BUILD_PROVISION_PROFILE_BASE64"
+            missing=1
+          fi
+          if [ -z "$KEYCHAIN_PASSWORD" ]; then
+            echo "Falta el secret KEYCHAIN_PASSWORD"
+            missing=1
+          fi
+          if [ -z "$BUNDLE_IDENTIFIER_SECRET" ]; then
+            echo "Falta el secret BUNDLE_IDENTIFIER"
+            missing=1
+          fi
+
+          if [ "$missing" -ne 0 ]; then
+            echo "Configura los secrets indicados en Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Instalar certificado y perfil de aprovisionamiento
+        shell: bash
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          CERTIFICATE_PATH="$RUNNER_TEMP/build_certificate.p12"
+          PROFILE_SOURCE_PATH="$RUNNER_TEMP/build_profile.mobileprovision"
+          PROFILE_PLIST_PATH="$RUNNER_TEMP/build_profile.plist"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERTIFICATE_PATH"
+          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o "$PROFILE_SOURCE_PATH"
+          security cms -D -i "$PROFILE_SOURCE_PATH" > "$PROFILE_PLIST_PATH"
+
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$PROFILE_PLIST_PATH")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "$PROFILE_PLIST_PATH")
+          TEAM_ID=$(/usr/libexec/PlistBuddy -c "Print :TeamIdentifier:0" "$PROFILE_PLIST_PATH")
+          APP_PREFIX=$(/usr/libexec/PlistBuddy -c "Print :ApplicationIdentifierPrefix:0" "$PROFILE_PLIST_PATH")
+          PROFILE_APP_ID=$(/usr/libexec/PlistBuddy -c "Print :Entitlements:application-identifier" "$PROFILE_PLIST_PATH")
+          PROFILE_BUNDLE_PATTERN="${PROFILE_APP_ID#${APP_PREFIX}.}"
+
+          case "$PROFILE_BUNDLE_PATTERN" in
+            *\*)
+              PROFILE_PREFIX="${PROFILE_BUNDLE_PATTERN%\*}"
+              if [[ "$BUNDLE_IDENTIFIER" != "$PROFILE_PREFIX"* ]]; then
+                echo "El Bundle ID $BUNDLE_IDENTIFIER no coincide con el perfil $PROFILE_BUNDLE_PATTERN"
+                exit 1
+              fi
+              ;;
+            *)
+              if [ "$BUNDLE_IDENTIFIER" != "$PROFILE_BUNDLE_PATTERN" ]; then
+                echo "El Bundle ID $BUNDLE_IDENTIFIER no coincide con el perfil $PROFILE_BUNDLE_PATTERN"
+                exit 1
+              fi
+              ;;
+          esac
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+          SIGNING_IDENTITY=$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | sed -n 's/.*"\(.*\)"/\1/p' | head -n 1)
+          if [ -z "$SIGNING_IDENTITY" ]; then
+            echo "No se encontro una identidad valida de firma dentro del certificado P12."
+            exit 1
+          fi
+
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          INSTALLED_PROFILE="$PROFILES_DIR/$PROFILE_UUID.mobileprovision"
+          mkdir -p "$PROFILES_DIR"
+          cp "$PROFILE_SOURCE_PATH" "$INSTALLED_PROFILE"
+
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "CERTIFICATE_PATH=$CERTIFICATE_PATH" >> "$GITHUB_ENV"
+          echo "PROFILE_SOURCE_PATH=$PROFILE_SOURCE_PATH" >> "$GITHUB_ENV"
+          echo "PROFILE_PLIST_PATH=$PROFILE_PLIST_PATH" >> "$GITHUB_ENV"
+          echo "INSTALLED_PROFILE=$INSTALLED_PROFILE" >> "$GITHUB_ENV"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "TEAM_ID=$TEAM_ID" >> "$GITHUB_ENV"
+          echo "SIGNING_IDENTITY=$SIGNING_IDENTITY" >> "$GITHUB_ENV"
+
+          echo "Perfil instalado: $PROFILE_NAME"
+          echo "Equipo de Apple: $TEAM_ID"
+          echo "Identidad de firma: $SIGNING_IDENTITY"
+
+      - name: Compilar y firmar para dispositivo iOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build
+          mkdir -p "$OUTPUT_DIR"
+
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIGURATION" \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath "$DERIVED_DATA" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_IDENTIFIER" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$SIGNING_IDENTITY" \
+            PROVISIONING_PROFILE="$PROFILE_UUID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            clean build | tee build/xcodebuild-signed.log
+
+      - name: Verificar firma y crear IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_DIR="$DERIVED_DATA/Build/Products/${CONFIGURATION}-iphoneos"
+          APP_PATH=$(find "$APP_DIR" -maxdepth 1 -type d -name "*.app" -print -quit)
+
+          if [ -z "$APP_PATH" ] || [ ! -d "$APP_PATH" ]; then
+            echo "No se encontro la aplicacion compilada en $APP_DIR"
+            exit 1
+          fi
+
+          if [ ! -f "$APP_PATH/embedded.mobileprovision" ]; then
+            echo "La aplicacion no contiene embedded.mobileprovision."
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+          INFO_PLIST="$APP_PATH/Info.plist"
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO_PLIST")
+          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO_PLIST")
+          ACTUAL_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO_PLIST")
+
+          if [ "$ACTUAL_BUNDLE_ID" != "$BUNDLE_IDENTIFIER" ]; then
+            echo "El Bundle ID compilado no coincide con el configurado."
+            exit 1
+          fi
+
+          IPA_FILENAME="MiPatrimonio-${VERSION}-${BUILD}-signed.ipa"
+          rm -rf "$OUTPUT_DIR/Payload"
+          mkdir -p "$OUTPUT_DIR/Payload"
+          xattr -cr "$APP_PATH" || true
+          PAYLOAD_APP="$OUTPUT_DIR/Payload/$(basename "$APP_PATH")"
+          ditto "$APP_PATH" "$PAYLOAD_APP"
+          codesign --verify --deep --strict --verbose=2 "$PAYLOAD_APP"
+
+          (
+            cd "$OUTPUT_DIR"
+            ditto -c -k --sequesterRsrc --keepParent Payload "$IPA_FILENAME"
+            unzip -tq "$IPA_FILENAME"
+            shasum -a 256 "$IPA_FILENAME" > "${IPA_FILENAME}.sha256"
+          )
+
+          IPA_PATH="$OUTPUT_DIR/$IPA_FILENAME"
+          CHECKSUM_PATH="$OUTPUT_DIR/${IPA_FILENAME}.sha256"
+
+          echo "IPA_PATH=$IPA_PATH" >> "$GITHUB_ENV"
+          echo "CHECKSUM_PATH=$CHECKSUM_PATH" >> "$GITHUB_ENV"
+          echo "IPA_FILENAME=$IPA_FILENAME" >> "$GITHUB_ENV"
+
+          {
+            echo "## IPA firmado generado"
+            echo ""
+            echo "- Archivo: \`$IPA_FILENAME\`"
+            echo "- Version: \`$VERSION ($BUILD)\`"
+            echo "- Bundle ID: \`$ACTUAL_BUNDLE_ID\`"
+            echo "- Perfil: \`$PROFILE_NAME\`"
+            echo "- Tamano: \`$(du -h "$IPA_PATH" | awk '{print $1}')\`"
+            echo ""
+            echo "> Solo se podra instalar en dispositivos admitidos por el perfil de aprovisionamiento y mientras el certificado y el perfil sean validos."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar IPA firmado
+        uses: actions/upload-artifact@v7
+        with:
+          name: MiPatrimonio-IPA-Firmado-${{ github.run_number }}
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
+          retention-days: 30
+          archive: false
+
+      - name: Guardar checksum y registro de compilacion
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: Diagnostico-IPA-Firmado-${{ github.run_number }}
+          path: |
+            build/xcodebuild-signed.log
+            build/output-signed/*.sha256
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Eliminar certificado, perfil y keychain temporales
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${KEYCHAIN_PATH:-}" ]; then
+            security delete-keychain "$KEYCHAIN_PATH"
+          fi
+          rm -f \
+            "${CERTIFICATE_PATH:-}" \
+            "${PROFILE_SOURCE_PATH:-}" \
+            "${PROFILE_PLIST_PATH:-}" \
+            "${INSTALLED_PROFILE:-}"

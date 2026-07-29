@@ -22,3 +22,12 @@ xcuserdata/
 # Editores
 .vscode/
 .idea/
+
+# Firma y aprovisionamiento de Apple
+*.p12
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.keychain-db
+*certificate_base64*.txt
+*provision*_base64*.txt
