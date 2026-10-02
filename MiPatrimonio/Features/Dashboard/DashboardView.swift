@@ -304,14 +304,26 @@ struct DashboardView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: AppDesign.sectionSpacing) {
-                    netWorthCard
-                    monthSelector
-                    monthlyMetrics
-                    alertsSection
-                    accountsSection
-                    budgetsSection
-                    netWorthChart
-                    primaryGoalSection
+                    if activeAccounts.isEmpty {
+                        ContentUnavailableView {
+                            Label("Empieza con tus datos", systemImage: "building.columns")
+                        } description: {
+                            Text("Añade tu primera cuenta o efectivo. Después podrás registrar movimientos y presupuestos.")
+                        } actions: {
+                            Button("Añadir mi primera cuenta", action: onOpenAccounts)
+                                .buttonStyle(.borderedProminent)
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 320)
+                    } else {
+                        netWorthCard
+                        monthSelector
+                        monthlyMetrics
+                        alertsSection
+                        accountsSection
+                        budgetsSection
+                        netWorthChart
+                        primaryGoalSection
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -339,17 +351,16 @@ struct DashboardView: View {
 
     private var netWorthCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .firstTextBaseline) {
-                Label("Patrimonio total", systemImage: "sum")
-                    .font(.headline)
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-
-                Text(lastUpdateText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.trailing)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline) {
+                    netWorthTitle
+                    Spacer()
+                    lastUpdateLabel
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    netWorthTitle
+                    lastUpdateLabel
+                }
             }
 
             PrivacyAmountText(
@@ -404,6 +415,18 @@ struct DashboardView: View {
         .accessibilityElement(children: .combine)
     }
 
+    private var netWorthTitle: some View {
+        Label("Patrimonio total", systemImage: "sum")
+            .font(.headline)
+            .foregroundStyle(.secondary)
+    }
+
+    private var lastUpdateLabel: some View {
+        Text(lastUpdateText)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
     private var monthSelector: some View {
         HStack(spacing: 14) {
             Button {
@@ -423,6 +446,8 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
                 Text(selectedMonth.formatted(.dateTime.month(.wide).year()))
                     .font(.headline)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
             }
 
             Spacer()
@@ -440,10 +465,7 @@ struct DashboardView: View {
 
     private var monthlyMetrics: some View {
         LazyVGrid(
-            columns: [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12),
-            ],
+            columns: [GridItem(.adaptive(minimum: 150), spacing: 12)],
             spacing: 12
         ) {
             MetricCard(
@@ -614,22 +636,14 @@ struct DashboardView: View {
                 }
             } else {
                 VStack(alignment: .leading, spacing: 16) {
-                    HStack(spacing: 16) {
-                        FinancialSummaryTile(
-                            title: "Gastado",
-                            minorUnits: totalBudgetSpentMinor,
-                            tint: totalBudgetFraction > 1 ? .red : .primary
-                        )
-
-                        Divider()
-
-                        FinancialSummaryTile(
-                            title: "Disponible",
-                            minorUnits: totalBudgetAvailableMinor,
-                            tint: totalBudgetAvailableMinor >= 0 ? .green : .red
-                        )
-                    }
-                    .frame(minHeight: 54)
+                    AdaptiveSummaryPair(
+                        firstTitle: "Gastado",
+                        firstAmount: totalBudgetSpentMinor,
+                        firstTint: totalBudgetFraction > 1 ? .red : .primary,
+                        secondTitle: "Disponible",
+                        secondAmount: totalBudgetAvailableMinor,
+                        secondTint: totalBudgetAvailableMinor >= 0 ? .green : .red
+                    )
 
                     VStack(alignment: .leading, spacing: 8) {
                         ProgressView(value: Swift.min(totalBudgetFraction, 1))

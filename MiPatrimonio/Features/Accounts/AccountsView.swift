@@ -69,11 +69,17 @@ struct AccountsView: View {
         NavigationStack {
             Group {
                 if accounts.isEmpty && cards.isEmpty {
-                    ContentUnavailableView(
-                        "Sin cuentas",
-                        systemImage: "building.columns",
-                        description: Text("Añade bancos, cuentas, tarjetas, efectivo o inversiones.")
-                    )
+                    VStack(spacing: 16) {
+                        ContentUnavailableView(
+                            "Sin cuentas",
+                            systemImage: "building.columns",
+                            description: Text("Añade tu primera cuenta, efectivo o inversión para empezar.")
+                        )
+                        Button("Añadir mi primera cuenta") {
+                            showingAdd = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 } else {
                     List {
                         if !activeAccounts.isEmpty {
@@ -408,22 +414,14 @@ private struct AccountOverviewCard: View {
             Text("Resumen patrimonial")
                 .font(.headline)
 
-            HStack(spacing: 14) {
-                FinancialSummaryTile(
-                    title: "Activos",
-                    minorUnits: assetMinor,
-                    tint: .green
-                )
-
-                Divider()
-
-                FinancialSummaryTile(
-                    title: "Deudas",
-                    minorUnits: debtMinor,
-                    tint: debtMinor > 0 ? .red : .secondary
-                )
-            }
-            .frame(minHeight: 54)
+            AdaptiveSummaryPair(
+                firstTitle: "Activos",
+                firstAmount: assetMinor,
+                firstTint: .green,
+                secondTitle: "Deudas",
+                secondAmount: debtMinor,
+                secondTint: debtMinor > 0 ? .red : .secondary
+            )
 
             Divider()
 

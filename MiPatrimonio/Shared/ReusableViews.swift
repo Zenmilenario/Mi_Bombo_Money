@@ -76,7 +76,7 @@ struct MetricCard: View {
                 Text(title)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
 
             Text(value)
@@ -241,7 +241,43 @@ struct FinancialSummaryTile: View {
                 signed: signed
             )
             .foregroundStyle(tint)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct AdaptiveSummaryPair: View {
+    let firstTitle: String
+    let firstAmount: Int64
+    let firstTint: Color
+    let secondTitle: String
+    let secondAmount: Int64
+    let secondTint: Color
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 14) {
+                firstTile
+                Divider()
+                secondTile
+            }
+            .frame(minHeight: 54)
+
+            VStack(alignment: .leading, spacing: 12) {
+                firstTile
+                Divider()
+                secondTile
+            }
+        }
+    }
+
+    private var firstTile: some View {
+        FinancialSummaryTile(title: firstTitle, minorUnits: firstAmount, tint: firstTint)
+    }
+
+    private var secondTile: some View {
+        FinancialSummaryTile(title: secondTitle, minorUnits: secondAmount, tint: secondTint)
     }
 }

@@ -6,6 +6,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		B913B5C88D1449A2890A1234 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B913B5C88D1449A2890A1235 /* Assets.xcassets */; };
 		F2358C5F82E68010A870749B /* LockGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D3282C30D1EAF9EDC47CBFE /* LockGateView.swift */; };
 		9097AAC6B5FF18F8F9F063DF /* MiPatrimonioApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82F6DC5E11A8B16F805133B8 /* MiPatrimonioApp.swift */; };
 		6FD3ECB2E094A5DA8A2F02C4 /* RootTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D856371E394A45DF298F409 /* RootTabView.swift */; };
@@ -13,7 +14,6 @@
 		41C2682ADB521812A046077D /* PersistenceController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0155D7AAE9B74364F41ADF94 /* PersistenceController.swift */; };
 		9DE5FAF844C63D76F44BFE8F /* AppLockManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ADCD5D90EAA6890B9039A8B /* AppLockManager.swift */; };
 		DD34A9A3947EA6CB90CA76B6 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54172FE996478D4CC177A818 /* KeychainStore.swift */; };
-		E4FCF3521F3900FF4C258EA5 /* WorkbookSeedData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B63B11F34466229A21CD1BB /* WorkbookSeedData.swift */; };
 		270CB0B2EB330B3B0BE237F1 /* BankingProviderContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1776957A6AF9C2D7669FB194 /* BankingProviderContracts.swift */; };
 		470A2D4942E61022DC5724D4 /* CSVImportService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61D5F89DE076C743D0E2A306 /* CSVImportService.swift */; };
 		219076C5A6B7013E107CED6A /* DuplicateDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D070D44D99EF74D09121DC3A /* DuplicateDetectionService.swift */; };
@@ -35,6 +35,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		B913B5C88D1449A2890A1235 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5D3282C30D1EAF9EDC47CBFE /* LockGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockGateView.swift; sourceTree = "<group>"; };
 		82F6DC5E11A8B16F805133B8 /* MiPatrimonioApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MiPatrimonioApp.swift; sourceTree = "<group>"; };
 		2D856371E394A45DF298F409 /* RootTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootTabView.swift; sourceTree = "<group>"; };
@@ -42,7 +43,6 @@
 		0155D7AAE9B74364F41ADF94 /* PersistenceController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceController.swift; sourceTree = "<group>"; };
 		3ADCD5D90EAA6890B9039A8B /* AppLockManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLockManager.swift; sourceTree = "<group>"; };
 		54172FE996478D4CC177A818 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
-		6B63B11F34466229A21CD1BB /* WorkbookSeedData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkbookSeedData.swift; sourceTree = "<group>"; };
 		1776957A6AF9C2D7669FB194 /* BankingProviderContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BankingProviderContracts.swift; sourceTree = "<group>"; };
 		61D5F89DE076C743D0E2A306 /* CSVImportService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSVImportService.swift; sourceTree = "<group>"; };
 		D070D44D99EF74D09121DC3A /* DuplicateDetectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateDetectionService.swift; sourceTree = "<group>"; };
@@ -119,7 +119,6 @@
 				5C0F47206198B83FE96357A5 /* Models */,
 				F66EA7AEAC154F607FA5B551 /* Persistence */,
 				38D755DFA4F47CC7F88BACDF /* Security */,
-				A909432506366D6E10C13258 /* Seed */,
 				8ABECFA2390C7520B6C45CB4 /* Services */,
 			);
 			path = Core;
@@ -148,14 +147,6 @@
 				54172FE996478D4CC177A818 /* KeychainStore.swift */,
 			);
 			path = Security;
-			sourceTree = "<group>";
-		};
-		A909432506366D6E10C13258 /* Seed */ = {
-			isa = PBXGroup;
-			children = (
-				6B63B11F34466229A21CD1BB /* WorkbookSeedData.swift */,
-			);
-			path = Seed;
 			sourceTree = "<group>";
 		};
 		8ABECFA2390C7520B6C45CB4 /* Services */ = {
@@ -238,6 +229,7 @@
 		FC125BD4015EED8D7FA08971 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				B913B5C88D1449A2890A1235 /* Assets.xcassets */,
 				A127ED4D4661EC13F0B2E90A /* Info.plist */,
 			);
 			path = Resources;
@@ -302,7 +294,7 @@
 		A4372A4EA8ADF13BF65D058E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = ();
+			files = (B913B5C88D1449A2890A1234 /* Assets.xcassets in Resources */);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
@@ -319,7 +311,6 @@
 				41C2682ADB521812A046077D /* PersistenceController.swift in Sources */,
 				9DE5FAF844C63D76F44BFE8F /* AppLockManager.swift in Sources */,
 				DD34A9A3947EA6CB90CA76B6 /* KeychainStore.swift in Sources */,
-				E4FCF3521F3900FF4C258EA5 /* WorkbookSeedData.swift in Sources */,
 				270CB0B2EB330B3B0BE237F1 /* BankingProviderContracts.swift in Sources */,
 				470A2D4942E61022DC5724D4 /* CSVImportService.swift in Sources */,
 				219076C5A6B7013E107CED6A /* DuplicateDetectionService.swift in Sources */,
@@ -444,6 +435,7 @@
 		AA10FF80E1CE1F4EFD5FE21D /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = "";
@@ -467,6 +459,7 @@
 		09CA2649E228015A962677FB /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = "";

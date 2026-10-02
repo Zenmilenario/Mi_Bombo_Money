@@ -113,7 +113,9 @@ struct TransactionsView: View {
                     ContentUnavailableView(
                         "Sin movimientos",
                         systemImage: "list.bullet.rectangle",
-                        description: Text("Añade un movimiento con el botón azul o importa un archivo CSV.")
+                        description: Text(accounts.allSatisfy(\.isArchived)
+                            ? "Primero añade una cuenta desde Cuentas. Después podrás registrar movimientos."
+                            : "Añade un movimiento con el botón azul o importa un archivo CSV.")
                     )
                 } else {
                     List {
@@ -410,22 +412,14 @@ private struct TransactionPeriodSummaryCard: View {
                     .foregroundStyle(.secondary)
             }
 
-            HStack(spacing: 14) {
-                FinancialSummaryTile(
-                    title: "Ingresos",
-                    minorUnits: incomeMinor,
-                    tint: .green
-                )
-
-                Divider()
-
-                FinancialSummaryTile(
-                    title: "Gastos",
-                    minorUnits: expenseMinor,
-                    tint: .red
-                )
-            }
-            .frame(minHeight: 54)
+            AdaptiveSummaryPair(
+                firstTitle: "Ingresos",
+                firstAmount: incomeMinor,
+                firstTint: .green,
+                secondTitle: "Gastos",
+                secondAmount: expenseMinor,
+                secondTint: .red
+            )
 
             Divider()
 

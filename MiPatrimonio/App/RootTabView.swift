@@ -10,11 +10,9 @@ private enum AppTab: Hashable {
 }
 
 struct RootTabView: View {
-    @Environment(\.modelContext) private var modelContext
-
+    @Query private var accounts: [FinancialAccount]
     @State private var selectedTab: AppTab = .home
     @State private var showingQuickAdd = false
-    @State private var seedError: String?
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -75,7 +73,8 @@ struct RootTabView: View {
                     }
             }
 
-            if selectedTab == .home || selectedTab == .transactions {
+            if accounts.contains(where: { !$0.isArchived })
+                && (selectedTab == .home || selectedTab == .transactions) {
                 Button {
                     showingQuickAdd = true
                 } label: {
@@ -104,36 +103,6 @@ struct RootTabView: View {
         )
         .sheet(isPresented: $showingQuickAdd) {
             TransactionFormView()
-        }
-        .task {
-            do {
-                try WorkbookSeedData.seedIfNeeded(
-                    in: modelContext
-                )
-            } catch {
-                seedError = error.localizedDescription
-            }
-        }
-        .alert(
-            "No se pudieron cargar los datos iniciales",
-            isPresented: Binding(
-                get: {
-                    seedError != nil
-                },
-                set: { isPresented in
-                    if !isPresented {
-                        seedError = nil
-                    }
-                }
-            )
-        ) {
-            Button("Aceptar", role: .cancel) {
-                seedError = nil
-            }
-        } message: {
-            Text(
-                seedError ?? "Error desconocido"
-            )
         }
     }
 }

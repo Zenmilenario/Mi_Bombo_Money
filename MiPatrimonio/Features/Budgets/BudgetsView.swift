@@ -274,22 +274,14 @@ private struct BudgetOverviewCard: View {
             }
 
             if budgetMinor > 0 {
-                HStack(spacing: 14) {
-                    FinancialSummaryTile(
-                        title: "Presupuestado",
-                        minorUnits: budgetMinor,
-                        tint: .primary
-                    )
-
-                    Divider()
-
-                    FinancialSummaryTile(
-                        title: "Gastado",
-                        minorUnits: spentMinor,
-                        tint: fraction > 1 ? .red : .primary
-                    )
-                }
-                .frame(minHeight: 54)
+                AdaptiveSummaryPair(
+                    firstTitle: "Presupuestado",
+                    firstAmount: budgetMinor,
+                    firstTint: .primary,
+                    secondTitle: "Gastado",
+                    secondAmount: spentMinor,
+                    secondTint: fraction > 1 ? .red : .primary
+                )
 
                 Divider()
 
