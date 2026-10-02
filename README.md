@@ -1,10 +1,10 @@
-# Mi Patrimonio — MVP iPhone
+# Mi Patrimonio — iPhone y iPad
 
 Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones.
 
 ## Inicio sin datos de ejemplo
 
-Una instalación nueva empieza sin cuentas, movimientos, categorías, presupuestos ni objetivos precargados. Desde Inicio o Cuentas puedes añadir tu primera cuenta y registrar tus datos. El resumen se adapta al ancho disponible en distintos tamaños de iPhone. El icono usa la foto de Doge incluida en `MiPatrimonio/Resources/Assets.xcassets`.
+Una instalación nueva empieza sin cuentas, movimientos, categorías, presupuestos ni objetivos precargados. Desde Inicio o Cuentas puedes añadir tu primera cuenta y registrar tus datos. La app es universal para iPhone y iPad; el resumen se adapta al ancho disponible y el iPad admite orientación vertical y horizontal. El icono usa la foto de Doge incluida en `MiPatrimonio/Resources/Assets.xcassets`.
 
 Si ya tenías instalada una versión anterior, tus datos existentes se conservan. Para empezar completamente de cero, ve a **Ajustes → Datos → Empezar desde cero** y confirma la eliminación. Esta acción borra todos los datos financieros locales y no se puede deshacer.
 
@@ -20,20 +20,20 @@ Esta entrega incorpora un rediseño completo de la experiencia de uso sin cambia
 - Ajustes simplificados y redactados para usuarios no técnicos.
 - Sistema visual común, modo oscuro y mejoras de accesibilidad.
 
-Consulta `CAMBIOS_REDISENO.md` para el detalle y `PRUEBAS_REDISENO.md` para una lista práctica de comprobaciones en Appetize o en un iPhone.
+Consulta `CAMBIOS_REDISENO.md` para el detalle y `PRUEBAS_REDISENO.md` para una lista práctica de comprobaciones en Appetize o en un dispositivo iOS.
 
 ## Requisitos
 
 - macOS con Xcode 16 o posterior recomendado.
 - iOS 17.0 o posterior.
-- Un equipo de firma configurado para ejecutar en un iPhone físico; el simulador no exige biometría real y ofrece la simulación desde Xcode.
+- Un equipo de firma configurado para ejecutar en un iPhone o iPad físico; el simulador no exige biometría real y ofrece la simulación desde Xcode.
 
 ## Ejecutar
 
 1. Abre `MiPatrimonio.xcodeproj`.
 2. Selecciona el target `MiPatrimonio`.
 3. En **Signing & Capabilities**, elige tu equipo.
-4. Selecciona un iPhone o simulador.
+4. Selecciona un iPhone, iPad o simulador.
 5. Pulsa Run.
 
 No hay dependencias de terceros ni pasos de instalación.
@@ -107,7 +107,7 @@ Consulta `ESPECIFICACION_FUNCIONAL_Y_TECNICA.md` para el análisis completo, el 
 
 El repositorio incluye `.github/workflows/build-ios-simulator.yml`. Cada subida a `main` intenta compilar el proyecto en un runner macOS de GitHub y genera el artefacto `MiPatrimonio-iOS-Simulator`.
 
-Desde Windows, entra en **Actions**, abre **Compilar para iOS Simulator** y ejecuta **Run workflow**. Al terminar, descarga el artefacto desde la pagina de la ejecucion. El archivo `MiPatrimonio-Simulator.zip` contiene la aplicacion `.app` compilada para el simulador; no es un `.ipa` instalable directamente en un iPhone.
+Desde Windows, entra en **Actions**, abre **Compilar para iOS Simulator** y ejecuta **Run workflow**. Al terminar, descarga el artefacto desde la página de la ejecución. El archivo `MiPatrimonio-Simulator.zip` contiene la aplicación `.app` compilada para el simulador; no es un `.ipa` instalable directamente en un iPhone o iPad físico.
 
 Consulta `SUBIR_DESDE_WINDOWS.md` para las instrucciones de subida.
 
