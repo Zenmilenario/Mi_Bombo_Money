@@ -2,6 +2,7 @@ import SwiftData
 import SwiftUI
 
 struct SettingsView: View {
+    @Environment(\.modelContext) private var modelContext
     @AppStorage("hideAmounts") private var hideAmounts = false
     @AppStorage("appLockEnabled") private var appLockEnabled = true
     @AppStorage("appearanceMode") private var appearanceMode = AppAppearance.system.rawValue
@@ -10,6 +11,8 @@ struct SettingsView: View {
     @Query private var transactions: [FinancialTransaction]
     @Query private var cards: [PaymentCard]
     @Query private var institutions: [FinancialInstitution]
+    @State private var showingResetConfirmation = false
+    @State private var resetError: String?
 
     var body: some View {
         NavigationStack {
@@ -70,6 +73,12 @@ struct SettingsView: View {
                     } label: {
                         Label("Importar archivos Excel", systemImage: "tablecells")
                     }
+
+                    Button(role: .destructive) {
+                        showingResetConfirmation = true
+                    } label: {
+                        Label("Empezar desde cero", systemImage: "trash")
+                    }
                 }
 
                 Section("Organización") {
@@ -120,6 +129,44 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Ajustes")
+        }
+        .confirmationDialog(
+            "Empezar desde cero",
+            isPresented: $showingResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Eliminar todos los datos", role: .destructive) {
+                clearAllData()
+            }
+        } message: {
+            Text("Se eliminarán cuentas, movimientos, categorías, presupuestos y demás datos locales. Esta acción no se puede deshacer.")
+        }
+        .alert("No se pudieron eliminar los datos", isPresented: Binding(
+            get: { resetError != nil },
+            set: { if !$0 { resetError = nil } }
+        )) {
+            Button("Aceptar", role: .cancel) { resetError = nil }
+        } message: {
+            Text(resetError ?? "Error desconocido")
+        }
+    }
+
+    private func clearAllData() {
+        do {
+            try modelContext.delete(model: FinancialTransaction.self)
+            try modelContext.delete(model: RecurringMovement.self)
+            try modelContext.delete(model: MonthlyBudget.self)
+            try modelContext.delete(model: SavingsGoal.self)
+            try modelContext.delete(model: BalanceSnapshot.self)
+            try modelContext.delete(model: PaymentCard.self)
+            try modelContext.delete(model: ImportBatch.self)
+            try modelContext.delete(model: FinancialAccount.self)
+            try modelContext.delete(model: FinanceCategory.self)
+            try modelContext.delete(model: FinancialInstitution.self)
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            resetError = error.localizedDescription
         }
     }
 

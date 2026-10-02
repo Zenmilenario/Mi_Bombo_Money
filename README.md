@@ -2,11 +2,17 @@
 
 Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones.
 
+## Inicio sin datos de ejemplo
+
+Una instalación nueva empieza sin cuentas, movimientos, categorías, presupuestos ni objetivos precargados. Desde Inicio o Cuentas puedes añadir tu primera cuenta y registrar tus datos. El resumen se adapta al ancho disponible en distintos tamaños de iPhone. El icono usa la foto de Doge incluida en `MiPatrimonio/Resources/Assets.xcassets`.
+
+Si ya tenías instalada una versión anterior, tus datos existentes se conservan. Para empezar completamente de cero, ve a **Ajustes → Datos → Empezar desde cero** y confirma la eliminación. Esta acción borra todos los datos financieros locales y no se puede deshacer.
+
 ## Rediseño 0.2.0
 
 Esta entrega incorpora un rediseño completo de la experiencia de uso sin cambiar el modelo financiero ni los datos guardados:
 
-- Inicio más corto y jerarquizado, con métricas mensuales en cuadrícula 2 × 2.
+- Inicio más corto y jerarquizado, con métricas mensuales en cuadrícula adaptable.
 - Avisos accionables y resumen global de presupuesto.
 - Botón rápido de movimiento abajo a la derecha, solo en Inicio y Movimientos.
 - Análisis de gastos dentro de Movimientos y comparativa presupuestaria dentro de Presupuestos.
@@ -49,7 +55,7 @@ No hay dependencias de terceros ni pasos de instalación.
 
 ## Inicialización local
 
-La configuración inicial se ejecuta una sola vez y únicamente si la base está vacía. Para repetirla durante desarrollo, elimina la app del simulador o dispositivo y vuelve a instalarla. Los importes personales no se documentan en este repositorio.
+La app ya no inserta datos de ejemplo al abrirse. En una instalación nueva, la base local está vacía hasta que añadas cuentas, categorías y movimientos o importes un archivo CSV.
 
 ## Importación CSV
 
@@ -82,10 +88,9 @@ MiPatrimonio/
   Core/Persistence/    almacén local
   Core/Security/       LocalAuthentication, Keychain y AES-GCM
   Core/Services/       cálculos, CSV, duplicados y periódicos
-  Core/Seed/           datos derivados del Excel
   Features/            pantallas por funcionalidad
   Shared/              formato, apariencia y componentes
-  Resources/           Info.plist
+  Resources/           Info.plist e icono de la app
 ```
 
 ## Verificación realizada en esta entrega
