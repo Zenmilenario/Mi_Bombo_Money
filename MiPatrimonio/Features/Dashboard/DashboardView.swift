@@ -328,6 +328,8 @@ struct DashboardView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, 104)
+                .frame(maxWidth: AppDesign.readableContentWidth)
+                .frame(maxWidth: .infinity)
             }
             .background(AppDesign.pageBackground)
             .navigationTitle("Inicio")
@@ -465,7 +467,7 @@ struct DashboardView: View {
 
     private var monthlyMetrics: some View {
         LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 150), spacing: 12)],
+            columns: [GridItem(.adaptive(minimum: 160), spacing: 12)],
             spacing: 12
         ) {
             MetricCard(

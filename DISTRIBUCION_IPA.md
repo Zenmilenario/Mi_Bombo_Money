@@ -4,7 +4,7 @@ El proyecto incluye dos workflows independientes dentro de `.github/workflows/`.
 
 ## Opción inmediata: IPA sin firmar
 
-El workflow **Generar IPA sin firmar** compila la aplicación para un iPhone real y crea un archivo `.ipa` sin necesitar certificados ni secretos.
+El workflow **Generar IPA sin firmar** compila la aplicación para un iPhone o iPad real y crea un archivo `.ipa` sin necesitar certificados ni secretos.
 
 1. Abre el repositorio en GitHub.
 2. Entra en **Actions**.

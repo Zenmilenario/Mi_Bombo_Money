@@ -537,6 +537,8 @@ private struct BudgetAnalysisView: View {
             }
             .padding(16)
             .padding(.bottom, 24)
+            .frame(maxWidth: AppDesign.readableContentWidth)
+            .frame(maxWidth: .infinity)
         }
         .background(AppDesign.pageBackground)
         .navigationTitle("Análisis de presupuesto")

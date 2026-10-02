@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum AppDesign {
+    static let readableContentWidth: CGFloat = 840
     static let compactRadius: CGFloat = 12
     static let cardRadius: CGFloat = 18
     static let heroRadius: CGFloat = 24

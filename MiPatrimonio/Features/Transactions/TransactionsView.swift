@@ -826,10 +826,7 @@ private struct SpendingAnalysisView: View {
                 monthSelector
 
                 LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12),
-                    ],
+                    columns: [GridItem(.adaptive(minimum: 160), spacing: 12)],
                     spacing: 12
                 ) {
                     MetricCard(
@@ -846,6 +843,8 @@ private struct SpendingAnalysisView: View {
                         tint: .blue
                     )
                 }
+                .frame(maxWidth: 420)
+                .frame(maxWidth: .infinity)
 
                 SectionCard(
                     "Gastos por categoría",
@@ -931,6 +930,8 @@ private struct SpendingAnalysisView: View {
             }
             .padding(16)
             .padding(.bottom, 24)
+            .frame(maxWidth: AppDesign.readableContentWidth)
+            .frame(maxWidth: .infinity)
         }
         .background(AppDesign.pageBackground)
         .navigationTitle("Análisis de gastos")

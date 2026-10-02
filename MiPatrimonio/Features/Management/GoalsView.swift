@@ -185,6 +185,8 @@ struct GoalDetailView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 16)
+                .frame(maxWidth: AppDesign.readableContentWidth)
+                .frame(maxWidth: .infinity)
             }
             .background(AppDesign.pageBackground)
             .navigationTitle("Objetivo de ahorro")
@@ -255,10 +257,7 @@ struct GoalDetailView: View {
 
     private var amountSummary: some View {
         LazyVGrid(
-            columns: [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12),
-            ],
+            columns: [GridItem(.adaptive(minimum: 160), spacing: 12)],
             spacing: 12
         ) {
             MetricCard(
