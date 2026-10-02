@@ -10,9 +10,12 @@ private enum AppTab: Hashable {
 }
 
 struct RootTabView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Query private var accounts: [FinancialAccount]
     @State private var selectedTab: AppTab = .home
     @State private var showingQuickAdd = false
+    @State private var recurrenceError: String?
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -103,6 +106,26 @@ struct RootTabView: View {
         )
         .sheet(isPresented: $showingQuickAdd) {
             TransactionFormView()
+        }
+        .onAppear(perform: postDueTransfers)
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { postDueTransfers() }
+        }
+        .alert("No se pudo registrar la aportación periódica", isPresented: Binding(
+            get: { recurrenceError != nil },
+            set: { if !$0 { recurrenceError = nil } }
+        )) {
+            Button("Aceptar", role: .cancel) { recurrenceError = nil }
+        } message: {
+            Text(recurrenceError ?? "Error desconocido")
+        }
+    }
+
+    private func postDueTransfers() {
+        do {
+            try RecurringMovementService.postDueTransfers(in: modelContext)
+        } catch {
+            recurrenceError = error.localizedDescription
         }
     }
 }

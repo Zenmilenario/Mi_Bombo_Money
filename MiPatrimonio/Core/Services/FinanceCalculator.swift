@@ -46,6 +46,26 @@ struct NetWorthPoint: Identifiable {
 }
 
 enum FinanceCalculator {
+    static func reservedAmount(for account: FinancialAccount, funds: [ReservedFund]) -> Int64 {
+        funds
+            .filter { $0.account?.id == account.id }
+            .reduce(Int64.zero) { $0 + Swift.max(0, $1.amountMinor) }
+    }
+
+    static func spendableCash(
+        accounts: [FinancialAccount],
+        funds: [ReservedFund],
+        transactions: [FinancialTransaction],
+        snapshots: [BalanceSnapshot] = []
+    ) -> Int64 {
+        accounts
+            .filter { !$0.isArchived && $0.includeInNetWorth && $0.type != .investment && !$0.type.isLiability }
+            .reduce(Int64.zero) { partial, account in
+                partial + balance(of: account, transactions: transactions, snapshots: snapshots)
+                    - reservedAmount(for: account, funds: funds)
+            }
+    }
+
     static func effect(of transaction: FinancialTransaction, on account: FinancialAccount) -> Int64 {
         let amount = Swift.abs(transaction.amountMinor)
         let isSource = transaction.sourceAccount?.id == account.id

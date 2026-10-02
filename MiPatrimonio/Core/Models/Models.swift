@@ -64,6 +64,24 @@ enum PaymentCardType: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+enum CardLimitKind: String, CaseIterable, Identifiable, Codable {
+    case perTransaction
+    case daily
+    case monthly
+    case credit
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .perTransaction: "Por operación"
+        case .daily: "Diario"
+        case .monthly: "Mensual"
+        case .credit: "Crédito"
+        }
+    }
+}
+
 enum TransactionType: String, CaseIterable, Identifiable, Codable {
     case income
     case expense
@@ -254,6 +272,15 @@ final class PaymentCard {
     var name: String
     var typeRaw: String
     var lastFour: String
+    var limitMinor: Int64?
+    var limitKindRaw: String?
+    var onlinePurchasesEnabled: Bool?
+    var contactlessEnabled: Bool?
+    var atmWithdrawalsEnabled: Bool?
+    var internationalPaymentsEnabled: Bool?
+    var cashbackEnabled: Bool?
+    var cashbackPercent: Double?
+    var roundUpEnabled: Bool?
     var isArchived: Bool
     var notes: String
     var createdAt: Date
@@ -266,6 +293,15 @@ final class PaymentCard {
         name: String,
         type: PaymentCardType,
         lastFour: String = "",
+        limitMinor: Int64? = nil,
+        limitKind: CardLimitKind? = nil,
+        onlinePurchasesEnabled: Bool? = nil,
+        contactlessEnabled: Bool? = nil,
+        atmWithdrawalsEnabled: Bool? = nil,
+        internationalPaymentsEnabled: Bool? = nil,
+        cashbackEnabled: Bool? = nil,
+        cashbackPercent: Double? = nil,
+        roundUpEnabled: Bool? = nil,
         isArchived: Bool = false,
         notes: String = "",
         createdAt: Date = .now,
@@ -277,6 +313,15 @@ final class PaymentCard {
         self.name = name
         self.typeRaw = type.rawValue
         self.lastFour = String(lastFour.filter(\.isNumber).suffix(4))
+        self.limitMinor = limitMinor
+        self.limitKindRaw = limitKind?.rawValue
+        self.onlinePurchasesEnabled = onlinePurchasesEnabled
+        self.contactlessEnabled = contactlessEnabled
+        self.atmWithdrawalsEnabled = atmWithdrawalsEnabled
+        self.internationalPaymentsEnabled = internationalPaymentsEnabled
+        self.cashbackEnabled = cashbackEnabled
+        self.cashbackPercent = cashbackPercent
+        self.roundUpEnabled = roundUpEnabled
         self.isArchived = isArchived
         self.notes = notes
         self.createdAt = createdAt
@@ -288,6 +333,40 @@ final class PaymentCard {
     var type: PaymentCardType {
         get { PaymentCardType(rawValue: typeRaw) ?? .debit }
         set { typeRaw = newValue.rawValue }
+    }
+
+    var limitKind: CardLimitKind? {
+        get { limitKindRaw.flatMap { CardLimitKind(rawValue: $0) } }
+        set { limitKindRaw = newValue?.rawValue }
+    }
+}
+
+@Model
+final class ReservedFund {
+    var id: UUID
+    var name: String
+    var amountMinor: Int64
+    var notes: String
+    var createdAt: Date
+    var updatedAt: Date
+    var account: FinancialAccount?
+
+    init(
+        id: UUID = UUID(),
+        name: String,
+        amountMinor: Int64,
+        notes: String = "",
+        createdAt: Date = .now,
+        updatedAt: Date = .now,
+        account: FinancialAccount?
+    ) {
+        self.id = id
+        self.name = name
+        self.amountMinor = amountMinor
+        self.notes = notes
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.account = account
     }
 }
 
@@ -487,6 +566,7 @@ final class RecurringMovement {
     var endDate: Date?
     var isActive: Bool
     var isSubscription: Bool
+    var postsAutomatically: Bool?
     var createdAt: Date
     var updatedAt: Date
     var sourceAccount: FinancialAccount?
@@ -506,6 +586,7 @@ final class RecurringMovement {
         endDate: Date? = nil,
         isActive: Bool = true,
         isSubscription: Bool = false,
+        postsAutomatically: Bool? = nil,
         createdAt: Date = .now,
         updatedAt: Date = .now,
         sourceAccount: FinancialAccount?,
@@ -524,6 +605,7 @@ final class RecurringMovement {
         self.endDate = endDate
         self.isActive = isActive
         self.isSubscription = isSubscription
+        self.postsAutomatically = postsAutomatically
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.sourceAccount = sourceAccount

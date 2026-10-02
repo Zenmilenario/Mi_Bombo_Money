@@ -26,6 +26,7 @@
 		72F989958D03A3D9A640503E /* GoalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F441E5D746D0B6CE431C2F3 /* GoalsView.swift */; };
 		E4A770B500AF0B84DB244AC6 /* InstitutionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30F7EA49BA5732AC2CFD781B /* InstitutionsView.swift */; };
 		4B9B62D8BFC29C322A46E01D /* RecurringMovementsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C50E76D7B3FBB51C15500C2 /* RecurringMovementsView.swift */; };
+		0E28B385B2944A128B9983C1 /* ReservedFundsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E28B385B2944A128B9983C2 /* ReservedFundsView.swift */; };
 		366C57399ECF2CE8CDC64F3A /* CSVImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A751F9A8F07CC45F71E6288A /* CSVImportView.swift */; };
 		F1D050B95D3706691FAF1A1B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9810F7A893517D16BBAA6901 /* SettingsView.swift */; };
 		C723C750972B87B83269EE94 /* TransactionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 862D3DD71122BA5FB306BA79 /* TransactionsView.swift */; };
@@ -55,6 +56,7 @@
 		6F441E5D746D0B6CE431C2F3 /* GoalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalsView.swift; sourceTree = "<group>"; };
 		30F7EA49BA5732AC2CFD781B /* InstitutionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstitutionsView.swift; sourceTree = "<group>"; };
 		8C50E76D7B3FBB51C15500C2 /* RecurringMovementsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurringMovementsView.swift; sourceTree = "<group>"; };
+		0E28B385B2944A128B9983C2 /* ReservedFundsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservedFundsView.swift; sourceTree = "<group>"; };
 		A751F9A8F07CC45F71E6288A /* CSVImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSVImportView.swift; sourceTree = "<group>"; };
 		9810F7A893517D16BBAA6901 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		862D3DD71122BA5FB306BA79 /* TransactionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionsView.swift; sourceTree = "<group>"; };
@@ -205,6 +207,7 @@
 				6F441E5D746D0B6CE431C2F3 /* GoalsView.swift */,
 				30F7EA49BA5732AC2CFD781B /* InstitutionsView.swift */,
 				8C50E76D7B3FBB51C15500C2 /* RecurringMovementsView.swift */,
+				0E28B385B2944A128B9983C2 /* ReservedFundsView.swift */,
 			);
 			path = Management;
 			sourceTree = "<group>";
@@ -323,6 +326,7 @@
 				72F989958D03A3D9A640503E /* GoalsView.swift in Sources */,
 				E4A770B500AF0B84DB244AC6 /* InstitutionsView.swift in Sources */,
 				4B9B62D8BFC29C322A46E01D /* RecurringMovementsView.swift in Sources */,
+				0E28B385B2944A128B9983C1 /* ReservedFundsView.swift in Sources */,
 				366C57399ECF2CE8CDC64F3A /* CSVImportView.swift in Sources */,
 				F1D050B95D3706691FAF1A1B /* SettingsView.swift in Sources */,
 				C723C750972B87B83269EE94 /* TransactionsView.swift in Sources */,
@@ -437,14 +441,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.2.2;
+				MARKETING_VERSION = 0.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -461,14 +465,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.2.2;
+				MARKETING_VERSION = 0.2.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
