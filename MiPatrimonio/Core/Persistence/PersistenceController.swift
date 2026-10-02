@@ -6,6 +6,7 @@ enum PersistenceController {
         let schema = Schema([
             FinancialInstitution.self,
             FinancialAccount.self,
+            ReservedFund.self,
             PaymentCard.self,
             FinanceCategory.self,
             FinancialTransaction.self,

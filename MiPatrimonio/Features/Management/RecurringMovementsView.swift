@@ -4,8 +4,10 @@ import SwiftUI
 struct RecurringMovementsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \RecurringMovement.nextDueDate) private var recurringMovements: [RecurringMovement]
+    @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
 
     @State private var showingAdd = false
+    @State private var showingInvestmentAdd = false
     @State private var editingMovement: RecurringMovement?
     @State private var errorMessage: String?
     @State private var confirmationMessage: String?
@@ -20,6 +22,19 @@ struct RecurringMovementsView: View {
 
     var body: some View {
         List {
+            Section {
+                Button {
+                    showingInvestmentAdd = true
+                } label: {
+                    Label("Programar aportación mensual a inversión", systemImage: "arrow.left.arrow.right.circle")
+                }
+                .disabled(!hasInvestmentPair)
+            } header: {
+                Text("Cuenta de valores")
+            } footer: {
+                Text("Necesitas una cuenta de origen y otra de tipo Inversión. La aportación se registrará al abrir la app cuando llegue su fecha.")
+            }
+
             if recurringMovements.isEmpty {
                 ContentUnavailableView(
                     "Sin movimientos periódicos",
@@ -45,6 +60,9 @@ struct RecurringMovementsView: View {
         .sheet(isPresented: $showingAdd) {
             RecurringMovementFormView()
         }
+        .sheet(isPresented: $showingInvestmentAdd) {
+            RecurringMovementFormView(investmentContribution: true)
+        }
         .sheet(item: $editingMovement) { movement in
             RecurringMovementFormView(movement: movement)
         }
@@ -64,6 +82,11 @@ struct RecurringMovementsView: View {
         } message: {
             Text(confirmationMessage ?? "")
         }
+    }
+
+    private var hasInvestmentPair: Bool {
+        accounts.contains { !$0.isArchived && $0.type == .investment }
+            && accounts.contains { !$0.isArchived && !$0.type.isLiability && $0.type != .investment }
     }
 
     @ViewBuilder
@@ -121,6 +144,9 @@ struct RecurringMovementsView: View {
                     Text(movement.frequency.title)
                     Text("·")
                     Text("Próximo: \(movement.nextDueDate.formatted(date: .abbreviated, time: .omitted))")
+                    if movement.postsAutomatically == true && movement.type == .transfer {
+                        Text("· Automático")
+                    }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -170,6 +196,7 @@ private struct RecurringMovementFormView: View {
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
 
     private let movement: RecurringMovement?
+    private let investmentContribution: Bool
 
     @State private var name: String
     @State private var type: TransactionType
@@ -186,17 +213,19 @@ private struct RecurringMovementFormView: View {
     @State private var endDate: Date
     @State private var isActive: Bool
     @State private var isSubscription: Bool
+    @State private var postsAutomatically: Bool
     @State private var errorMessage: String?
 
-    init(movement: RecurringMovement? = nil) {
+    init(movement: RecurringMovement? = nil, investmentContribution: Bool = false) {
         self.movement = movement
-        _name = State(initialValue: movement?.name ?? "")
-        _type = State(initialValue: movement?.type ?? .expense)
+        self.investmentContribution = investmentContribution
+        _name = State(initialValue: movement?.name ?? (investmentContribution ? "Aportación a cuenta de valores" : ""))
+        _type = State(initialValue: movement?.type ?? (investmentContribution ? .transfer : .expense))
         _amountText = State(initialValue: movement.map { String(format: "%.2f", Double($0.amountMinor) / 100) } ?? "")
         _sourceAccountID = State(initialValue: movement?.sourceAccount?.id)
         _destinationAccountID = State(initialValue: movement?.destinationAccount?.id)
         _categoryID = State(initialValue: movement?.category?.id)
-        _descriptionText = State(initialValue: movement?.descriptionText ?? "")
+        _descriptionText = State(initialValue: movement?.descriptionText ?? (investmentContribution ? "Aportación a cuenta de valores" : ""))
         _notes = State(initialValue: movement?.notes ?? "")
         _frequency = State(initialValue: movement?.frequency ?? .monthly)
         _interval = State(initialValue: movement?.interval ?? 1)
@@ -205,10 +234,17 @@ private struct RecurringMovementFormView: View {
         _endDate = State(initialValue: movement?.endDate ?? Calendar.autoupdatingCurrent.date(byAdding: .year, value: 1, to: .now) ?? .now)
         _isActive = State(initialValue: movement?.isActive ?? true)
         _isSubscription = State(initialValue: movement?.isSubscription ?? false)
+        _postsAutomatically = State(initialValue: movement?.postsAutomatically ?? investmentContribution)
     }
 
     private var activeAccounts: [FinancialAccount] {
         accounts.filter { !$0.isArchived }
+    }
+
+    private var destinationAccounts: [FinancialAccount] {
+        investmentContribution && movement == nil
+            ? activeAccounts.filter { $0.type == .investment }
+            : activeAccounts
     }
 
     private var compatibleCategories: [FinanceCategory] {
@@ -230,18 +266,23 @@ private struct RecurringMovementFormView: View {
             Form {
                 Section("Movimiento") {
                     TextField("Nombre de la regla", text: $name)
-                    Picker("Tipo", selection: $type) {
-                        ForEach(TransactionType.allCases) { type in
-                            Label(type.title, systemImage: type.systemImage).tag(type)
+                    if investmentContribution {
+                        LabeledContent("Tipo", value: "Transferencia propia")
+                    } else {
+                        Picker("Tipo", selection: $type) {
+                            ForEach(TransactionType.allCases) { type in
+                                Label(type.title, systemImage: type.systemImage).tag(type)
+                            }
                         }
-                    }
-                    .onChange(of: type) { _, newValue in
-                        destinationAccountID = newValue == .transfer ? destinationAccountID : nil
-                        if !compatibleCategories.contains(where: { $0.id == categoryID }) {
-                            categoryID = defaultCategory(for: newValue)?.id
-                        }
-                        if newValue != .expense && newValue != .fee {
-                            isSubscription = false
+                        .onChange(of: type) { _, newValue in
+                            destinationAccountID = newValue == .transfer ? destinationAccountID : nil
+                            if !compatibleCategories.contains(where: { $0.id == categoryID }) {
+                                categoryID = defaultCategory(for: newValue)?.id
+                            }
+                            if newValue != .expense && newValue != .fee {
+                                isSubscription = false
+                            }
+                            if newValue != .transfer { postsAutomatically = false }
                         }
                     }
                     TextField("Importe", text: $amountText)
@@ -252,7 +293,7 @@ private struct RecurringMovementFormView: View {
                 Section(type == .transfer ? "Cuentas de la transferencia" : "Cuenta y categoría") {
                     Picker(type == .transfer ? "Cuenta origen" : "Cuenta", selection: $sourceAccountID) {
                         Text("Selecciona una cuenta").tag(nil as UUID?)
-                        ForEach(activeAccounts) { account in
+                        ForEach(activeAccounts.filter { !investmentContribution || ($0.type != .investment && !$0.type.isLiability) }) { account in
                             Text(account.name).tag(Optional(account.id))
                         }
                     }
@@ -260,7 +301,7 @@ private struct RecurringMovementFormView: View {
                     if type == .transfer {
                         Picker("Cuenta destino", selection: $destinationAccountID) {
                             Text("Selecciona una cuenta").tag(nil as UUID?)
-                            ForEach(activeAccounts) { account in
+                            ForEach(destinationAccounts) { account in
                                 Text(account.name).tag(Optional(account.id))
                             }
                         }
@@ -275,12 +316,16 @@ private struct RecurringMovementFormView: View {
                 }
 
                 Section("Periodicidad") {
-                    Picker("Frecuencia", selection: $frequency) {
-                        ForEach(RecurrenceFrequency.allCases) { frequency in
-                            Text(frequency.title).tag(frequency)
+                    if investmentContribution {
+                        LabeledContent("Frecuencia", value: "Cada mes")
+                    } else {
+                        Picker("Frecuencia", selection: $frequency) {
+                            ForEach(RecurrenceFrequency.allCases) { frequency in
+                                Text(frequency.title).tag(frequency)
+                            }
                         }
+                        Stepper("Cada \(interval) \(intervalUnit)", value: $interval, in: 1...24)
                     }
-                    Stepper("Cada \(interval) \(intervalUnit)", value: $interval, in: 1...24)
                     DatePicker("Próxima fecha", selection: $nextDueDate, displayedComponents: .date)
                     Toggle("Definir fecha de fin", isOn: $hasEndDate)
                     if hasEndDate {
@@ -290,11 +335,22 @@ private struct RecurringMovementFormView: View {
 
                 Section("Control") {
                     Toggle("Activo", isOn: $isActive)
+                    if type == .transfer {
+                        Toggle("Registrar automáticamente", isOn: $postsAutomatically)
+                    }
                     if type == .expense || type == .fee {
                         Toggle("Es una suscripción", isOn: $isSubscription)
                     }
                     TextField("Notas", text: $notes, axis: .vertical)
                         .lineLimit(2...5)
+                }
+
+                if type == .transfer && postsAutomatically {
+                    Section {
+                        Text("Al abrir la app tras la fecha indicada, se registrará la transferencia. Bajará el saldo de origen y subirá el de destino sin contarse como gasto.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if let errorMessage {
@@ -316,7 +372,13 @@ private struct RecurringMovementFormView: View {
                 }
             }
             .onAppear {
-                if sourceAccountID == nil { sourceAccountID = activeAccounts.first?.id }
+                if sourceAccountID == nil {
+                    sourceAccountID = activeAccounts.first { !$0.type.isLiability && $0.type != .investment }?.id
+                        ?? activeAccounts.first?.id
+                }
+                if investmentContribution && destinationAccountID == nil {
+                    destinationAccountID = destinationAccounts.first?.id
+                }
                 if categoryID == nil { categoryID = defaultCategory(for: type)?.id }
             }
         }
@@ -364,8 +426,12 @@ private struct RecurringMovementFormView: View {
             errorMessage = "Selecciona una cuenta."
             return
         }
+        if investmentContribution && (source.type == .investment || source.type.isLiability) {
+            errorMessage = "Selecciona una cuenta de origen disponible."
+            return
+        }
 
-        let destination = activeAccounts.first(where: { $0.id == destinationAccountID })
+        let destination = destinationAccounts.first(where: { $0.id == destinationAccountID })
         if type == .transfer {
             guard let destination else {
                 errorMessage = "Selecciona la cuenta destino."
@@ -389,12 +455,13 @@ private struct RecurringMovementFormView: View {
             movement.category = category
             movement.descriptionText = finalDescription
             movement.notes = notes
-            movement.frequency = frequency
-            movement.interval = Swift.max(1, interval)
+            movement.frequency = investmentContribution ? .monthly : frequency
+            movement.interval = investmentContribution ? 1 : Swift.max(1, interval)
             movement.nextDueDate = nextDueDate
             movement.endDate = hasEndDate ? endDate : nil
             movement.isActive = isActive
             movement.isSubscription = (type == .expense || type == .fee) && isSubscription
+            movement.postsAutomatically = type == .transfer && postsAutomatically
             movement.updatedAt = .now
         } else {
             modelContext.insert(RecurringMovement(
@@ -403,12 +470,13 @@ private struct RecurringMovementFormView: View {
                 amountMinor: Swift.abs(amount),
                 descriptionText: finalDescription,
                 notes: notes,
-                frequency: frequency,
-                interval: interval,
+                frequency: investmentContribution ? .monthly : frequency,
+                interval: investmentContribution ? 1 : interval,
                 nextDueDate: nextDueDate,
                 endDate: hasEndDate ? endDate : nil,
                 isActive: isActive,
                 isSubscription: (type == .expense || type == .fee) && isSubscription,
+                postsAutomatically: type == .transfer && postsAutomatically,
                 sourceAccount: source,
                 destinationAccount: type == .transfer ? destination : nil,
                 category: category
@@ -417,6 +485,14 @@ private struct RecurringMovementFormView: View {
 
         do {
             try modelContext.save()
+            if type == .transfer && postsAutomatically && isActive {
+                do {
+                    try RecurringMovementService.postDueTransfers(in: modelContext)
+                } catch {
+                    errorMessage = "La regla se ha guardado, pero no se pudo registrar la aportación pendiente: \(error.localizedDescription)"
+                    return
+                }
+            }
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

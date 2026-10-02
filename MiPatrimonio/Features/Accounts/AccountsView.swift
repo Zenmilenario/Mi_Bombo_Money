@@ -9,6 +9,7 @@ struct AccountsView: View {
     @Query(sort: \BalanceSnapshot.date, order: .reverse) private var snapshots: [BalanceSnapshot]
     @Query private var goals: [SavingsGoal]
     @Query private var recurringMovements: [RecurringMovement]
+    @Query private var reservedFunds: [ReservedFund]
 
     @State private var showingAdd = false
     @State private var showingCardAdd = false
@@ -272,12 +273,11 @@ struct AccountsView: View {
         if !items.isEmpty {
             Section(title) {
                 ForEach(items) { card in
-                    Button {
-                        editingCard = card
+                    NavigationLink {
+                        PaymentCardDetailView(card: card)
                     } label: {
                         cardRow(card)
                     }
-                    .buttonStyle(.plain)
                     .swipeActions(edge: .leading) {
                         Button {
                             editingCard = card
@@ -389,9 +389,10 @@ struct AccountsView: View {
         let hasRecurring = recurringMovements.contains {
             $0.sourceAccount?.id == account.id || $0.destinationAccount?.id == account.id
         }
+        let hasReserved = reservedFunds.contains { $0.account?.id == account.id }
 
-        guard !hasTransactions && !hasSnapshots && !hasCards && !hasGoals && !hasRecurring else {
-            errorMessage = "Esta cuenta está vinculada a movimientos, valoraciones, tarjetas, objetivos o reglas periódicas. Archívala para conservar el historial."
+        guard !hasTransactions && !hasSnapshots && !hasCards && !hasGoals && !hasRecurring && !hasReserved else {
+            errorMessage = "Esta cuenta está vinculada a movimientos, valoraciones, tarjetas, objetivos, reservas o reglas periódicas. Archívala para conservar el historial."
             return
         }
 
@@ -532,7 +533,7 @@ private struct ArchivedFinancialItemsView: View {
     }
 }
 
-private struct PaymentCardFormView: View {
+struct PaymentCardFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FinancialInstitution.name) private var institutions: [FinancialInstitution]
@@ -545,16 +546,38 @@ private struct PaymentCardFormView: View {
     @State private var lastFour: String
     @State private var institutionID: UUID?
     @State private var linkedAccountID: UUID?
+    @State private var limitKind: CardLimitKind?
+    @State private var limitText: String
+    @State private var onlinePurchasesEnabled: Bool?
+    @State private var contactlessEnabled: Bool?
+    @State private var atmWithdrawalsEnabled: Bool?
+    @State private var internationalPaymentsEnabled: Bool?
+    @State private var cashbackEnabled: Bool?
+    @State private var cashbackPercentText: String
+    @State private var roundUpEnabled: Bool?
     @State private var notes: String
     @State private var errorMessage: String?
 
-    init(card: PaymentCard? = nil) {
+    init(card: PaymentCard? = nil, institution: FinancialInstitution? = nil, linkedAccount: FinancialAccount? = nil) {
         self.card = card
         _name = State(initialValue: card?.name ?? "")
         _type = State(initialValue: card?.type ?? .debit)
         _lastFour = State(initialValue: card?.lastFour ?? "")
-        _institutionID = State(initialValue: card?.institution?.id)
-        _linkedAccountID = State(initialValue: card?.linkedAccount?.id)
+        _institutionID = State(initialValue: card?.institution?.id ?? institution?.id ?? linkedAccount?.institution?.id ?? card?.linkedAccount?.institution?.id)
+        _linkedAccountID = State(initialValue: card?.linkedAccount?.id ?? linkedAccount?.id)
+        _limitKind = State(initialValue: card?.limitKind)
+        _limitText = State(initialValue: card?.limitMinor.map {
+            String(format: "%.2f", Double($0) / 100)
+        } ?? "")
+        _onlinePurchasesEnabled = State(initialValue: card?.onlinePurchasesEnabled)
+        _contactlessEnabled = State(initialValue: card?.contactlessEnabled)
+        _atmWithdrawalsEnabled = State(initialValue: card?.atmWithdrawalsEnabled)
+        _internationalPaymentsEnabled = State(initialValue: card?.internationalPaymentsEnabled)
+        _cashbackEnabled = State(initialValue: card?.cashbackEnabled)
+        _cashbackPercentText = State(initialValue: card?.cashbackPercent.map {
+            String(format: "%.2f", $0)
+        } ?? "")
+        _roundUpEnabled = State(initialValue: card?.roundUpEnabled)
         _notes = State(initialValue: card?.notes ?? "")
     }
 
@@ -579,13 +602,52 @@ private struct PaymentCardFormView: View {
                     Picker("Cuenta vinculada", selection: $linkedAccountID) {
                         Text("Sin vincular").tag(nil as UUID?)
                         ForEach(accounts.filter { !$0.isArchived }) { account in
-                            Text(account.name).tag(Optional(account.id))
+                            Text("\(account.institution?.name ?? "Sin entidad") · \(account.name)")
+                                .tag(Optional(account.id))
+                        }
+                    }
+                    .onChange(of: linkedAccountID) { _, newID in
+                        if institutionID == nil, let newID {
+                            institutionID = accounts.first { $0.id == newID }?.institution?.id
                         }
                     }
                 } header: {
                     Text("Tarjeta")
                 } footer: {
                     Text("La tarjeta es un medio de pago y no suma patrimonio por separado. Su saldo se toma de la cuenta vinculada. No se guarda el número completo ni el CVV.")
+                }
+
+                Section {
+                    Picker("Tipo de límite", selection: $limitKind) {
+                        Text("Sin indicar").tag(nil as CardLimitKind?)
+                        ForEach(CardLimitKind.allCases) { kind in
+                            Text(kind.title).tag(Optional(kind))
+                        }
+                    }
+                    if limitKind != nil {
+                        TextField("Importe del límite (\(selectedCurrency))", text: $limitText)
+                            .keyboardType(.decimalPad)
+                    }
+                } header: {
+                    Text("Límite")
+                } footer: {
+                    Text("Indica el límite configurado por tu entidad. La app no lo consulta ni lo aplica automáticamente.")
+                }
+
+                Section("Uso de la tarjeta") {
+                    CardSettingPicker(title: "Compras online", selection: $onlinePurchasesEnabled)
+                    CardSettingPicker(title: "Pago sin contacto", selection: $contactlessEnabled)
+                    CardSettingPicker(title: "Retiradas en cajero", selection: $atmWithdrawalsEnabled)
+                    CardSettingPicker(title: "Pagos internacionales", selection: $internationalPaymentsEnabled)
+                }
+
+                Section("Ventajas") {
+                    CardSettingPicker(title: "Cashback", selection: $cashbackEnabled)
+                    if cashbackEnabled == true {
+                        TextField("Porcentaje de cashback (opcional)", text: $cashbackPercentText)
+                            .keyboardType(.decimalPad)
+                    }
+                    CardSettingPicker(title: "Redondeo de compras", selection: $roundUpEnabled)
                 }
 
                 Section("Notas") {
@@ -614,16 +676,39 @@ private struct PaymentCardFormView: View {
         }
     }
 
+    private var selectedCurrency: String {
+        accounts.first { $0.id == linkedAccountID }?.currencyCode ?? "EUR"
+    }
+
     private func save() {
         let cleanName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        let cleanLastFour = String(lastFour.filter(\.isNumber).suffix(4))
+        let cleanLastFour = lastFour.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanName.isEmpty else {
             errorMessage = "Introduce un nombre."
             return
         }
-        guard lastFour.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || cleanLastFour.count == 4 else {
+        guard cleanLastFour.isEmpty || (cleanLastFour.count == 4 && cleanLastFour.allSatisfy(\.isNumber)) else {
             errorMessage = "Introduce exactamente los últimos cuatro dígitos o deja el campo vacío."
             return
+        }
+
+        var limitMinor: Int64?
+        if limitKind != nil {
+            guard let parsedLimit = MoneyParser.minorUnits(from: limitText), parsedLimit > 0 else {
+                errorMessage = "Introduce un límite mayor que cero."
+                return
+            }
+            limitMinor = parsedLimit
+        }
+
+        var cashbackPercent: Double?
+        if cashbackEnabled == true && !cashbackPercentText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard let parsedPercent = Double(cashbackPercentText.replacingOccurrences(of: ",", with: ".")),
+                  parsedPercent > 0, parsedPercent <= 100 else {
+                errorMessage = "El cashback debe ser un porcentaje entre 0 y 100."
+                return
+            }
+            cashbackPercent = parsedPercent
         }
 
         let institution = institutions.first { $0.id == institutionID }
@@ -633,6 +718,15 @@ private struct PaymentCardFormView: View {
             card.name = cleanName
             card.type = type
             card.lastFour = cleanLastFour
+            card.limitKind = limitKind
+            card.limitMinor = limitMinor
+            card.onlinePurchasesEnabled = onlinePurchasesEnabled
+            card.contactlessEnabled = contactlessEnabled
+            card.atmWithdrawalsEnabled = atmWithdrawalsEnabled
+            card.internationalPaymentsEnabled = internationalPaymentsEnabled
+            card.cashbackEnabled = cashbackEnabled
+            card.cashbackPercent = cashbackPercent
+            card.roundUpEnabled = roundUpEnabled
             card.institution = institution
             card.linkedAccount = linkedAccount
             card.notes = notes
@@ -642,6 +736,15 @@ private struct PaymentCardFormView: View {
                 name: cleanName,
                 type: type,
                 lastFour: cleanLastFour,
+                limitMinor: limitMinor,
+                limitKind: limitKind,
+                onlinePurchasesEnabled: onlinePurchasesEnabled,
+                contactlessEnabled: contactlessEnabled,
+                atmWithdrawalsEnabled: atmWithdrawalsEnabled,
+                internationalPaymentsEnabled: internationalPaymentsEnabled,
+                cashbackEnabled: cashbackEnabled,
+                cashbackPercent: cashbackPercent,
+                roundUpEnabled: roundUpEnabled,
                 notes: notes,
                 institution: institution,
                 linkedAccount: linkedAccount
@@ -657,14 +760,103 @@ private struct PaymentCardFormView: View {
     }
 }
 
+private struct CardSettingPicker: View {
+    let title: String
+    @Binding var selection: Bool?
+
+    var body: some View {
+        Picker(title, selection: $selection) {
+            Text("Sin indicar").tag(nil as Bool?)
+            Text("Sí").tag(true as Bool?)
+            Text("No").tag(false as Bool?)
+        }
+    }
+}
+
+struct PaymentCardDetailView: View {
+    let card: PaymentCard
+    @State private var showingEdit = false
+
+    var body: some View {
+        List {
+            Section("Tarjeta") {
+                LabeledContent("Tipo", value: card.type.title)
+                LabeledContent("Últimos dígitos", value: card.lastFour.isEmpty ? "Sin indicar" : "•••• \(card.lastFour)")
+                LabeledContent("Entidad", value: card.institution?.name ?? "Sin entidad")
+                LabeledContent("Cuenta vinculada", value: card.linkedAccount?.name ?? "Sin vincular")
+            }
+
+            Section("Límite") {
+                if let kind = card.limitKind, let amount = card.limitMinor {
+                    LabeledContent("Tipo", value: kind.title)
+                    LabeledContent("Importe") {
+                        PrivacyAmountText(minorUnits: amount, currencyCode: card.linkedAccount?.currencyCode ?? "EUR")
+                    }
+                } else {
+                    Text("Sin indicar")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Uso de la tarjeta") {
+                LabeledContent("Compras online", value: statusText(card.onlinePurchasesEnabled))
+                LabeledContent("Pago sin contacto", value: statusText(card.contactlessEnabled))
+                LabeledContent("Retiradas en cajero", value: statusText(card.atmWithdrawalsEnabled))
+                LabeledContent("Pagos internacionales", value: statusText(card.internationalPaymentsEnabled))
+            }
+
+            Section("Ventajas") {
+                LabeledContent("Cashback", value: cashbackText)
+                LabeledContent("Redondeo de compras", value: statusText(card.roundUpEnabled))
+            }
+
+            if !card.notes.isEmpty {
+                Section("Notas") {
+                    Text(card.notes)
+                }
+            }
+        }
+        .navigationTitle(card.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Editar") { showingEdit = true }
+            }
+        }
+        .sheet(isPresented: $showingEdit) {
+            PaymentCardFormView(card: card)
+        }
+    }
+
+    private var cashbackText: String {
+        guard let enabled = card.cashbackEnabled else { return "Sin indicar" }
+        guard enabled else { return "No" }
+        guard let percent = card.cashbackPercent else { return "Sí" }
+        return "\(percent.formatted(.number.precision(.fractionLength(0...2)))) %"
+    }
+
+    private func statusText(_ value: Bool?) -> String {
+        guard let value else { return "Sin indicar" }
+        return value ? "Sí" : "No"
+    }
+}
+
 private struct AccountDetailView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \BalanceSnapshot.date, order: .reverse) private var snapshots: [BalanceSnapshot]
+    @Query(sort: \PaymentCard.name) private var cards: [PaymentCard]
+    @Query private var reservedFunds: [ReservedFund]
 
     let account: FinancialAccount
     @State private var showingEdit = false
     @State private var showingSnapshot = false
+    @State private var showingAddCard = false
+    @State private var showingAddReservation = false
+
+    private var linkedCards: [PaymentCard] {
+        cards.filter { $0.linkedAccount?.id == account.id && !$0.isArchived }
+    }
 
     private var accountTransactions: [FinancialTransaction] {
         transactions.filter {
@@ -674,6 +866,10 @@ private struct AccountDetailView: View {
 
     private var balance: Int64 {
         FinanceCalculator.balance(of: account, transactions: transactions, snapshots: snapshots)
+    }
+
+    private var reservedAmount: Int64 {
+        FinanceCalculator.reservedAmount(for: account, funds: reservedFunds)
     }
 
     var body: some View {
@@ -726,6 +922,28 @@ private struct AccountDetailView: View {
                 LabeledContent("Última actualización", value: account.lastUpdatedAt.formatted(date: .abbreviated, time: .omitted))
             }
 
+            if !account.type.isLiability && account.type != .investment {
+                Section("Dinero reservado") {
+                    LabeledContent("Reservado") {
+                        PrivacyAmountText(minorUnits: reservedAmount, currencyCode: account.currencyCode)
+                    }
+                    LabeledContent("Disponible") {
+                        PrivacyAmountText(minorUnits: balance - reservedAmount, currencyCode: account.currencyCode)
+                    }
+                    if reservedAmount > balance {
+                        Text("La reserva supera el saldo actual de esta cuenta.")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    Button {
+                        showingAddReservation = true
+                    } label: {
+                        Label("Reservar dinero de esta cuenta", systemImage: "lock.circle")
+                    }
+                    .disabled(account.isArchived || !account.includeInNetWorth)
+                }
+            }
+
             Section("Movimientos recientes") {
                 if accountTransactions.isEmpty {
                     Text("No hay movimientos.")
@@ -746,6 +964,26 @@ private struct AccountDetailView: View {
                             )
                         }
                     }
+                }
+            }
+
+            Section("Tarjetas vinculadas") {
+                if linkedCards.isEmpty {
+                    Text("No hay tarjetas vinculadas a esta cuenta.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(linkedCards) { card in
+                        NavigationLink {
+                            PaymentCardDetailView(card: card)
+                        } label: {
+                            Label(card.name, systemImage: card.type.systemImage)
+                        }
+                    }
+                }
+                Button {
+                    showingAddCard = true
+                } label: {
+                    Label("Añadir tarjeta a esta cuenta", systemImage: "plus.circle")
                 }
             }
 
@@ -771,6 +1009,12 @@ private struct AccountDetailView: View {
         }
         .sheet(isPresented: $showingSnapshot) {
             BalanceSnapshotFormView(account: account, currentBalance: balance)
+        }
+        .sheet(isPresented: $showingAddCard) {
+            PaymentCardFormView(linkedAccount: account)
+        }
+        .sheet(isPresented: $showingAddReservation) {
+            ReservedFundFormView(preferredAccount: account)
         }
     }
 }

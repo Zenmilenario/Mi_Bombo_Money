@@ -54,6 +54,7 @@ struct DashboardView: View {
     @Query(sort: \BalanceSnapshot.date) private var snapshots: [BalanceSnapshot]
     @Query(sort: \RecurringMovement.nextDueDate) private var recurringMovements: [RecurringMovement]
     @Query(sort: \SavingsGoal.createdAt, order: .reverse) private var goals: [SavingsGoal]
+    @Query private var reservedFunds: [ReservedFund]
 
     @AppStorage("hideAmounts") private var hideAmounts = false
 
@@ -84,6 +85,39 @@ struct DashboardView: View {
             snapshots: snapshots,
             at: .now
         )
+    }
+
+    private var spendableCash: Int64 {
+        FinanceCalculator.spendableCash(
+            accounts: activeAccounts,
+            funds: reservedFunds,
+            transactions: transactions,
+            snapshots: snapshots
+        )
+    }
+
+    private var reservedCash: Int64 {
+        activeAccounts
+            .filter { $0.includeInNetWorth && !$0.type.isLiability && $0.type != .investment }
+            .reduce(Int64.zero) { $0 + FinanceCalculator.reservedAmount(for: $1, funds: reservedFunds) }
+    }
+
+    private var investmentContributionsThisMonth: Int64 {
+        let start = selectedMonth.startOfMonth()
+        let end = Calendar.autoupdatingCurrent.date(byAdding: .month, value: 1, to: start) ?? start
+        return transactions
+            .filter {
+                $0.type == .transfer && $0.date >= start && $0.date < end
+                    && $0.destinationAccount?.type == .investment
+                    && $0.sourceAccount?.type != .investment
+            }
+            .reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
+    }
+
+    private var hasInvestmentContributions: Bool {
+        investmentContributionsThisMonth > 0 || recurringMovements.contains {
+            $0.type == .transfer && $0.destinationAccount?.type == .investment
+        }
     }
 
     private var previousMonthNetWorth: Int64 {
@@ -389,6 +423,30 @@ struct DashboardView: View {
             Divider()
                 .overlay(Color.primary.opacity(0.08))
 
+            NavigationLink {
+                ReservedFundsView()
+            } label: {
+                VStack(spacing: 9) {
+                    HStack {
+                        Label("Disponible para usar", systemImage: "wallet.bifold")
+                            .font(.subheadline)
+                        Spacer()
+                        PrivacyAmountText(minorUnits: spendableCash, font: .subheadline, weight: .semibold)
+                    }
+                    HStack {
+                        Label("Reservado", systemImage: "lock.circle")
+                            .font(.subheadline)
+                        Spacer()
+                        PrivacyAmountText(minorUnits: reservedCash, font: .subheadline, weight: .semibold)
+                    }
+                }
+                .foregroundStyle(.primary)
+            }
+            .buttonStyle(.plain)
+
+            Divider()
+                .overlay(Color.primary.opacity(0.08))
+
             HStack {
                 Label("Interés anual estimado", systemImage: "percent")
                     .font(.subheadline)
@@ -491,6 +549,15 @@ struct DashboardView: View {
                 tint: monthSummary.netSavingsMinor >= 0 ? .blue : .red,
                 valueColor: monthSummary.netSavingsMinor >= 0 ? .primary : .red
             )
+
+            if hasInvestmentContributions {
+                MetricCard(
+                    title: "Aportado a inversión",
+                    value: hidden(MoneyFormatter.string(minorUnits: investmentContributionsThisMonth)),
+                    systemImage: "chart.line.uptrend.xyaxis",
+                    tint: .blue
+                )
+            }
 
             MetricCard(
                 title: "Tasa de ahorro",

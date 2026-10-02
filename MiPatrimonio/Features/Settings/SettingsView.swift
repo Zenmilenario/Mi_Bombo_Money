@@ -101,6 +101,12 @@ struct SettingsView: View {
                     }
 
                     NavigationLink {
+                        ReservedFundsView()
+                    } label: {
+                        Label("Dinero reservado", systemImage: "lock.circle")
+                    }
+
+                    NavigationLink {
                         RecurringMovementsView()
                     } label: {
                         Label("Movimientos recurrentes", systemImage: "repeat.circle")
@@ -157,6 +163,7 @@ struct SettingsView: View {
             try modelContext.delete(model: RecurringMovement.self)
             try modelContext.delete(model: MonthlyBudget.self)
             try modelContext.delete(model: SavingsGoal.self)
+            try modelContext.delete(model: ReservedFund.self)
             try modelContext.delete(model: BalanceSnapshot.self)
             try modelContext.delete(model: PaymentCard.self)
             try modelContext.delete(model: ImportBatch.self)

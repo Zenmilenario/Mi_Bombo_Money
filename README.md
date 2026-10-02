@@ -8,6 +8,18 @@ Una instalación nueva empieza sin cuentas, movimientos, categorías, presupuest
 
 Si ya tenías instalada una versión anterior, tus datos existentes se conservan. Para empezar completamente de cero, ve a **Ajustes → Datos → Empezar desde cero** y confirma la eliminación. Esta acción borra todos los datos financieros locales y no se puede deshacer.
 
+## Entidades y tarjetas
+
+En **Ajustes → Bancos y entidades** puedes elegir el color con el selector visual de iOS. Al abrir una entidad verás sus cuentas y tarjetas, y podrás añadir una tarjeta con la entidad ya seleccionada. También puedes crear una tarjeta desde **Cuentas** o desde el detalle de una cuenta.
+
+Cada tarjeta puede vincularse a una cuenta y guardar los últimos cuatro dígitos, un límite con su tipo, el estado de compras online, pagos sin contacto, retiradas en cajero, pagos internacionales, cashback y redondeo de compras. Los estados nuevos aparecen como «Sin indicar» hasta que los configures. Son datos de consulta local: la app no cambia la configuración de la tarjeta en el banco ni ejecuta cashback o redondeos.
+
+## Dinero reservado y aportaciones a inversión
+
+En **Ajustes → Dinero reservado** puedes indicar, por ejemplo, cuánto dinero de una cuenta está destinado al máster. También puedes hacerlo desde el detalle de esa cuenta. La reserva no modifica el saldo real ni el patrimonio total: aparece descontada del **Disponible para usar** en Inicio y de la cantidad disponible en la cuenta. Cuando pagues el máster, registra el gasto y reduce o elimina la reserva para evitar descontarlo dos veces. Si la reserva supera el saldo de la cuenta, el disponible aparecerá negativo para mostrar el importe que falta.
+
+Para una aportación mensual, crea primero la cuenta de valores como cuenta de tipo **Inversión**. Después abre **Ajustes → Movimientos recurrentes → Programar aportación mensual a inversión**, elige cuenta origen, cuenta de valores, importe y próxima fecha. La app registrará las mensualidades pendientes al abrirse o volver a primer plano, con una transferencia por fecha prevista y protección frente a duplicados de la misma regla. Esta transferencia reduce el saldo de origen, aumenta el de inversión y se muestra como **Aportado a inversión** en el resumen mensual. No es un gasto, así que no reduce el patrimonio total por sí misma. Puedes pausar o editar la regla en Movimientos recurrentes.
+
 ## Rediseño 0.2.0
 
 Esta entrega incorpora un rediseño completo de la experiencia de uso sin cambiar el modelo financiero ni los datos guardados:
@@ -42,7 +54,7 @@ No hay dependencias de terceros ni pasos de instalación.
 
 - Patrimonio total y saldo derivado de cada cuenta.
 - Cuentas corrientes, ahorro, efectivo, crédito, inversiones y otras.
-- Tarjetas como medios de pago vinculados, sin guardar PAN completo ni CVV.
+- Tarjetas como medios de pago vinculados, con opciones de uso y ventajas, sin guardar PAN completo ni CVV.
 - Ingresos, gastos, intereses, comisiones y transferencias internas.
 - Categorías, presupuestos, objetivos y reglas periódicas.
 - Búsqueda y filtros de movimientos.
