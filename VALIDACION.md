@@ -2,6 +2,8 @@
 
 Fecha de validación: 16 de julio de 2026.
 
+Este documento conserva la validación histórica de la primera entrega. La revisión actual del 5 de octubre de 2026 y las comprobaciones previas al merge están en `REVISION_PRE_MERGE.md`.
+
 ## Alcance comprobado
 
 - 26 archivos Swift presentes e incluidos en la fase `Sources` del target `MiPatrimonio`.

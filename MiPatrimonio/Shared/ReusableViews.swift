@@ -256,7 +256,7 @@ struct FinancialSummaryTile: View {
 // Columns depend on the width proposed by the containing view and the user's text size.
 struct AdaptiveCardGrid<Content: View>: View {
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-    @ScaledMetric(relativeTo: .body) private var minimumColumnWidth: CGFloat
+    @ScaledMetric(relativeTo: .body) private var minimumColumnWidth: CGFloat = 350
     private let maximumColumns: Int
     private let spacing: CGFloat
     private let content: Content

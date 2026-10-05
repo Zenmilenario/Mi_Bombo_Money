@@ -1,19 +1,37 @@
-name: Compilar para iOS Simulator
+name: Validar app iOS
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+      - "codex/**"
   pull_request:
     branches:
       - main
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-validation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    name: Compilar MiPatrimonio
+    name: Compilar MiPatrimonio (${{ matrix.configuration }} - ${{ matrix.sdk }})
     runs-on: macos-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - configuration: Debug
+            sdk: iphonesimulator
+            destination: "generic/platform=iOS Simulator"
+          - configuration: Release
+            sdk: iphoneos
+            destination: "generic/platform=iOS"
 
     steps:
       - name: Descargar el repositorio
@@ -23,22 +41,34 @@ jobs:
         run: xcodebuild -version
 
       - name: Comprobar proyecto y esquema
-        run: xcodebuild -list -project MiPatrimonio.xcodeproj
-
-      - name: Compilar para iOS Simulator
         run: |
-          set -o pipefail
+          plutil -lint MiPatrimonio/Resources/Info.plist MiPatrimonio.xcodeproj/project.pbxproj
+          xcodebuild -list -project MiPatrimonio.xcodeproj
+
+      - name: Compilar app
+        env:
+          CONFIGURATION: ${{ matrix.configuration }}
+          SDK: ${{ matrix.sdk }}
+          DESTINATION: ${{ matrix.destination }}
+        shell: bash
+        run: |
+          set -euo pipefail
           xcodebuild \
             -project MiPatrimonio.xcodeproj \
             -scheme MiPatrimonio \
-            -configuration Debug \
-            -sdk iphonesimulator \
-            -destination "generic/platform=iOS Simulator" \
+            -configuration "$CONFIGURATION" \
+            -sdk "$SDK" \
+            -destination "$DESTINATION" \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO \
-            build | tee xcodebuild.log
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            VALIDATE_PRODUCT=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            clean build | tee xcodebuild.log
 
       - name: Comprimir la aplicacion del simulador
+        if: matrix.sdk == 'iphonesimulator'
         run: |
           APP_PATH=$(find build/Build/Products/Debug-iphonesimulator -maxdepth 1 -type d -name "*.app" -print -quit)
           if [ -z "$APP_PATH" ]; then
@@ -48,6 +78,7 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" MiPatrimonio-Simulator.zip
 
       - name: Guardar aplicacion compilada
+        if: matrix.sdk == 'iphonesimulator'
         uses: actions/upload-artifact@v7
         with:
           name: MiPatrimonio-iOS-Simulator
@@ -59,7 +90,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: Registro-compilacion-Xcode
+          name: Registro-compilacion-Xcode-${{ matrix.configuration }}-${{ matrix.sdk }}
           path: xcodebuild.log
           if-no-files-found: warn
           retention-days: 14

@@ -10,9 +10,10 @@
 - [ ] Los avisos abren la pestaña adecuada.
 - [ ] No hay lista de cuentas repetida en Inicio; el aviso de cuentas sin actualizar abre Cuentas.
 - [ ] `Ver movimientos` abre Movimientos.
-- [ ] `Ver detalle` abre Presupuestos.
+- [ ] `Ver detalle` y `Crear presupuestos` abren Presupuestos conservando el mes seleccionado en Inicio; cambiar el mes en Presupuestos mantiene el mismo mes al regresar a Inicio.
 - [ ] El selector 3 M / 6 M / 1 A / Todo cambia el gráfico.
 - [ ] La evolución termina en el mes actual aunque se consulte otro mes en el resumen mensual.
+- [ ] Si hay movimientos o valoraciones con fecha futura dentro del mes, el último punto del gráfico patrimonial coincide con el patrimonio actual y no los incluye.
 - [ ] Las tarjetas se distribuyen en columnas cuando caben y pasan a una columna al estrechar la ventana; el resumen mensual queda antes del gráfico en la lectura vertical.
 
 ## Movimientos
@@ -79,3 +80,11 @@
 - [ ] Comprobar nombres de cuentas y categorías largos e importes grandes: los textos se pueden leer sin desplazamiento horizontal.
 - [ ] El resumen y el gráfico de Presupuestos se colocan juntos cuando hay espacio y uno debajo del otro al reducirlo.
 - [ ] El botón rápido respeta las barras de navegación y pestañas y el último movimiento queda accesible al desplazarse.
+
+## Comprobaciones antes del merge
+
+- [ ] Subir el commit a la rama de trabajo desde GitHub Desktop con `Push origin`.
+- [ ] En Actions, `Validar app iOS` supera ambas compilaciones: Debug para simulador y Release para dispositivo.
+- [ ] `Comprobar datos y cálculos` supera exportación/restauración y cálculos/aportaciones automáticas.
+- [ ] Las comprobaciones corresponden al último commit que se va a integrar.
+- [ ] Probar los cambios visuales en iPhone pequeño, iPad vertical/horizontal y ventana estrecha; la compilación automática no comprueba el aspecto en pantalla.

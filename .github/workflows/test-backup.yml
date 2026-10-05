@@ -1,4 +1,4 @@
-name: Comprobar copias de seguridad
+name: Comprobar datos y cálculos
 
 on:
   workflow_dispatch:
@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   backup:
+    name: Exportación y restauración
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
@@ -28,3 +29,32 @@ jobs:
             Tests/BackupRoundTripCheck.swift \
             -o build/backup-check/BackupRoundTripCheck
           build/backup-check/BackupRoundTripCheck
+
+  finance:
+    name: Cálculos y aportaciones automáticas
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v7
+
+      - name: Compilar y probar servicios financieros
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/finance-check
+          xcrun swiftc \
+            -swift-version 5 \
+            -target "$(uname -m)-apple-macosx14.0" \
+            -parse-as-library \
+            MiPatrimonio/Core/Models/Models.swift \
+            MiPatrimonio/Shared/Formatting.swift \
+            MiPatrimonio/Core/Services/FinanceCalculator.swift \
+            MiPatrimonio/Core/Services/DuplicateDetectionService.swift \
+            MiPatrimonio/Core/Services/RecurringMovementService.swift \
+            MiPatrimonio/Core/Services/CategoryDefaultsService.swift \
+            MiPatrimonio/Core/Services/CategoryRuleService.swift \
+            MiPatrimonio/Core/Services/CSVImportService.swift \
+            Tests/FinancialLogicCheck.swift \
+            -o build/finance-check/FinancialLogicCheck
+          build/finance-check/FinancialLogicCheck

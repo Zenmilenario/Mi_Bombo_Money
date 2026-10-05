@@ -59,7 +59,7 @@ struct DashboardView: View {
 
     @AppStorage("hideAmounts") private var hideAmounts = false
 
-    @State private var selectedMonth = Date.now.startOfMonth()
+    @Binding var selectedMonth: Date
     @State private var chartRange: NetWorthRange = .oneYear
     @State private var selectedGoal: SavingsGoal?
     @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 220

@@ -1,5 +1,8 @@
 import Foundation
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 enum MoneyFormatter {
     static func string(
@@ -58,17 +61,21 @@ enum MoneyParser {
             normalized = normalized.replacingOccurrences(of: ",", with: ".")
         }
 
-        normalized = normalized.filter { character in
-            character.isNumber || character == "." || character == "-" || character == "+"
-        }
-
-        guard let decimal = Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX")) else {
+        // Decimal(string:) can accept a numeric prefix of malformed input.
+        // Validate the whole value before converting it into money.
+        guard normalized.range(of: "^[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)$", options: .regularExpression) != nil,
+              let decimal = Decimal(string: normalized, locale: Locale(identifier: "en_US_POSIX")) else {
             return nil
         }
 
         var value = decimal * 100
         var rounded = Decimal()
         NSDecimalRound(&rounded, &value, 0, .bankers)
+        // Int64.min cannot be made positive by the transaction and balance helpers.
+        guard !rounded.isNaN,
+              rounded >= Decimal(Int64.min + 1), rounded <= Decimal(Int64.max) else {
+            return nil
+        }
         return NSDecimalNumber(decimal: rounded).int64Value
     }
 }
@@ -91,6 +98,7 @@ extension Date {
 }
 
 extension Color {
+    #if canImport(UIKit)
     func hexRGB() -> String {
         var red: CGFloat = 0
         var green: CGFloat = 0
@@ -106,6 +114,7 @@ extension Color {
             Int((blue * 255).rounded())
         )
     }
+    #endif
 
     init(hex: String) {
         let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)

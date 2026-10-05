@@ -103,7 +103,13 @@ enum RecurringMovementService {
         context.insert(transaction)
         recurring.nextDueDate = nextDate(after: recurring.nextDueDate, for: recurring)
         recurring.updatedAt = .now
-        try context.save()
+        do {
+            try context.save()
+        } catch {
+            // Keep the transfer and its next due date atomic when saving fails.
+            context.rollback()
+            throw error
+        }
         return transaction
     }
 
