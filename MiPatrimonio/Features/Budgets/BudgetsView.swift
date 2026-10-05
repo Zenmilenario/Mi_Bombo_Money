@@ -9,7 +9,7 @@ struct BudgetsView: View {
     @Query(sort: \RecurringBudget.startMonth, order: .reverse) private var recurringBudgets: [RecurringBudget]
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
 
-    @State private var selectedMonth = Date.now.startOfMonth()
+    @Binding var selectedMonth: Date
     @State private var selectedCategory: FinanceCategory?
     @State private var showingAddBudget = false
     @ScaledMetric(relativeTo: .body) private var comparisonRowHeight: CGFloat = 48

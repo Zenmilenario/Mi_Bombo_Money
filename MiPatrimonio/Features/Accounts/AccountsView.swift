@@ -1305,6 +1305,7 @@ private struct BalanceSnapshotFormView: View {
             try modelContext.save()
             dismiss()
         } catch {
+            modelContext.rollback()
             errorMessage = error.localizedDescription
         }
     }

@@ -36,6 +36,8 @@ struct BackupRoundTripCheck {
         context.insert(account)
         context.insert(investment)
         context.insert(category)
+        context.insert(CategoryRule(phrase: "Aportación", transactionType: .transfer, isActive: false, createdAt: date, updatedAt: date, category: category))
+        context.insert(RecurringBudget(startMonth: date, endMonth: date.addingTimeInterval(90 * 86_400), baseLimitMinor: 10_000, remainderChoice: .carryForward, createdAt: date, updatedAt: date, category: category))
         context.insert(recurring)
         context.insert(batch)
         context.insert(PaymentCard(
@@ -62,6 +64,12 @@ struct BackupRoundTripCheck {
         let encoded = try BackupService.encode(BackupService.capture(in: context))
         let decoded = try BackupService.decode(encoded)
         let expected = try normalized(encoded)
+        var legacy = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+        legacy.removeValue(forKey: "categoryRules")
+        legacy.removeValue(forKey: "recurringBudgets")
+        let legacyBackup = try BackupService.decode(JSONSerialization.data(withJSONObject: legacy))
+        precondition(legacyBackup.categoryRules == nil && legacyBackup.recurringBudgets == nil,
+                     "Older backups without the new optional collections must remain readable")
         destination.mainContext.insert(FinancialAccount(name: "Debe desaparecer", type: .cash, openingBalanceMinor: 999))
         try destination.mainContext.save()
 
@@ -76,7 +84,6 @@ struct BackupRoundTripCheck {
         invalid["formatVersion"] = 999
         try expectRejected(invalid)
 
-        invalid = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
         invalid = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
         var accounts = invalid["accounts"] as! [[String: Any]]
         accounts.append(accounts[0])

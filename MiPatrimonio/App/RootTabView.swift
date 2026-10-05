@@ -14,12 +14,14 @@ struct RootTabView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Query private var accounts: [FinancialAccount]
     @State private var selectedTab: AppTab = .home
+    @State private var selectedMonth = Date.now.startOfMonth()
     @State private var showingQuickAdd = false
     @State private var recurrenceError: String?
 
     var body: some View {
         TabView(selection: $selectedTab) {
             DashboardView(
+                selectedMonth: $selectedMonth,
                 onOpenTransactions: {
                     selectedTab = .transactions
                 },
@@ -62,7 +64,7 @@ struct RootTabView: View {
                     )
                 }
 
-            BudgetsView()
+            BudgetsView(selectedMonth: $selectedMonth)
                 .tag(AppTab.budgets)
                 .tabItem {
                     Label(

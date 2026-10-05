@@ -333,7 +333,9 @@ enum FinanceCalculator {
                     accounts: accounts,
                     transactions: transactions,
                     snapshots: snapshots,
-                    at: monthEnd
+                    // The last point must agree with the balance at the requested date,
+                    // rather than include future transactions or valuations in that month.
+                    at: Swift.min(monthEnd, month)
                 )
             )
         }

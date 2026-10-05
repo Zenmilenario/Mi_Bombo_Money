@@ -16,7 +16,7 @@ Para recuperar los datos, abre la misma pantalla, pulsa **Elegir copia JSON** y 
 
 El JSON no está cifrado ni protegido por contraseña; guárdalo en una ubicación privada y no lo compartas. Actualizar la app sin desinstalarla conserva normalmente los datos locales, pero la copia permite recuperarlos si reinstalas la app o cambias de dispositivo.
 
-El workflow **Comprobar copias de seguridad** ejecuta en macOS una prueba de exportación y restauración de todos los modelos, restauración repetida sin duplicados, rechazo de archivos inválidos y conservación de datos ante una copia inválida. El formato JSON lleva su propia versión, independiente de la versión de la app.
+El workflow **Comprobar datos y cálculos** ejecuta en macOS una prueba de exportación y restauración de todos los modelos, restauración repetida sin duplicados, compatibilidad con copias antiguas, rechazo de archivos inválidos y conservación de datos ante una copia inválida. El formato JSON lleva su propia versión, independiente de la versión de la app.
 
 ## Entidades y tarjetas
 
@@ -131,21 +131,21 @@ MiPatrimonio/
   Resources/           Info.plist e icono de la app
 ```
 
-## Verificación realizada en esta entrega
+## Verificación antes del merge
 
-- Todos los archivos Swift pasan el parser del compilador Swift 6.2.
-- `Info.plist` y `project.pbxproj` pasan validación de plist.
-- La lógica del Excel se contrastó contra sus hojas, saldos y fórmulas.
+La revisión local del 5 de octubre de 2026 ha comprobado la sintaxis de los 31 archivos Swift de la app y los dos archivos de pruebas, las referencias del proyecto Xcode, el esquema compartido, `Info.plist`, los recursos del icono y los cuatro workflows con actionlint. Los detalles y las correcciones están en `REVISION_PRE_MERGE.md`.
 
-El entorno de generación no incluye Xcode ni el SDK de iOS, por lo que la compilación final, las previews y la ejecución en simulador deben verificarse en macOS antes de publicar.
+Estas comprobaciones locales no equivalen a compilar con el SDK de iOS. GitHub Actions compila la app completa en Debug para simulador y en Release para dispositivo; también ejecuta pruebas de exportación/restauración, reservas, transferencias, presupuestos repetidos, reglas y CSV. Hay que esperar a que esas cuatro comprobaciones terminen correctamente antes del merge. La revisión visual en dispositivos sigue la lista de `PRUEBAS_REDISENO.md`.
 
 Consulta `ESPECIFICACION_FUNCIONAL_Y_TECNICA.md` para el análisis completo, el diseño de pantallas, el modelo, las fórmulas, la arquitectura y el plan por fases.
 
 ## Probar desde Windows mediante GitHub Actions
 
-El repositorio incluye `.github/workflows/build-ios-simulator.yml`. Cada subida a `main` intenta compilar el proyecto en un runner macOS de GitHub y genera el artefacto `MiPatrimonio-iOS-Simulator`.
+El repositorio incluye `.github/workflows/build-ios-simulator.yml`, mostrado en Actions como **Validar app iOS**. Cada subida a `main` o a una rama `codex/…`, y cada pull request hacia `main`, compila el proyecto en un runner macOS de GitHub en Debug para simulador y Release para dispositivo sin firma. La compilación del simulador genera el artefacto `MiPatrimonio-iOS-Simulator`. El workflow **Comprobar datos y cálculos** ejecuta las pruebas en cada subida y pull request.
 
-Desde Windows, entra en **Actions**, abre **Compilar para iOS Simulator** y ejecuta **Run workflow**. Al terminar, descarga el artefacto desde la página de la ejecución. El archivo `MiPatrimonio-Simulator.zip` contiene la aplicación `.app` compilada para el simulador; no es un `.ipa` instalable directamente en un iPhone o iPad físico.
+Desde GitHub Desktop, haz commit de los cambios y pulsa **Push origin** manteniéndote en tu rama. Abre **Actions** y espera a que **Validar app iOS** y **Comprobar datos y cálculos** estén en verde para ese commit. No necesitas hacer merge para comprobarlo. También puedes usar **Run workflow** seleccionando la rama.
+
+Al terminar, descarga el artefacto desde la página de la ejecución. El archivo `MiPatrimonio-Simulator.zip` contiene la aplicación `.app` compilada para el simulador; no es un `.ipa` instalable directamente en un iPhone o iPad físico. La comprobación de Release guarda su registro y valida la compilación usada por el generador de IPA.
 
 Consulta `SUBIR_DESDE_WINDOWS.md` para las instrucciones de subida.
 
