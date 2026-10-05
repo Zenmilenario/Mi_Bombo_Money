@@ -2,6 +2,7 @@ import SwiftUI
 
 enum AppDesign {
     static let readableContentWidth: CGFloat = 840
+    static let overviewContentWidth: CGFloat = 1_200
     static let compactRadius: CGFloat = 12
     static let cardRadius: CGFloat = 18
     static let heroRadius: CGFloat = 24
@@ -137,25 +138,18 @@ struct SectionCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .firstTextBaseline, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .font(.headline)
-                    if let subtitle, !subtitle.isEmpty {
-                        Text(subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                Spacer(minLength: 8)
-
-                if let actionTitle, let action {
+            if let actionTitle, let action {
+                AdaptiveValueRow {
+                    titleBlock
+                } value: {
                     Button(actionTitle, action: action)
                         .font(.subheadline.weight(.semibold))
                         .buttonStyle(.plain)
                         .foregroundStyle(.tint)
                 }
+            } else {
+                titleBlock
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             content
@@ -166,6 +160,16 @@ struct SectionCard<Content: View>: View {
             in: RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
         )
     }
+
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title).font(.headline)
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
 }
 
 struct StatusPill: View {
@@ -249,6 +253,120 @@ struct FinancialSummaryTile: View {
     }
 }
 
+// Columns depend on the width proposed by the containing view and the user's text size.
+struct AdaptiveCardGrid<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var minimumColumnWidth: CGFloat
+    private let maximumColumns: Int
+    private let spacing: CGFloat
+    private let content: Content
+
+    init(
+        minimumColumnWidth: CGFloat = 350,
+        maximumColumns: Int = 2,
+        spacing: CGFloat = 16,
+        @ViewBuilder content: () -> Content
+    ) {
+        _minimumColumnWidth = ScaledMetric(wrappedValue: minimumColumnWidth, relativeTo: .body)
+        self.maximumColumns = maximumColumns
+        self.spacing = spacing
+        self.content = content()
+    }
+
+    var body: some View {
+        AdaptiveCardLayout(
+            minimumColumnWidth: minimumColumnWidth,
+            maximumColumns: dynamicTypeSize.isAccessibilitySize ? 1 : maximumColumns,
+            spacing: spacing
+        ) {
+            content
+        }
+    }
+}
+
+private struct AdaptiveCardLayout: Layout {
+    let minimumColumnWidth: CGFloat
+    let maximumColumns: Int
+    let spacing: CGFloat
+
+    private func columns(for width: CGFloat, count: Int) -> Int {
+        let fitting = Int((width + spacing) / (Swift.max(1, minimumColumnWidth) + spacing))
+        return Swift.max(1, Swift.min(Swift.min(maximumColumns, count), fitting))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard !subviews.isEmpty else { return .zero }
+        let proposedWidth = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        let width = Swift.max(0, proposedWidth ?? minimumColumnWidth)
+        let count = columns(for: width, count: subviews.count)
+        let columnWidth = Swift.max(0, (width - CGFloat(count - 1) * spacing) / CGFloat(count))
+        let heights = subviews.map { $0.sizeThatFits(ProposedViewSize(width: columnWidth, height: nil)).height }
+        var height: CGFloat = 0
+        for start in stride(from: 0, to: heights.count, by: count) {
+            if start > 0 { height += spacing }
+            height += heights[start..<Swift.min(start + count, heights.count)].max() ?? 0
+        }
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard !subviews.isEmpty else { return }
+        let count = columns(for: bounds.width, count: subviews.count)
+        let columnWidth = Swift.max(0, (bounds.width - CGFloat(count - 1) * spacing) / CGFloat(count))
+        let cellProposal = ProposedViewSize(width: columnWidth, height: nil)
+        var rowY = bounds.minY
+        var rowHeight: CGFloat = 0
+        for index in subviews.indices {
+            let column = index % count
+            if column == 0 && index > 0 {
+                rowY += rowHeight + spacing
+                rowHeight = 0
+            }
+            let size = subviews[index].sizeThatFits(cellProposal)
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + CGFloat(column) * (columnWidth + spacing), y: rowY),
+                anchor: .topLeading,
+                proposal: cellProposal
+            )
+            rowHeight = Swift.max(rowHeight, size.height)
+        }
+    }
+}
+
+struct AdaptiveValueRow<LabelContent: View, ValueContent: View>: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    private let label: LabelContent
+    private let value: ValueContent
+
+    init(@ViewBuilder label: () -> LabelContent, @ViewBuilder value: () -> ValueContent) {
+        self.label = label()
+        self.value = value()
+    }
+
+    var body: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            verticalContent
+        } else {
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .top, spacing: 12) {
+                    label.fixedSize(horizontal: true, vertical: false)
+                    Spacer(minLength: 8)
+                    value.fixedSize(horizontal: true, vertical: false)
+                }
+                verticalContent
+            }
+        }
+    }
+
+    private var verticalContent: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            label
+            value
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct AdaptiveSummaryPair: View {
     let firstTitle: String
     let firstAmount: Int64
@@ -258,20 +376,12 @@ struct AdaptiveSummaryPair: View {
     let secondTint: Color
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 14) {
-                firstTile
-                Divider()
-                secondTile
-            }
-            .frame(minHeight: 54)
-
-            VStack(alignment: .leading, spacing: 12) {
-                firstTile
-                Divider()
-                secondTile
-            }
+        AdaptiveValueRow {
+            firstTile
+        } value: {
+            secondTile
         }
+        .frame(minHeight: 54)
     }
 
     private var firstTile: some View {

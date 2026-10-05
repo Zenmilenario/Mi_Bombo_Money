@@ -12,6 +12,7 @@ struct BudgetsView: View {
     @State private var selectedMonth = Date.now.startOfMonth()
     @State private var selectedCategory: FinanceCategory?
     @State private var showingAddBudget = false
+    @ScaledMetric(relativeTo: .body) private var comparisonRowHeight: CGFloat = 48
 
     private var expenseCategories: [FinanceCategory] {
         categories.filter {
@@ -46,7 +47,8 @@ struct BudgetsView: View {
     }
 
     private var unbudgetedCategories: [FinanceCategory] {
-        expenseCategories.filter { item(for: $0).limitMinor == 0 }
+        let budgetedIDs = Set(budgetedItems.map { $0.category.id })
+        return expenseCategories.filter { !budgetedIDs.contains($0.id) }
     }
 
     private var totalBudgetMinor: Int64 {
@@ -90,14 +92,19 @@ struct BudgetsView: View {
                 }
 
                 Section {
-                    BudgetOverviewCard(
-                        budgetMinor: totalBudgetMinor,
-                        spentMinor: totalSpentMinor,
-                        availableMinor: totalAvailableMinor,
-                        unbudgetedSpentMinor: unbudgetedSpentMinor,
-                        fraction: totalFraction,
-                        pacingText: budgetPacingText
-                    )
+                    AdaptiveCardGrid {
+                        BudgetOverviewCard(
+                            budgetMinor: totalBudgetMinor,
+                            spentMinor: totalSpentMinor,
+                            availableMinor: totalAvailableMinor,
+                            unbudgetedSpentMinor: unbudgetedSpentMinor,
+                            fraction: totalFraction,
+                            pacingText: budgetPacingText
+                        )
+                        if !budgetedItems.isEmpty {
+                            budgetComparisonCard
+                        }
+                    }
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
                 }
@@ -132,16 +139,6 @@ struct BudgetsView: View {
                     }
                 }
 
-                if !budgetedItems.isEmpty {
-                    Section {
-                        NavigationLink {
-                            BudgetAnalysisView(initialMonth: selectedMonth)
-                        } label: {
-                            Label("Análisis: presupuesto frente a gasto", systemImage: "chart.bar.xaxis")
-                        }
-                    }
-                }
-
                 if !attentionItems.isEmpty {
                     Section("Necesitan atención") {
                         ForEach(attentionItems) { item in
@@ -160,13 +157,9 @@ struct BudgetsView: View {
 
                 if !unbudgetedCategories.isEmpty {
                     Section {
-                        ForEach(unbudgetedCategories) { category in
-                            budgetButton(item(for: category))
-                        }
-                    } header: {
-                        Text("Sin presupuesto")
-                    } footer: {
-                        Text("Toca una categoría para definir su límite mensual.")
+                        unbudgetedCategoriesCard
+                            .listRowInsets(EdgeInsets())
+                            .listRowBackground(Color.clear)
                     }
                 }
 
@@ -177,6 +170,9 @@ struct BudgetsView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .frame(maxWidth: AppDesign.overviewContentWidth)
+            .frame(maxWidth: .infinity)
+            .background(AppDesign.pageBackground)
             .navigationTitle("Presupuestos")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -200,6 +196,112 @@ struct BudgetsView: View {
                 )
             }
         }
+    }
+
+    private var unbudgetedCategoriesCard: some View {
+        let categoriesWithSpending = Set(progressItems.filter { $0.spentMinor > 0 }.map { $0.category.id })
+        return SectionCard(
+            "Añadir al presupuesto",
+            subtitle: "\(unbudgetedCategories.count) categorías sin límite · toca un icono"
+        ) {
+            VStack(alignment: .leading, spacing: 12) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 44), spacing: 12)], spacing: 12) {
+                    ForEach(unbudgetedCategories) { category in
+                        Button {
+                            selectedCategory = category
+                        } label: {
+                            Image(systemName: category.systemImage)
+                                .font(.title3)
+                                .foregroundStyle(Color(hex: category.colorHex))
+                                .frame(maxWidth: .infinity, minHeight: 44)
+                                .background(Color(hex: category.colorHex).opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+                                .overlay(alignment: .topTrailing) {
+                                    if categoriesWithSpending.contains(category.id) {
+                                        Circle().fill(Color.orange).frame(width: 7, height: 7).padding(4)
+                                    }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(category.name)
+                        .accessibilityHint("Crear un presupuesto mensual para esta categoría")
+                        .help(category.name)
+                    }
+                }
+                if unbudgetedSpentMinor > 0 {
+                    Label("El punto naranja indica gasto sin presupuesto.", systemImage: "circle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    private var comparisonItems: [BudgetProgress] {
+        Array(budgetedItems.sorted { $0.fraction > $1.fraction }.prefix(6))
+    }
+
+    private var budgetComparisonCard: some View {
+        SectionCard("Gasto frente a límite", subtitle: "Primero, las categorías con mayor uso del presupuesto") {
+            VStack(alignment: .leading, spacing: 14) {
+                if hideAmounts {
+                    Label("Gráfico oculto por privacidad", systemImage: "eye.slash")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 120)
+                } else {
+                    Chart {
+                        ForEach(comparisonItems) { item in
+                            BarMark(
+                                x: .value("Importe", Double(item.limitMinor) / 100),
+                                y: .value("Categoría", item.category.name)
+                            )
+                            .foregroundStyle(by: .value("Serie", "Límite"))
+                            .position(by: .value("Serie", "Límite"))
+                            .cornerRadius(3)
+                            BarMark(
+                                x: .value("Importe", Double(item.spentMinor) / 100),
+                                y: .value("Categoría", item.category.name)
+                            )
+                            .foregroundStyle(by: .value("Serie", "Gastado"))
+                            .position(by: .value("Serie", "Gastado"))
+                            .cornerRadius(3)
+                        }
+                    }
+                    .chartForegroundStyleScale(["Límite": Color.secondary.opacity(0.25), "Gastado": Color.accentColor])
+                    .chartLegend(position: .bottom)
+                    .chartXAxis {
+                        AxisMarks(values: .automatic(desiredCount: 3)) { value in
+                            AxisGridLine()
+                            AxisValueLabel {
+                                if let amount = value.as(Double.self) {
+                                    Text(amount, format: .currency(code: "EUR").precision(.fractionLength(0)))
+                                }
+                            }
+                        }
+                    }
+                    .frame(height: CGFloat(comparisonItems.count) * comparisonRowHeight + 44)
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Gasto frente al límite de cada categoría")
+                    .accessibilityValue(comparisonAccessibilitySummary)
+                    if budgetedItems.count > comparisonItems.count {
+                        Text("Se muestran \(comparisonItems.count) de \(budgetedItems.count) presupuestos.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                NavigationLink {
+                    BudgetAnalysisView(initialMonth: selectedMonth)
+                } label: {
+                    Label("Ver comparativa completa", systemImage: "chart.bar.xaxis")
+                        .font(.subheadline.weight(.semibold))
+                }
+            }
+        }
+    }
+
+    private var comparisonAccessibilitySummary: String {
+        comparisonItems.map { item in
+            "\(item.category.name): gastado \(MoneyFormatter.string(minorUnits: item.spentMinor)), límite \(MoneyFormatter.string(minorUnits: item.limitMinor))"
+        }.joined(separator: ". ")
     }
 
     private var monthSelector: some View {
@@ -276,17 +378,6 @@ struct BudgetsView: View {
         return "Vas \(hidden(MoneyFormatter.string(minorUnits: Swift.abs(difference)))) por encima del ritmo previsto"
     }
 
-    private func item(for category: FinanceCategory) -> BudgetProgress {
-        if let item = progressItems.first(where: { $0.category.id == category.id }) {
-            return item
-        }
-        return BudgetProgress(
-            category: category,
-            limitMinor: 0,
-            spentMinor: 0
-        )
-    }
-
     private func existingBudget(for category: FinanceCategory) -> MonthlyBudget? {
         budgets.first {
             $0.category?.id == category.id
@@ -319,15 +410,10 @@ private struct BudgetOverviewCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Vista general")
-                    .font(.headline)
-                Spacer()
-                StatusPill(
-                    text: statusText,
-                    systemImage: statusImage,
-                    tint: tint
-                )
+            AdaptiveValueRow {
+                Text("Vista general").font(.headline)
+            } value: {
+                StatusPill(text: statusText, systemImage: statusImage, tint: tint)
             }
 
             if budgetMinor > 0 {
@@ -458,9 +544,9 @@ private struct BudgetRow: View {
                 ProgressView(value: Swift.min(item.fraction, 1))
                     .tint(statusColor)
 
-                HStack {
+                AdaptiveValueRow {
                     Text("Gastado: \(hidden(MoneyFormatter.string(minorUnits: item.spentMinor)))")
-                    Spacer()
+                } value: {
                     Text("Disponible: \(hidden(MoneyFormatter.string(minorUnits: item.availableMinor)))")
                 }
                 .font(.caption)

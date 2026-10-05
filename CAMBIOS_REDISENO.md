@@ -1,4 +1,15 @@
-# Rediseño 0.2.0 de Mi Patrimonio
+# Rediseño de Mi Patrimonio
+
+## Entrega 0.2.10
+
+- Inicio sustituye el título por un saludo y concentra el resumen patrimonial. La lista de cuentas pasa a Cuentas y el interés anual sigue disponible en el detalle de cada cuenta.
+- La disposición de las tarjetas calcula las columnas a partir del ancho propuesto por su contenedor. Su ancho mínimo escala con Dynamic Type y las filas usan una disposición vertical cuando su contenido no cabe. Los tamaños de accesibilidad usan una columna. Se aplica a Inicio, métricas y resumen con gráfico de Presupuestos; las listas de Cuentas conservan un ancho legible y adaptan sus filas.
+- Cuentas pasa a ser una pantalla de gestión, con búsqueda, separación entre cuentas y tarjetas, grupos por uso, actualización directa de saldo o valoración y accesos a reservas y periódicos.
+- Presupuestos agrupa las categorías sin límite en una tarjeta de iconos y añade una comparativa de gasto y límite para los seis presupuestos con mayor uso. Conserva la comparativa completa y los editores actuales.
+- El botón rápido usa el área segura de cada pestaña para respetar automáticamente barras inferiores o superiores. Las alturas de los gráficos escalan con la letra.
+- La revisión local de esta entrega comprueba la sintaxis con tree-sitter y el formato del diff. La compilación iOS y la revisión visual quedan pendientes de Xcode o del workflow de compilación.
+
+## Historial: entrega 0.2.0
 
 Este paquete aplica un rediseño conservador: mantiene el modelo de datos, los cálculos financieros, SwiftData y los formularios existentes, pero reorganiza la interfaz para que sea más clara, consistente y fácil de usar.
 

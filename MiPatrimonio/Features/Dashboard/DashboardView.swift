@@ -62,6 +62,7 @@ struct DashboardView: View {
     @State private var selectedMonth = Date.now.startOfMonth()
     @State private var chartRange: NetWorthRange = .oneYear
     @State private var selectedGoal: SavingsGoal?
+    @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 220
 
     let onOpenTransactions: () -> Void
     let onOpenAccounts: () -> Void
@@ -146,16 +147,6 @@ struct DashboardView: View {
         return Double(currentMonthChange) / Double(Swift.abs(previousMonthNetWorth))
     }
 
-    private var annualInterestEstimate: Int64 {
-        activeAccounts.reduce(Int64.zero) { partial, account in
-            partial + FinanceCalculator.estimatedAnnualInterestMinor(
-                account: account,
-                transactions: transactions,
-                snapshots: snapshots
-            )
-        }
-    }
-
     private var latestAccountUpdate: Date? {
         activeAccounts.map(\.lastUpdatedAt).max()
     }
@@ -191,35 +182,23 @@ struct DashboardView: View {
         return Double(totalBudgetSpentMinor) / Double(totalBudgetMinor)
     }
 
-    private var attentionBudgetItems: [BudgetProgress] {
-        budgetedItems
-            .sorted { left, right in
-                if left.fraction == right.fraction {
-                    return left.spentMinor > right.spentMinor
-                }
-                return left.fraction > right.fraction
-            }
-            .prefix(3)
-            .map { $0 }
-    }
-
     private var chartMonthCount: Int {
         if let fixed = chartRange.fixedMonthCount {
             return fixed
         }
 
-        let earliestDate = activeAccounts.map(\.openingDate).min() ?? selectedMonth
+        let earliestDate = activeAccounts.map(\.openingDate).min() ?? Date.now
         let components = Calendar.autoupdatingCurrent.dateComponents(
             [.month],
             from: earliestDate.startOfMonth(),
-            to: selectedMonth.startOfMonth()
+            to: Date.now.startOfMonth()
         )
         return Swift.max(3, (components.month ?? 11) + 1)
     }
 
     private var netWorthHistory: [NetWorthPoint] {
         FinanceCalculator.netWorthHistory(
-            endingAt: selectedMonth,
+            endingAt: .now,
             months: chartMonthCount,
             accounts: activeAccounts,
             transactions: transactions,
@@ -340,6 +319,7 @@ struct DashboardView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(spacing: AppDesign.sectionSpacing) {
+                    welcomeHeader
                     if activeAccounts.isEmpty {
                         ContentUnavailableView {
                             Label("Empieza con tus datos", systemImage: "building.columns")
@@ -351,24 +331,27 @@ struct DashboardView: View {
                         }
                         .frame(maxWidth: .infinity, minHeight: 320)
                     } else {
-                        netWorthCard
-                        monthSelector
-                        monthlyMetrics
+                        AdaptiveCardGrid {
+                            netWorthCard
+                            monthlyOverview
+                        }
                         alertsSection
-                        accountsSection
-                        budgetsSection
-                        netWorthChart
-                        primaryGoalSection
+                        AdaptiveCardGrid {
+                            budgetsSection
+                            netWorthChart
+                            primaryGoalSection
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
-                .padding(.bottom, 104)
-                .frame(maxWidth: AppDesign.readableContentWidth)
+                .padding(.bottom, 24)
+                .frame(maxWidth: AppDesign.overviewContentWidth)
                 .frame(maxWidth: .infinity)
             }
             .background(AppDesign.pageBackground)
-            .navigationTitle("Inicio")
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -384,6 +367,35 @@ struct DashboardView: View {
             .sheet(item: $selectedGoal) { goal in
                 GoalDetailView(goal: goal)
             }
+        }
+    }
+
+    private var monthlyOverview: some View {
+        VStack(spacing: 16) {
+            monthSelector
+            monthlyMetrics
+        }
+        .padding(AppDesign.cardPadding)
+        .background(AppDesign.cardBackground, in: RoundedRectangle(cornerRadius: AppDesign.cardRadius))
+    }
+
+    private var welcomeHeader: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(greeting)
+                .font(.largeTitle.bold())
+            Text("Tu dinero, de un vistazo")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var greeting: String {
+        switch Calendar.autoupdatingCurrent.component(.hour, from: .now) {
+        case 6..<12: return "Buenos días"
+        case 12..<21: return "Buenas tardes"
+        default: return "Buenas noches"
         }
     }
 
@@ -429,16 +441,14 @@ struct DashboardView: View {
                 ReservedFundsView()
             } label: {
                 VStack(spacing: 9) {
-                    HStack {
-                        Label("Disponible para usar", systemImage: "wallet.bifold")
-                            .font(.subheadline)
-                        Spacer()
+                    AdaptiveValueRow {
+                        Label("Disponible para usar", systemImage: "wallet.bifold").font(.subheadline)
+                    } value: {
                         PrivacyAmountText(minorUnits: spendableCash, font: .subheadline, weight: .semibold)
                     }
-                    HStack {
-                        Label("Reservado", systemImage: "lock.circle")
-                            .font(.subheadline)
-                        Spacer()
+                    AdaptiveValueRow {
+                        Label("Reservado", systemImage: "lock.circle").font(.subheadline)
+                    } value: {
                         PrivacyAmountText(minorUnits: reservedCash, font: .subheadline, weight: .semibold)
                     }
                 }
@@ -446,20 +456,6 @@ struct DashboardView: View {
             }
             .buttonStyle(.plain)
 
-            Divider()
-                .overlay(Color.primary.opacity(0.08))
-
-            HStack {
-                Label("Interés anual estimado", systemImage: "percent")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                PrivacyAmountText(
-                    minorUnits: annualInterestEstimate,
-                    font: .subheadline,
-                    weight: .semibold
-                )
-            }
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -474,7 +470,6 @@ struct DashboardView: View {
             ),
             in: RoundedRectangle(cornerRadius: AppDesign.heroRadius, style: .continuous)
         )
-        .accessibilityElement(children: .combine)
     }
 
     private var netWorthTitle: some View {
@@ -526,48 +521,62 @@ struct DashboardView: View {
     }
 
     private var monthlyMetrics: some View {
-        LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 160), spacing: 12)],
-            spacing: 12
-        ) {
-            MetricCard(
-                title: "Ingresos",
-                value: hidden(MoneyFormatter.string(minorUnits: monthSummary.incomeMinor)),
-                systemImage: "arrow.down",
-                tint: .green
-            )
-
-            MetricCard(
-                title: "Gastos",
-                value: hidden(MoneyFormatter.string(minorUnits: monthSummary.expenseMinor)),
-                systemImage: "arrow.up",
-                tint: .red
-            )
-
-            MetricCard(
-                title: "Ahorro neto",
-                value: hidden(MoneyFormatter.string(minorUnits: monthSummary.netSavingsMinor)),
-                systemImage: "banknote",
-                tint: monthSummary.netSavingsMinor >= 0 ? .blue : .red,
-                valueColor: monthSummary.netSavingsMinor >= 0 ? .primary : .red
-            )
-
-            if hasInvestmentContributions {
+        VStack(spacing: 12) {
+            AdaptiveCardGrid(minimumColumnWidth: 145, maximumColumns: 4, spacing: 12) {
                 MetricCard(
-                    title: "Aportado a inversión",
-                    value: hidden(MoneyFormatter.string(minorUnits: investmentContributionsThisMonth)),
-                    systemImage: "chart.line.uptrend.xyaxis",
-                    tint: .blue
+                    title: "Ingresos",
+                    value: hidden(MoneyFormatter.string(minorUnits: monthSummary.incomeMinor)),
+                    systemImage: "arrow.down",
+                    tint: .green
                 )
-            }
 
-            MetricCard(
-                title: "Tasa de ahorro",
-                value: hideAmounts ? "••••" : MoneyFormatter.percent(monthSummary.savingsRate),
-                systemImage: "gauge.with.dots.needle.50percent",
-                tint: .orange
-            )
+                MetricCard(
+                    title: "Gastos",
+                    value: hidden(MoneyFormatter.string(minorUnits: monthSummary.expenseMinor)),
+                    systemImage: "arrow.up",
+                    tint: .red
+                )
+
+                MetricCard(
+                    title: "Ahorro neto",
+                    value: hidden(MoneyFormatter.string(minorUnits: monthSummary.netSavingsMinor)),
+                    systemImage: "banknote",
+                    tint: monthSummary.netSavingsMinor >= 0 ? .blue : .red,
+                    valueColor: monthSummary.netSavingsMinor >= 0 ? .primary : .red
+                )
+
+                if hasInvestmentContributions {
+                    MetricCard(
+                        title: "Aportado a inversión",
+                        value: hidden(MoneyFormatter.string(minorUnits: investmentContributionsThisMonth)),
+                        systemImage: "chart.line.uptrend.xyaxis",
+                        tint: .blue
+                    )
+                }
+
+            }
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    savingsRateLabel
+                    Spacer()
+                    Button("Ver movimientos", action: onOpenTransactions)
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    savingsRateLabel
+                    Button("Ver movimientos", action: onOpenTransactions)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .font(.caption)
         }
+    }
+
+    private var savingsRateLabel: some View {
+        Label(
+            hideAmounts ? "Tasa de ahorro: ••••" : "Tasa de ahorro: \(MoneyFormatter.percent(monthSummary.savingsRate))",
+            systemImage: "gauge.with.dots.needle.50percent"
+        )
+        .foregroundStyle(.secondary)
     }
 
     @ViewBuilder
@@ -609,76 +618,6 @@ struct DashboardView: View {
                         .buttonStyle(.plain)
 
                         if index < alertItems.count - 1 {
-                            Divider()
-                                .padding(.leading, 50)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var accountsSection: some View {
-        SectionCard(
-            "Tus cuentas",
-            subtitle: activeAccounts.isEmpty ? nil : "Saldos consolidados",
-            actionTitle: activeAccounts.isEmpty ? nil : "Ver todas",
-            action: activeAccounts.isEmpty ? nil : onOpenAccounts
-        ) {
-            if activeAccounts.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Añade tu primera cuenta para empezar a calcular tu patrimonio.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Button("Añadir una cuenta") {
-                        onOpenAccounts()
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            } else {
-                VStack(spacing: 0) {
-                    ForEach(Array(activeAccounts.prefix(4).enumerated()), id: \.element.id) { index, account in
-                        HStack(spacing: 12) {
-                            Image(systemName: account.type.systemImage)
-                                .foregroundStyle(Color(hex: account.institution?.colorHex ?? "#1F6B7A"))
-                                .frame(width: 38, height: 38)
-                                .background(Color.secondary.opacity(0.09), in: Circle())
-
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(account.name)
-                                    .font(.subheadline.weight(.semibold))
-                                HStack(spacing: 6) {
-                                    Text(account.institution?.name ?? account.type.title)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .lineLimit(1)
-
-                                    if isStale(account) {
-                                        StatusPill(
-                                            text: "Sin actualizar",
-                                            systemImage: "clock",
-                                            tint: .orange
-                                        )
-                                    }
-                                }
-                            }
-
-                            Spacer(minLength: 8)
-
-                            PrivacyAmountText(
-                                minorUnits: FinanceCalculator.balance(
-                                    of: account,
-                                    transactions: transactions,
-                                    snapshots: snapshots
-                                ),
-                                currencyCode: account.currencyCode,
-                                font: .subheadline,
-                                weight: .semibold
-                            )
-                        }
-                        .padding(.vertical, 10)
-
-                        if index < Swift.min(activeAccounts.count, 4) - 1 {
                             Divider()
                                 .padding(.leading, 50)
                         }
@@ -731,15 +670,6 @@ struct DashboardView: View {
                         }
                     }
 
-                    if !attentionBudgetItems.isEmpty {
-                        Divider()
-
-                        VStack(spacing: 12) {
-                            ForEach(attentionBudgetItems) { item in
-                                budgetAttentionRow(item)
-                            }
-                        }
-                    }
                 }
             }
         }
@@ -791,7 +721,7 @@ struct DashboardView: View {
                         .lineStyle(StrokeStyle(lineWidth: 3, lineCap: .round))
                         .interpolationMethod(.monotone)
                     }
-                    .frame(height: 220)
+                    .frame(height: chartHeight)
                     .chartXScale(
                         range: .plotDimension(startPadding: 10, endPadding: 10)
                     )
@@ -879,34 +809,6 @@ struct DashboardView: View {
                 .buttonStyle(.plain)
                 .accessibilityHint("Abre el detalle del objetivo")
             }
-        }
-    }
-
-    private func budgetAttentionRow(_ item: BudgetProgress) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Label(item.category.name, systemImage: item.category.systemImage)
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-
-                Spacer()
-
-                StatusPill(
-                    text: item.statusText,
-                    tint: budgetTint(item)
-                )
-            }
-
-            ProgressView(value: Swift.min(item.fraction, 1))
-                .tint(budgetTint(item))
-
-            HStack {
-                Text(hidden(MoneyFormatter.string(minorUnits: item.spentMinor)))
-                Spacer()
-                Text("de \(hidden(MoneyFormatter.string(minorUnits: item.limitMinor)))")
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
         }
     }
 
@@ -1001,21 +903,6 @@ struct DashboardView: View {
         case .budgets: onOpenBudgets()
         case .settings: onOpenSettings()
         }
-    }
-
-    private func isStale(_ account: FinancialAccount) -> Bool {
-        let limit = Calendar.autoupdatingCurrent.date(
-            byAdding: .day,
-            value: -30,
-            to: .now
-        ) ?? .now
-        return account.lastUpdatedAt < limit
-    }
-
-    private func budgetTint(_ item: BudgetProgress) -> Color {
-        if item.spentMinor > item.limitMinor { return .red }
-        if item.fraction >= 0.85 { return .orange }
-        return Color(hex: item.category.colorHex)
     }
 
     private func goalCurrentAmount(_ goal: SavingsGoal) -> Int64 {
