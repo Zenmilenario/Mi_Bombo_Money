@@ -9,8 +9,10 @@ enum PersistenceController {
             ReservedFund.self,
             PaymentCard.self,
             FinanceCategory.self,
+            CategoryRule.self,
             FinancialTransaction.self,
             MonthlyBudget.self,
+            RecurringBudget.self,
             SavingsGoal.self,
             RecurringMovement.self,
             BalanceSnapshot.self,
@@ -28,6 +30,7 @@ enum PersistenceController {
                 cloudKitDatabase: .none
             )
             let container = try ModelContainer(for: schema, configurations: configuration)
+            try CategoryDefaultsService.installIfNeeded(in: ModelContext(container))
             applyCompleteFileProtection(to: directory)
             return container
         } catch {

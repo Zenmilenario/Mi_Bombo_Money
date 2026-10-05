@@ -6,10 +6,12 @@ struct BudgetsView: View {
     @AppStorage("hideAmounts") private var hideAmounts = false
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
     @Query(sort: \MonthlyBudget.monthStart, order: .reverse) private var budgets: [MonthlyBudget]
+    @Query(sort: \RecurringBudget.startMonth, order: .reverse) private var recurringBudgets: [RecurringBudget]
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
 
     @State private var selectedMonth = Date.now.startOfMonth()
     @State private var selectedCategory: FinanceCategory?
+    @State private var showingAddBudget = false
 
     private var expenseCategories: [FinanceCategory] {
         categories.filter {
@@ -22,6 +24,7 @@ struct BudgetsView: View {
             for: selectedMonth,
             categories: expenseCategories,
             budgets: budgets,
+            recurringBudgets: recurringBudgets,
             transactions: transactions
         )
     }
@@ -64,6 +67,16 @@ struct BudgetsView: View {
         totalBudgetMinor - totalSpentMinor
     }
 
+    private var unspentKeptMinor: Int64 {
+        budgetedItems.reduce(Int64.zero) { total, item in
+            guard let plan = FinanceCalculator.activeRecurringBudget(
+                for: item.category, month: selectedMonth,
+                recurringBudgets: recurringBudgets
+            ), plan.remainderChoice == .save else { return total }
+            return total + Swift.max(0, item.availableMinor)
+        }
+    }
+
     private var totalFraction: Double {
         guard totalBudgetMinor > 0 else { return 0 }
         return Double(totalSpentMinor) / Double(totalBudgetMinor)
@@ -87,6 +100,36 @@ struct BudgetsView: View {
                     )
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
+                }
+
+                if selectedMonth < Date.now.startOfMonth(), unspentKeptMinor > 0 {
+                    Section {
+                        HStack {
+                            Label("Sobrante no trasladado", systemImage: "leaf")
+                            Spacer()
+                            PrivacyAmountText(minorUnits: unspentKeptMinor, font: .subheadline, weight: .semibold)
+                        }
+                        Text("Este importe permanece en tus cuentas y no aumenta el presupuesto del mes siguiente.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section {
+                    Button {
+                        showingAddBudget = true
+                    } label: {
+                        Label("Crear presupuesto", systemImage: "plus.circle.fill")
+                    }
+                    .disabled(unbudgetedCategories.isEmpty)
+
+                    if expenseCategories.isEmpty {
+                        NavigationLink {
+                            CategoriesView()
+                        } label: {
+                            Label("Crear una categoría de gasto", systemImage: "tag")
+                        }
+                    }
                 }
 
                 if !budgetedItems.isEmpty {
@@ -135,6 +178,20 @@ struct BudgetsView: View {
             }
             .listStyle(.insetGrouped)
             .navigationTitle("Presupuestos")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showingAddBudget = true
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .disabled(unbudgetedCategories.isEmpty)
+                    .accessibilityLabel("Crear presupuesto")
+                }
+            }
+            .sheet(isPresented: $showingAddBudget) {
+                BudgetEditorView(month: selectedMonth)
+            }
             .sheet(item: $selectedCategory) { category in
                 BudgetEditorView(
                     category: category,
@@ -336,7 +393,7 @@ private struct BudgetOverviewCard: View {
                         .foregroundStyle(Color.accentColor)
                     Text("Aún no has definido límites para este mes.")
                         .font(.subheadline.weight(.semibold))
-                    Text("Toca cualquier categoría para crear su presupuesto mensual.")
+                    Text("Pulsa Crear presupuesto para definir un límite mensual.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -382,6 +439,13 @@ private struct BudgetRow: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
 
+                if item.isRecurring {
+                    Image(systemName: "repeat")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityLabel("Se repite cada mes")
+                }
+
                 Spacer()
 
                 StatusPill(
@@ -401,6 +465,12 @@ private struct BudgetRow: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+                if item.carriedInMinor > 0 {
+                    Text("Incluye \(hidden(MoneyFormatter.string(minorUnits: item.carriedInMinor))) del mes anterior")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 Text(
                     item.spentMinor > 0
@@ -429,6 +499,7 @@ private struct BudgetRow: View {
 private struct BudgetAnalysisView: View {
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
     @Query(sort: \MonthlyBudget.monthStart, order: .reverse) private var budgets: [MonthlyBudget]
+    @Query(sort: \RecurringBudget.startMonth, order: .reverse) private var recurringBudgets: [RecurringBudget]
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
 
     @AppStorage("hideAmounts") private var hideAmounts = false
@@ -449,6 +520,7 @@ private struct BudgetAnalysisView: View {
             for: selectedMonth,
             categories: expenseCategories,
             budgets: budgets,
+            recurringBudgets: recurringBudgets,
             transactions: transactions
         )
         .filter { $0.limitMinor > 0 }
@@ -585,19 +657,33 @@ private struct BudgetAnalysisView: View {
 private struct BudgetEditorView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
+    @Query(sort: \MonthlyBudget.monthStart, order: .reverse) private var budgets: [MonthlyBudget]
+    @Query(sort: \RecurringBudget.startMonth, order: .reverse) private var recurringBudgets: [RecurringBudget]
+    @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
 
-    let category: FinanceCategory
+    private enum SaveScope: String, Hashable {
+        case thisMonth
+        case fromThisMonth
+        case stopRecurrence
+    }
+
+    let category: FinanceCategory?
     let month: Date
     let existingBudget: MonthlyBudget?
 
+    @State private var selectedCategoryID: UUID?
     @State private var limitText: String
     @State private var notes: String
+    @State private var saveScope: SaveScope = .thisMonth
+    @State private var remainderChoice: BudgetRemainderChoice = .save
     @State private var errorMessage: String?
 
-    init(category: FinanceCategory, month: Date, existingBudget: MonthlyBudget?) {
+    init(category: FinanceCategory? = nil, month: Date, existingBudget: MonthlyBudget? = nil) {
         self.category = category
         self.month = month
         self.existingBudget = existingBudget
+        _selectedCategoryID = State(initialValue: category?.id)
         _limitText = State(initialValue: existingBudget.map {
             String(format: "%.2f", Double($0.limitMinor) / 100)
         } ?? "")
@@ -608,20 +694,66 @@ private struct BudgetEditorView: View {
         NavigationStack {
             Form {
                 Section {
-                    LabeledContent("Categoría", value: category.name)
+                    if let category {
+                        LabeledContent("Categoría", value: category.name)
+                    } else {
+                        Picker("Categoría", selection: $selectedCategoryID) {
+                            ForEach(availableCategories) { option in
+                                Label(option.name, systemImage: option.systemImage)
+                                    .tag(option.id as UUID?)
+                            }
+                        }
+                    }
                     LabeledContent("Mes", value: month.formatted(.dateTime.month(.wide).year()))
                 }
 
                 Section("Presupuesto") {
-                    TextField("Límite mensual", text: $limitText)
+                    TextField(saveScope == .fromThisMonth ? "Límite base cada mes" : "Límite de este mes", text: $limitText)
                         .keyboardType(.decimalPad)
                     TextField("Notas", text: $notes, axis: .vertical)
                         .lineLimit(2...4)
                 }
 
+                Section {
+                    Picker("Aplicar", selection: $saveScope) {
+                        Text("Solo este mes").tag(SaveScope.thisMonth)
+                        Text("Repetir desde este mes").tag(SaveScope.fromThisMonth)
+                        if activePlan != nil {
+                            Text("Detener repetición").tag(SaveScope.stopRecurrence)
+                        }
+                    }
+                    .onChange(of: saveScope) { _, newScope in
+                        guard let chosenCategory, let activePlan else { return }
+                        if newScope == .fromThisMonth {
+                            limitText = amountText(activePlan.baseLimitMinor)
+                        } else {
+                            let details = FinanceCalculator.budgetLimit(
+                                for: chosenCategory, month: month,
+                                budgets: budgets, recurringBudgets: recurringBudgets,
+                                transactions: transactions
+                            )
+                            limitText = amountText(details.limitMinor)
+                        }
+                    }
+
+                    if saveScope == .fromThisMonth {
+                        Picker("Si sobra dinero", selection: $remainderChoice) {
+                            ForEach(BudgetRemainderChoice.allCases) { choice in
+                                Text(choice.title).tag(choice)
+                            }
+                        }
+                    } else if let activePlan {
+                        LabeledContent("Repetición actual", value: activePlan.remainderChoice.title)
+                    }
+                } header: {
+                    Text("Meses siguientes")
+                } footer: {
+                    Text(remainderExplanation)
+                }
+
                 if existingBudget != nil {
                     Section {
-                        Button("Eliminar presupuesto", role: .destructive) {
+                        Button(activePlan == nil ? "Eliminar presupuesto" : "Quitar ajuste de este mes", role: .destructive) {
                             deleteBudget()
                         }
                     }
@@ -633,6 +765,22 @@ private struct BudgetEditorView: View {
             }
             .navigationTitle("Presupuesto")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                if selectedCategoryID == nil {
+                    selectedCategoryID = availableCategories.first?.id
+                }
+                if let activePlan {
+                    remainderChoice = activePlan.remainderChoice
+                    if existingBudget == nil, let chosenCategory {
+                        let details = FinanceCalculator.budgetLimit(
+                            for: chosenCategory, month: month,
+                            budgets: budgets, recurringBudgets: recurringBudgets,
+                            transactions: transactions
+                        )
+                        limitText = amountText(details.limitMinor)
+                    }
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancelar") { dismiss() }
@@ -644,24 +792,124 @@ private struct BudgetEditorView: View {
         }
     }
 
+    private var availableCategories: [FinanceCategory] {
+        categories.filter { option in
+            guard !option.isArchived && (option.kind == .expense || option.kind == .both) else {
+                return false
+            }
+            if category != nil { return true }
+            return FinanceCalculator.budgetLimit(
+                for: option, month: month, budgets: budgets,
+                recurringBudgets: recurringBudgets, transactions: transactions
+            ).limitMinor == 0
+        }
+    }
+
+    private var chosenCategory: FinanceCategory? {
+        category ?? availableCategories.first(where: { $0.id == selectedCategoryID })
+    }
+
+    private var activePlan: RecurringBudget? {
+        guard let chosenCategory else { return nil }
+        return FinanceCalculator.activeRecurringBudget(
+            for: chosenCategory, month: month, recurringBudgets: recurringBudgets
+        )
+    }
+
+    private var remainderExplanation: String {
+        switch saveScope {
+        case .thisMonth:
+            return "Cambia solo este mes. Si hay una repetición, continuará en los meses siguientes."
+        case .fromThisMonth:
+            return "Si eliges ahorro, el límite siguiente será el importe base. Si lo añades al mes siguiente, aumentará su límite. El saldo de tus cuentas no cambia."
+        case .stopRecurrence:
+            return "Conserva el límite de este mes y detiene los presupuestos automáticos posteriores."
+        }
+    }
+
+    private func amountText(_ minorUnits: Int64) -> String {
+        String(format: "%.2f", Double(minorUnits) / 100)
+    }
+
     private func save() {
-        guard let limit = MoneyParser.minorUnits(from: limitText), limit >= 0 else {
-            errorMessage = "Introduce un límite válido."
+        guard let chosenCategory else {
+            errorMessage = "Selecciona una categoría de gasto."
+            return
+        }
+        guard let limit = MoneyParser.minorUnits(from: limitText), limit > 0 else {
+            errorMessage = "Introduce un límite mayor que cero."
             return
         }
 
-        if let existingBudget {
-            existingBudget.limitMinor = limit
-            existingBudget.notes = notes
-            existingBudget.monthStart = month.startOfMonth()
-            existingBudget.updatedAt = .now
-        } else {
-            modelContext.insert(MonthlyBudget(
-                monthStart: month.startOfMonth(),
-                limitMinor: limit,
-                notes: notes,
-                category: category
-            ))
+        let budgetToUpdate = existingBudget ?? budgets.first {
+            $0.category?.id == chosenCategory.id
+                && Calendar.autoupdatingCurrent.isDate(
+                    $0.monthStart,
+                    equalTo: month,
+                    toGranularity: .month
+                )
+        }
+
+        let monthStart = month.startOfMonth()
+        let currentLimit = FinanceCalculator.budgetLimit(
+            for: chosenCategory, month: month, budgets: budgets,
+            recurringBudgets: recurringBudgets, transactions: transactions
+        )
+        if saveScope == .thisMonth,
+           budgetToUpdate == nil,
+           activePlan != nil,
+           notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           limit == currentLimit.limitMinor {
+            dismiss()
+            return
+        }
+        switch saveScope {
+        case .thisMonth, .stopRecurrence:
+            if saveScope == .stopRecurrence, let activePlan {
+                if activePlan.startMonth.startOfMonth() == monthStart {
+                    modelContext.delete(activePlan)
+                } else {
+                    activePlan.endMonth = monthStart
+                    activePlan.updatedAt = .now
+                }
+            }
+            if let budgetToUpdate {
+                budgetToUpdate.limitMinor = limit
+                budgetToUpdate.notes = notes
+                budgetToUpdate.updatedAt = .now
+            } else {
+                modelContext.insert(MonthlyBudget(
+                    monthStart: monthStart, limitMinor: limit,
+                    notes: notes, category: chosenCategory
+                ))
+            }
+        case .fromThisMonth:
+            if let activePlan {
+                if activePlan.startMonth.startOfMonth() == monthStart {
+                    activePlan.baseLimitMinor = limit
+                    activePlan.remainderChoice = remainderChoice
+                    activePlan.updatedAt = .now
+                } else {
+                    let formerEnd = activePlan.endMonth
+                    activePlan.endMonth = monthStart
+                    activePlan.updatedAt = .now
+                    modelContext.insert(RecurringBudget(
+                        startMonth: monthStart, endMonth: formerEnd,
+                        baseLimitMinor: limit, remainderChoice: remainderChoice,
+                        category: chosenCategory
+                    ))
+                }
+            } else {
+                let nextStart = recurringBudgets
+                    .filter { $0.category?.id == chosenCategory.id && $0.startMonth > monthStart }
+                    .map(\.startMonth).min()
+                modelContext.insert(RecurringBudget(
+                    startMonth: monthStart, endMonth: nextStart,
+                    baseLimitMinor: limit, remainderChoice: remainderChoice,
+                    category: chosenCategory
+                ))
+            }
+            if let budgetToUpdate { modelContext.delete(budgetToUpdate) }
         }
 
         do {

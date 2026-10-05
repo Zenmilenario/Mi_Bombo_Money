@@ -324,21 +324,6 @@ struct AccountsView: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
-
-            Spacer(minLength: 8)
-
-            if let account = card.linkedAccount {
-                PrivacyAmountText(
-                    minorUnits: FinanceCalculator.balance(
-                        of: account,
-                        transactions: transactions,
-                        snapshots: snapshots
-                    ),
-                    currencyCode: account.currencyCode,
-                    font: .subheadline,
-                    weight: .semibold
-                )
-            }
         }
         .padding(.vertical, 5)
     }

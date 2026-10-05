@@ -51,6 +51,7 @@ struct DashboardView: View {
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
     @Query(sort: \MonthlyBudget.monthStart, order: .reverse) private var budgets: [MonthlyBudget]
+    @Query(sort: \RecurringBudget.startMonth, order: .reverse) private var recurringBudgets: [RecurringBudget]
     @Query(sort: \BalanceSnapshot.date) private var snapshots: [BalanceSnapshot]
     @Query(sort: \RecurringMovement.nextDueDate) private var recurringMovements: [RecurringMovement]
     @Query(sort: \SavingsGoal.createdAt, order: .reverse) private var goals: [SavingsGoal]
@@ -164,6 +165,7 @@ struct DashboardView: View {
             for: selectedMonth,
             categories: categories,
             budgets: budgets,
+            recurringBudgets: recurringBudgets,
             transactions: transactions
         )
     }

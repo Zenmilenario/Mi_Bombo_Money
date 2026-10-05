@@ -50,6 +50,12 @@ struct SettingsView: View {
 
                 Section("Datos") {
                     NavigationLink {
+                        BackupView()
+                    } label: {
+                        Label("Copia de seguridad", systemImage: "externaldrive")
+                    }
+
+                    NavigationLink {
                         CSVImportView()
                     } label: {
                         Label("Importar movimientos", systemImage: "square.and.arrow.down")
@@ -63,7 +69,7 @@ struct SettingsView: View {
                             institutionCount: institutions.count
                         )
                     } label: {
-                        Label("Datos guardados en este iPhone", systemImage: "internaldrive")
+                        Label("Datos guardados en este dispositivo", systemImage: "internaldrive")
                     }
 
                     LabeledContent {
@@ -92,6 +98,12 @@ struct SettingsView: View {
                         CategoriesView()
                     } label: {
                         Label("Categorías", systemImage: "tag")
+                    }
+
+                    NavigationLink {
+                        CategoryRulesView()
+                    } label: {
+                        Label("Reglas de categorías", systemImage: "text.magnifyingglass")
                     }
 
                     NavigationLink {
@@ -141,11 +153,11 @@ struct SettingsView: View {
             isPresented: $showingResetConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Eliminar todos los datos", role: .destructive) {
+            Button("Eliminar mis datos", role: .destructive) {
                 clearAllData()
             }
         } message: {
-            Text("Se eliminarán cuentas, movimientos, categorías, presupuestos y demás datos locales. Esta acción no se puede deshacer.")
+            Text("Se eliminarán cuentas, movimientos, categorías personalizadas, presupuestos y demás datos locales. Las categorías comunes volverán a aparecer. Esta acción no se puede deshacer.")
         }
         .alert("No se pudieron eliminar los datos", isPresented: Binding(
             get: { resetError != nil },
@@ -162,6 +174,8 @@ struct SettingsView: View {
             try modelContext.delete(model: FinancialTransaction.self)
             try modelContext.delete(model: RecurringMovement.self)
             try modelContext.delete(model: MonthlyBudget.self)
+            try modelContext.delete(model: RecurringBudget.self)
+            try modelContext.delete(model: CategoryRule.self)
             try modelContext.delete(model: SavingsGoal.self)
             try modelContext.delete(model: ReservedFund.self)
             try modelContext.delete(model: BalanceSnapshot.self)
@@ -170,6 +184,7 @@ struct SettingsView: View {
             try modelContext.delete(model: FinancialAccount.self)
             try modelContext.delete(model: FinanceCategory.self)
             try modelContext.delete(model: FinancialInstitution.self)
+            CategoryDefaultsService.insertDefaults(in: modelContext)
             try modelContext.save()
         } catch {
             modelContext.rollback()
@@ -298,13 +313,13 @@ private struct AppHelpView: View {
                 HelpStepRow(
                     number: 2,
                     title: "Registra movimientos",
-                    message: "Usa el botón azul para anotar ingresos, gastos, intereses, comisiones o transferencias."
+                    message: "Usa el botón azul para anotar movimientos. Puedes recordar una categoría para descripciones habituales."
                 )
 
                 HelpStepRow(
                     number: 3,
                     title: "Define presupuestos",
-                    message: "Asigna un límite mensual a las categorías que quieras controlar."
+                    message: "Asigna límites mensuales y decide si se repiten y qué hacer con el sobrante."
                 )
 
                 HelpStepRow(
