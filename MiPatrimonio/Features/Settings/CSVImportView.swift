@@ -7,6 +7,7 @@ struct CSVImportView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
+    @Query(sort: \CategoryRule.updatedAt, order: .reverse) private var categoryRules: [CategoryRule]
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
 
     @State private var showingImporter = false
@@ -15,6 +16,9 @@ struct CSVImportView: View {
     @State private var fileName = ""
     @State private var fileChecksum = ""
     @State private var includedRowIDs: Set<UUID> = []
+    @State private var categoryCorrections: [UUID: CSVCategoryCorrection] = [:]
+    @State private var editingCategoryRow: ImportPreviewRow?
+    @State private var visibleRowLimit = 200
     @State private var errorMessage: String?
     @State private var confirmationMessage: String?
 
@@ -86,22 +90,50 @@ struct CSVImportView: View {
                 }
 
                 Section {
-                    ForEach(Array(previewRows.prefix(200))) { row in
-                        Toggle(isOn: inclusionBinding(for: row)) {
-                            importRowLabel(row)
+                    ForEach(Array(previewRows.prefix(visibleRowLimit))) { row in
+                        VStack(alignment: .leading, spacing: 8) {
+                            Toggle(isOn: inclusionBinding(for: row)) {
+                                importRowLabel(row)
+                            }
+                            .disabled(!row.isValid || row.isExactDuplicate)
+
+                            Button {
+                                editingCategoryRow = row
+                            } label: {
+                                HStack {
+                                    Label(row.category?.name ?? "Elegir categoría", systemImage: row.category?.systemImage ?? "tag")
+                                        .foregroundStyle(Color(hex: row.category?.colorHex ?? "#4D7C8A"))
+                                    Spacer()
+                                    Image(systemName: "chevron.right")
+                                        .foregroundStyle(.secondary)
+                                }
+                                .font(.subheadline)
+                                .padding(.vertical, 4)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(row.isExactDuplicate)
+                            .accessibilityLabel("Cambiar categoría de \(row.draft.description): \(row.category?.name ?? "Sin categoría")")
+
+                            if let phrase = categoryCorrections[row.id]?.rulePhrase {
+                                Text(includedRowIDs.contains(row.id) && row.isValid && !row.isExactDuplicate
+                                     ? "Al importar, recordar «\(phrase)»"
+                                     : "Regla pendiente: selecciona esta fila para guardarla")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
-                        .disabled(!row.isValid || row.isExactDuplicate)
                     }
 
-                    if previewRows.count > 200 {
-                        Text("La vista previa muestra las primeras 200 filas. El resto conserva la selección automática.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    if previewRows.count > visibleRowLimit {
+                        Button("Mostrar más movimientos (\(previewRows.count - visibleRowLimit) pendientes de mostrar)") {
+                            visibleRowLimit += 200
+                        }
                     }
                 } header: {
                     Text("Revisión")
                 } footer: {
-                    Text("Los duplicados exactos se omiten. Los posibles duplicados quedan desmarcados para que decidas si deben importarse.")
+                    Text("Toca una categoría para corregirla y, si quieres, recordarla como regla. Solo se guardan las reglas de las filas importadas. Los duplicados exactos se omiten; los posibles duplicados quedan desmarcados para que los revises.")
                 }
             } else {
                 Section {
@@ -116,6 +148,17 @@ struct CSVImportView: View {
         }
         .navigationTitle("Importar CSV")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(item: $editingCategoryRow) { row in
+            CSVCategoryCorrectionView(
+                row: row,
+                categories: categories,
+                correction: categoryCorrections[row.id],
+                otherCorrections: previewRows.filter { $0.id != row.id && $0.draft.type == row.draft.type }
+                    .compactMap { categoryCorrections[$0.id] }
+            ) { correction in
+                categoryCorrections[row.id] = correction
+            }
+        }
         .fileImporter(
             isPresented: $showingImporter,
             allowedContentTypes: [.commaSeparatedText, .plainText],
@@ -194,6 +237,16 @@ struct CSVImportView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
 
+            if categoryCorrections[row.id] != nil {
+                Label("Categoría elegida por ti", systemImage: "checkmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if let phrase = row.categoryRulePhrase {
+                Label("Categoría sugerida por «\(phrase)»", systemImage: "text.magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             if let validationMessage = row.validationMessage {
                 Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
@@ -241,10 +294,18 @@ struct CSVImportView: View {
             fileName = url.lastPathComponent
             fileChecksum = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             parseResult = parsed
+            categoryCorrections.removeAll()
+            visibleRowLimit = 200
             resetDefaultSelection()
         } catch {
+            let nsError = error as NSError
+            if nsError.domain == NSCocoaErrorDomain && nsError.code == NSUserCancelledError { return }
             parseResult = nil
+            fileName = ""
+            fileChecksum = ""
             includedRowIDs.removeAll()
+            categoryCorrections.removeAll()
+            visibleRowLimit = 200
             errorMessage = error.localizedDescription
         }
     }
@@ -263,7 +324,20 @@ struct CSVImportView: View {
             ? defaultAccount
             : resolveAccount(named: draft.sourceAccountName)
         let destination = resolveAccount(named: draft.destinationAccountName)
-        let category = resolveCategory(named: draft.categoryName, for: draft.type)
+        let resolvedCategory = resolveCategory(
+            named: draft.categoryName,
+            description: draft.description,
+            for: draft.type
+        )
+        let correction = categoryCorrections[draft.id]
+        let category: FinanceCategory?
+        if let correction {
+            category = categories.first {
+                $0.id == correction.categoryID && CategoryRuleService.supports($0, for: draft.type)
+            }
+        } else {
+            category = resolvedCategory.category
+        }
 
         var validationMessage: String?
         if source == nil, let sourceName = draft.sourceAccountName {
@@ -314,6 +388,7 @@ struct CSVImportView: View {
             sourceAccount: source,
             destinationAccount: draft.type == .transfer ? destination : nil,
             category: category,
+            categoryRulePhrase: correction == nil ? resolvedCategory.rulePhrase : nil,
             fingerprint: fingerprint,
             isExactDuplicate: exactDuplicate,
             possibleDuplicateCount: candidates.count,
@@ -341,24 +416,38 @@ struct CSVImportView: View {
         }
     }
 
-    private func resolveCategory(named rawName: String?, for type: TransactionType) -> FinanceCategory? {
+    private func resolveCategory(
+        named rawName: String?,
+        description: String,
+        for type: TransactionType
+    ) -> (category: FinanceCategory?, rulePhrase: String?) {
         if let rawName {
             let needle = normalized(rawName)
-            if let match = categories.first(where: { !$0.isArchived && normalized($0.name) == needle }) {
-                return match
+            if let match = categories.first(where: {
+                CategoryRuleService.supports($0, for: type) && normalized($0.name) == needle
+            }) {
+                return (match, nil)
             }
         }
 
-        switch type {
-        case .interest:
-            return categories.first { $0.name == "Intereses" }
-        case .fee:
-            return categories.first { $0.name == "Impuestos y comisiones" }
-        case .transfer:
-            return categories.first { $0.kind == .transfer }
-        default:
-            return categories.first { $0.name == "Sin categoría" }
+        if let match = CategoryRuleService.match(
+            description: description, type: type, rules: categoryRules
+        ) {
+            return (match.category, match.phrase)
         }
+
+        let preferredName: String
+        switch type {
+        case .income: preferredName = "Otros ingresos"
+        case .expense: preferredName = "Otros gastos"
+        case .interest: preferredName = "Intereses"
+        case .fee: preferredName = "Impuestos y comisiones"
+        case .transfer: preferredName = "Transferencias"
+        }
+        let fallback = categories.first {
+            CategoryRuleService.supports($0, for: type) && $0.name == preferredName
+        }
+        return (fallback, nil)
     }
 
     private func normalized(_ value: String) -> String {
@@ -373,53 +462,94 @@ struct CSVImportView: View {
         let rows = importableRows
         guard !rows.isEmpty else { return }
 
-        let batch = ImportBatch(
-            fileName: fileName,
-            source: .csv,
-            institutionName: rows.first?.sourceAccount?.institution?.name ?? "",
-            importedRows: rows.count,
-            skippedDuplicates: previewRows.filter(\.isExactDuplicate).count,
-            possibleDuplicates: rows.filter { $0.possibleDuplicateCount > 0 }.count,
-            checksum: fileChecksum,
-            notes: "Importación revisada antes de guardar."
-        )
-        modelContext.insert(batch)
-
+        // Build one rule per phrase/type, only from rows actually being imported.
+        var pendingRules: [String: (phrase: String, type: TransactionType, category: FinanceCategory)] = [:]
         for row in rows {
-            let transaction = FinancialTransaction(
-                date: row.draft.date,
-                type: row.draft.type,
-                amountMinor: row.draft.amountMinor,
-                descriptionText: row.draft.description,
-                notes: row.draft.notes,
-                isReconciled: row.draft.isReconciled,
-                fingerprint: row.fingerprint,
-                duplicateState: row.possibleDuplicateCount > 0 ? .possible : .none,
-                externalID: row.draft.externalID,
-                importBatchID: batch.id,
-                sourceAccount: row.sourceAccount,
-                destinationAccount: row.destinationAccount,
-                category: row.category
-            )
-            modelContext.insert(transaction)
-            if let sourceAccount = row.sourceAccount {
-                sourceAccount.lastUpdatedAt = Swift.max(sourceAccount.lastUpdatedAt, row.draft.date)
-                sourceAccount.updatedAt = .now
+            guard let correction = categoryCorrections[row.id] else { continue }
+            guard let category = row.category,
+                  CategoryRuleService.supports(category, for: row.draft.type) else {
+                errorMessage = "Revisa la categoría de la fila \(row.draft.rowNumber). Ya no está disponible."
+                return
             }
-            if let destinationAccount = row.destinationAccount {
-                destinationAccount.lastUpdatedAt = Swift.max(destinationAccount.lastUpdatedAt, row.draft.date)
-                destinationAccount.updatedAt = .now
+            guard let phrase = correction.rulePhrase else { continue }
+            let key = "\(row.draft.type.rawValue):\(CategoryRuleService.normalized(phrase))"
+            if let previous = pendingRules[key], previous.category.id != category.id {
+                errorMessage = "La regla «\(phrase)» tiene dos categorías distintas. Revisa las filas antes de importar."
+                return
             }
+            pendingRules[key] = (phrase, row.draft.type, category)
         }
 
+        // Preserve earlier edits before starting the atomic import.
         do {
             try modelContext.save()
+        } catch {
+            errorMessage = error.localizedDescription
+            return
+        }
+        let previousAutosave = modelContext.autosaveEnabled
+        modelContext.autosaveEnabled = false
+        defer { modelContext.autosaveEnabled = previousAutosave }
+
+        do {
+            let batch = ImportBatch(
+                fileName: fileName,
+                source: .csv,
+                institutionName: rows.first?.sourceAccount?.institution?.name ?? "",
+                importedRows: rows.count,
+                skippedDuplicates: previewRows.filter(\.isExactDuplicate).count,
+                possibleDuplicates: rows.filter { $0.possibleDuplicateCount > 0 }.count,
+                checksum: fileChecksum,
+                notes: "Importación revisada antes de guardar."
+            )
+            modelContext.insert(batch)
+
+            for row in rows {
+                let transaction = FinancialTransaction(
+                    date: row.draft.date,
+                    type: row.draft.type,
+                    amountMinor: row.draft.amountMinor,
+                    descriptionText: row.draft.description,
+                    notes: row.draft.notes,
+                    isReconciled: row.draft.isReconciled,
+                    fingerprint: row.fingerprint,
+                    duplicateState: row.possibleDuplicateCount > 0 ? .possible : .none,
+                    externalID: row.draft.externalID,
+                    importBatchID: batch.id,
+                    sourceAccount: row.sourceAccount,
+                    destinationAccount: row.destinationAccount,
+                    category: row.category
+                )
+                modelContext.insert(transaction)
+                if let sourceAccount = row.sourceAccount {
+                    sourceAccount.lastUpdatedAt = Swift.max(sourceAccount.lastUpdatedAt, row.draft.date)
+                    sourceAccount.updatedAt = .now
+                }
+                if let destinationAccount = row.destinationAccount {
+                    destinationAccount.lastUpdatedAt = Swift.max(destinationAccount.lastUpdatedAt, row.draft.date)
+                    destinationAccount.updatedAt = .now
+                }
+            }
+
+            for rule in pendingRules.values {
+                CategoryRuleService.remember(
+                    phrase: rule.phrase, type: rule.type, category: rule.category,
+                    existing: categoryRules, in: modelContext
+                )
+            }
+            try modelContext.save()
             confirmationMessage = "Se han importado \(rows.count) movimiento(s). Los duplicados exactos se han omitido."
+            if !pendingRules.isEmpty {
+                confirmationMessage = (confirmationMessage ?? "") + " Se han guardado \(pendingRules.count) regla(s) de categorías."
+            }
             parseResult = nil
             fileName = ""
             fileChecksum = ""
             includedRowIDs.removeAll()
+            categoryCorrections.removeAll()
+            visibleRowLimit = 200
         } catch {
+            modelContext.rollback()
             errorMessage = error.localizedDescription
         }
     }
@@ -431,6 +561,7 @@ private struct ImportPreviewRow: Identifiable {
     let sourceAccount: FinancialAccount?
     let destinationAccount: FinancialAccount?
     let category: FinanceCategory?
+    let categoryRulePhrase: String?
     let fingerprint: String
     let isExactDuplicate: Bool
     let possibleDuplicateCount: Int
@@ -443,6 +574,135 @@ private struct ImportPreviewRow: Identifiable {
         if let destinationAccount {
             return "\(sourceAccount.name) → \(destinationAccount.name)"
         }
-        return "\(sourceAccount.name) · \(category?.name ?? "Sin categoría")"
+        return sourceAccount.name
+    }
+}
+
+private struct CSVCategoryCorrection {
+    let categoryID: UUID
+    let rulePhrase: String?
+}
+
+private struct CSVCategoryCorrectionView: View {
+    @Environment(\.dismiss) private var dismiss
+    let row: ImportPreviewRow
+    let categories: [FinanceCategory]
+    let otherCorrections: [CSVCategoryCorrection]
+    let onApply: (CSVCategoryCorrection) -> Void
+
+    @State private var categoryID: UUID?
+    @State private var rememberRule: Bool
+    @State private var phrase: String
+
+    init(
+        row: ImportPreviewRow,
+        categories: [FinanceCategory],
+        correction: CSVCategoryCorrection?,
+        otherCorrections: [CSVCategoryCorrection],
+        onApply: @escaping (CSVCategoryCorrection) -> Void
+    ) {
+        self.row = row
+        self.categories = categories
+        self.otherCorrections = otherCorrections
+        self.onApply = onApply
+        _categoryID = State(initialValue: correction?.categoryID ?? row.category?.id)
+        _rememberRule = State(initialValue: correction?.rulePhrase != nil)
+        _phrase = State(initialValue: correction?.rulePhrase ?? row.categoryRulePhrase ?? row.draft.description)
+    }
+
+    private var compatibleCategories: [FinanceCategory] {
+        categories.filter { CategoryRuleService.supports($0, for: row.draft.type) }
+    }
+
+    private var ruleIssue: String? {
+        guard rememberRule else { return nil }
+        let normalizedPhrase = CategoryRuleService.normalized(phrase)
+        guard normalizedPhrase.count >= 3 else {
+            return "Escribe al menos tres caracteres reconocibles."
+        }
+        guard CategoryRuleService.normalized(row.draft.description).contains(normalizedPhrase) else {
+            return "Usa una palabra o frase que aparezca en la descripción de este movimiento."
+        }
+        if otherCorrections.contains(where: {
+            guard let otherPhrase = $0.rulePhrase else { return false }
+            return CategoryRuleService.normalized(otherPhrase) == normalizedPhrase && $0.categoryID != categoryID
+        }) {
+            return "Has preparado esta misma regla con otra categoría en otra fila. Usa la misma categoría o desactiva una de las reglas."
+        }
+        return nil
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Movimiento") {
+                    Text(row.draft.description)
+                    Text("Fila \(row.draft.rowNumber) · \(row.draft.type.title)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section {
+                    Toggle("Recordar como regla", isOn: $rememberRule)
+                    if rememberRule {
+                        TextField("Texto que debe contener la descripción", text: $phrase, axis: .vertical)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        if let ruleIssue {
+                            Label(ruleIssue, systemImage: "exclamationmark.triangle")
+                                .font(.footnote)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                } footer: {
+                    Text("La corrección se aplica a esta fila. La regla se guardará al importar el movimiento y se usará en futuras sugerencias del mismo tipo. Si ya existe esa frase, se actualizará su categoría. Puedes acortarla, por ejemplo a «Mercadona». Las categorías reconocidas del CSV tienen prioridad sobre las reglas.")
+                }
+
+                Section("Categoría") {
+                    if compatibleCategories.isEmpty {
+                        Text("No hay categorías compatibles. Puedes crearlas en Ajustes → Categorías.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(compatibleCategories) { category in
+                            Button {
+                                categoryID = category.id
+                            } label: {
+                                HStack {
+                                    Image(systemName: category.systemImage)
+                                        .foregroundStyle(Color(hex: category.colorHex))
+                                        .frame(width: 28)
+                                    Text(category.name).foregroundStyle(.primary)
+                                    Spacer()
+                                    if categoryID == category.id {
+                                        Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
+                                    }
+                                }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(categoryID == category.id ? [.isSelected] : [])
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Elegir categoría")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancelar") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Aplicar") {
+                        guard let categoryID else { return }
+                        onApply(CSVCategoryCorrection(
+                            categoryID: categoryID,
+                            rulePhrase: rememberRule ? phrase.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+                        ))
+                        dismiss()
+                    }
+                    .disabled(!compatibleCategories.contains(where: { $0.id == categoryID }) || ruleIssue != nil)
+                }
+            }
+        }
     }
 }

@@ -24,6 +24,8 @@ struct BudgetProgress: Identifiable {
     let category: FinanceCategory
     let limitMinor: Int64
     let spentMinor: Int64
+    var carriedInMinor: Int64 = 0
+    var isRecurring: Bool = false
 
     var availableMinor: Int64 { limitMinor - spentMinor }
     var fraction: Double {
@@ -37,6 +39,12 @@ struct BudgetProgress: Identifiable {
         if fraction >= 0.85 { return "Cerca del límite" }
         return "Dentro"
     }
+}
+
+struct BudgetLimitDetails {
+    let limitMinor: Int64
+    let carriedInMinor: Int64
+    let isRecurring: Bool
 }
 
 struct NetWorthPoint: Identifiable {
@@ -184,6 +192,7 @@ enum FinanceCalculator {
         for month: Date,
         categories: [FinanceCategory],
         budgets: [MonthlyBudget],
+        recurringBudgets: [RecurringBudget] = [],
         transactions: [FinancialTransaction],
         calendar: Calendar = .autoupdatingCurrent
     ) -> [BudgetProgress] {
@@ -195,22 +204,20 @@ enum FinanceCalculator {
             calendar: calendar
         ).map { ($0.category.id, $0.spentMinor) })
 
-        let monthBudgets = budgets.filter {
-            calendar.isDate($0.monthStart, equalTo: monthStart, toGranularity: .month)
-        }
-        let budgetPairs: [(UUID, Int64)] = monthBudgets.compactMap { budget in
-            guard let categoryID = budget.category?.id else { return nil }
-            return (categoryID, budget.limitMinor)
-        }
-        let budgetByCategory = Dictionary(uniqueKeysWithValues: budgetPairs)
-
         return categories
             .filter { !$0.isArchived && ($0.kind == .expense || $0.kind == .both) }
             .map { category in
-                BudgetProgress(
+                let details = budgetLimit(
+                    for: category, month: monthStart, budgets: budgets,
+                    recurringBudgets: recurringBudgets, transactions: transactions,
+                    calendar: calendar
+                )
+                return BudgetProgress(
                     category: category,
-                    limitMinor: budgetByCategory[category.id] ?? 0,
-                    spentMinor: spend[category.id] ?? 0
+                    limitMinor: details.limitMinor,
+                    spentMinor: spend[category.id] ?? 0,
+                    carriedInMinor: details.carriedInMinor,
+                    isRecurring: details.isRecurring
                 )
             }
             .filter { $0.limitMinor > 0 || $0.spentMinor > 0 }
@@ -218,6 +225,94 @@ enum FinanceCalculator {
                 if $0.fraction == $1.fraction { return $0.category.sortOrder < $1.category.sortOrder }
                 return $0.fraction > $1.fraction
             }
+    }
+
+    static func activeRecurringBudget(
+        for category: FinanceCategory,
+        month: Date,
+        recurringBudgets: [RecurringBudget],
+        calendar: Calendar = .autoupdatingCurrent
+    ) -> RecurringBudget? {
+        let target = month.startOfMonth(calendar: calendar)
+        return recurringBudgets
+            .filter {
+                guard $0.category?.id == category.id else { return false }
+                let start = $0.startMonth.startOfMonth(calendar: calendar)
+                let end = $0.endMonth?.startOfMonth(calendar: calendar)
+                return start <= target && (end.map { target < $0 } ?? true)
+            }
+            .max { $0.startMonth < $1.startMonth }
+    }
+
+    static func budgetLimit(
+        for category: FinanceCategory,
+        month: Date,
+        budgets: [MonthlyBudget],
+        recurringBudgets: [RecurringBudget],
+        transactions: [FinancialTransaction],
+        calendar: Calendar = .autoupdatingCurrent,
+        asOf: Date = .now
+    ) -> BudgetLimitDetails {
+        let target = month.startOfMonth(calendar: calendar)
+        let currentRealMonth = asOf.startOfMonth(calendar: calendar)
+        let categoryPlans = recurringBudgets.filter {
+            $0.category?.id == category.id && $0.startMonth.startOfMonth(calendar: calendar) <= target
+        }
+        let categoryBudgets = budgets.filter { $0.category?.id == category.id }
+        let firstMonth = categoryPlans.map { $0.startMonth.startOfMonth(calendar: calendar) }.min() ?? target
+        let spentByMonth = transactions
+            .filter { $0.category?.id == category.id && $0.type.countsAsExpense && $0.date < target.addingMonths(1, calendar: calendar) }
+            .reduce(into: [Date: Int64]()) { result, transaction in
+                result[transaction.date.startOfMonth(calendar: calendar), default: 0] += Swift.abs(transaction.amountMinor)
+            }
+
+        var current = firstMonth
+        var previousLimit: Int64 = 0
+        var previousSpent: Int64 = 0
+        var previousHadPlan = false
+        var previousMonth: Date?
+        var previousChoice: BudgetRemainderChoice?
+
+        while current <= target {
+            let plan = activeRecurringBudget(
+                for: category, month: current,
+                recurringBudgets: categoryPlans, calendar: calendar
+            )
+            let override = categoryBudgets.first {
+                calendar.isDate($0.monthStart, equalTo: current, toGranularity: .month)
+            }
+            let carry = plan != nil
+                && previousChoice == .carryForward
+                && previousHadPlan
+                && previousMonth.map({ $0 < currentRealMonth }) == true
+                ? Swift.max(0, previousLimit - previousSpent) : 0
+            let base = override?.limitMinor ?? plan?.baseLimitMinor ?? 0
+            let limit: Int64
+            if override != nil {
+                limit = base
+            } else {
+                let sum = base.addingReportingOverflow(carry)
+                limit = sum.overflow ? Int64.max : sum.partialValue
+            }
+
+            if current == target {
+                return BudgetLimitDetails(
+                    limitMinor: limit,
+                    carriedInMinor: override == nil ? carry : 0,
+                    isRecurring: plan != nil
+                )
+            }
+            previousLimit = limit
+            previousSpent = spentByMonth[current] ?? 0
+            previousHadPlan = plan != nil
+            previousMonth = current
+            previousChoice = plan?.remainderChoice
+            guard let next = calendar.date(byAdding: .month, value: 1, to: current), next > current else {
+                break
+            }
+            current = next
+        }
+        return BudgetLimitDetails(limitMinor: 0, carriedInMinor: 0, isRecurring: false)
     }
 
     static func netWorthHistory(

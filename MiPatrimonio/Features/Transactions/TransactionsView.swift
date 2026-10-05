@@ -977,6 +977,7 @@ struct TransactionFormView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
+    @Query(sort: \CategoryRule.updatedAt, order: .reverse) private var categoryRules: [CategoryRule]
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var existingTransactions: [FinancialTransaction]
 
     private let transaction: FinancialTransaction?
@@ -990,6 +991,10 @@ struct TransactionFormView: View {
     @State private var amountText: String
     @State private var notes: String
     @State private var isReconciled: Bool
+    @State private var rememberCategoryRule = false
+    @State private var rulePhrase = ""
+    @State private var categoryChosenManually = false
+    @State private var automaticCategoryID: UUID?
     @State private var validationMessage: String?
 
     init(transaction: FinancialTransaction? = nil) {
@@ -1013,7 +1018,10 @@ struct TransactionFormView: View {
 
     private var allowedCategories: [FinanceCategory] {
         categories.filter { category in
-            guard !category.isArchived else { return false }
+            let isCurrentArchivedCategory = category.isArchived
+                && category.id == transaction?.category?.id
+                && transaction?.type == type
+            guard !category.isArchived || isCurrentArchivedCategory else { return false }
             switch type {
             case .income, .interest:
                 return category.kind == .income || category.kind == .both
@@ -1036,15 +1044,21 @@ struct TransactionFormView: View {
                         }
                     }
                     .onChange(of: type) { _, newType in
+                        categoryChosenManually = false
                         if newType == .transfer {
-                            categoryID = categories.first(where: { $0.kind == .transfer })?.id
+                            applySuggestedCategory()
                         } else {
                             destinationAccountID = nil
-                            if !allowedCategories.contains(where: { $0.id == categoryID }) {
-                                categoryID = nil
-                            }
+                            applySuggestedCategory()
                         }
                     }
+
+                    TextField("Importe", text: $amountText)
+                        .keyboardType(.decimalPad)
+                    TextField("Descripción", text: $descriptionText)
+                        .onChange(of: descriptionText) { _, _ in
+                            if !categoryChosenManually { applySuggestedCategory() }
+                        }
 
                     Picker("Cuenta", selection: $sourceAccountID) {
                         Text("Seleccionar").tag(nil as UUID?)
@@ -1063,21 +1077,40 @@ struct TransactionFormView: View {
                     }
 
                     Picker("Categoría", selection: $categoryID) {
-                        Text("Sin categoría").tag(nil as UUID?)
                         ForEach(allowedCategories) { category in
                             Label(category.name, systemImage: category.systemImage)
                                 .tag(Optional(category.id))
                         }
                     }
+                    .onChange(of: categoryID) { _, newID in
+                        if newID != automaticCategoryID { categoryChosenManually = true }
+                    }
+
+                    if let rule = matchedCategoryRule,
+                       !categoryChosenManually,
+                       categoryID == rule.category?.id {
+                        Label("Sugerida por la regla «\(rule.phrase)»", systemImage: "sparkle.magnifyingglass")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("Detalle") {
-                    TextField("Descripción", text: $descriptionText)
-                    TextField("Importe", text: $amountText)
-                        .keyboardType(.decimalPad)
                     TextField("Notas", text: $notes, axis: .vertical)
                         .lineLimit(2...5)
                     Toggle("Conciliado", isOn: $isReconciled)
+                }
+
+                if type != .transfer {
+                    Section {
+                        Toggle("Recordar esta categoría para esta descripción", isOn: $rememberCategoryRule)
+                        if rememberCategoryRule {
+                            TextField("Frase a reconocer (opcional)", text: $rulePhrase)
+                                .textInputAutocapitalization(.sentences)
+                        }
+                    } footer: {
+                        Text("Deja la frase vacía para usar toda la descripción, o escribe una parte estable como el nombre del comercio.")
+                    }
                 }
 
                 if let validationMessage {
@@ -1089,6 +1122,19 @@ struct TransactionFormView: View {
             }
             .navigationTitle(transaction == nil ? "Nuevo movimiento" : "Editar movimiento")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                if transaction == nil, sourceAccountID == nil {
+                    sourceAccountID = existingTransactions
+                        .compactMap(\.sourceAccount)
+                        .first(where: { recent in activeAccounts.contains(where: { $0.id == recent.id }) })?.id
+                        ?? activeAccounts.first?.id
+                }
+                if transaction == nil || !allowedCategories.contains(where: { $0.id == categoryID }) {
+                    applySuggestedCategory()
+                } else {
+                    categoryChosenManually = true
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancelar") { dismiss() }
@@ -1099,6 +1145,32 @@ struct TransactionFormView: View {
                 }
             }
         }
+    }
+
+    private func preferredCategory(for transactionType: TransactionType) -> FinanceCategory? {
+        let preferredName: String
+        switch transactionType {
+        case .expense: preferredName = "Otros gastos"
+        case .fee: preferredName = "Impuestos y comisiones"
+        case .income: preferredName = "Otros ingresos"
+        case .interest: preferredName = "Intereses"
+        case .transfer: preferredName = "Transferencias"
+        }
+        return allowedCategories.first(where: { $0.name == preferredName })
+    }
+
+    private var matchedCategoryRule: CategoryRule? {
+        CategoryRuleService.match(
+            description: descriptionText,
+            type: type,
+            rules: categoryRules
+        )
+    }
+
+    private func applySuggestedCategory() {
+        let proposedID = matchedCategoryRule?.category?.id ?? preferredCategory(for: type)?.id
+        automaticCategoryID = proposedID
+        categoryID = proposedID
     }
 
     private func save() {
@@ -1119,9 +1191,21 @@ struct TransactionFormView: View {
         }
 
         let category = categories.first(where: { $0.id == categoryID })
+        if type != .transfer {
+            guard let category, allowedCategories.contains(where: { $0.id == category.id }) else {
+                validationMessage = "Selecciona una categoría para clasificar el movimiento."
+                return
+            }
+        }
         let cleanDescription = descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleanDescription.isEmpty else {
             validationMessage = "Añade una descripción."
+            return
+        }
+        let phraseToRemember = rulePhrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? cleanDescription : rulePhrase
+        if rememberCategoryRule && CategoryRuleService.normalized(phraseToRemember).count < 3 {
+            validationMessage = "Escribe una frase de al menos tres caracteres para la regla."
             return
         }
 
@@ -1178,6 +1262,14 @@ struct TransactionFormView: View {
         if let destinationAccount {
             destinationAccount.lastUpdatedAt = .now
             destinationAccount.updatedAt = .now
+        }
+
+        if rememberCategoryRule, let category, type != .transfer {
+            CategoryRuleService.remember(
+                phrase: phraseToRemember, type: type,
+                category: category, existing: categoryRules,
+                in: modelContext
+            )
         }
 
         do {

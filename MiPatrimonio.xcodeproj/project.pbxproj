@@ -19,15 +19,20 @@
 		219076C5A6B7013E107CED6A /* DuplicateDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D070D44D99EF74D09121DC3A /* DuplicateDetectionService.swift */; };
 		53A85344CB11AC583D57D309 /* FinanceCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B73B9F8DEB33A2F7D6FE21A3 /* FinanceCalculator.swift */; };
 		6547D7CB25BFF0C2FB6BEE6F /* RecurringMovementService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AAA08F6E2ADDFAC1EF2CD3 /* RecurringMovementService.swift */; };
+		773BDE4A7B8F40C38BFA65A1 /* BackupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773BDE4A7B8F40C38BFA65A2 /* BackupService.swift */; };
+		A117E9A14B274522AD3AA111 /* CategoryDefaultsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A117E9A14B274522AD3AA112 /* CategoryDefaultsService.swift */; };
+		B2C4D6E8F00A112233445501 /* CategoryRuleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C4D6E8F00A112233445502 /* CategoryRuleService.swift */; };
 		A6625ABF4993F0CFF183DDEE /* AccountsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9225D4DD71031959C7653E4 /* AccountsView.swift */; };
 		39F856050B6B68310B7B717D /* BudgetsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50E48758D1FAD38361B0319 /* BudgetsView.swift */; };
 		AC8DA18F800EA6137DB68E64 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A5D4F8B27EF572E2895A79A /* DashboardView.swift */; };
 		98EA067E180B2CB48CABE6C6 /* CategoriesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39DEAD187C8E6AF36E01788C /* CategoriesView.swift */; };
+		B2C4D6E8F00A112233445503 /* CategoryRulesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2C4D6E8F00A112233445504 /* CategoryRulesView.swift */; };
 		72F989958D03A3D9A640503E /* GoalsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F441E5D746D0B6CE431C2F3 /* GoalsView.swift */; };
 		E4A770B500AF0B84DB244AC6 /* InstitutionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30F7EA49BA5732AC2CFD781B /* InstitutionsView.swift */; };
 		4B9B62D8BFC29C322A46E01D /* RecurringMovementsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C50E76D7B3FBB51C15500C2 /* RecurringMovementsView.swift */; };
 		0E28B385B2944A128B9983C1 /* ReservedFundsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E28B385B2944A128B9983C2 /* ReservedFundsView.swift */; };
 		366C57399ECF2CE8CDC64F3A /* CSVImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A751F9A8F07CC45F71E6288A /* CSVImportView.swift */; };
+		925DDE5CA55F4A4BB54738B1 /* BackupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 925DDE5CA55F4A4BB54738B2 /* BackupView.swift */; };
 		F1D050B95D3706691FAF1A1B /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9810F7A893517D16BBAA6901 /* SettingsView.swift */; };
 		C723C750972B87B83269EE94 /* TransactionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 862D3DD71122BA5FB306BA79 /* TransactionsView.swift */; };
 		648304B75E8161404894D1D0 /* AppAppearance.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F6DA2B9630CA507E21E257 /* AppAppearance.swift */; };
@@ -49,15 +54,20 @@
 		D070D44D99EF74D09121DC3A /* DuplicateDetectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateDetectionService.swift; sourceTree = "<group>"; };
 		B73B9F8DEB33A2F7D6FE21A3 /* FinanceCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinanceCalculator.swift; sourceTree = "<group>"; };
 		11AAA08F6E2ADDFAC1EF2CD3 /* RecurringMovementService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurringMovementService.swift; sourceTree = "<group>"; };
+		773BDE4A7B8F40C38BFA65A2 /* BackupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupService.swift; sourceTree = "<group>"; };
+		A117E9A14B274522AD3AA112 /* CategoryDefaultsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryDefaultsService.swift; sourceTree = "<group>"; };
+		B2C4D6E8F00A112233445502 /* CategoryRuleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryRuleService.swift; sourceTree = "<group>"; };
 		B9225D4DD71031959C7653E4 /* AccountsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountsView.swift; sourceTree = "<group>"; };
 		D50E48758D1FAD38361B0319 /* BudgetsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BudgetsView.swift; sourceTree = "<group>"; };
 		6A5D4F8B27EF572E2895A79A /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
 		39DEAD187C8E6AF36E01788C /* CategoriesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoriesView.swift; sourceTree = "<group>"; };
+		B2C4D6E8F00A112233445504 /* CategoryRulesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CategoryRulesView.swift; sourceTree = "<group>"; };
 		6F441E5D746D0B6CE431C2F3 /* GoalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoalsView.swift; sourceTree = "<group>"; };
 		30F7EA49BA5732AC2CFD781B /* InstitutionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstitutionsView.swift; sourceTree = "<group>"; };
 		8C50E76D7B3FBB51C15500C2 /* RecurringMovementsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurringMovementsView.swift; sourceTree = "<group>"; };
 		0E28B385B2944A128B9983C2 /* ReservedFundsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservedFundsView.swift; sourceTree = "<group>"; };
 		A751F9A8F07CC45F71E6288A /* CSVImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CSVImportView.swift; sourceTree = "<group>"; };
+		925DDE5CA55F4A4BB54738B2 /* BackupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupView.swift; sourceTree = "<group>"; };
 		9810F7A893517D16BBAA6901 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		862D3DD71122BA5FB306BA79 /* TransactionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionsView.swift; sourceTree = "<group>"; };
 		B9F6DA2B9630CA507E21E257 /* AppAppearance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAppearance.swift; sourceTree = "<group>"; };
@@ -159,6 +169,9 @@
 				D070D44D99EF74D09121DC3A /* DuplicateDetectionService.swift */,
 				B73B9F8DEB33A2F7D6FE21A3 /* FinanceCalculator.swift */,
 				11AAA08F6E2ADDFAC1EF2CD3 /* RecurringMovementService.swift */,
+				773BDE4A7B8F40C38BFA65A2 /* BackupService.swift */,
+				A117E9A14B274522AD3AA112 /* CategoryDefaultsService.swift */,
+				B2C4D6E8F00A112233445502 /* CategoryRuleService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -204,6 +217,7 @@
 			isa = PBXGroup;
 			children = (
 				39DEAD187C8E6AF36E01788C /* CategoriesView.swift */,
+				B2C4D6E8F00A112233445504 /* CategoryRulesView.swift */,
 				6F441E5D746D0B6CE431C2F3 /* GoalsView.swift */,
 				30F7EA49BA5732AC2CFD781B /* InstitutionsView.swift */,
 				8C50E76D7B3FBB51C15500C2 /* RecurringMovementsView.swift */,
@@ -216,6 +230,7 @@
 			isa = PBXGroup;
 			children = (
 				A751F9A8F07CC45F71E6288A /* CSVImportView.swift */,
+				925DDE5CA55F4A4BB54738B2 /* BackupView.swift */,
 				9810F7A893517D16BBAA6901 /* SettingsView.swift */,
 			);
 			path = Settings;
@@ -319,15 +334,20 @@
 				219076C5A6B7013E107CED6A /* DuplicateDetectionService.swift in Sources */,
 				53A85344CB11AC583D57D309 /* FinanceCalculator.swift in Sources */,
 				6547D7CB25BFF0C2FB6BEE6F /* RecurringMovementService.swift in Sources */,
+				773BDE4A7B8F40C38BFA65A1 /* BackupService.swift in Sources */,
+				A117E9A14B274522AD3AA111 /* CategoryDefaultsService.swift in Sources */,
+				B2C4D6E8F00A112233445501 /* CategoryRuleService.swift in Sources */,
 				A6625ABF4993F0CFF183DDEE /* AccountsView.swift in Sources */,
 				39F856050B6B68310B7B717D /* BudgetsView.swift in Sources */,
 				AC8DA18F800EA6137DB68E64 /* DashboardView.swift in Sources */,
 				98EA067E180B2CB48CABE6C6 /* CategoriesView.swift in Sources */,
+				B2C4D6E8F00A112233445503 /* CategoryRulesView.swift in Sources */,
 				72F989958D03A3D9A640503E /* GoalsView.swift in Sources */,
 				E4A770B500AF0B84DB244AC6 /* InstitutionsView.swift in Sources */,
 				4B9B62D8BFC29C322A46E01D /* RecurringMovementsView.swift in Sources */,
 				0E28B385B2944A128B9983C1 /* ReservedFundsView.swift in Sources */,
 				366C57399ECF2CE8CDC64F3A /* CSVImportView.swift in Sources */,
+				925DDE5CA55F4A4BB54738B1 /* BackupView.swift in Sources */,
 				F1D050B95D3706691FAF1A1B /* SettingsView.swift in Sources */,
 				C723C750972B87B83269EE94 /* TransactionsView.swift in Sources */,
 				648304B75E8161404894D1D0 /* AppAppearance.swift in Sources */,
@@ -441,14 +461,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.2.4;
+				MARKETING_VERSION = 0.2.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -465,14 +485,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
+				CURRENT_PROJECT_VERSION = 10;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.2.4;
+				MARKETING_VERSION = 0.2.8;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

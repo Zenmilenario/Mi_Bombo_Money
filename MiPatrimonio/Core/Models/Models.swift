@@ -341,6 +341,20 @@ final class PaymentCard {
     }
 }
 
+enum BudgetRemainderChoice: String, CaseIterable, Identifiable, Codable {
+    case save
+    case carryForward
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .save: "Dejarlo como ahorro"
+        case .carryForward: "Añadirlo al mes siguiente"
+        }
+    }
+}
+
 @Model
 final class ReservedFund {
     var id: UUID
@@ -410,6 +424,40 @@ final class FinanceCategory {
     var kind: CategoryKind {
         get { CategoryKind(rawValue: kindRaw) ?? .expense }
         set { kindRaw = newValue.rawValue }
+    }
+}
+
+@Model
+final class CategoryRule {
+    var id: UUID
+    var phrase: String
+    var transactionTypeRaw: String
+    var isActive: Bool
+    var createdAt: Date
+    var updatedAt: Date
+    var category: FinanceCategory?
+
+    init(
+        id: UUID = UUID(),
+        phrase: String,
+        transactionType: TransactionType,
+        isActive: Bool = true,
+        createdAt: Date = .now,
+        updatedAt: Date = .now,
+        category: FinanceCategory?
+    ) {
+        self.id = id
+        self.phrase = phrase
+        self.transactionTypeRaw = transactionType.rawValue
+        self.isActive = isActive
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.category = category
+    }
+
+    var transactionType: TransactionType {
+        get { TransactionType(rawValue: transactionTypeRaw) ?? .expense }
+        set { transactionTypeRaw = newValue.rawValue }
     }
 }
 
@@ -508,6 +556,43 @@ final class MonthlyBudget {
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.category = category
+    }
+}
+
+@Model
+final class RecurringBudget {
+    var id: UUID
+    var startMonth: Date
+    var endMonth: Date?
+    var baseLimitMinor: Int64
+    var remainderChoiceRaw: String
+    var createdAt: Date
+    var updatedAt: Date
+    var category: FinanceCategory?
+
+    init(
+        id: UUID = UUID(),
+        startMonth: Date,
+        endMonth: Date? = nil,
+        baseLimitMinor: Int64,
+        remainderChoice: BudgetRemainderChoice,
+        createdAt: Date = .now,
+        updatedAt: Date = .now,
+        category: FinanceCategory?
+    ) {
+        self.id = id
+        self.startMonth = startMonth
+        self.endMonth = endMonth
+        self.baseLimitMinor = Swift.max(0, baseLimitMinor)
+        self.remainderChoiceRaw = remainderChoice.rawValue
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.category = category
+    }
+
+    var remainderChoice: BudgetRemainderChoice {
+        get { BudgetRemainderChoice(rawValue: remainderChoiceRaw) ?? .save }
+        set { remainderChoiceRaw = newValue.rawValue }
     }
 }
 

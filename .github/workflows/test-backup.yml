@@ -1,0 +1,30 @@
+name: Comprobar copias de seguridad
+
+on:
+  workflow_dispatch:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v7
+
+      - name: Compilar y probar exportacion y restauracion
+        run: |
+          mkdir -p build/backup-check
+          xcrun swiftc \
+            -target "$(uname -m)-apple-macosx14.0" \
+            -parse-as-library \
+            MiPatrimonio/Core/Models/Models.swift \
+            MiPatrimonio/Core/Services/BackupService.swift \
+            MiPatrimonio/Core/Services/CategoryRuleService.swift \
+            Tests/BackupRoundTripCheck.swift \
+            -o build/backup-check/BackupRoundTripCheck
+          build/backup-check/BackupRoundTripCheck
