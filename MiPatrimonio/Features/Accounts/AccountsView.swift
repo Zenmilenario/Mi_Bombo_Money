@@ -1,6 +1,14 @@
 import SwiftData
 import SwiftUI
 
+private enum AccountCollection: String, CaseIterable, Identifiable {
+    case accounts
+    case cards
+
+    var id: String { rawValue }
+    var title: String { self == .accounts ? "Cuentas" : "Tarjetas" }
+}
+
 struct AccountsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
@@ -11,6 +19,10 @@ struct AccountsView: View {
     @Query private var recurringMovements: [RecurringMovement]
     @Query private var reservedFunds: [ReservedFund]
 
+    @State private var selectedCollection: AccountCollection = .accounts
+    @State private var searchText = ""
+    @State private var showOnlyStale = false
+    @State private var updatingAccount: FinancialAccount?
     @State private var showingAdd = false
     @State private var showingCardAdd = false
     @State private var editingAccount: FinancialAccount?
@@ -21,49 +33,30 @@ struct AccountsView: View {
         accounts.filter { !$0.isArchived }
     }
 
-    private var assetAccounts: [FinancialAccount] {
-        activeAccounts.filter { !$0.type.isLiability }
-    }
-
-    private var liabilityAccounts: [FinancialAccount] {
-        activeAccounts.filter { $0.type.isLiability }
+    private var visibleAccounts: [FinancialAccount] {
+        activeAccounts.filter { account in
+            (!showOnlyStale || isStale(account)) && matchesSearch([
+                account.name, account.institution?.name ?? "", account.type.title
+            ])
+        }
     }
 
     private var activeCards: [PaymentCard] {
         cards.filter { !$0.isArchived }
     }
 
+    private var visibleCards: [PaymentCard] {
+        activeCards.filter { card in
+            matchesSearch([card.name, card.institution?.name ?? "", card.linkedAccount?.name ?? "", card.lastFour, card.type.title])
+        }
+    }
+
+    private var staleAccountCount: Int {
+        activeAccounts.filter(isStale).count
+    }
+
     private var archivedItemCount: Int {
         accounts.filter(\.isArchived).count + cards.filter(\.isArchived).count
-    }
-
-    private var assetTotalMinor: Int64 {
-        assetAccounts.reduce(Int64.zero) { partial, account in
-            partial + FinanceCalculator.balance(
-                of: account,
-                transactions: transactions,
-                snapshots: snapshots
-            )
-        }
-    }
-
-    private var debtTotalMinor: Int64 {
-        liabilityAccounts.reduce(Int64.zero) { partial, account in
-            let balance = FinanceCalculator.balance(
-                of: account,
-                transactions: transactions,
-                snapshots: snapshots
-            )
-            return partial + Swift.max(0, -balance)
-        }
-    }
-
-    private var netWorthMinor: Int64 {
-        FinanceCalculator.netWorth(
-            accounts: activeAccounts,
-            transactions: transactions,
-            snapshots: snapshots
-        )
     }
 
     var body: some View {
@@ -83,21 +76,22 @@ struct AccountsView: View {
                     }
                 } else {
                     List {
-                        if !activeAccounts.isEmpty {
-                            Section {
-                                AccountOverviewCard(
-                                    assetMinor: assetTotalMinor,
-                                    debtMinor: debtTotalMinor,
-                                    netWorthMinor: netWorthMinor
-                                )
+                        Section {
+                            accountManagementCard
                                 .listRowInsets(EdgeInsets())
                                 .listRowBackground(Color.clear)
-                            }
                         }
 
-                        accountSection(title: "Activos", items: assetAccounts)
-                        accountSection(title: "Deudas", items: liabilityAccounts)
-                        cardSection(title: "Tarjetas", items: activeCards)
+                        Section {
+                            Picker("Mostrar", selection: $selectedCollection) {
+                                ForEach(AccountCollection.allCases) { collection in
+                                    Text(collection.title).tag(collection)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                        }
+
+                        collectionContent
 
                         if activeAccounts.isEmpty && activeCards.isEmpty {
                             Section {
@@ -129,7 +123,14 @@ struct AccountsView: View {
                     .listStyle(.insetGrouped)
                 }
             }
+            .frame(maxWidth: AppDesign.readableContentWidth)
+            .frame(maxWidth: .infinity)
+            .background(AppDesign.pageBackground)
             .navigationTitle("Cuentas")
+            .searchable(text: $searchText, prompt: "Buscar cuenta, banco o tarjeta")
+            .onAppear {
+                if activeAccounts.isEmpty && !activeCards.isEmpty { selectedCollection = .cards }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
@@ -155,6 +156,12 @@ struct AccountsView: View {
             }
             .sheet(isPresented: $showingCardAdd) {
                 PaymentCardFormView()
+            }
+            .sheet(item: $updatingAccount) { account in
+                BalanceSnapshotFormView(
+                    account: account,
+                    currentBalance: FinanceCalculator.balance(of: account, transactions: transactions, snapshots: snapshots)
+                )
             }
             .sheet(item: $editingAccount) { account in
                 AccountFormView(account: account)
@@ -183,6 +190,99 @@ struct AccountsView: View {
     }
 
     @ViewBuilder
+    private var collectionContent: some View {
+        if selectedCollection == .accounts {
+            if showOnlyStale {
+                Section {
+                    Button("Mostrar todas las cuentas") { showOnlyStale = false }
+                }
+            }
+            accountSection(title: "Día a día", items: visibleAccounts.filter { $0.type == .checking || $0.type == .cash })
+            accountSection(title: "Ahorro", items: visibleAccounts.filter { $0.type == .savings })
+            accountSection(title: "Inversiones", items: visibleAccounts.filter { $0.type == .investment })
+            accountSection(title: "Deudas y crédito", items: visibleAccounts.filter { $0.type.isLiability })
+            accountSection(title: "Otras cuentas", items: visibleAccounts.filter { $0.type == .other })
+            if visibleAccounts.isEmpty && !activeAccounts.isEmpty {
+                Section {
+                    ContentUnavailableView("Sin cuentas para esta búsqueda", systemImage: "magnifyingglass", description: Text("Cambia la búsqueda o muestra todas las cuentas."))
+                }
+            } else if activeAccounts.isEmpty && !activeCards.isEmpty {
+                Section {
+                    Button("Añadir mi primera cuenta") { showingAdd = true }
+                }
+            }
+        } else {
+            cardSection(title: "Tus tarjetas", items: visibleCards)
+            if visibleCards.isEmpty && (!activeAccounts.isEmpty || !activeCards.isEmpty) {
+                Section {
+                    ContentUnavailableView(
+                        activeCards.isEmpty ? "Añade tu primera tarjeta" : "Sin tarjetas para esta búsqueda",
+                        systemImage: "creditcard",
+                        description: Text(activeCards.isEmpty ? "Vincúlala a una cuenta para consultar sus límites y opciones." : "Prueba con otro nombre, banco o los últimos cuatro dígitos.")
+                    )
+                    if activeCards.isEmpty {
+                        Button("Añadir tarjeta") { showingCardAdd = true }
+                    }
+                }
+            }
+        }
+    }
+
+    private var accountManagementCard: some View {
+        SectionCard("Cada cuenta, bajo control", subtitle: "Consulta saldos, reservas y tarjetas; actualiza tus valoraciones.") {
+            VStack(alignment: .leading, spacing: 14) {
+                if staleAccountCount > 0 {
+                    Button {
+                        selectedCollection = .accounts
+                        showOnlyStale = true
+                        searchText = ""
+                    } label: {
+                        HStack {
+                            Label("Revisar saldos sin actualizar (\(staleAccountCount))", systemImage: "clock.badge.exclamationmark")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                        }
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Menu {
+                    ForEach(activeAccounts) { account in
+                        Button(account.name) { updatingAccount = account }
+                    }
+                } label: {
+                    Label("Actualizar un saldo o valoración", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .disabled(activeAccounts.isEmpty)
+                NavigationLink {
+                    ReservedFundsView()
+                } label: {
+                    Label("Gestionar dinero reservado", systemImage: "lock.circle")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+                NavigationLink {
+                    RecurringMovementsView()
+                } label: {
+                    Label("Aportaciones y cargos periódicos", systemImage: "arrow.triangle.2.circlepath")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.tint)
+            }
+            .font(.subheadline)
+        }
+    }
+
+    private func matchesSearch(_ values: [String]) -> Bool {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return query.isEmpty || values.contains { $0.localizedStandardContains(query) }
+    }
+
+    @ViewBuilder
     private func accountSection(title: String, items: [FinancialAccount]) -> some View {
         if !items.isEmpty {
             Section(title) {
@@ -192,7 +292,13 @@ struct AccountsView: View {
                     } label: {
                         accountRow(account)
                     }
-                    .swipeActions(edge: .leading) {
+                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                        Button {
+                            updatingAccount = account
+                        } label: {
+                            Label("Actualizar saldo", systemImage: "arrow.clockwise")
+                        }
+                        .tint(.teal)
                         Button {
                             editingAccount = account
                         } label: {
@@ -222,7 +328,16 @@ struct AccountsView: View {
     }
 
     private func accountRow(_ account: FinancialAccount) -> some View {
-        HStack(spacing: 12) {
+        AdaptiveValueRow {
+            accountIdentity(account)
+        } value: {
+            accountAmounts(account)
+        }
+        .padding(.vertical, 5)
+    }
+
+    private func accountIdentity(_ account: FinancialAccount) -> some View {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: account.type.systemImage)
                 .foregroundStyle(Color(hex: account.institution?.colorHex ?? "#1F6B7A"))
                 .frame(width: 42, height: 42)
@@ -247,25 +362,41 @@ struct AccountsView: View {
                     }
                 }
 
+                let linkedCardCount = activeCards.filter { $0.linkedAccount?.id == account.id }.count
+                if linkedCardCount > 0 {
+                    Label(linkedCardCount == 1 ? "1 tarjeta" : "\(linkedCardCount) tarjetas", systemImage: "creditcard")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if !account.includeInNetWorth {
+                    Text("Fuera del patrimonio").font(.caption).foregroundStyle(.secondary)
+                }
                 Text("Actualizada \(relativeUpdateText(account.lastUpdatedAt))")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
+        }
+    }
 
-            Spacer(minLength: 8)
-
+    private func accountAmounts(_ account: FinancialAccount) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
             PrivacyAmountText(
-                minorUnits: FinanceCalculator.balance(
-                    of: account,
-                    transactions: transactions,
-                    snapshots: snapshots
-                ),
+                minorUnits: FinanceCalculator.balance(of: account, transactions: transactions, snapshots: snapshots),
                 currencyCode: account.currencyCode,
                 font: .subheadline,
                 weight: .semibold
             )
+            let reserved = FinanceCalculator.reservedAmount(for: account, funds: reservedFunds)
+            if reserved > 0 && !account.type.isLiability && account.type != .investment {
+                Text("Disponible").font(.caption2).foregroundStyle(.secondary)
+                PrivacyAmountText(
+                    minorUnits: FinanceCalculator.balance(of: account, transactions: transactions, snapshots: snapshots) - reserved,
+                    currencyCode: account.currencyCode,
+                    font: .caption,
+                    weight: .medium
+                )
+            }
         }
-        .padding(.vertical, 5)
     }
 
     @ViewBuilder
@@ -387,46 +518,6 @@ struct AccountsView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
-    }
-}
-
-private struct AccountOverviewCard: View {
-    let assetMinor: Int64
-    let debtMinor: Int64
-    let netWorthMinor: Int64
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Resumen patrimonial")
-                .font(.headline)
-
-            AdaptiveSummaryPair(
-                firstTitle: "Activos",
-                firstAmount: assetMinor,
-                firstTint: .green,
-                secondTitle: "Deudas",
-                secondAmount: debtMinor,
-                secondTint: debtMinor > 0 ? .red : .secondary
-            )
-
-            Divider()
-
-            HStack {
-                Label("Patrimonio neto", systemImage: "sum")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                PrivacyAmountText(
-                    minorUnits: netWorthMinor,
-                    font: .title3,
-                    weight: .bold
-                )
-            }
-        }
-        .padding(AppDesign.cardPadding)
-        .background(
-            AppDesign.cardBackground,
-            in: RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
-        )
     }
 }
 

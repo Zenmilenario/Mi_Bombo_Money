@@ -36,16 +36,22 @@ Al introducir un movimiento, la app preselecciona la última cuenta activa utili
 
 En **Presupuestos**, crea o abre un límite y elige **Repetir desde este mes**. Indica el importe base y qué hacer si sobra: **Dejarlo como ahorro** mantiene el importe base el mes siguiente; **Añadirlo al mes siguiente** suma el sobrante al límite del próximo mes cuando termine el mes anterior. También puedes modificar solo un mes o detener la repetición desde el mes elegido. El sobrante afecta únicamente al presupuesto disponible; no mueve dinero ni crea un ingreso o una transferencia. Los importes se calculan con los gastos reales y se actualizan si corriges un movimiento anterior. Los meses futuros aún no incorporan un sobrante pendiente de confirmar.
 
-## Rediseño 0.2.0
+## Rediseño 0.2.10
 
 Esta entrega incorpora un rediseño completo de la experiencia de uso sin cambiar el modelo financiero ni los datos guardados:
 
-- Inicio más corto y jerarquizado, con métricas mensuales en cuadrícula adaptable.
-- Avisos accionables y resumen global de presupuesto.
+- Inicio con saludo según la hora, patrimonio y dinero disponible, sin repetir la lista de cuentas.
+- Diseño dinámico según el espacio disponible: las tarjetas de Inicio y Presupuestos se distribuyen en columnas cuando caben y se apilan al estrechar la ventana. El ancho mínimo de las tarjetas crece con el tamaño de letra, y los tamaños de accesibilidad usan una columna. Funciona igual al rotar, usar pantalla dividida o redimensionar la ventana, sin detectar un modelo de dispositivo.
+- Avisos accionables y resumen global de presupuesto; la tasa de ahorro aparece como información compacta.
 - Botón rápido de movimiento abajo a la derecha, solo en Inicio y Movimientos.
 - Análisis de gastos dentro de Movimientos y comparativa presupuestaria dentro de Presupuestos.
-- Resumen de activos, deudas y patrimonio neto en Cuentas.
+- Cuentas orientada a la gestión: búsqueda por nombre o banco, selector Cuentas / Tarjetas y agrupación por día a día, ahorro, inversiones y deudas.
+- Acceso directo para actualizar un saldo o valoración, revisar cuentas sin actualizar y gestionar reservas y aportaciones periódicas. Las tarjetas vinculadas no repiten el saldo de la cuenta.
+- Presupuestos sin configurar agrupados en una tarjeta de iconos; al tocar uno se abre su editor. Un punto naranja identifica categorías con gasto sin límite.
+- Gráfico de gasto frente a límite para los seis presupuestos con mayor uso, con acceso a la comparativa completa. El gráfico se oculta al ocultar importes.
 - Ajustes simplificados y redactados para usuarios no técnicos.
+- Filas y cabeceras que pasan a disposición vertical si el texto y los importes no caben juntos; gráficos cuya altura acompaña al tamaño de letra.
+- El botón de añadir movimiento se coloca en el área segura de la pantalla, respetando la posición de la barra de pestañas.
 - Sistema visual común, modo oscuro y mejoras de accesibilidad.
 
 Consulta `CAMBIOS_REDISENO.md` para el detalle y `PRUEBAS_REDISENO.md` para una lista práctica de comprobaciones en Appetize o en un dispositivo iOS.
