@@ -11,7 +11,9 @@ struct FinancialLogicCheck {
         checkBalancesAndHistory()
         checkBudgetRemainders()
         checkReviewedAlerts()
+        checkBankIdentity()
         try checkAutomaticTransfers()
+        try checkAutomaticCharges()
         try checkCategories()
         try checkCSVImport()
         precondition(MoneyParser.minorUnits(from: "1.234,56 €") == 123_456)
@@ -22,11 +24,25 @@ struct FinancialLogicCheck {
         precondition(MoneyParser.minorUnits(from: "texto 12,34") == nil)
         precondition(MoneyParser.minorUnits(from: "92233720368547758.08") == nil)
         precondition(MoneyParser.minorUnits(from: "-92233720368547758.08") == nil)
-        print("Financial checks passed: reservations, transfers, dated history, budget remainders, reviewed alerts, automatic posting, categories and CSV input.")
+        print("Financial checks passed: reservations, transfers, dated history, budget remainders, reviewed alerts, bank identity, automatic subscriptions/income/fees, categories and CSV input.")
     }
 
     private static func date(_ month: Int, _ day: Int = 1) -> Date {
         calendar.date(from: DateComponents(year: 2024, month: month, day: day, hour: 12))!
+    }
+
+    private static func checkBankIdentity() {
+        let bank = FinancialInstitution(name: "Mi banco")
+        let daily = FinancialAccount(name: "Día a día", type: .checking, institution: bank)
+        let savings = FinancialAccount(name: "Ahorro", type: .savings, institution: bank)
+        let cash = FinancialAccount(name: "Efectivo", type: .cash)
+        precondition(daily.bankDisplayName == "Mi banco")
+        precondition(daily.bankAndAccountDisplayName == "Mi banco · Día a día")
+        precondition(savings.bankAndAccountDisplayName == "Mi banco · Ahorro",
+                     "Accounts at the same bank must remain distinguishable")
+        precondition(cash.bankDisplayName == "Efectivo" && cash.bankAndAccountDisplayName == "Efectivo")
+        bank.name = "Banco actualizado"
+        precondition(daily.bankDisplayName == "Banco actualizado")
     }
 
     private static func checkReviewedAlerts() {
@@ -121,8 +137,8 @@ struct FinancialLogicCheck {
         context.insert(movement)
         try context.save()
 
-        let posted = try RecurringMovementService.postDueTransfers(in: context, through: date(3, 10))
-        let repeated = try RecurringMovementService.postDueTransfers(in: context, through: date(3, 10))
+        let posted = try RecurringMovementService.postDueMovements(in: context, through: date(3, 10))
+        let repeated = try RecurringMovementService.postDueMovements(in: context, through: date(3, 10))
         precondition(posted == 3 && repeated == 0, "Reopening the app must not duplicate automatic transfers")
         let transactions = try context.fetch(FetchDescriptor<FinancialTransaction>())
         precondition(transactions.count == 3 && transactions.allSatisfy { $0.recurringMovementID == movement.id })
@@ -130,6 +146,47 @@ struct FinancialLogicCheck {
         precondition(FinanceCalculator.balance(of: investment, at: date(3, 10), transactions: transactions) == 30_000)
         precondition(FinanceCalculator.netWorth(accounts: [cash, investment], transactions: transactions, at: date(3, 10)) == 100_000)
         precondition(calendar.isDate(movement.nextDueDate, inSameDayAs: date(4, 5)))
+    }
+
+    @MainActor
+    private static func checkAutomaticCharges() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let cash = FinancialAccount(name: "Corriente", type: .checking, openingBalanceMinor: 100_000, openingDate: date(1))
+        let subscriptions = FinanceCategory(name: "Suscripciones", kind: .expense)
+        let fees = FinanceCategory(name: "Comisiones", kind: .expense)
+        let salary = FinanceCategory(name: "Nómina", kind: .income)
+        context.insert(cash)
+        for category in [subscriptions, fees, salary] { context.insert(category) }
+        let subscription = RecurringMovement(name: "Streaming", type: .expense, amountMinor: 1_500, descriptionText: "Streaming", frequency: .monthly, nextDueDate: date(1, 5), isSubscription: true, postsAutomatically: true, sourceAccount: cash, category: subscriptions)
+        let income = RecurringMovement(name: "Nómina", type: .income, amountMinor: 20_000, descriptionText: "Nómina", frequency: .monthly, nextDueDate: date(1, 6), postsAutomatically: true, sourceAccount: cash, category: salary)
+        let fee = RecurringMovement(name: "Comisión", type: .fee, amountMinor: 200, descriptionText: "Comisión", frequency: .monthly, nextDueDate: date(1, 7), endDate: date(2, 7), postsAutomatically: true, sourceAccount: cash, category: fees)
+        let manual = RecurringMovement(name: "Manual", type: .expense, amountMinor: 3_000, descriptionText: "Manual", frequency: .monthly, nextDueDate: date(1, 8), postsAutomatically: false, sourceAccount: cash, category: subscriptions)
+        let paused = RecurringMovement(name: "Pausado", type: .expense, amountMinor: 3_000, descriptionText: "Pausado", frequency: .monthly, nextDueDate: date(1, 8), isActive: false, postsAutomatically: true, sourceAccount: cash, category: subscriptions)
+        let future = RecurringMovement(name: "Futuro", type: .expense, amountMinor: 3_000, descriptionText: "Futuro", frequency: .monthly, nextDueDate: date(4, 8), postsAutomatically: true, sourceAccount: cash, category: subscriptions)
+        let invalidCategory = RecurringMovement(name: "Categoría incompatible", type: .expense, amountMinor: 3_000, descriptionText: "No registrar", frequency: .monthly, nextDueDate: date(1, 8), postsAutomatically: true, sourceAccount: cash, category: salary)
+        for rule in [subscription, income, fee, manual, paused, future, invalidCategory] { context.insert(rule) }
+        try context.save()
+
+        let posted = try RecurringMovementService.postDueMovements(in: context, through: date(3, 10))
+        let repeated = try RecurringMovementService.postDueMovements(in: context, through: date(3, 10))
+        precondition(posted == 8 && repeated == 0, "Due subscriptions, income and fees must post once; paused, manual and future rules must not post")
+        subscription.nextDueDate = date(1, 5)
+        try context.save()
+        let replayed = try RecurringMovementService.postDueMovements(in: context, through: date(3, 10))
+        precondition(replayed == 0 && calendar.isDate(subscription.nextDueDate, inSameDayAs: date(4, 5)),
+                     "Moving a rule's due date back must not recreate charges already recorded for that rule and day")
+        let transactions = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        precondition(transactions.allSatisfy { $0.destinationAccount == nil })
+        precondition(transactions.filter { $0.recurringMovementID == subscription.id }.count == 3)
+        precondition(transactions.filter { $0.recurringMovementID == fee.id }.count == 2 && !fee.isActive,
+                     "The final scheduled charge is included but dates after the end date are not")
+        precondition(FinanceCalculator.balance(of: cash, at: date(3, 10), transactions: transactions) == 155_100)
+        let january = FinanceCalculator.monthlySummary(for: date(1), transactions: transactions, calendar: calendar)
+        precondition(january.incomeMinor == 20_000 && january.expenseMinor == 1_700)
+        let budget = MonthlyBudget(monthStart: date(1).startOfMonth(), limitMinor: 2_000, category: subscriptions)
+        let progress = FinanceCalculator.budgetProgress(for: date(1), categories: [subscriptions], budgets: [budget], transactions: transactions, calendar: calendar)
+        precondition(progress.first?.spentMinor == 1_500, "An automatic subscription must consume its category budget")
     }
 
     @MainActor

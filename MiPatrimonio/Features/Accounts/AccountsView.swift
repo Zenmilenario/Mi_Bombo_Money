@@ -9,6 +9,13 @@ private enum AccountCollection: String, CaseIterable, Identifiable {
     var title: String { self == .accounts ? "Cuentas" : "Tarjetas" }
 }
 
+private enum AccountManagementTool: String, Identifiable {
+    case balances
+    case reserves
+    case recurring
+    var id: String { rawValue }
+}
+
 struct AccountsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
@@ -23,6 +30,8 @@ struct AccountsView: View {
     @State private var searchText = ""
     @State private var showOnlyStale = false
     @State private var updatingAccount: FinancialAccount?
+    @State private var managementTool: AccountManagementTool?
+    @State private var pendingBalanceAccount: FinancialAccount?
     @State private var showingAdd = false
     @State private var showingCardAdd = false
     @State private var editingAccount: FinancialAccount?
@@ -157,6 +166,26 @@ struct AccountsView: View {
             .sheet(isPresented: $showingCardAdd) {
                 PaymentCardFormView()
             }
+            .sheet(item: $managementTool, onDismiss: openPendingBalanceForm) { tool in
+                NavigationStack {
+                    Group {
+                        switch tool {
+                        case .balances:
+                            balanceAccountSelector
+                        case .reserves:
+                            ReservedFundsView()
+                        case .recurring:
+                            RecurringMovementsView()
+                        }
+                    }
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Volver a Cuentas") { managementTool = nil }
+                        }
+                    }
+                }
+            }
             .sheet(item: $updatingAccount) { account in
                 BalanceSnapshotFormView(
                     account: account,
@@ -248,27 +277,25 @@ struct AccountsView: View {
                     .buttonStyle(.plain)
                 }
                 AdaptiveCardGrid(minimumColumnWidth: 240, maximumColumns: 3, spacing: 12) {
-                    Menu {
-                        ForEach(activeAccounts) { account in
-                            Button(account.name) { updatingAccount = account }
-                        }
+                    Button {
+                        managementTool = .balances
                     } label: {
                         managementShortcut("Actualizar saldo o valoración", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(.borderless)
                     .disabled(activeAccounts.isEmpty)
-                    NavigationLink {
-                        ReservedFundsView()
+                    Button {
+                        managementTool = .reserves
                     } label: {
                         managementShortcut("Gestionar dinero reservado", systemImage: "lock.circle")
                     }
-                    .buttonStyle(.plain)
-                    NavigationLink {
-                        RecurringMovementsView()
+                    .buttonStyle(.borderless)
+                    Button {
+                        managementTool = .recurring
                     } label: {
                         managementShortcut("Aportaciones y cargos periódicos", systemImage: "arrow.triangle.2.circlepath")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.borderless)
                 }
                 .foregroundStyle(.tint)
             }
@@ -282,6 +309,58 @@ struct AccountsView: View {
             .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
             .padding(12)
             .background(AppDesign.tertiaryBackground, in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
+    }
+
+    private var balanceAccountSelector: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 16) {
+                Text("Toca el banco y la cuenta cuyo saldo quieres actualizar.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                AdaptiveCardGrid(minimumColumnWidth: 250, maximumColumns: 3) {
+                    ForEach(activeAccounts) { account in
+                        Button {
+                            pendingBalanceAccount = account
+                            managementTool = nil
+                        } label: {
+                            VStack(alignment: .leading, spacing: 14) {
+                                BankAccountIdentity(account: account)
+                                Divider()
+                                Text("Saldo actual")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                PrivacyAmountText(
+                                    minorUnits: FinanceCalculator.balance(of: account, transactions: transactions, snapshots: snapshots),
+                                    currencyCode: account.currencyCode,
+                                    font: .title3,
+                                    weight: .semibold
+                                )
+                                .foregroundStyle(.primary)
+                            }
+                            .padding(AppDesign.cardPadding)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(AppDesign.cardBackground, in: RoundedRectangle(cornerRadius: AppDesign.cardRadius))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: AppDesign.cardRadius)
+                                    .strokeBorder(Color(hex: account.institution?.colorHex ?? "#1F6B7A").opacity(0.25), lineWidth: 1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Actualizar saldo de \(account.bankAndAccountDisplayName)")
+                    }
+                }
+            }
+            .padding(16)
+        }
+        .background(AppDesign.pageBackground)
+        .navigationTitle("Elige banco y cuenta")
+    }
+
+    private func openPendingBalanceForm() {
+        if let account = pendingBalanceAccount {
+            pendingBalanceAccount = nil
+            updatingAccount = account
+        }
     }
 
     private func matchesSearch(_ values: [String]) -> Bool {
@@ -345,17 +424,17 @@ struct AccountsView: View {
 
     private func accountIdentity(_ account: FinancialAccount) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: account.type.systemImage)
+            Image(systemName: account.bankSystemImage)
                 .foregroundStyle(Color(hex: account.institution?.colorHex ?? "#1F6B7A"))
                 .frame(width: 42, height: 42)
                 .background(Color.secondary.opacity(0.09), in: Circle())
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(account.name)
+                Text(account.bankDisplayName)
                     .font(.subheadline.weight(.semibold))
 
                 HStack(spacing: 6) {
-                    Text(account.institution?.name ?? account.type.title)
+                    Text(account.bankDisplayName == account.name ? account.type.title : account.name)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -472,7 +551,7 @@ struct AccountsView: View {
             parts.append("•••• \(card.lastFour)")
         }
         if let account = card.linkedAccount {
-            parts.append(account.name)
+            parts.append(account.bankAndAccountDisplayName)
         }
         return parts.joined(separator: " · ")
     }
@@ -685,7 +764,7 @@ struct PaymentCardFormView: View {
                     Picker("Cuenta vinculada", selection: $linkedAccountID) {
                         Text("Sin vincular").tag(nil as UUID?)
                         ForEach(accounts.filter { !$0.isArchived }) { account in
-                            Text("\(account.institution?.name ?? "Sin entidad") · \(account.name)")
+                            Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage)
                                 .tag(Optional(account.id))
                         }
                     }
@@ -866,7 +945,7 @@ struct PaymentCardDetailView: View {
                 LabeledContent("Tipo", value: card.type.title)
                 LabeledContent("Últimos dígitos", value: card.lastFour.isEmpty ? "Sin indicar" : "•••• \(card.lastFour)")
                 LabeledContent("Entidad", value: card.institution?.name ?? "Sin entidad")
-                LabeledContent("Cuenta vinculada", value: card.linkedAccount?.name ?? "Sin vincular")
+                LabeledContent("Cuenta vinculada", value: card.linkedAccount?.bankAndAccountDisplayName ?? "Sin vincular")
             }
 
             Section("Límite") {
@@ -1080,7 +1159,7 @@ private struct AccountDetailView: View {
                 Text("Las valoraciones permiten reflejar inversiones o ajustes de saldo sin convertirlos en ingresos o gastos.")
             }
         }
-        .navigationTitle(account.name)
+        .navigationTitle(account.bankAndAccountDisplayName)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

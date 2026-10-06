@@ -39,6 +39,15 @@ struct BackupRoundTripCheck {
         context.insert(CategoryRule(phrase: "Aportación", transactionType: .transfer, isActive: false, createdAt: date, updatedAt: date, category: category))
         context.insert(RecurringBudget(startMonth: date, endMonth: date.addingTimeInterval(90 * 86_400), baseLimitMinor: 10_000, remainderChoice: .carryForward, createdAt: date, updatedAt: date, category: category))
         context.insert(recurring)
+        let subscriptionCategory = FinanceCategory(name: "Suscripciones", kind: .expense, systemImage: "repeat")
+        context.insert(subscriptionCategory)
+        let subscription = RecurringMovement(
+            name: "Suscripción automática", type: .expense, amountMinor: 1_500,
+            descriptionText: "Streaming", frequency: .monthly, nextDueDate: date,
+            isSubscription: true, postsAutomatically: true,
+            sourceAccount: account, category: subscriptionCategory
+        )
+        context.insert(subscription)
         context.insert(batch)
         context.insert(PaymentCard(
             name: "Tarjeta", type: .debit, lastFour: "1234", limitMinor: 50_000,
@@ -67,9 +76,14 @@ struct BackupRoundTripCheck {
         var legacy = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
         legacy.removeValue(forKey: "categoryRules")
         legacy.removeValue(forKey: "recurringBudgets")
+        var legacyRecurring = legacy["recurringMovements"] as! [[String: Any]]
+        for index in legacyRecurring.indices { legacyRecurring[index].removeValue(forKey: "postsAutomatically") }
+        legacy["recurringMovements"] = legacyRecurring
         let legacyBackup = try BackupService.decode(JSONSerialization.data(withJSONObject: legacy))
         precondition(legacyBackup.categoryRules == nil && legacyBackup.recurringBudgets == nil,
                      "Older backups without the new optional collections must remain readable")
+        precondition(legacyBackup.recurringMovements.allSatisfy { $0.postsAutomatically == nil },
+                     "Older periodic rules must remain manual when their automatic flag is missing")
         destination.mainContext.insert(FinancialAccount(name: "Debe desaparecer", type: .cash, openingBalanceMinor: 999))
         try destination.mainContext.save()
 
@@ -78,6 +92,11 @@ struct BackupRoundTripCheck {
             let restored = try BackupService.encode(BackupService.capture(in: destination.mainContext))
             let actual = try normalized(restored)
             precondition(actual == expected, "Round trip changed data or duplicated records")
+            let restoredRules = try destination.mainContext.fetch(FetchDescriptor<RecurringMovement>())
+            let restoredSubscription = restoredRules.first { $0.id == subscription.id }
+            precondition(restoredSubscription?.postsAutomatically == true && restoredSubscription?.isSubscription == true)
+            precondition(restoredSubscription?.sourceAccount?.id == account.id && restoredSubscription?.category?.id == subscriptionCategory.id,
+                         "A subscription backup must preserve its bank account, category and automatic setting")
         }
 
         var invalid = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]

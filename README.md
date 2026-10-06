@@ -14,7 +14,9 @@ Cuentas utiliza todo el ancho disponible con márgenes laterales de 16 puntos. L
 
 En Inicio, los recuadros de ingresos, gastos, ahorro e inversión tienen fondo y borde de color para reconocerlos rápidamente: verde, rojo, azul y morado. El ahorro negativo aparece en rojo. Los nombres e iconos también identifican cada concepto.
 
-Cada aviso permite **Revisado · minimizar**. Queda un icono a la derecha que puedes tocar para desplegarlo de nuevo; si todos están revisados, la tarjeta se convierte en un recordatorio compacto. La app recuerda esta preferencia local al cerrarse. Si cambia el gasto, el límite o alguna categoría superada, el aviso se vuelve a desplegar. Cada mes tiene su propio estado de revisión para los presupuestos. Los avisos activos conservan su color y se identifican como **Revisados · siguen activos**.
+Cada aviso permite **Revisado · minimizar**. Si todos están revisados, los iconos pasan a una tarjeta compacta en la cabecera; no queda una fila vacía donde estaba la tarjeta grande. La cabecera se apila cuando no cabe en horizontal. Toca un icono para desplegar el aviso. La app recuerda esta preferencia local al cerrarse. Si cambia el gasto, el límite o alguna categoría superada, el aviso se vuelve a desplegar. Cada mes tiene su propio estado de revisión para los presupuestos. Los avisos activos conservan su color y su descripción accesible indica que siguen activos.
+
+Los accesos **Gestionar dinero reservado** y **Aportaciones y cargos periódicos** abren herramientas independientes con **Volver a Cuentas**. **Actualizar saldo o valoración** muestra tarjetas que se adaptan al ancho disponible, con icono, color, banco, nombre de cuenta y saldo actual. En los selectores y movimientos aparece primero el banco y después el nombre de la cuenta, para distinguir varias cuentas de la misma entidad. Si una cuenta no tiene banco, se usa su nombre. Al guardar un movimiento sin descripción, un aviso explica qué falta y permite volver al campo.
 
 ## Copia de seguridad y restauración
 
@@ -37,6 +39,12 @@ Cada tarjeta puede vincularse a una cuenta y guardar los últimos cuatro dígito
 En **Ajustes → Dinero reservado** puedes indicar, por ejemplo, cuánto dinero de una cuenta está destinado al máster. También puedes hacerlo desde el detalle de esa cuenta. La reserva no modifica el saldo real ni el patrimonio total: aparece descontada del **Disponible para usar** en Inicio y de la cantidad disponible en la cuenta. Cuando pagues el máster, registra el gasto y reduce o elimina la reserva para evitar descontarlo dos veces. Si la reserva supera el saldo de la cuenta, el disponible aparecerá negativo para mostrar el importe que falta.
 
 Para una aportación mensual, crea primero la cuenta de valores como cuenta de tipo **Inversión**. Después abre **Ajustes → Movimientos recurrentes → Programar aportación mensual a inversión**, elige cuenta origen, cuenta de valores, importe y próxima fecha. La app registrará las mensualidades pendientes al abrirse o volver a primer plano, con una transferencia por fecha prevista y protección frente a duplicados de la misma regla. Esta transferencia reduce el saldo de origen, aumenta el de inversión y se muestra como **Aportado a inversión** en el resumen mensual. No es un gasto, así que no reduce el patrimonio total por sí misma. Puedes pausar o editar la regla en Movimientos recurrentes.
+
+## Suscripciones, recibos e ingresos automáticos
+
+Desde **Cuentas → Aportaciones y cargos periódicos → Añadir suscripción o recibo** puedes indicar nombre, importe, banco y cuenta, categoría, periodicidad, próxima fecha y fecha de fin opcional. Usa **+** para otros movimientos periódicos, incluidos ingresos y transferencias. Las nuevas reglas tienen **Registrar automáticamente** activado; puedes desactivarlo para confirmarlas manualmente. Las reglas anteriores conservan su configuración.
+
+Al abrir la app o volver a primer plano se registran los vencimientos pendientes, una vez por regla y fecha prevista. Una suscripción o comisión resta de su cuenta y cuenta en los gastos y el presupuesto de la categoría elegida; un ingreso suma a su cuenta. Las aportaciones a inversión mantienen su tratamiento de transferencia propia. Puedes pausar, editar o eliminar las reglas, y la copia de seguridad incluye su configuración automática. Las reglas con una cuenta archivada o una categoría incompatible no se registran automáticamente.
 
 ## Reglas de categorías y presupuestos repetidos
 

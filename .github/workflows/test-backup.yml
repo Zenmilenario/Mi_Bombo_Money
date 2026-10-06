@@ -31,7 +31,7 @@ jobs:
           build/backup-check/BackupRoundTripCheck
 
   finance:
-    name: Cálculos y aportaciones automáticas
+    name: Cálculos y movimientos automáticos
     runs-on: macos-latest
     timeout-minutes: 10
     steps:

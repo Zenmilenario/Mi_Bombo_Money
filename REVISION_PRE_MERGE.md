@@ -2,6 +2,17 @@
 
 Fecha: 5 de octubre de 2026. Rama: `codex/dynamic-clean-start-icon`.
 
+## Actualización del 6 de octubre de 2026 · 0.2.12 (14)
+
+- Avisos minimizados integrados en la cabecera adaptable. La lista de Inicio elimina completamente la fila de alertas cuando todas están revisadas; los iconos permiten desplegarlas y se conserva el estado de revisión por datos/mes.
+- Validación visible del formulario de movimientos mediante alerta; una descripción vacía o de espacios se rechaza antes de insertar datos y permite enfocar el campo al aceptar.
+- Identificación común de cuentas con banco primero y nombre de cuenta después. Aplicada en movimientos, filtros, reservas, cargos periódicos, objetivos, tarjetas e importación CSV; los identificadores y los nombres guardados no se cambian.
+- Los tres accesos de gestión de Cuentas son botones independientes. Cada herramienta tiene salida directa a Cuentas; el selector de saldo presenta tarjetas adaptables y abre el formulario tras terminar su cierre.
+- El motor periódico admite gastos, comisiones, ingresos e intereses además de transferencias. Exige categorías compatibles para movimientos no transferidos, respeta cuentas activas/fecha de apertura/fecha de fin y conserva la protección por regla y fecha. Las nuevas reglas pueden ser automáticas y las anteriores conservan su modo. Los guardados fallidos revierten cambios pendientes.
+- Pruebas preparadas: tres suscripciones, tres ingresos y dos comisiones pendientes, saldo y presupuesto resultantes, apertura repetida sin duplicados, reglas pausadas/manuales/futuras/incompatibles, identificación de dos cuentas del mismo banco, exportación/restauración de suscripciones y lectura de reglas antiguas sin modo automático.
+- Se conserva el esquema SwiftData y el formato de copia de seguridad. Versión 0.2.12, build 14, en Debug y Release. La compilación con Xcode y las pruebas ejecutables deben pasar en Actions antes del merge; la revisión visual requiere dispositivo o simulador.
+- Validación local completada: 34 fuentes Swift sin errores de sintaxis; 32 fuentes de app incluidas una sola vez; configuraciones, esquema, plist y assets válidos; cuatro workflows revisados con actionlint y 14 scripts con `bash -n`; `git diff --check` sin errores. Esta revisión no sustituye la comprobación de tipos ni la ejecución en macOS.
+
 ## Actualización del 6 de octubre de 2026 · 0.2.11 (13)
 
 - Retirado el máximo de 840 puntos de Cuentas y fijados únicamente los márgenes laterales de la lista. Los accesos de gestión usan columnas adaptables al ancho y al tamaño de letra; los nombres de las cuentas vinculadas a tarjetas pueden ocupar varias líneas.

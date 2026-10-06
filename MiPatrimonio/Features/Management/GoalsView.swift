@@ -79,7 +79,7 @@ struct GoalsView: View {
                         .font(.headline)
                         .foregroundStyle(.primary)
                     if let account = goal.linkedAccount {
-                        Text("Vinculado a \(account.name)")
+                        Text("Vinculado a \(account.bankAndAccountDisplayName)")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else if let targetDate = goal.targetDate {
@@ -297,7 +297,7 @@ struct GoalDetailView: View {
             VStack(spacing: 0) {
                 detailRow(
                     title: "Cuenta vinculada",
-                    value: goal.linkedAccount?.name ?? "Ninguna",
+                    value: goal.linkedAccount?.bankAndAccountDisplayName ?? "Ninguna",
                     systemImage: "building.columns"
                 )
 
@@ -407,7 +407,7 @@ private struct GoalFormView: View {
                     Picker("Cuenta vinculada", selection: $linkedAccountID) {
                         Text("Ninguna").tag(nil as UUID?)
                         ForEach(accounts.filter { !$0.isArchived }) { account in
-                            Text(account.name).tag(Optional(account.id))
+                            Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
                         }
                     }
                 } header: {

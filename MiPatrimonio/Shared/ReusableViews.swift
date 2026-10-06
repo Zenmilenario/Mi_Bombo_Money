@@ -23,6 +23,32 @@ enum AppDesign {
     }
 }
 
+struct BankAccountIdentity: View {
+    let account: FinancialAccount
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: account.bankSystemImage)
+                .font(.title3)
+                .foregroundStyle(Color(hex: account.institution?.colorHex ?? "#1F6B7A"))
+                .frame(width: 44, height: 44)
+                .background(Color(hex: account.institution?.colorHex ?? "#1F6B7A").opacity(0.12), in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(account.bankDisplayName)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                Text(account.bankDisplayName == account.name ? account.type.title : account.name)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .multilineTextAlignment(.leading)
+        .accessibilityElement(children: .combine)
+    }
+}
+
 struct PrivacyAmountText: View {
     let minorUnits: Int64
     var currencyCode: String = "EUR"
