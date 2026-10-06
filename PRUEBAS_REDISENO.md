@@ -5,9 +5,17 @@
 - [ ] El botón azul aparece abajo a la derecha y no tapa la barra inferior.
 - [ ] Se muestra un saludo según la hora en lugar del título `Inicio`.
 - [ ] Las métricas mensuales y la tasa de ahorro se ven sin desplazamiento horizontal; la aportación a inversión aparece cuando corresponde.
+- [ ] Cada métrica mensual destaca con fondo y borde: verde para ingresos, rojo para gastos, azul para ahorro positivo (rojo si es negativo) y morado para inversión; los importes se leen en claro y oscuro.
 - [ ] La tarjeta principal muestra patrimonio, variación mensual y fecha de actualización.
 - [ ] Ocultar importes también oculta cifras y gráficos.
 - [ ] Los avisos abren la pestaña adecuada.
+- [ ] `Revisado · minimizar` convierte ese aviso en un icono a la derecha; los demás avisos permanecen desplegados.
+- [ ] Al minimizar todos los avisos queda una tarjeta compacta con sus iconos y `Revisados · siguen activos`.
+- [ ] Tocar un icono vuelve a desplegar ese aviso; `Volver a minimizar` lo devuelve al estado compacto.
+- [ ] Cerrar y volver a abrir la app mantiene minimizados los avisos revisados si sus datos no han cambiado.
+- [ ] Añadir gasto a una categoría superada o superar otra categoría despliega de nuevo el aviso, incluso si sigue habiendo el mismo número de presupuestos superados.
+- [ ] Cambiar a otro mes no marca como revisados los avisos de ese mes. Volver al anterior conserva su estado cuando los datos siguen iguales.
+- [ ] La minimización se puede usar con importes ocultos y VoiceOver anuncia que el aviso revisado sigue activo.
 - [ ] No hay lista de cuentas repetida en Inicio; el aviso de cuentas sin actualizar abre Cuentas.
 - [ ] `Ver movimientos` abre Movimientos.
 - [ ] `Ver detalle` y `Crear presupuestos` abren Presupuestos conservando el mes seleccionado en Inicio; cambiar el mes en Presupuestos mantiene el mismo mes al regresar a Inicio.
@@ -30,6 +38,9 @@
 ## Cuentas
 
 - [ ] Cuentas muestra herramientas de gestión, sin otro resumen patrimonial.
+- [ ] Cuentas aprovecha todo el ancho disponible con márgenes laterales de 16 puntos, sin quedarse en 840 puntos; comprobar también ventana de más de 1200 puntos y pantalla dividida.
+- [ ] Sus tres accesos de gestión pasan de una a dos o tres columnas según el ancho y la letra, sin cambiar de pantalla ni perder la búsqueda.
+- [ ] Las acciones de deslizar para editar, archivar o actualizar siguen funcionando con la lista a cualquier ancho.
 - [ ] El selector Cuentas / Tarjetas funciona y la búsqueda encuentra nombres, bancos y cuentas vinculadas; en tarjetas también encuentra los últimos cuatro dígitos.
 - [ ] Las cuentas se agrupan por día a día, ahorro, inversión, deudas y otras cuentas.
 - [ ] `Actualizar un saldo o valoración` y la acción de deslizar abren el formulario para la cuenta elegida.

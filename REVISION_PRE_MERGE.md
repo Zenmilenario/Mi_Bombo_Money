@@ -2,6 +2,16 @@
 
 Fecha: 5 de octubre de 2026. Rama: `codex/dynamic-clean-start-icon`.
 
+## Actualización del 6 de octubre de 2026 · 0.2.11 (13)
+
+- Retirado el máximo de 840 puntos de Cuentas y fijados únicamente los márgenes laterales de la lista. Los accesos de gestión usan columnas adaptables al ancho y al tamaño de letra; los nombres de las cuentas vinculadas a tarjetas pueden ocupar varias líneas.
+- Recuperada la separación visual de las métricas mensuales con fondos y bordes de color, conservando títulos, iconos y ocultación de importes.
+- Añadida minimización individual de avisos revisados. Se guardan en las preferencias locales y mantienen un icono visible para desplegarlos. Un cambio en los datos del aviso lo muestra de nuevo; los presupuestos se distinguen por mes y por categorías, límites y gastos.
+- `DashboardAlertReviewState.swift` se incluye en el target de la app y en las pruebas de servicios. Las pruebas cubren reapertura, mayor gasto, otra categoría con el mismo importe, cambio de mes, avisos independientes y preferencias inválidas.
+- Validación local: 34 archivos Swift sin errores de sintaxis; las 32 fuentes de la app están incluidas una sola vez en el proyecto. La compilación con Xcode, las nuevas pruebas ejecutables y la revisión visual siguen pendientes de GitHub/dispositivo según el procedimiento de este documento.
+
+Las secciones siguientes conservan el detalle de la revisión del 5 de octubre.
+
 ## Correcciones realizadas
 
 1. **Compilación del diseño dinámico.** El registro adjunto identifica una declaración de `@ScaledMetric` sin valor inicial en `AdaptiveCardGrid`. Se ha inicializado la propiedad y se conserva el ancho personalizado de cada instancia. Las otras declaraciones de `@ScaledMetric` también tienen valor inicial.

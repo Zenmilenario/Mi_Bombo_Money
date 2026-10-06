@@ -121,9 +121,9 @@ struct AccountsView: View {
                         }
                     }
                     .listStyle(.insetGrouped)
+                    .contentMargins(.horizontal, 16, for: .scrollContent)
                 }
             }
-            .frame(maxWidth: AppDesign.readableContentWidth)
             .frame(maxWidth: .infinity)
             .background(AppDesign.pageBackground)
             .navigationTitle("Cuentas")
@@ -247,34 +247,41 @@ struct AccountsView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                Menu {
-                    ForEach(activeAccounts) { account in
-                        Button(account.name) { updatingAccount = account }
+                AdaptiveCardGrid(minimumColumnWidth: 240, maximumColumns: 3, spacing: 12) {
+                    Menu {
+                        ForEach(activeAccounts) { account in
+                            Button(account.name) { updatingAccount = account }
+                        }
+                    } label: {
+                        managementShortcut("Actualizar saldo o valoración", systemImage: "arrow.clockwise")
                     }
-                } label: {
-                    Label("Actualizar un saldo o valoración", systemImage: "arrow.clockwise")
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    .buttonStyle(.borderless)
+                    .disabled(activeAccounts.isEmpty)
+                    NavigationLink {
+                        ReservedFundsView()
+                    } label: {
+                        managementShortcut("Gestionar dinero reservado", systemImage: "lock.circle")
+                    }
+                    .buttonStyle(.plain)
+                    NavigationLink {
+                        RecurringMovementsView()
+                    } label: {
+                        managementShortcut("Aportaciones y cargos periódicos", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(.plain)
                 }
-                .disabled(activeAccounts.isEmpty)
-                NavigationLink {
-                    ReservedFundsView()
-                } label: {
-                    Label("Gestionar dinero reservado", systemImage: "lock.circle")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.tint)
-                NavigationLink {
-                    RecurringMovementsView()
-                } label: {
-                    Label("Aportaciones y cargos periódicos", systemImage: "arrow.triangle.2.circlepath")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
                 .foregroundStyle(.tint)
             }
             .font(.subheadline)
         }
+    }
+
+    private func managementShortcut(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(12)
+            .background(AppDesign.tertiaryBackground, in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
     }
 
     private func matchesSearch(_ values: [String]) -> Bool {
@@ -453,7 +460,7 @@ struct AccountsView: View {
                 Text(cardSubtitle(card))
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 5)

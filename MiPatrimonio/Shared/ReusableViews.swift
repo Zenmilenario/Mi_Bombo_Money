@@ -65,6 +65,7 @@ struct MetricCard: View {
     let systemImage: String
     var tint: Color = .accentColor
     var valueColor: Color = .primary
+    var usesTintedBackground = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -76,8 +77,8 @@ struct MetricCard: View {
                     .background(tint.opacity(0.12), in: Circle())
 
                 Text(title)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(usesTintedBackground ? tint : .secondary)
                     .lineLimit(2)
             }
 
@@ -89,10 +90,26 @@ struct MetricCard: View {
         }
         .padding(AppDesign.cardPadding)
         .frame(maxWidth: .infinity, minHeight: 94, alignment: .leading)
-        .background(
-            AppDesign.cardBackground,
-            in: RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
-        )
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
+                    .fill(AppDesign.cardBackground)
+                if usesTintedBackground {
+                    RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
+                        .fill(LinearGradient(
+                            colors: [tint.opacity(0.18), tint.opacity(0.08)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+                }
+            }
+        }
+        .overlay {
+            if usesTintedBackground {
+                RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
+                    .strokeBorder(tint.opacity(0.35), lineWidth: 1)
+            }
+        }
     }
 }
 
