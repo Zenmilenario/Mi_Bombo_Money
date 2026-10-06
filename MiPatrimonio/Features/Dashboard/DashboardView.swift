@@ -363,7 +363,9 @@ struct DashboardView: View {
                             netWorthCard
                             monthlyOverview
                         }
-                        alertsSection
+                        if !alertPresentation.expanded.isEmpty {
+                            alertsSection
+                        }
                         AdaptiveCardGrid {
                             budgetsSection
                             netWorthChart
@@ -408,15 +410,21 @@ struct DashboardView: View {
     }
 
     private var welcomeHeader: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(greeting)
-                .font(.largeTitle.bold())
-            Text("Tu dinero, de un vistazo")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        AdaptiveValueRow {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(greeting)
+                    .font(.largeTitle.bold())
+                Text("Tu dinero, de un vistazo")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            .accessibilityElement(children: .combine)
+        } value: {
+            if alertPresentation.expanded.isEmpty && !alertPresentation.minimized.isEmpty {
+                minimizedAlertsStrip(items: alertPresentation.minimized)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
     }
 
     private var greeting: String {
@@ -611,29 +619,31 @@ struct DashboardView: View {
         .foregroundStyle(.secondary)
     }
 
-    @ViewBuilder
-    private var alertsSection: some View {
+    private var alertPresentation: (expanded: [DashboardAlertItem], minimized: [DashboardAlertItem]) {
         let items = alertItems
         let state = DashboardAlertReviewState(serialized: reviewedAlertsJSON)
         let expanded = items.filter { !state.isReviewed(id: $0.id, revision: $0.revision) || expandedReviewedAlertIDs.contains($0.id) }
         let minimized = items.filter { state.isReviewed(id: $0.id, revision: $0.revision) && !expandedReviewedAlertIDs.contains($0.id) }
-        if !items.isEmpty {
-            if expanded.isEmpty {
-                minimizedAlertsStrip(items: minimized)
-            } else {
-                SectionCard("Necesita tu atención", subtitle: "Puedes minimizar los avisos que ya has revisado") {
-                    VStack(spacing: 0) {
-                        ForEach(Array(expanded.enumerated()), id: \.element.id) { index, item in
-                            alertRow(item)
-                            if index < expanded.count - 1 {
-                                Divider()
-                            }
+        return (expanded, minimized)
+    }
+
+    @ViewBuilder
+    private var alertsSection: some View {
+        let expanded = alertPresentation.expanded
+        let minimized = alertPresentation.minimized
+        if !expanded.isEmpty {
+            SectionCard("Necesita tu atención", subtitle: "Puedes minimizar los avisos que ya has revisado") {
+                VStack(spacing: 0) {
+                    ForEach(Array(expanded.enumerated()), id: \.element.id) { index, item in
+                        alertRow(item)
+                        if index < expanded.count - 1 {
+                            Divider()
                         }
                     }
-                    if !minimized.isEmpty {
-                        Divider()
-                        minimizedAlertsStrip(items: minimized)
-                    }
+                }
+                if !minimized.isEmpty {
+                    Divider()
+                    minimizedAlertsStrip(items: minimized)
                 }
             }
         }
@@ -684,35 +694,32 @@ struct DashboardView: View {
     }
 
     private func minimizedAlertsStrip(items: [DashboardAlertItem]) -> some View {
-        HStack {
-            Spacer(minLength: 0)
-            VStack(alignment: .trailing, spacing: 8) {
-                Text("Revisados · siguen activos")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                HStack(spacing: 8) {
-                    ForEach(items) { item in
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                _ = expandedReviewedAlertIDs.insert(item.id)
-                            }
-                        } label: {
-                            Image(systemName: item.systemImage)
-                                .font(.system(size: 20, weight: .semibold))
-                                .foregroundStyle(item.tint)
-                                .frame(width: 44, height: 44)
-                                .background(item.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Revisados")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                ForEach(items) { item in
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            _ = expandedReviewedAlertIDs.insert(item.id)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(item.title). Revisado, sigue activo")
-                        .accessibilityHint("Desplegar el aviso para leerlo o volver a revisarlo")
-                        .help(item.title)
+                    } label: {
+                        Image(systemName: item.systemImage)
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(item.tint)
+                            .frame(width: 44, height: 44)
+                            .background(item.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("\(item.title). Revisado, sigue activo")
+                    .accessibilityHint("Desplegar el aviso para leerlo o volver a revisarlo")
+                    .help(item.title)
                 }
             }
-            .padding(12)
-            .background(AppDesign.cardBackground, in: RoundedRectangle(cornerRadius: AppDesign.cardRadius))
         }
+        .padding(12)
+        .background(AppDesign.cardBackground, in: RoundedRectangle(cornerRadius: AppDesign.cardRadius))
     }
 
     private var budgetsSection: some View {

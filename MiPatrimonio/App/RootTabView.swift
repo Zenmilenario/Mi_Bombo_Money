@@ -90,11 +90,11 @@ struct RootTabView: View {
         .sheet(isPresented: $showingQuickAdd) {
             TransactionFormView()
         }
-        .onAppear(perform: postDueTransfers)
+        .onAppear(perform: postDueMovements)
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { postDueTransfers() }
+            if phase == .active { postDueMovements() }
         }
-        .alert("No se pudo registrar la aportación periódica", isPresented: Binding(
+        .alert("No se pudo registrar un movimiento periódico", isPresented: Binding(
             get: { recurrenceError != nil },
             set: { if !$0 { recurrenceError = nil } }
         )) {
@@ -130,9 +130,9 @@ struct RootTabView: View {
         }
     }
 
-    private func postDueTransfers() {
+    private func postDueMovements() {
         do {
-            try RecurringMovementService.postDueTransfers(in: modelContext)
+            try RecurringMovementService.postDueMovements(in: modelContext)
         } catch {
             recurrenceError = error.localizedDescription
         }

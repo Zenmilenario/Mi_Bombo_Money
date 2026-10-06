@@ -8,6 +8,7 @@ struct RecurringMovementsView: View {
 
     @State private var showingAdd = false
     @State private var showingInvestmentAdd = false
+    @State private var showingSubscriptionAdd = false
     @State private var editingMovement: RecurringMovement?
     @State private var errorMessage: String?
     @State private var confirmationMessage: String?
@@ -24,15 +25,22 @@ struct RecurringMovementsView: View {
         List {
             Section {
                 Button {
+                    showingSubscriptionAdd = true
+                } label: {
+                    Label("Añadir suscripción o recibo", systemImage: "repeat.circle.fill")
+                }
+                .disabled(!accounts.contains { !$0.isArchived })
+
+                Button {
                     showingInvestmentAdd = true
                 } label: {
                     Label("Programar aportación mensual a inversión", systemImage: "arrow.left.arrow.right.circle")
                 }
                 .disabled(!hasInvestmentPair)
             } header: {
-                Text("Cuenta de valores")
+                Text("Programar movimientos")
             } footer: {
-                Text("Necesitas una cuenta de origen y otra de tipo Inversión. La aportación se registrará al abrir la app cuando llegue su fecha.")
+                Text("Programa gastos, ingresos y transferencias. Se registrarán al abrir la app tras su fecha. Para aportar a inversión necesitas una cuenta de origen y otra de tipo Inversión.")
             }
 
             if recurringMovements.isEmpty {
@@ -62,6 +70,9 @@ struct RecurringMovementsView: View {
         }
         .sheet(isPresented: $showingInvestmentAdd) {
             RecurringMovementFormView(investmentContribution: true)
+        }
+        .sheet(isPresented: $showingSubscriptionAdd) {
+            RecurringMovementFormView(subscription: true)
         }
         .sheet(item: $editingMovement) { movement in
             RecurringMovementFormView(movement: movement)
@@ -130,29 +141,40 @@ struct RecurringMovementsView: View {
     }
 
     private func movementRow(_ movement: RecurringMovement) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: movement.isSubscription ? "repeat.circle.fill" : movement.type.systemImage)
-                .foregroundStyle(movement.isActive ? Color.accentColor : .secondary)
-                .frame(width: 40, height: 40)
-                .background(Color.secondary.opacity(0.09), in: Circle())
+        AdaptiveValueRow {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: movement.isSubscription ? "repeat.circle.fill" : movement.type.systemImage)
+                    .foregroundStyle(movement.isActive ? Color.accentColor : .secondary)
+                    .frame(width: 40, height: 40)
+                    .background(Color.secondary.opacity(0.09), in: Circle())
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(movement.name)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-                HStack(spacing: 5) {
-                    Text(movement.frequency.title)
-                    Text("·")
-                    Text("Próximo: \(movement.nextDueDate.formatted(date: .abbreviated, time: .omitted))")
-                    if movement.postsAutomatically == true && movement.type == .transfer {
-                        Text("· Automático")
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(movement.name)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                    Text("\(movement.frequency.title) · Próximo: \(movement.nextDueDate.formatted(date: .abbreviated, time: .omitted))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if let account = movement.sourceAccount {
+                        Text(account.bankAndAccountDisplayName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if movement.type == .transfer, let destination = movement.destinationAccount {
+                        Text("A \(destination.bankAndAccountDisplayName)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    if movement.postsAutomatically == true {
+                        Label("Automático", systemImage: "clock.arrow.circlepath")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
-            PrivacyAmountText(minorUnits: movement.amountMinor, font: .subheadline, weight: .semibold)
+        } value: {
+            PrivacyAmountText(minorUnits: movement.amountMinor, currencyCode: movement.sourceAccount?.currencyCode ?? "EUR", font: .subheadline, weight: .semibold)
         }
         .padding(.vertical, 4)
     }
@@ -184,6 +206,7 @@ struct RecurringMovementsView: View {
         do {
             try modelContext.save()
         } catch {
+            modelContext.rollback()
             errorMessage = error.localizedDescription
         }
     }
@@ -216,7 +239,7 @@ private struct RecurringMovementFormView: View {
     @State private var postsAutomatically: Bool
     @State private var errorMessage: String?
 
-    init(movement: RecurringMovement? = nil, investmentContribution: Bool = false) {
+    init(movement: RecurringMovement? = nil, investmentContribution: Bool = false, subscription: Bool = false) {
         self.movement = movement
         self.investmentContribution = investmentContribution
         _name = State(initialValue: movement?.name ?? (investmentContribution ? "Aportación a cuenta de valores" : ""))
@@ -233,8 +256,8 @@ private struct RecurringMovementFormView: View {
         _hasEndDate = State(initialValue: movement?.endDate != nil)
         _endDate = State(initialValue: movement?.endDate ?? Calendar.autoupdatingCurrent.date(byAdding: .year, value: 1, to: .now) ?? .now)
         _isActive = State(initialValue: movement?.isActive ?? true)
-        _isSubscription = State(initialValue: movement?.isSubscription ?? false)
-        _postsAutomatically = State(initialValue: movement?.postsAutomatically ?? investmentContribution)
+        _isSubscription = State(initialValue: movement?.isSubscription ?? subscription)
+        _postsAutomatically = State(initialValue: movement.map { $0.postsAutomatically == true } ?? true)
     }
 
     private var activeAccounts: [FinancialAccount] {
@@ -282,7 +305,6 @@ private struct RecurringMovementFormView: View {
                             if newValue != .expense && newValue != .fee {
                                 isSubscription = false
                             }
-                            if newValue != .transfer { postsAutomatically = false }
                         }
                     }
                     TextField("Importe", text: $amountText)
@@ -294,7 +316,7 @@ private struct RecurringMovementFormView: View {
                     Picker(type == .transfer ? "Cuenta origen" : "Cuenta", selection: $sourceAccountID) {
                         Text("Selecciona una cuenta").tag(nil as UUID?)
                         ForEach(activeAccounts.filter { !investmentContribution || ($0.type != .investment && !$0.type.isLiability) }) { account in
-                            Text(account.name).tag(Optional(account.id))
+                            Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
                         }
                     }
 
@@ -302,7 +324,7 @@ private struct RecurringMovementFormView: View {
                         Picker("Cuenta destino", selection: $destinationAccountID) {
                             Text("Selecciona una cuenta").tag(nil as UUID?)
                             ForEach(destinationAccounts) { account in
-                                Text(account.name).tag(Optional(account.id))
+                                Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
                             }
                         }
                     }
@@ -310,7 +332,7 @@ private struct RecurringMovementFormView: View {
                     Picker("Categoría", selection: $categoryID) {
                         Text("Sin categoría").tag(nil as UUID?)
                         ForEach(compatibleCategories) { category in
-                            Text(category.name).tag(Optional(category.id))
+                            Label(category.name, systemImage: category.systemImage).tag(Optional(category.id))
                         }
                     }
                 }
@@ -335,19 +357,23 @@ private struct RecurringMovementFormView: View {
 
                 Section("Control") {
                     Toggle("Activo", isOn: $isActive)
-                    if type == .transfer {
-                        Toggle("Registrar automáticamente", isOn: $postsAutomatically)
-                    }
+                    Toggle("Registrar automáticamente", isOn: $postsAutomatically)
                     if type == .expense || type == .fee {
                         Toggle("Es una suscripción", isOn: $isSubscription)
+                            .onChange(of: isSubscription) { _, enabled in
+                                if enabled && type == .expense,
+                                   let category = compatibleCategories.first(where: { $0.name == "Suscripciones" }) {
+                                    categoryID = category.id
+                                }
+                            }
                     }
                     TextField("Notas", text: $notes, axis: .vertical)
                         .lineLimit(2...5)
                 }
 
-                if type == .transfer && postsAutomatically {
+                if postsAutomatically {
                     Section {
-                        Text("Al abrir la app tras la fecha indicada, se registrará la transferencia. Bajará el saldo de origen y subirá el de destino sin contarse como gasto.")
+                        Text(automaticPostingExplanation)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
@@ -381,6 +407,14 @@ private struct RecurringMovementFormView: View {
                 }
                 if categoryID == nil { categoryID = defaultCategory(for: type)?.id }
             }
+            .alert("Revisa el movimiento periódico", isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { if !$0 { errorMessage = nil } }
+            )) {
+                Button("Aceptar", role: .cancel) { errorMessage = nil }
+            } message: {
+                Text(errorMessage ?? "")
+            }
         }
     }
 
@@ -393,22 +427,33 @@ private struct RecurringMovementFormView: View {
         }
     }
 
+    private var automaticPostingExplanation: String {
+        let timing = "Al abrir la app tras la fecha indicada, se registrarán los movimientos pendientes una sola vez. "
+        switch type {
+        case .transfer:
+            return timing + "Bajará el saldo de origen y subirá el de destino sin contarse como gasto."
+        case .expense, .fee:
+            return timing + "El cargo se descontará de la cuenta elegida y contará en los gastos y el presupuesto de su categoría."
+        case .income, .interest:
+            return timing + "El importe se sumará a la cuenta elegida y contará como ingreso."
+        }
+    }
+
     private func defaultCategory(for type: TransactionType) -> FinanceCategory? {
+        let preferredName: String
         switch type {
         case .interest:
-            return categories.first { $0.name == "Intereses" }
+            preferredName = "Intereses"
         case .fee:
-            return categories.first { $0.name == "Impuestos y comisiones" }
+            preferredName = "Impuestos y comisiones"
         case .transfer:
-            return categories.first { $0.kind == .transfer }
-        default:
-            return categories.first { category in
-                !category.isArchived && (
-                    (type.countsAsIncome && (category.kind == .income || category.kind == .both))
-                        || (type.countsAsExpense && (category.kind == .expense || category.kind == .both))
-                )
-            }
+            preferredName = "Transferencias"
+        case .expense:
+            preferredName = isSubscription ? "Suscripciones" : "Otros gastos"
+        case .income:
+            preferredName = "Otros ingresos"
         }
+        return compatibleCategories.first { $0.name == preferredName } ?? compatibleCategories.first
     }
 
     private func save() {
@@ -418,7 +463,7 @@ private struct RecurringMovementFormView: View {
             errorMessage = "Introduce un nombre para la regla."
             return
         }
-        guard let amount = MoneyParser.minorUnits(from: amountText), amount != 0 else {
+        guard let amount = MoneyParser.minorUnits(from: amountText), amount > 0 else {
             errorMessage = "Introduce un importe mayor que cero."
             return
         }
@@ -443,7 +488,16 @@ private struct RecurringMovementFormView: View {
             }
         }
 
-        let category = categories.first(where: { $0.id == categoryID })
+        let category = compatibleCategories.first(where: { $0.id == categoryID })
+        if type != .transfer && category == nil {
+            errorMessage = "Selecciona una categoría para que el movimiento cuente en tus gastos o ingresos."
+            return
+        }
+        if hasEndDate && (movement == nil || isActive)
+            && Calendar.autoupdatingCurrent.startOfDay(for: endDate) < Calendar.autoupdatingCurrent.startOfDay(for: nextDueDate) {
+            errorMessage = "La fecha de fin no puede ser anterior a la próxima fecha."
+            return
+        }
         let finalDescription = cleanDescription.isEmpty ? cleanName : cleanDescription
 
         if let movement {
@@ -461,7 +515,7 @@ private struct RecurringMovementFormView: View {
             movement.endDate = hasEndDate ? endDate : nil
             movement.isActive = isActive
             movement.isSubscription = (type == .expense || type == .fee) && isSubscription
-            movement.postsAutomatically = type == .transfer && postsAutomatically
+            movement.postsAutomatically = postsAutomatically
             movement.updatedAt = .now
         } else {
             modelContext.insert(RecurringMovement(
@@ -476,7 +530,7 @@ private struct RecurringMovementFormView: View {
                 endDate: hasEndDate ? endDate : nil,
                 isActive: isActive,
                 isSubscription: (type == .expense || type == .fee) && isSubscription,
-                postsAutomatically: type == .transfer && postsAutomatically,
+                postsAutomatically: postsAutomatically,
                 sourceAccount: source,
                 destinationAccount: type == .transfer ? destination : nil,
                 category: category
@@ -485,16 +539,17 @@ private struct RecurringMovementFormView: View {
 
         do {
             try modelContext.save()
-            if type == .transfer && postsAutomatically && isActive {
+            if postsAutomatically && isActive {
                 do {
-                    try RecurringMovementService.postDueTransfers(in: modelContext)
+                    try RecurringMovementService.postDueMovements(in: modelContext)
                 } catch {
-                    errorMessage = "La regla se ha guardado, pero no se pudo registrar la aportación pendiente: \(error.localizedDescription)"
+                    errorMessage = "La regla se ha guardado, pero no se pudo registrar el movimiento pendiente: \(error.localizedDescription)"
                     return
                 }
             }
             dismiss()
         } catch {
+            modelContext.rollback()
             errorMessage = error.localizedDescription
         }
     }

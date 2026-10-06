@@ -75,6 +75,8 @@ struct TransactionsView: View {
                 transaction.notes,
                 transaction.sourceAccount?.name ?? "",
                 transaction.destinationAccount?.name ?? "",
+                transaction.sourceAccount?.institution?.name ?? "",
+                transaction.destinationAccount?.institution?.name ?? "",
                 transaction.category?.name ?? "",
                 transaction.type.title,
             ].contains { $0.localizedCaseInsensitiveContains(query) }
@@ -306,7 +308,7 @@ struct TransactionsView: View {
                    let account = accounts.first(where: { $0.id == selectedAccountID })
                 {
                     FilterChip(
-                        title: account.name,
+                        title: account.bankAndAccountDisplayName,
                         systemImage: "building.columns",
                         onRemove: { self.selectedAccountID = nil }
                     )
@@ -472,7 +474,7 @@ private struct TransactionRow: View {
                 Text(accountSubtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
 
             Spacer(minLength: 8)
@@ -499,9 +501,9 @@ private struct TransactionRow: View {
 
     private var accountSubtitle: String {
         if transaction.type == .transfer {
-            return "\(transaction.sourceAccount?.name ?? "Sin origen") → \(transaction.destinationAccount?.name ?? "Sin destino")"
+            return "\(transaction.sourceAccount?.bankAndAccountDisplayName ?? "Sin origen") → \(transaction.destinationAccount?.bankAndAccountDisplayName ?? "Sin destino")"
         }
-        return transaction.sourceAccount?.name ?? "Sin cuenta"
+        return transaction.sourceAccount?.bankAndAccountDisplayName ?? "Sin cuenta"
     }
 
     private var displayAmount: String {
@@ -643,7 +645,7 @@ private struct TransactionDetailView: View {
                 if transaction.type == .transfer {
                     detailRow(
                         title: "Cuenta de origen",
-                        value: transaction.sourceAccount?.name ?? "Sin cuenta",
+                        value: transaction.sourceAccount?.bankAndAccountDisplayName ?? "Sin cuenta",
                         systemImage: "arrow.up.right.circle"
                     )
 
@@ -651,13 +653,13 @@ private struct TransactionDetailView: View {
 
                     detailRow(
                         title: "Cuenta de destino",
-                        value: transaction.destinationAccount?.name ?? "Sin cuenta",
+                        value: transaction.destinationAccount?.bankAndAccountDisplayName ?? "Sin cuenta",
                         systemImage: "arrow.down.left.circle"
                     )
                 } else {
                     detailRow(
                         title: "Cuenta",
-                        value: transaction.sourceAccount?.name ?? "Sin cuenta",
+                        value: transaction.sourceAccount?.bankAndAccountDisplayName ?? "Sin cuenta",
                         systemImage: "building.columns"
                     )
 
@@ -753,7 +755,7 @@ private struct TransactionFiltersView: View {
                 Picker("Cuenta", selection: $selectedAccountID) {
                     Text("Todas").tag(nil as UUID?)
                     ForEach(accounts) { account in
-                        Text(account.name).tag(Optional(account.id))
+                        Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
                     }
                 }
 
@@ -996,6 +998,7 @@ struct TransactionFormView: View {
     @State private var categoryChosenManually = false
     @State private var automaticCategoryID: UUID?
     @State private var validationMessage: String?
+    @FocusState private var descriptionIsFocused: Bool
 
     init(transaction: FinancialTransaction? = nil) {
         self.transaction = transaction
@@ -1056,6 +1059,7 @@ struct TransactionFormView: View {
                     TextField("Importe", text: $amountText)
                         .keyboardType(.decimalPad)
                     TextField("Descripción", text: $descriptionText)
+                        .focused($descriptionIsFocused)
                         .onChange(of: descriptionText) { _, _ in
                             if !categoryChosenManually { applySuggestedCategory() }
                         }
@@ -1063,7 +1067,7 @@ struct TransactionFormView: View {
                     Picker("Cuenta", selection: $sourceAccountID) {
                         Text("Seleccionar").tag(nil as UUID?)
                         ForEach(activeAccounts) { account in
-                            Text(account.name).tag(Optional(account.id))
+                            Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
                         }
                     }
 
@@ -1071,7 +1075,7 @@ struct TransactionFormView: View {
                         Picker("Cuenta destino", selection: $destinationAccountID) {
                             Text("Seleccionar").tag(nil as UUID?)
                             ForEach(activeAccounts.filter { $0.id != sourceAccountID }) { account in
-                                Text(account.name).tag(Optional(account.id))
+                                Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
                             }
                         }
                     }
@@ -1122,6 +1126,18 @@ struct TransactionFormView: View {
             }
             .navigationTitle(transaction == nil ? "Nuevo movimiento" : "Editar movimiento")
             .navigationBarTitleDisplayMode(.inline)
+            .alert("Revisa el movimiento", isPresented: Binding(
+                get: { validationMessage != nil },
+                set: { if !$0 { validationMessage = nil } }
+            )) {
+                Button("Aceptar", role: .cancel) {
+                    if descriptionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        descriptionIsFocused = true
+                    }
+                }
+            } message: {
+                Text(validationMessage ?? "")
+            }
             .onAppear {
                 if transaction == nil, sourceAccountID == nil {
                     sourceAccountID = existingTransactions
@@ -1174,6 +1190,11 @@ struct TransactionFormView: View {
     }
 
     private func save() {
+        let cleanDescription = descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanDescription.isEmpty else {
+            validationMessage = "Añade una descripción para reconocer el movimiento, por ejemplo «Compra del supermercado»."
+            return
+        }
         guard let amountMinor = MoneyParser.minorUnits(from: amountText), amountMinor != 0 else {
             validationMessage = "Introduce un importe válido mayor que cero."
             return
@@ -1196,11 +1217,6 @@ struct TransactionFormView: View {
                 validationMessage = "Selecciona una categoría para clasificar el movimiento."
                 return
             }
-        }
-        let cleanDescription = descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanDescription.isEmpty else {
-            validationMessage = "Añade una descripción."
-            return
         }
         let phraseToRemember = rulePhrase.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? cleanDescription : rulePhrase
@@ -1276,6 +1292,7 @@ struct TransactionFormView: View {
             try modelContext.save()
             dismiss()
         } catch {
+            modelContext.rollback()
             validationMessage = error.localizedDescription
         }
     }

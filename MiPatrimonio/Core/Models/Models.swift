@@ -1,6 +1,21 @@
 import Foundation
 import SwiftData
 
+extension FinancialAccount {
+    var bankDisplayName: String {
+        let bank = institution?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return bank.isEmpty ? name : bank
+    }
+
+    var bankAndAccountDisplayName: String {
+        bankDisplayName == name ? name : "\(bankDisplayName) · \(name)"
+    }
+
+    var bankSystemImage: String {
+        institution == nil ? type.systemImage : "building.columns.fill"
+    }
+}
+
 enum AccountType: String, CaseIterable, Identifiable, Codable {
     case checking
     case savings

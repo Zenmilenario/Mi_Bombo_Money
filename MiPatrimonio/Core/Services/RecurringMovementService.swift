@@ -3,7 +3,7 @@ import SwiftData
 
 enum RecurringMovementService {
     @discardableResult
-    static func postDueTransfers(in context: ModelContext, through date: Date = .now) throws -> Int {
+    static func postDueMovements(in context: ModelContext, through date: Date = .now) throws -> Int {
         let calendar = Calendar.autoupdatingCurrent
         let today = calendar.startOfDay(for: date)
         let movements = try context.fetch(FetchDescriptor<RecurringMovement>())
@@ -11,14 +11,19 @@ enum RecurringMovementService {
         var postedCount = 0
 
         for movement in movements where movement.isActive
-            && movement.postsAutomatically == true
-            && movement.type == .transfer {
+            && movement.postsAutomatically == true {
             guard let source = movement.sourceAccount,
-                  let destination = movement.destinationAccount,
-                  !source.isArchived, !destination.isArchived,
-                  source.id != destination.id, movement.amountMinor > 0 else {
+                  !source.isArchived, movement.amountMinor > 0 else {
                 continue
             }
+            let destination = movement.type == .transfer ? movement.destinationAccount : nil
+            if movement.type == .transfer {
+                guard let destination, !destination.isArchived, source.id != destination.id else { continue }
+            } else {
+                guard let category = movement.category,
+                      CategoryRuleService.supports(category, for: movement.type) else { continue }
+            }
+            let firstAccountDate = Swift.max(source.openingDate, destination?.openingDate ?? source.openingDate)
 
             // A bounded catch-up prevents an old rule from blocking the UI for years of entries.
             var iterations = 0
@@ -27,19 +32,16 @@ enum RecurringMovementService {
                    calendar.startOfDay(for: movement.nextDueDate) > calendar.startOfDay(for: endDate) {
                     movement.isActive = false
                     movement.updatedAt = .now
-                    try context.save()
+                    try save(in: context)
                     break
                 }
 
                 let scheduledDate = movement.nextDueDate
-                let firstAccountDay = Swift.max(
-                    calendar.startOfDay(for: source.openingDate),
-                    calendar.startOfDay(for: destination.openingDate)
-                )
+                let firstAccountDay = calendar.startOfDay(for: firstAccountDate)
                 if calendar.startOfDay(for: scheduledDate) < firstAccountDay {
                     movement.nextDueDate = nextDate(after: scheduledDate, for: movement)
                     movement.updatedAt = .now
-                    try context.save()
+                    try save(in: context)
                     iterations += 1
                     continue
                 }
@@ -50,11 +52,11 @@ enum RecurringMovementService {
                 if alreadyPosted {
                     movement.nextDueDate = nextDate(after: scheduledDate, for: movement)
                     movement.updatedAt = .now
-                    try context.save()
+                    try save(in: context)
                 } else {
                     let postingDate = Swift.max(
                         calendar.startOfDay(for: scheduledDate),
-                        Swift.max(source.openingDate, destination.openingDate)
+                        firstAccountDate
                     )
                     let transaction = try createTransaction(
                         from: movement,
@@ -78,10 +80,11 @@ enum RecurringMovementService {
         in context: ModelContext
     ) throws -> FinancialTransaction {
         let transactionDate = date ?? recurring.nextDueDate
+        let destination = recurring.type == .transfer ? recurring.destinationAccount : nil
         let fingerprint = DuplicateDetectionService.fingerprint(
             date: transactionDate,
             sourceAccountID: recurring.sourceAccount?.id,
-            destinationAccountID: recurring.destinationAccount?.id,
+            destinationAccountID: destination?.id,
             type: recurring.type,
             amountMinor: recurring.amountMinor,
             description: recurring.descriptionText
@@ -97,20 +100,24 @@ enum RecurringMovementService {
             fingerprint: fingerprint,
             recurringMovementID: recurring.id,
             sourceAccount: recurring.sourceAccount,
-            destinationAccount: recurring.destinationAccount,
+            destinationAccount: destination,
             category: recurring.category
         )
         context.insert(transaction)
         recurring.nextDueDate = nextDate(after: recurring.nextDueDate, for: recurring)
         recurring.updatedAt = .now
+        try save(in: context)
+        return transaction
+    }
+
+    private static func save(in context: ModelContext) throws {
         do {
             try context.save()
         } catch {
-            // Keep the transfer and its next due date atomic when saving fails.
+            // Keep the movement and its next due date atomic when saving fails.
             context.rollback()
             throw error
         }
-        return transaction
     }
 
     static func nextDate(

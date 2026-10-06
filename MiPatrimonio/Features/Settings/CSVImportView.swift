@@ -53,7 +53,7 @@ struct CSVImportView: View {
                 Picker("Cuenta por defecto", selection: $selectedAccountID) {
                     Text("Selecciona una cuenta").tag(nil as UUID?)
                     ForEach(activeAccounts) { account in
-                        Text(account.name).tag(Optional(account.id))
+                        Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
                     }
                 }
                 .onChange(of: selectedAccountID) { _, _ in
@@ -572,9 +572,9 @@ private struct ImportPreviewRow: Identifiable {
     var accountSummary: String {
         guard let sourceAccount else { return "Cuenta sin resolver" }
         if let destinationAccount {
-            return "\(sourceAccount.name) → \(destinationAccount.name)"
+            return "\(sourceAccount.bankAndAccountDisplayName) → \(destinationAccount.bankAndAccountDisplayName)"
         }
-        return sourceAccount.name
+        return sourceAccount.bankAndAccountDisplayName
     }
 }
 

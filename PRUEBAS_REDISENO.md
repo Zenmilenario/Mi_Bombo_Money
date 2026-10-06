@@ -92,10 +92,22 @@
 - [ ] El resumen y el gráfico de Presupuestos se colocan juntos cuando hay espacio y uno debajo del otro al reducirlo.
 - [ ] El botón rápido respeta las barras de navegación y pestañas y el último movimiento queda accesible al desplazarse.
 
+## Ajustes de uso 0.2.12 (14)
+
+- [ ] Superar un presupuesto y minimizar su aviso: la tarjeta compacta aparece en la cabecera sin dejar una fila vacía; tocar el icono vuelve a desplegarla. Probar un aviso, varios y una mezcla de revisados/nuevos.
+- [ ] Repetir en iPhone pequeño, iPad vertical/horizontal, Split View y letra de accesibilidad: la cabecera y el selector visual se reorganizan con el ancho disponible.
+- [ ] Guardar un movimiento con descripción vacía o solo espacios: aparece un aviso, no se inserta el movimiento y «Aceptar» permite escribir la descripción. Después guardar normalmente.
+- [ ] Crear dos cuentas del mismo banco con nombres distintos: los selectores, filtros, movimientos, reservas y transferencias muestran el banco primero y conservan la distinción entre cuentas. Una cuenta sin banco usa su nombre.
+- [ ] Abrir reservas y volver directamente a Cuentas; repetir con cargos periódicos. Al añadir/editar un elemento, guardar o cancelar regresa a la herramienta correspondiente y «Volver a Cuentas» cierra la herramienta.
+- [ ] Abrir «Actualizar saldo o valoración»: elegir una tarjeta con icono/color/banco/cuenta. Guardar o cancelar la valoración regresa a Cuentas. Cerrar el selector sin elegir no abre un formulario.
+- [ ] Programar una suscripción mensual con categoría Suscripciones, cuenta e importe: cada vencimiento resta de esa cuenta y consume el presupuesto de la categoría. No crea una transferencia a inversión.
+- [ ] Reabrir la app y comprobar que los cargos no se duplican; comprobar una regla pausada, otra manual y una con fecha futura. Probar fecha de fin inclusiva y editar una regla anterior para activar su registro automático.
+- [ ] Exportar y restaurar una copia con una suscripción automática: conserva cuenta, categoría, fecha siguiente y modo automático. Las copias antiguas sin modo automático conservan reglas manuales.
+
 ## Comprobaciones antes del merge
 
 - [ ] Subir el commit a la rama de trabajo desde GitHub Desktop con `Push origin`.
 - [ ] En Actions, `Validar app iOS` supera ambas compilaciones: Debug para simulador y Release para dispositivo.
-- [ ] `Comprobar datos y cálculos` supera exportación/restauración y cálculos/aportaciones automáticas.
+- [ ] `Comprobar datos y cálculos` supera exportación/restauración y cálculos/movimientos automáticos.
 - [ ] Las comprobaciones corresponden al último commit que se va a integrar.
 - [ ] Probar los cambios visuales en iPhone pequeño, iPad vertical/horizontal y ventana estrecha; la compilación automática no comprueba el aspecto en pantalla.

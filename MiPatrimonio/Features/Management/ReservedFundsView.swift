@@ -53,7 +53,7 @@ struct ReservedFundsView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(fund.name)
                                         .foregroundStyle(.primary)
-                                    Text(fund.account?.name ?? "Cuenta eliminada")
+                                    Text(fund.account?.bankAndAccountDisplayName ?? "Cuenta eliminada")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -158,7 +158,7 @@ struct ReservedFundFormView: View {
                     Picker("Está en la cuenta", selection: $accountID) {
                         Text("Selecciona una cuenta").tag(nil as UUID?)
                         ForEach(eligibleAccounts) { account in
-                            Text(account.name).tag(Optional(account.id))
+                            Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
                         }
                     }
                 }
