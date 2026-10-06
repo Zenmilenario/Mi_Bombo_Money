@@ -38,6 +38,7 @@ private enum DashboardDestination {
 
 private struct DashboardAlertItem: Identifiable {
     let id: String
+    let revision: String
     let title: String
     let detail: String
     let systemImage: String
@@ -58,10 +59,12 @@ struct DashboardView: View {
     @Query private var reservedFunds: [ReservedFund]
 
     @AppStorage("hideAmounts") private var hideAmounts = false
+    @AppStorage("dashboardReviewedAlertsV1") private var reviewedAlertsJSON = ""
 
     @Binding var selectedMonth: Date
     @State private var chartRange: NetWorthRange = .oneYear
     @State private var selectedGoal: SavingsGoal?
+    @State private var expandedReviewedAlertIDs: Set<String> = []
     @ScaledMetric(relativeTo: .body) private var chartHeight: CGFloat = 220
 
     let onOpenTransactions: () -> Void
@@ -222,38 +225,47 @@ struct DashboardView: View {
         return (minimum - padding)...(maximum + padding)
     }
 
-    private var duplicateCount: Int {
-        transactions.filter { $0.duplicateState == .possible }.count
+    private var duplicateTransactions: [FinancialTransaction] {
+        transactions.filter { $0.duplicateState == .possible }
     }
 
-    private var dueRecurringCount: Int {
+    private var dueRecurringMovements: [RecurringMovement] {
         recurringMovements.filter { movement in
             guard movement.isActive else { return false }
             guard movement.nextDueDate <= Date.now.endOfMonth() else { return false }
             guard let endDate = movement.endDate else { return true }
             return endDate >= .now
-        }.count
+        }
     }
 
-    private var staleAccountCount: Int {
+    private var staleAccounts: [FinancialAccount] {
         let limit = Calendar.autoupdatingCurrent.date(
             byAdding: .day,
             value: -30,
             to: .now
         ) ?? .now
-        return activeAccounts.filter { $0.lastUpdatedAt < limit }.count
+        return activeAccounts.filter { $0.lastUpdatedAt < limit }
     }
 
-    private var overBudgetCount: Int {
-        budgetedItems.filter { $0.spentMinor > $0.limitMinor }.count
+    private var overBudgetItems: [BudgetProgress] {
+        budgetedItems.filter { $0.spentMinor > $0.limitMinor }
     }
 
     private var alertItems: [DashboardAlertItem] {
         var items: [DashboardAlertItem] = []
+        let exceededBudgets = overBudgetItems
+        let duplicates = duplicateTransactions
+        let stale = staleAccounts
+        let upcoming = dueRecurringMovements
+        let overBudgetCount = exceededBudgets.count
+        let duplicateCount = duplicates.count
+        let staleAccountCount = stale.count
+        let dueRecurringCount = upcoming.count
 
         if overBudgetCount > 0 {
             items.append(DashboardAlertItem(
-                id: "budgets",
+                id: "budgets-\(selectedMonth.startOfMonth().timeIntervalSinceReferenceDate)",
+                revision: exceededBudgets.map { "\($0.id.uuidString):\($0.limitMinor):\($0.spentMinor)" }.sorted().joined(separator: "|"),
                 title: overBudgetCount == 1
                     ? "Has superado 1 presupuesto"
                     : "Has superado \(overBudgetCount) presupuestos",
@@ -268,6 +280,7 @@ struct DashboardView: View {
         if duplicateCount > 0 {
             items.append(DashboardAlertItem(
                 id: "duplicates",
+                revision: duplicates.map { "\($0.id.uuidString):\($0.updatedAt.timeIntervalSinceReferenceDate)" }.sorted().joined(separator: "|"),
                 title: duplicateCount == 1
                     ? "Hay 1 posible movimiento duplicado"
                     : "Hay \(duplicateCount) posibles movimientos duplicados",
@@ -282,6 +295,7 @@ struct DashboardView: View {
         if staleAccountCount > 0 {
             items.append(DashboardAlertItem(
                 id: "staleAccounts",
+                revision: stale.map { "\($0.id.uuidString):\($0.lastUpdatedAt.timeIntervalSinceReferenceDate)" }.sorted().joined(separator: "|"),
                 title: staleAccountCount == 1
                     ? "1 cuenta lleva más de 30 días sin actualizarse"
                     : "\(staleAccountCount) cuentas llevan más de 30 días sin actualizarse",
@@ -296,6 +310,7 @@ struct DashboardView: View {
         if dueRecurringCount > 0 {
             items.append(DashboardAlertItem(
                 id: "recurring",
+                revision: upcoming.map { "\($0.id.uuidString):\($0.nextDueDate.timeIntervalSinceReferenceDate):\($0.updatedAt.timeIntervalSinceReferenceDate)" }.sorted().joined(separator: "|"),
                 title: dueRecurringCount == 1
                     ? "Tienes 1 movimiento recurrente próximo"
                     : "Tienes \(dueRecurringCount) movimientos recurrentes próximos",
@@ -307,7 +322,20 @@ struct DashboardView: View {
             ))
         }
 
-        return items.sorted { $0.priority < $1.priority }.prefix(3).map { $0 }
+        return items.sorted { $0.priority < $1.priority }
+    }
+
+    private func isReviewed(_ item: DashboardAlertItem) -> Bool {
+        DashboardAlertReviewState(serialized: reviewedAlertsJSON).isReviewed(id: item.id, revision: item.revision)
+    }
+
+    private func minimize(_ item: DashboardAlertItem) {
+        var state = DashboardAlertReviewState(serialized: reviewedAlertsJSON)
+        state.markReviewed(id: item.id, revision: item.revision)
+        withAnimation(.easeInOut(duration: 0.2)) {
+            reviewedAlertsJSON = state.serialized
+            expandedReviewedAlertIDs.remove(item.id)
+        }
     }
 
     private var primaryGoal: SavingsGoal? {
@@ -527,14 +555,16 @@ struct DashboardView: View {
                     title: "Ingresos",
                     value: hidden(MoneyFormatter.string(minorUnits: monthSummary.incomeMinor)),
                     systemImage: "arrow.down",
-                    tint: .green
+                    tint: .green,
+                    usesTintedBackground: true
                 )
 
                 MetricCard(
                     title: "Gastos",
                     value: hidden(MoneyFormatter.string(minorUnits: monthSummary.expenseMinor)),
                     systemImage: "arrow.up",
-                    tint: .red
+                    tint: .red,
+                    usesTintedBackground: true
                 )
 
                 MetricCard(
@@ -542,7 +572,8 @@ struct DashboardView: View {
                     value: hidden(MoneyFormatter.string(minorUnits: monthSummary.netSavingsMinor)),
                     systemImage: "banknote",
                     tint: monthSummary.netSavingsMinor >= 0 ? .blue : .red,
-                    valueColor: monthSummary.netSavingsMinor >= 0 ? .primary : .red
+                    valueColor: monthSummary.netSavingsMinor >= 0 ? .primary : .red,
+                    usesTintedBackground: true
                 )
 
                 if hasInvestmentContributions {
@@ -550,7 +581,8 @@ struct DashboardView: View {
                         title: "Aportado a inversión",
                         value: hidden(MoneyFormatter.string(minorUnits: investmentContributionsThisMonth)),
                         systemImage: "chart.line.uptrend.xyaxis",
-                        tint: .blue
+                        tint: .purple,
+                        usesTintedBackground: true
                     )
                 }
 
@@ -581,49 +613,105 @@ struct DashboardView: View {
 
     @ViewBuilder
     private var alertsSection: some View {
-        if !alertItems.isEmpty {
-            SectionCard("Necesita tu atención", subtitle: "Mostramos primero lo más importante") {
-                VStack(spacing: 0) {
-                    ForEach(Array(alertItems.enumerated()), id: \.element.id) { index, item in
-                        Button {
-                            open(item.destination)
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: item.systemImage)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(item.tint)
-                                    .frame(width: 38, height: 38)
-                                    .background(item.tint.opacity(0.11), in: Circle())
-
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(item.title)
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(.primary)
-                                        .multilineTextAlignment(.leading)
-                                    Text(item.detail)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .multilineTextAlignment(.leading)
-                                }
-
-                                Spacer(minLength: 8)
-
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.tertiary)
+        let items = alertItems
+        let state = DashboardAlertReviewState(serialized: reviewedAlertsJSON)
+        let expanded = items.filter { !state.isReviewed(id: $0.id, revision: $0.revision) || expandedReviewedAlertIDs.contains($0.id) }
+        let minimized = items.filter { state.isReviewed(id: $0.id, revision: $0.revision) && !expandedReviewedAlertIDs.contains($0.id) }
+        if !items.isEmpty {
+            if expanded.isEmpty {
+                minimizedAlertsStrip(items: minimized)
+            } else {
+                SectionCard("Necesita tu atención", subtitle: "Puedes minimizar los avisos que ya has revisado") {
+                    VStack(spacing: 0) {
+                        ForEach(Array(expanded.enumerated()), id: \.element.id) { index, item in
+                            alertRow(item)
+                            if index < expanded.count - 1 {
+                                Divider()
                             }
-                            .padding(.vertical, 10)
-                            .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
-
-                        if index < alertItems.count - 1 {
-                            Divider()
-                                .padding(.leading, 50)
-                        }
+                    }
+                    if !minimized.isEmpty {
+                        Divider()
+                        minimizedAlertsStrip(items: minimized)
                     }
                 }
             }
+        }
+    }
+
+    private func alertRow(_ item: DashboardAlertItem) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                open(item.destination)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: item.systemImage)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(item.tint)
+                        .frame(width: 38, height: 38)
+                        .background(item.tint.opacity(0.11), in: Circle())
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(item.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        Text(item.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .multilineTextAlignment(.leading)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            Button {
+                minimize(item)
+            } label: {
+                Label(isReviewed(item) ? "Volver a minimizar" : "Revisado · minimizar", systemImage: "checkmark.circle")
+                    .font(.caption.weight(.semibold))
+                    .padding(.vertical, 5)
+            }
+            .buttonStyle(.bordered)
+            .tint(item.tint)
+            .accessibilityHint("El aviso sigue activo y quedará visible como un icono")
+        }
+        .padding(.vertical, 12)
+    }
+
+    private func minimizedAlertsStrip(items: [DashboardAlertItem]) -> some View {
+        HStack {
+            Spacer(minLength: 0)
+            VStack(alignment: .trailing, spacing: 8) {
+                Text("Revisados · siguen activos")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    ForEach(items) { item in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                _ = expandedReviewedAlertIDs.insert(item.id)
+                            }
+                        } label: {
+                            Image(systemName: item.systemImage)
+                                .font(.system(size: 20, weight: .semibold))
+                                .foregroundStyle(item.tint)
+                                .frame(width: 44, height: 44)
+                                .background(item.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("\(item.title). Revisado, sigue activo")
+                        .accessibilityHint("Desplegar el aviso para leerlo o volver a revisarlo")
+                        .help(item.title)
+                    }
+                }
+            }
+            .padding(12)
+            .background(AppDesign.cardBackground, in: RoundedRectangle(cornerRadius: AppDesign.cardRadius))
         }
     }
 

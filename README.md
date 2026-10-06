@@ -8,6 +8,14 @@ Una instalación nueva empieza sin cuentas, movimientos, presupuestos ni objetiv
 
 Si ya tenías instalada una versión anterior, tus datos existentes se conservan. Para empezar completamente de cero, ve a **Ajustes → Datos → Empezar desde cero** y confirma la eliminación. Esta acción borra todos los datos financieros locales y no se puede deshacer.
 
+## Cuentas, resumen mensual y avisos
+
+Cuentas utiliza todo el ancho disponible con márgenes laterales de 16 puntos. Los accesos para actualizar un saldo, gestionar reservas y consultar aportaciones se distribuyen en una, dos o tres columnas según el espacio y el tamaño de letra. Se mantienen la búsqueda y las acciones de deslizar de cada cuenta.
+
+En Inicio, los recuadros de ingresos, gastos, ahorro e inversión tienen fondo y borde de color para reconocerlos rápidamente: verde, rojo, azul y morado. El ahorro negativo aparece en rojo. Los nombres e iconos también identifican cada concepto.
+
+Cada aviso permite **Revisado · minimizar**. Queda un icono a la derecha que puedes tocar para desplegarlo de nuevo; si todos están revisados, la tarjeta se convierte en un recordatorio compacto. La app recuerda esta preferencia local al cerrarse. Si cambia el gasto, el límite o alguna categoría superada, el aviso se vuelve a desplegar. Cada mes tiene su propio estado de revisión para los presupuestos. Los avisos activos conservan su color y se identifican como **Revisados · siguen activos**.
+
 ## Copia de seguridad y restauración
 
 En **Ajustes → Datos → Copia de seguridad**, pulsa **Exportar todos mis datos** y guarda el archivo JSON en Archivos, por ejemplo en una carpeta privada de iCloud Drive. La copia incluye todas las entidades financieras locales y sus relaciones: cuentas, entidades, tarjetas, movimientos, presupuestos, presupuestos repetidos, reglas de categorías, objetivos, reservas, reglas periódicas, valoraciones e historial de importación. También se pueden importar copias anteriores que no incluyan las dos funciones nuevas. No incluye las preferencias del dispositivo.

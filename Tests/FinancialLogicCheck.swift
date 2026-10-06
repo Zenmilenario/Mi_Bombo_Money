@@ -10,6 +10,7 @@ struct FinancialLogicCheck {
     static func main() throws {
         checkBalancesAndHistory()
         checkBudgetRemainders()
+        checkReviewedAlerts()
         try checkAutomaticTransfers()
         try checkCategories()
         try checkCSVImport()
@@ -21,11 +22,34 @@ struct FinancialLogicCheck {
         precondition(MoneyParser.minorUnits(from: "texto 12,34") == nil)
         precondition(MoneyParser.minorUnits(from: "92233720368547758.08") == nil)
         precondition(MoneyParser.minorUnits(from: "-92233720368547758.08") == nil)
-        print("Financial checks passed: reservations, transfers, dated history, budget remainders, automatic posting, categories and CSV input.")
+        print("Financial checks passed: reservations, transfers, dated history, budget remainders, reviewed alerts, automatic posting, categories and CSV input.")
     }
 
     private static func date(_ month: Int, _ day: Int = 1) -> Date {
         calendar.date(from: DateComponents(year: 2024, month: month, day: day, hour: 12))!
+    }
+
+    private static func checkReviewedAlerts() {
+        let october = "budgets-2026-10"
+        let firstIssue = "supermercado:10000:12000"
+        var state = DashboardAlertReviewState()
+        precondition(!state.isReviewed(id: october, revision: firstIssue))
+        state.markReviewed(id: october, revision: firstIssue)
+        let restored = DashboardAlertReviewState(serialized: state.serialized)
+        precondition(restored.isReviewed(id: october, revision: firstIssue),
+                     "A reviewed issue must remain minimized after reopening the app")
+        precondition(!restored.isReviewed(id: october, revision: "supermercado:10000:15000"),
+                     "Increased spending must bring the alert back")
+        precondition(!restored.isReviewed(id: october, revision: "ocio:10000:12000"),
+                     "A different over-budget category must be shown even with the same count and amount")
+        precondition(!restored.isReviewed(id: "budgets-2026-11", revision: firstIssue),
+                     "Acknowledging one month must not minimize the next month's alert")
+        precondition(!restored.isReviewed(id: "duplicates", revision: "transaction-1"),
+                     "Acknowledging budgets must not hide an unrelated alert")
+        precondition(!DashboardAlertReviewState(serialized: "invalid JSON").isReviewed(id: october, revision: firstIssue))
+        state.markReviewed(id: "duplicates", revision: "transaction-1")
+        let multiple = DashboardAlertReviewState(serialized: state.serialized)
+        precondition(multiple.isReviewed(id: october, revision: firstIssue) && multiple.isReviewed(id: "duplicates", revision: "transaction-1"))
     }
 
     private static func checkBalancesAndHistory() {
