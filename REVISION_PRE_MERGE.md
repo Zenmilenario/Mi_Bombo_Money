@@ -2,6 +2,16 @@
 
 Fecha: 5 de octubre de 2026. Rama: `codex/dynamic-clean-start-icon`.
 
+## Actualización del 15 de octubre de 2026 · 0.3.0 (15)
+
+- Preparado un prototipo personal con Cloudflare Workers/D1 y pantalla de consulta en Ajustes. Demostración independiente del proveedor y sandbox oficial; producción bloqueada en código y verificación de entorno/servicio/retorno en la aplicación del proveedor.
+- Acceso de dispositivo en Keychain con código obligatorio y sin sincronización/copia; red efímera HTTPS, destinos restringidos y sin seguir redirecciones. Claves del proveedor únicamente en secretos del servidor.
+- Sesiones cifradas AES-256-GCM y estado OAuth de un solo uso con consumo atómico y caducidad. API de consulta y revocación, autenticación obligatoria, cuotas, cuentas comprobadas y tamaños/fechas/importes validados. El historial no se persiste en el servidor.
+- El contenido se oculta al quedar inactivo sin destruir el flujo del navegador. La vista de prueba no modifica contabilidad ni permite pagos. No se ha cambiado el esquema SwiftData ni el formato de copia.
+- Añadidos pruebas locales criptográficas y de integración con el motor workerd/D1, empaquetado seco y auditoría npm. Nuevo workflow sin secretos para repetirlas y comprobar la política del cliente Swift en macOS.
+- Verificación local: 16 pruebas de servidor superadas (6 criptografía/contratos y 10 workerd/D1), empaquetado seco correcto y auditoría npm sin vulnerabilidades conocidas. Las 35 fuentes de app y 3 de pruebas pasan el análisis sintáctico, las 35 de app figuran una vez en Sources, y los cinco workflows/20 scripts pasan revisión de configuración/sintaxis. La política Swift nueva queda pendiente de ejecución en el runner macOS.
+- Pendientes: compilación y ejecución en iOS, prueba del navegador/llavero/bloqueo en dispositivo, despliegue en la cuenta del usuario, prueba oficial sandbox y medición de CPU en Cloudflare Free. La conexión de cuentas reales y la importación contable son una fase posterior documentada en `BankingBackend/README.md`.
+
 ## Actualización del 6 de octubre de 2026 · 0.2.12 (14)
 
 - Avisos minimizados integrados en la cabecera adaptable. La lista de Inicio elimina completamente la fila de alertas cuando todas están revisadas; los iconos permiten desplegarlas y se conserva el estado de revisión por datos/mes.

@@ -1,0 +1,26 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "mi-bombo-banking",
+	"main": "src/worker.mjs",
+	"compatibility_date": "2026-10-12",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"workers_dev": true,
+	"send_metrics": false,
+	"observability": {
+		"enabled": false
+	},
+	"vars": {
+		"PROVIDER_MODE": "demo",
+		"PUBLIC_ORIGIN": "https://mi-bombo-banking.albertor7722.workers.dev"
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "mi-bombo-banking",
+			"database_id": "e38407f3-5256-4a74-aaf7-21fb1aeb67b8",
+			"migrations_dir": "migrations"
+		}
+	]
+}

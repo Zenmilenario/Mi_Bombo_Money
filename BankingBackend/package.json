@@ -1,0 +1,21 @@
+{
+  "name": "mi-bombo-banking-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "test:integration": "node --test test/integration/*.test.mjs",
+    "dev": "wrangler dev --local --ip 127.0.0.1",
+    "check": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "setup": "node tools/setup.mjs"
+  },
+  "devDependencies": {
+    "miniflare": "5.20261012.0-beta",
+    "wrangler": "4.151.0"
+  }
+}

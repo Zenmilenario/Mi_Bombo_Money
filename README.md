@@ -2,6 +2,12 @@
 
 Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones.
 
+## Prueba de conexión bancaria 0.3.0 (15)
+
+Disponible en **Ajustes → Datos → Conexión bancaria · Prueba**. El backend para Cloudflare Workers Free y D1 permite probar autorización, consulta de cuentas/saldos/movimientos y desconexión en demostración o sandbox. Se guarda la clave del dispositivo en Keychain y las sesiones del servidor cifradas; el historial consultado no se guarda en el servidor.
+
+**Las cuentas reales están bloqueadas y los datos de prueba no se incorporan a tu contabilidad.** El prototipo requiere desplegar el servidor propio; no hay un servidor compartido ni claves incluidas en la app. Instrucciones, medidas de seguridad, límites y controles pendientes en [BankingBackend/README.md](BankingBackend/README.md).
+
 ## Inicio sin datos de ejemplo
 
 Una instalación nueva empieza sin cuentas, movimientos, presupuestos ni objetivos precargados. Incluye categorías comunes para clasificar tus datos desde el primer movimiento; puedes editarlas, archivarlas o eliminarlas si no están en uso. Desde Inicio o Cuentas puedes añadir tu primera cuenta. La app es universal para iPhone y iPad; el resumen se adapta al ancho disponible y el iPad admite orientación vertical y horizontal. El icono usa la foto de Doge incluida en `MiPatrimonio/Resources/Assets.xcassets`.
@@ -151,7 +157,7 @@ MiPatrimonio/
 
 La revisión local del 5 de octubre de 2026 ha comprobado la sintaxis de los 31 archivos Swift de la app y los dos archivos de pruebas, las referencias del proyecto Xcode, el esquema compartido, `Info.plist`, los recursos del icono y los cuatro workflows con actionlint. Los detalles y las correcciones están en `REVISION_PRE_MERGE.md`.
 
-Estas comprobaciones locales no equivalen a compilar con el SDK de iOS. GitHub Actions compila la app completa en Debug para simulador y en Release para dispositivo; también ejecuta pruebas de exportación/restauración, reservas, transferencias, presupuestos repetidos, reglas y CSV. Hay que esperar a que esas cuatro comprobaciones terminen correctamente antes del merge. La revisión visual en dispositivos sigue la lista de `PRUEBAS_REDISENO.md`.
+Estas comprobaciones locales no equivalen a compilar con el SDK de iOS. GitHub Actions compila la app completa en Debug para simulador y en Release para dispositivo; también ejecuta pruebas de exportación/restauración, reservas, transferencias, presupuestos repetidos, reglas, CSV, servidor bancario y política de conexión del cliente. Hay que esperar a que todas las comprobaciones del último commit terminen correctamente antes del merge. La revisión visual en dispositivos sigue la lista de `PRUEBAS_REDISENO.md`.
 
 Consulta `ESPECIFICACION_FUNCIONAL_Y_TECNICA.md` para el análisis completo, el diseño de pantallas, el modelo, las fórmulas, la arquitectura y el plan por fases.
 

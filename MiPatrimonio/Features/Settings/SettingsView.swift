@@ -50,6 +50,12 @@ struct SettingsView: View {
 
                 Section("Datos") {
                     NavigationLink {
+                        BankConnectionsView()
+                    } label: {
+                        Label("Conexión bancaria · Prueba", systemImage: "building.columns.circle")
+                    }
+
+                    NavigationLink {
                         BackupView()
                     } label: {
                         Label("Copia de seguridad", systemImage: "externaldrive")
@@ -263,11 +269,11 @@ private struct PrivacyInformationView: View {
             }
 
             Section {
-                Text("Las futuras conexiones bancarias utilizarán APIs oficiales y autorización segura. Nunca se incorporarán campos para guardar contraseñas bancarias.")
+                Text("La prueba de conexión bancaria es opcional y requiere internet. El servidor privado guarda sesiones cifradas de demostración o sandbox; no guarda el historial de movimientos. La clave de acceso queda en el llavero de este dispositivo. Esta versión bloquea las cuentas reales y no incorpora los datos de prueba a tu contabilidad.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } header: {
-                Text("Conexiones bancarias futuras")
+                Text("Prueba de conexión bancaria")
             }
         }
         .navigationTitle("Privacidad")

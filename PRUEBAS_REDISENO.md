@@ -104,10 +104,24 @@
 - [ ] Reabrir la app y comprobar que los cargos no se duplican; comprobar una regla pausada, otra manual y una con fecha futura. Probar fecha de fin inclusiva y editar una regla anterior para activar su registro automático.
 - [ ] Exportar y restaurar una copia con una suscripción automática: conserva cuenta, categoría, fecha siguiente y modo automático. Las copias antiguas sin modo automático conservan reglas manuales.
 
+## Conexión bancaria de prueba 0.3.0 (15)
+
+- [ ] Ejecutar las pruebas de backend y desplegar en una cuenta Cloudflare Workers/D1 Free siguiendo `BankingBackend/README.md`. No introducir cuentas ni credenciales reales.
+- [ ] Configurar la dirección HTTPS propia y clave en Ajustes → Datos → Conexión bancaria · Prueba; sin código del dispositivo debe fallar el guardado protegido. Verificar errores de clave, host, HTTP, red y servidor no configurado.
+- [ ] Conectar un banco ficticio, completar o cancelar el navegador del sistema y volver a la app. El bloqueo/ocultación al quedar inactiva no destruye el flujo. Repetir con Face ID/Touch ID y bloqueo por código.
+- [ ] Consultar cuentas, saldos y movimientos ficticios. Confirmar que no cambian las cuentas, transacciones, presupuestos ni patrimonio actuales.
+- [ ] Dejar la app en segundo plano y abrir el selector de aplicaciones: el contenido debe quedar oculto incluso si el bloqueo de entrada está desactivado. Al volver, comprobar que la consulta funciona y se respeta el bloqueo configurado.
+- [ ] Cerrar/reabrir la app: URL y acceso se recuperan del llavero; no deben aparecer claves, sesiones ni la vista previa en el JSON de copia de seguridad.
+- [ ] Desconectar: desaparece la conexión y deja de poder consultarse. Si falla la revocación, debe conservarse para reintentar. Olvidar acceso explica que solo borra la clave local.
+- [ ] Probar sandbox con claves exclusivamente SANDBOX. Una aplicación de producción se rechaza antes de iniciar autorización, aunque se haya configurado por error.
+- [ ] Revisar iPhone/iPad y texto grande; comprobar retorno de autorización, navegación, importes ocultos y cancelaciones repetidas.
+- [ ] Medir en Cloudflare el consumo de CPU del primer firmado RSA y las consultas con varias cuentas. No activar planes de pago automáticamente si supera Free.
+
 ## Comprobaciones antes del merge
 
 - [ ] Subir el commit a la rama de trabajo desde GitHub Desktop con `Push origin`.
 - [ ] En Actions, `Validar app iOS` supera ambas compilaciones: Debug para simulador y Release para dispositivo.
 - [ ] `Comprobar datos y cálculos` supera exportación/restauración y cálculos/movimientos automáticos.
 - [ ] Las comprobaciones corresponden al último commit que se va a integrar.
+- [ ] `Comprobar conexión bancaria de prueba` supera las pruebas de backend/workerd/D1 y la política de destinos/retorno del cliente Swift.
 - [ ] Probar los cambios visuales en iPhone pequeño, iPad vertical/horizontal y ventana estrecha; la compilación automática no comprueba el aspecto en pantalla.

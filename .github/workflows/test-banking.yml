@@ -1,0 +1,48 @@
+name: Comprobar conexión bancaria de prueba
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  client-policy:
+    name: Destinos y retorno de autorización iOS
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Comprobar política de conexión del cliente
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/banking-client-check
+          xcrun swiftc -swift-version 5 -parse-as-library \
+            MiPatrimonio/Core/Services/BankingConnectionPolicy.swift \
+            Tests/BankingSecurityCheck.swift \
+            -o build/banking-client-check/BankingSecurityCheck
+          build/banking-client-check/BankingSecurityCheck
+
+  banking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: BankingBackend
+    env:
+      WRANGLER_SEND_METRICS: "false"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: BankingBackend/package-lock.json
+      - run: npm ci --ignore-scripts --no-fund
+      - run: npm audit --audit-level=high
+      - run: npm test
+      - run: npm run test:integration
+      - run: npm run check
