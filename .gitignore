@@ -22,6 +22,8 @@ xcuserdata/
 # Editores
 .vscode/
 .idea/
+__pycache__/
+*.pyc
 
 # Firma y aprovisionamiento de Apple
 *.p12
@@ -31,3 +33,16 @@ xcuserdata/
 *.keychain-db
 *certificate_base64*.txt
 *provision*_base64*.txt
+
+# Conexión bancaria: secretos, claves y datos locales (nunca subirlos)
+node_modules/
+.wrangler/
+.dev.vars*
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+BankingBackend/.client-setup.json
+BankingBackend/.test-vars.json

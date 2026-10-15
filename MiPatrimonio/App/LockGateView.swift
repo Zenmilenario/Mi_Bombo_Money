@@ -5,12 +5,21 @@ struct LockGateView: View {
     @EnvironmentObject private var lockManager: AppLockManager
     @AppStorage("appLockEnabled") private var appLockEnabled = true
     @AppStorage("appearanceMode") private var appearanceMode = AppAppearance.system.rawValue
+    @State private var hasOpenedContent = false
 
     var body: some View {
-        Group {
-            if !appLockEnabled || lockManager.isUnlocked {
+        ZStack {
+            // Keep the authenticated browser flow alive when iOS makes the app inactive.
+            // The lock overlay hides content and blocks touches and accessibility immediately.
+            if hasOpenedContent || !appLockEnabled || lockManager.isUnlocked {
                 RootTabView()
-            } else {
+                    .opacity(contentHidden ? 0 : 1)
+                    .allowsHitTesting(!contentHidden)
+                    .accessibilityHidden(contentHidden)
+            }
+            if scenePhase != .active {
+                AppDesign.pageBackground.ignoresSafeArea()
+            } else if appLockEnabled && !lockManager.isUnlocked {
                 lockedContent
             }
         }
@@ -22,6 +31,9 @@ struct LockGateView: View {
             } else {
                 lockManager.unlockWithoutAuthentication()
             }
+        }
+        .onChange(of: lockManager.isUnlocked) { _, unlocked in
+            if unlocked { hasOpenedContent = true }
         }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
@@ -35,6 +47,10 @@ struct LockGateView: View {
                 break
             }
         }
+    }
+
+    private var contentHidden: Bool {
+        scenePhase != .active || (appLockEnabled && !lockManager.isUnlocked)
     }
 
     private var lockedContent: some View {

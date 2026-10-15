@@ -22,6 +22,15 @@
     <string>$(CURRENT_PROJECT_VERSION)</string>
     <key>LSApplicationCategoryType</key>
     <string>public.app-category.finance</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.mibombomoney.banking-callback</string>
+            <key>CFBundleURLSchemes</key>
+            <array><string>mibombomoney-bank</string></array>
+        </dict>
+    </array>
     <key>NSFaceIDUsageDescription</key>
     <string>Face ID protege el acceso a tu información financiera guardada en el dispositivo.</string>
     <key>UIApplicationSupportsIndirectInputEvents</key>
