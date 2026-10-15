@@ -21,6 +21,7 @@ jobs:
           set -euo pipefail
           mkdir -p build/banking-client-check
           xcrun swiftc -swift-version 5 -parse-as-library \
+            MiPatrimonio/Core/Security/AppAuthenticationPolicy.swift \
             MiPatrimonio/Core/Services/BankingConnectionPolicy.swift \
             Tests/BankingSecurityCheck.swift \
             -o build/banking-client-check/BankingSecurityCheck

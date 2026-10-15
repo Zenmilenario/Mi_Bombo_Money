@@ -117,6 +117,17 @@
 - [ ] Revisar iPhone/iPad y texto grande; comprobar retorno de autorización, navegación, importes ocultos y cancelaciones repetidas.
 - [ ] Medir en Cloudflare el consumo de CPU del primer firmado RSA y las consultas con varias cuentas. No activar planes de pago automáticamente si supera Free.
 
+## Corrección de huella y cierre 0.3.1
+
+- [ ] Abrir la app y autenticar una vez. Entrar en Conexión bancaria y tocar BBVA inmediatamente: la verificación reciente se reutiliza y se abre el navegador de demostración sin bucle de huella.
+- [ ] Esperar más de 30 segundos antes de conectar: se solicita una única verificación adicional y después se abre el navegador.
+- [ ] Cancelar la huella o introducir un código incorrecto: no se debe lanzar otra petición automáticamente. El botón Desbloquear permite reintentar.
+- [ ] Repetir conectar/cancelar el navegador al menos cinco veces: la app no debe cerrarse ni quedar permanentemente ocupada. Un fallo al abrir el navegador muestra un aviso para reintentar.
+- [ ] Enviar la app realmente a segundo plano durante la verificación: al volver, ningún resultado antiguo debe desbloquearla. Comprobar ocultación en el selector de aplicaciones.
+- [ ] Completar o cancelar el navegador tras cambiar de app: el desbloqueo de retorno espera a que termine el flujo y no compite con él.
+- [ ] Repetir con el bloqueo general activado y desactivado: la operación bancaria sigue requiriendo verificación aunque el bloqueo de entrada esté desactivado.
+- [ ] Comprobar Touch ID en el iPad afectado, Face ID y cancelación mediante el código del dispositivo. Confirmar versión 0.3.1 del IPA instalado; su build puede diferir del proyecto por el número de ejecución de Actions.
+
 ## Comprobaciones antes del merge
 
 - [ ] Subir el commit a la rama de trabajo desde GitHub Desktop con `Push origin`.

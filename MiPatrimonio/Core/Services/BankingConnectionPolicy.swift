@@ -39,7 +39,7 @@ struct BankingServerConfiguration: Codable {
 }
 
 enum BankingConnectionError: LocalizedError {
-    case invalidConfiguration, missingConfiguration, invalidResponse, authorizationFailed, cancelled
+    case invalidConfiguration, missingConfiguration, invalidResponse, authorizationFailed, presentationUnavailable, cancelled
     case server(String)
 
     var errorDescription: String? {
@@ -48,6 +48,7 @@ enum BankingConnectionError: LocalizedError {
         case .missingConfiguration: "Configura primero tu servidor de prueba."
         case .invalidResponse: "La respuesta del servidor no es válida. No se han modificado tus datos financieros."
         case .authorizationFailed: "No se ha podido completar la autorización. Inténtalo de nuevo."
+        case .presentationUnavailable: "No se ha podido abrir la ventana de autorización. Mantén la app en primer plano y vuelve a intentarlo."
         case .cancelled: "Has cancelado la conexión."
         case .server(let code):
             switch code {
