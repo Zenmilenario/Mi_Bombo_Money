@@ -183,37 +183,87 @@ final class BankingConnectionClient {
 }
 
 @MainActor
-final class BankingBrowserAuthorization: NSObject, ASWebAuthenticationPresentationContextProviding {
+private final class BankingPresentationContext: NSObject, ASWebAuthenticationPresentationContextProviding {
+    private let window: UIWindow
+    init(window: UIWindow) { self.window = window; super.init() }
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor { window }
+}
+
+@MainActor
+final class BankingBrowserAuthorization {
     private var session: ASWebAuthenticationSession?
+    private var presentationContext: BankingPresentationContext?
+    private var pendingCompletion: CheckedContinuation<Void, Error>?
+    private var completionGate = AuthenticationCompletionGate()
+
     func authorize(_ start: BankingAuthorizationStart) async throws {
-        guard session == nil else { throw BankingConnectionError.authorizationFailed }
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-            let auth = ASWebAuthenticationSession(url: start.authorizationURL, callbackURLScheme: "mibombomoney-bank") { [weak self] url, error in
-                Task { @MainActor in
-                    self?.session = nil
-                    if let error {
-                        let cancelled = (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin
-                        continuation.resume(throwing: cancelled ? BankingConnectionError.cancelled : BankingConnectionError.authorizationFailed)
-                        return
+        guard pendingCompletion == nil, session == nil else { throw BankingConnectionError.authorizationFailed }
+        let window = try await activePresentationWindow()
+        try Task.checkCancellation()
+        guard let operationID = completionGate.begin() else { throw BankingConnectionError.authorizationFailed }
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                pendingCompletion = continuation
+                if Task.isCancelled {
+                    finish(operationID, result: .failure(BankingConnectionError.cancelled))
+                    return
+                }
+                let auth = ASWebAuthenticationSession(url: start.authorizationURL, callbackURLScheme: "mibombomoney-bank") { [weak self] url, error in
+                    Task { @MainActor in
+                        guard let self else { return }
+                        if let error {
+                            let cancelled = (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin
+                            self.finish(operationID, result: .failure(cancelled ? BankingConnectionError.cancelled : BankingConnectionError.authorizationFailed))
+                            return
+                        }
+                        guard let url, BankingConnectionPolicy.acceptsCallback(url, flowID: start.id) else {
+                            self.finish(operationID, result: .failure(BankingConnectionError.authorizationFailed))
+                            return
+                        }
+                        self.finish(operationID, result: .success(Void()))
                     }
-                    guard let url, BankingConnectionPolicy.acceptsCallback(url, flowID: start.id) else {
-                        continuation.resume(throwing: BankingConnectionError.authorizationFailed)
-                        return
-                    }
-                    continuation.resume()
+                }
+                let context = BankingPresentationContext(window: window)
+                presentationContext = context
+                auth.prefersEphemeralWebBrowserSession = true
+                auth.presentationContextProvider = context
+                session = auth
+                guard auth.canStart else {
+                    finish(operationID, result: .failure(BankingConnectionError.presentationUnavailable))
+                    return
+                }
+                if !auth.start() {
+                    finish(operationID, result: .failure(BankingConnectionError.presentationUnavailable))
                 }
             }
-            auth.prefersEphemeralWebBrowserSession = true
-            auth.presentationContextProvider = self
-            session = auth
-            if !auth.start() {
-                session = nil
-                continuation.resume(throwing: BankingConnectionError.authorizationFailed)
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                guard let self, self.completionGate.operationID == operationID else { return }
+                let activeSession = self.session
+                self.finish(operationID, result: .failure(BankingConnectionError.cancelled))
+                activeSession?.cancel()
             }
         }
     }
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows).first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+
+    private func finish(_ operationID: UUID, result: Result<Void, Error>) {
+        guard completionGate.finish(operationID), let completion = pendingCompletion else { return }
+        pendingCompletion = nil
+        session = nil
+        presentationContext = nil
+        completion.resume(with: result)
+    }
+
+    private func activePresentationWindow() async throws -> UIWindow {
+        // The biometric sheet may still be disappearing when evaluatePolicy returns.
+        // Wait briefly for a real active window rather than presenting with an empty anchor.
+        for _ in 0..<40 {
+            try Task.checkCancellation()
+            if let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
+                .filter({ $0.activationState == .foregroundActive }).flatMap(\.windows)
+                .first(where: { $0.isKeyWindow && !$0.isHidden }) { return window }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        throw BankingConnectionError.presentationUnavailable
     }
 }

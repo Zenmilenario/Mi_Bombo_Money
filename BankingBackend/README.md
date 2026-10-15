@@ -1,6 +1,8 @@
-# Prueba privada de conexión bancaria · 0.3.0 (15)
+# Prueba privada de conexión bancaria · cliente 0.3.1
 
 ## Qué está preparado
+
+La corrección 0.3.1 afecta únicamente al cliente iOS: coordinación de autenticación y retorno del navegador. Si el servidor demo ya está desplegado, no es necesario repetir despliegue, migraciones ni generación/subida de claves. El número de build del IPA puede variar porque GitHub Actions utiliza su número de ejecución; comprueba la versión **0.3.1**.
 
 Backend para **Cloudflare Workers Free + D1 Free** y pantalla **Ajustes → Datos → Conexión bancaria · Prueba** en iOS/iPadOS. Dos modos: `demo` (no llama a ningún proveedor) y `sandbox` (API oficial de Enable Banking con datos de prueba).
 

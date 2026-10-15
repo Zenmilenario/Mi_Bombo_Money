@@ -1,7 +1,7 @@
-import LocalAuthentication
 import SwiftUI
 
 struct BankConnectionsView: View {
+    @EnvironmentObject private var lockManager: AppLockManager
     @Environment(\.scenePhase) private var scenePhase
     @State private var serverURL = ""
     @State private var token = ""
@@ -38,7 +38,7 @@ struct BankConnectionsView: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .privacySensitive()
-                    Button("Comprobar y guardar conexión") { run { try await configure() } }
+                    Button("Comprobar y guardar conexión") { run(protected: true) { try await configure() } }
                 } header: {
                     Text("Tu servidor privado")
                 } footer: {
@@ -56,7 +56,7 @@ struct BankConnectionsView: View {
                             .foregroundStyle(.secondary)
                     }
                     ForEach(banks) { bank in
-                        Button { run { try await connect(bank) } } label: {
+                        Button { run(protected: true) { try await connect(bank) } } label: {
                             HStack {
                                 Label(bank.name, systemImage: "building.columns.fill")
                                 Spacer()
@@ -113,9 +113,8 @@ struct BankConnectionsView: View {
         ), titleVisibility: .visible) {
             if let connection = disconnecting {
                 Button("Desconectar", role: .destructive) {
-                    run {
+                    run(protected: true) {
                         let client = try client()
-                        try await authenticateLocally()
                         try await client.disconnect(connection)
                         try await refresh()
                     }
@@ -124,8 +123,7 @@ struct BankConnectionsView: View {
         }
         .confirmationDialog("¿Olvidar la clave del servidor en este dispositivo?", isPresented: $showingForget, titleVisibility: .visible) {
             Button("Olvidar acceso", role: .destructive) {
-                run {
-                    try await authenticateLocally()
+                run(protected: true) {
                     try BankingCredentialStore.delete()
                     configured = false; status = nil; banks = []; connections = []; token = ""; serverURL = ""
                 }
@@ -141,20 +139,23 @@ struct BankConnectionsView: View {
         }
     }
 
-    @MainActor private func run(_ action: @escaping @MainActor () async throws -> Void) {
+    @MainActor private func run(protected: Bool = false, _ action: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }
         busy = true
         Task { @MainActor in
             defer { busy = false }
-            do { try await action() }
+            do {
+                if protected { try await lockManager.withProtectedAction(action) }
+                else { try await action() }
+            }
             catch let error as BankingConnectionError { errorMessage = error.localizedDescription }
+            catch let error as AppLockManager.AuthorizationError { errorMessage = error.localizedDescription }
             catch is CancellationError { }
             catch { errorMessage = "No se pudo completar la operación. Comprueba tu conexión o el código de desbloqueo del dispositivo." }
         }
     }
     @MainActor private func configure() async throws {
         let configuration = try BankingServerConfiguration.validated(url: serverURL, token: token.trimmingCharacters(in: .whitespacesAndNewlines))
-        try await authenticateLocally()
         let client = BankingConnectionClient(configuration: configuration)
         let verifiedStatus = try await client.status()
         try BankingCredentialStore.save(configuration)
@@ -172,18 +173,10 @@ struct BankConnectionsView: View {
         banks = try await client.banks()
     }
     @MainActor private func connect(_ bank: ConnectedBank) async throws {
-        try await authenticateLocally()
         let client = try client()
         let start = try await client.start(bank: bank)
         try await browser.authorize(start)
         try await refresh()
-    }
-    @MainActor private func authenticateLocally() async throws {
-        let context = LAContext()
-        context.localizedCancelTitle = "Cancelar"
-        guard try await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: "Protege el acceso a tu conexión bancaria") else {
-            throw BankingConnectionError.authorizationFailed
-        }
     }
 }
 

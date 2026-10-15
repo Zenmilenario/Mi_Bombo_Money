@@ -26,8 +26,9 @@ struct LockGateView: View {
         .tint(Color(hex: "#176B87"))
         .preferredColorScheme(AppAppearance(rawValue: appearanceMode)?.colorScheme)
         .task(id: appLockEnabled) {
+            if scenePhase == .active { lockManager.becameActive() }
             if appLockEnabled {
-                await lockManager.authenticate()
+                await lockManager.authenticateAutomaticallyIfNeeded()
             } else {
                 lockManager.unlockWithoutAuthentication()
             }
@@ -38,13 +39,23 @@ struct LockGateView: View {
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
-                if appLockEnabled, !lockManager.isUnlocked {
-                    Task { await lockManager.authenticate() }
+                lockManager.becameActive()
+                if appLockEnabled {
+                    Task { await lockManager.authenticateAutomaticallyIfNeeded() }
+                } else if !lockManager.isAuthenticating && !lockManager.protectedActionInProgress {
+                    lockManager.unlockWithoutAuthentication()
                 }
-            case .inactive, .background:
-                if appLockEnabled { lockManager.lock() }
+            case .inactive:
+                break // Hide content, but do not re-lock because a system prompt appeared.
+            case .background:
+                lockManager.enteredBackground()
             @unknown default:
                 break
+            }
+        }
+        .onChange(of: lockManager.protectedActionInProgress) { _, inProgress in
+            if !inProgress, scenePhase == .active, appLockEnabled {
+                Task { await lockManager.authenticateAutomaticallyIfNeeded() }
             }
         }
     }
@@ -77,7 +88,7 @@ struct LockGateView: View {
             Button {
                 Task { await lockManager.authenticate() }
             } label: {
-                if lockManager.isAuthenticating {
+                if lockManager.isAuthenticating || lockManager.protectedActionInProgress {
                     ProgressView()
                         .frame(maxWidth: .infinity)
                 } else {
@@ -87,7 +98,7 @@ struct LockGateView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .disabled(lockManager.isAuthenticating)
+            .disabled(lockManager.isAuthenticating || lockManager.protectedActionInProgress)
         }
         .padding(32)
     }

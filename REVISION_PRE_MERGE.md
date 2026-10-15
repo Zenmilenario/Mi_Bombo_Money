@@ -2,6 +2,16 @@
 
 Fecha: 5 de octubre de 2026. Rama: `codex/dynamic-clean-start-icon`.
 
+## Corrección del 15 de octubre de 2026 · 0.3.1
+
+- El registro de cierre aportado de la versión 0.3.0 sitúa el fallo en el hilo principal, en `CheckedContinuation.resume(throwing:)` dentro de `BankingBrowserAuthorization.authorize`, con `EXC_BREAKPOINT / SIGTRAP`. Había dos caminos de finalización: `start()` devolvía false y después podía llegar el callback asíncrono.
+- El navegador tiene ahora una finalización única identificada por operación. Los callbacks repetidos/tardíos y las cancelaciones se ignoran una vez finalizada la operación. Se espera brevemente una ventana activa real y se informa si no puede presentarse, evitando un ancla vacía.
+- La autenticación local se centraliza en AppLockManager. Bloqueo general y acciones bancarias comparten una petición de identidad; una verificación de hasta 30 segundos puede reutilizarse. El cambio transitorio a `inactive` oculta el contenido sin invalidar la autenticación ni lanzar otra. El segundo plano real sigue bloqueando e invalida resultados tardíos.
+- Durante el flujo protegido no se lanza una segunda autenticación automática. Al cancelar/fallar una petición no se reintenta automáticamente; el usuario puede pulsar Desbloquear para reintentar. Desactivar el bloqueo de entrada no elimina la verificación requerida para banca.
+- Las pruebas Swift de política cubren cambios repetidos de actividad, cancelación, segundo plano, expiración de reutilización, resultados antiguos y la finalización duplicada observada en el cierre. Se incluyen en el workflow del cliente junto a las políticas de red.
+- Verificación local completada: 39 archivos Swift sin errores en el analizador sintáctico; las 36 fuentes de app incluidas una sola vez en Sources; configuraciones Debug/Release, plist y esquemas válidos; cinco workflows comprobados con actionlint y sus 20 scripts con `bash -n`; `git diff --check` sin errores. Este análisis no sustituye la compilación ni la ejecución de las pruebas Swift con Xcode.
+- Versión 0.3.1, build local 16; los IPA de Actions mantienen su número de ejecución como build. No cambia el servidor, el esquema de datos, los secretos ni las claves existentes. La compilación Xcode, las nuevas pruebas Swift y la verificación con Touch ID en dispositivo siguen pendientes de Actions/dispositivo.
+
 ## Actualización del 15 de octubre de 2026 · 0.3.0 (15)
 
 - Preparado un prototipo personal con Cloudflare Workers/D1 y pantalla de consulta en Ajustes. Demostración independiente del proveedor y sandbox oficial; producción bloqueada en código y verificación de entorno/servicio/retorno en la aplicación del proveedor.

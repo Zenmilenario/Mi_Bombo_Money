@@ -2,11 +2,13 @@
 
 Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones.
 
-## Prueba de conexión bancaria 0.3.0 (15)
+## Prueba de conexión bancaria 0.3.1
 
 Disponible en **Ajustes → Datos → Conexión bancaria · Prueba**. El backend para Cloudflare Workers Free y D1 permite probar autorización, consulta de cuentas/saldos/movimientos y desconexión en demostración o sandbox. Se guarda la clave del dispositivo en Keychain y las sesiones del servidor cifradas; el historial consultado no se guarda en el servidor.
 
 **Las cuentas reales están bloqueadas y los datos de prueba no se incorporan a tu contabilidad.** El prototipo requiere desplegar el servidor propio; no hay un servidor compartido ni claves incluidas en la app. Instrucciones, medidas de seguridad, límites y controles pendientes en [BankingBackend/README.md](BankingBackend/README.md).
+
+La versión 0.3.1 corrige el cierre en el retorno del navegador y coordina la huella/Face ID del bloqueo general con las operaciones bancarias. Una verificación reciente se reutiliza durante un máximo de 30 segundos; pasar realmente a segundo plano la invalida y sigue ocultando el contenido. Cancelar una autenticación no inicia reintentos automáticos.
 
 ## Inicio sin datos de ejemplo
 
