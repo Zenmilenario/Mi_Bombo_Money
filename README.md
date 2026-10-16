@@ -2,11 +2,13 @@
 
 Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones.
 
-## Prueba de conexión bancaria 0.3.1
+## Integración bancaria de prueba 0.4.0
 
-Disponible en **Ajustes → Datos → Conexión bancaria · Prueba**. El backend para Cloudflare Workers Free y D1 permite probar autorización, consulta de cuentas/saldos/movimientos y desconexión en demostración o sandbox. Se guarda la clave del dispositivo en Keychain y las sesiones del servidor cifradas; el historial consultado no se guarda en el servidor.
+Disponible en **Ajustes → Datos → Conexiones bancarias** y **Cuentas → + → Conectar banco**. Al conectar se abre un espacio completo con Inicio, Cuentas, Movimientos y Presupuestos. Las cuentas y movimientos recibidos se guardan en `MiPatrimonioBankingTests.store`, separado de `MiPatrimonio.store`. Un indicador permanente identifica la prueba y permite **Volver a mis finanzas**. Las conexiones existentes tienen un botón para abrir ese espacio.
 
-**Las cuentas reales están bloqueadas y los datos de prueba no se incorporan a tu contabilidad.** El prototipo requiere desplegar el servidor propio; no hay un servidor compartido ni claves incluidas en la app. Instrucciones, medidas de seguridad, límites y controles pendientes en [BankingBackend/README.md](BankingBackend/README.md).
+**Las cuentas reales siguen bloqueadas y los datos ficticios no se mezclan con tus finanzas reales.** Cloudflare solo aloja el servidor: para llegar a datos reales falta configurar el proveedor y completar la vinculación/conciliación contable. El siguiente paso para uso personal está en [Conectar mis cuentas reales](BankingBackend/CONEXION_REAL_PERSONAL.md). No hay claves compartidas incluidas en la app.
+
+La actualización se realiza al abrir el espacio de prueba o volver a primer plano, con un intervalo mínimo de un minuto, y con **Actualizar**. No se prometen actualizaciones con la app cerrada. Se reciben todas las páginas antes de guardar; los identificadores por servidor/entorno/cuenta evitan duplicar movimientos al actualizar y los saldos contables se guardan sin sumar dos veces el historial. Se aplican las reglas de categorías y, en su ausencia, Otros ingresos/Otros gastos. La prueba admite euros y saldo CLBD. Las copias de tus finanzas reales no incluyen este espacio; no se permite importar/exportar copias desde el espacio de prueba para evitar confusiones.
 
 La versión 0.3.1 corrige el cierre en el retorno del navegador y coordina la huella/Face ID del bloqueo general con las operaciones bancarias. Una verificación reciente se reutiliza durante un máximo de 30 segundos; pasar realmente a segundo plano la invalida y sigue ocultando el contenido. Cancelar una autenticación no inicia reintentos automáticos.
 

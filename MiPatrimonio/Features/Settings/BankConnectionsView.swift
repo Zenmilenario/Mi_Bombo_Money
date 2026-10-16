@@ -14,17 +14,32 @@ struct BankConnectionsView: View {
     @State private var selectedPreview: BankAccountPreviewSelection?
     @State private var disconnecting: ConnectedBankSession?
     @State private var showingForget = false
+    @State private var showingWorkspace = false
     @State private var browser = BankingBrowserAuthorization()
 
     var body: some View {
         List {
             Section {
-                Label("Prueba de conexión bancaria", systemImage: "lock.shield")
+                Label("Conecta tus cuentas con la app", systemImage: "building.columns.circle")
                     .font(.headline)
-                Text("Demostración y sandbox: solo datos ficticios. Esta prueba no incorpora movimientos a tus cuentas ni modifica sus saldos.")
+                Text("El servidor está preparado para demostración y sandbox. Puedes ver las cuentas y sus movimientos en toda la app, dentro de un espacio de prueba separado de tus finanzas reales.")
                     .foregroundStyle(.secondary)
                 if let status {
                     LabeledContent("Entorno", value: status.mode == "demo" ? "Demostración" : "Sandbox de Enable Banking")
+                }
+                if !connections.isEmpty {
+                    Button { showingWorkspace = true } label: {
+                        Label("Abrir Inicio, Cuentas y Movimientos de prueba", systemImage: "rectangle.stack")
+                    }
+                }
+            }
+            Section("Para conectar tus bancos reales") {
+                Text("Cloudflare aloja tu servidor; no da acceso a tus bancos. También necesitas registrar y activar una aplicación de Enable Banking para tus propias cuentas. Esta versión aún mantiene bloqueada la conexión real.")
+                Link("Configurar el acceso a mis propias cuentas", destination: URL(string: "https://enablebanking.com/docs/api/linked-accounts")!)
+                if configured {
+                    LabeledContent("URL de retorno del proveedor") {
+                        Text(serverURL + "/v1/callback").font(.caption).textSelection(.enabled)
+                    }
                 }
             }
             if !configured {
@@ -108,6 +123,7 @@ struct BankConnectionsView: View {
         .sheet(item: $selectedPreview) { selection in
             NavigationStack { BankAccountPreviewView(selection: selection) }
         }
+        .fullScreenCover(isPresented: $showingWorkspace) { BankingWorkspaceView() }
         .confirmationDialog("¿Desconectar esta cuenta de prueba?", isPresented: Binding(
             get: { disconnecting != nil }, set: { if !$0 { disconnecting = nil } }
         ), titleVisibility: .visible) {
@@ -177,6 +193,7 @@ struct BankConnectionsView: View {
         let start = try await client.start(bank: bank)
         try await browser.authorize(start)
         try await refresh()
+        showingWorkspace = true
     }
 }
 

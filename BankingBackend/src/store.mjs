@@ -30,6 +30,13 @@ export async function claimAuthorization(state, env) {
   if (!row) throw new Fault(400, 'invalid_authorization');
   return { id: row.id, ...await unseal(row.encrypted_data, `auth:${row.id}`, env) };
 }
+export async function assertPendingAuthorization(state, env) {
+  if (!isState(state)) throw new Fault(400, 'invalid_authorization');
+  // Viewing the form must not consume it; submitting still uses the atomic claim.
+  const row = await env.DB.prepare('SELECT 1 AS pending FROM auth_requests WHERE state_hash=? AND claimed=0 AND expires_at>=?')
+    .bind(await sha256(state), now()).first();
+  if (!row) throw new Fault(400, 'invalid_authorization');
+}
 export async function saveConnection(id, value, env) {
   const expiresAt = Math.floor(Date.parse(value.validUntil) / 1000);
   if (!Number.isSafeInteger(expiresAt) || expiresAt <= now()) throw new Fault(502, 'invalid_provider_data');

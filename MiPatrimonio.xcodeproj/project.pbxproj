@@ -43,6 +43,9 @@
 		57AB40029C2C57AE844F8EB2 /* BankConnectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CD7876328A828660D5A91796 /* BankConnectionsView.swift */; };
 		AE0E54FAB096A663861D505F /* BankingConnectionPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79B5418E0A095397BEEAA0B8 /* BankingConnectionPolicy.swift */; };
 		2AFFC43C93590C6E966F486D /* AppAuthenticationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7F3556CEB70D88CF37B798B /* AppAuthenticationPolicy.swift */; };
+		B61942EC7F1AAAE13F27AB90 /* BankingConnectionModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37ADE4E897BC3828C304F1ED /* BankingConnectionModels.swift */; };
+		0B99B1B512619ADD5B472B23 /* BankingWorkspaceImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502810FA2B7B583F1B460117 /* BankingWorkspaceImporter.swift */; };
+		97E8718054C684E435C225FD /* BankingWorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD8E4EE318931C5381412130 /* BankingWorkspaceView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -85,6 +88,9 @@
 		CD7876328A828660D5A91796 /* BankConnectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BankConnectionsView.swift; sourceTree = "<group>"; };
 		79B5418E0A095397BEEAA0B8 /* BankingConnectionPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BankingConnectionPolicy.swift; sourceTree = "<group>"; };
 		C7F3556CEB70D88CF37B798B /* AppAuthenticationPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppAuthenticationPolicy.swift; sourceTree = "<group>"; };
+		37ADE4E897BC3828C304F1ED /* BankingConnectionModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BankingConnectionModels.swift; sourceTree = "<group>"; };
+		502810FA2B7B583F1B460117 /* BankingWorkspaceImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BankingWorkspaceImporter.swift; sourceTree = "<group>"; };
+		BD8E4EE318931C5381412130 /* BankingWorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BankingWorkspaceView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -175,6 +181,8 @@
 		8ABECFA2390C7520B6C45CB4 /* Services */ = {
 			isa = PBXGroup;
 			children = (
+				502810FA2B7B583F1B460117 /* BankingWorkspaceImporter.swift */,
+				37ADE4E897BC3828C304F1ED /* BankingConnectionModels.swift */,
 				D7203E10F08119195D6743D0 /* BankingConnectionClient.swift */,
 				79B5418E0A095397BEEAA0B8 /* BankingConnectionPolicy.swift */,
 				1776957A6AF9C2D7669FB194 /* BankingProviderContracts.swift */,
@@ -243,6 +251,7 @@
 		B6BDBF13BF269DB602CC075C /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				BD8E4EE318931C5381412130 /* BankingWorkspaceView.swift */,
 				CD7876328A828660D5A91796 /* BankConnectionsView.swift */,
 				A751F9A8F07CC45F71E6288A /* CSVImportView.swift */,
 				925DDE5CA55F4A4BB54738B2 /* BackupView.swift */,
@@ -337,6 +346,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				97E8718054C684E435C225FD /* BankingWorkspaceView.swift in Sources */,
+				0B99B1B512619ADD5B472B23 /* BankingWorkspaceImporter.swift in Sources */,
+				B61942EC7F1AAAE13F27AB90 /* BankingConnectionModels.swift in Sources */,
 				2AFFC43C93590C6E966F486D /* AppAuthenticationPolicy.swift in Sources */,
 				AE0E54FAB096A663861D505F /* BankingConnectionPolicy.swift in Sources */,
 				57AB40029C2C57AE844F8EB2 /* BankConnectionsView.swift in Sources */,
@@ -481,14 +493,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 16;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.3.1;
+				MARKETING_VERSION = 0.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -505,14 +517,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 16;
+				CURRENT_PROJECT_VERSION = 17;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.3.1;
+				MARKETING_VERSION = 0.4.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

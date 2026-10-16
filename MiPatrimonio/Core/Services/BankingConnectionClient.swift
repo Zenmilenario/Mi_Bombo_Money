@@ -3,40 +3,6 @@ import Foundation
 import Security
 import UIKit
 
-struct BankingServerStatus: Decodable { let mode: String; let liveBankingEnabled: Bool; let accountingImportEnabled: Bool }
-struct ConnectedBank: Decodable, Identifiable {
-    let name: String
-    let country: String
-    let beta: Bool
-    var id: String { "\(country):\(name)" }
-}
-struct ConnectedBankAccount: Decodable, Identifiable, Hashable {
-    let id: String
-    let name: String
-    let currency: String
-    let lastFour: String
-}
-struct ConnectedBankSession: Decodable, Identifiable {
-    let id: String
-    let bank: String
-    let validUntil: String
-    let accounts: [ConnectedBankAccount]
-}
-struct BankingAuthorizationStart: Decodable { let id: String; let authorizationURL: URL }
-struct BankingPreview: Decodable {
-    struct Balance: Decodable { let amountMinor: Int64; let currency: String; let type: String }
-    struct Movement: Decodable, Identifiable {
-        let id: String?
-        let bookingDate: String
-        let signedAmountMinor: Int64
-        let currency: String
-        let description: String
-    }
-    let balances: [Balance]
-    let transactions: [Movement]
-    let continuation: String?
-}
-
 // This Keychain item is not migrated, synced to iCloud or included in the app's JSON export.
 enum BankingCredentialStore {
     private static var query: [String: Any] {
@@ -127,12 +93,12 @@ final class BankingConnectionClient {
         let response = try await responseData(request)
         guard response.1.statusCode == 204 else { throw BankingConnectionError.invalidResponse }
     }
-    func preview(connection: ConnectedBankSession, account: ConnectedBankAccount, continuation: String? = nil) async throws -> BankingPreview {
+    func preview(connection: ConnectedBankSession, account: ConnectedBankAccount, continuation: String? = nil, asOf: Date = .now) async throws -> BankingPreview {
         guard UUID(uuidString: connection.id) != nil,
               account.id.range(of: #"^[A-Za-z0-9_-]{1,128}$"#, options: .regularExpression) != nil else { throw BankingConnectionError.invalidResponse }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate]
-        let to = Date.now
+        let to = asOf
         let from = Calendar.autoupdatingCurrent.date(byAdding: .day, value: -30, to: to) ?? to
         var query = [URLQueryItem(name: "from", value: formatter.string(from: from)), URLQueryItem(name: "to", value: formatter.string(from: to))]
         if let continuation { query.append(URLQueryItem(name: "continuation", value: continuation)) }

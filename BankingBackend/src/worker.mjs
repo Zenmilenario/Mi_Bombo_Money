@@ -1,5 +1,5 @@
 import { Fault, authenticate, origin, mode, readJSON, limitedBytes, UUID, isState, json, securityHeaders } from './security.mjs';
-import { rateLimit, newAuthorization, claimAuthorization, saveConnection, connection, listConnections } from './store.mjs';
+import { rateLimit, newAuthorization, claimAuthorization, assertPendingAuthorization, saveConnection, connection, listConnections } from './store.mjs';
 import { demoBanks, banks, startAuthorization, exchange, demoConnection, accountData, revoke } from './provider.mjs';
 
 function appRedirect(id, result) {
@@ -36,13 +36,16 @@ async function demoConsent(request, url, env) {
   if (request.method === 'GET' && url.pathname === '/demo/consent') {
     const state = url.searchParams.get('state');
     if (!isState(state) || url.searchParams.getAll('state').length !== 1) throw new Fault(400, 'invalid_authorization');
+    await assertPendingAuthorization(state, env);
     return new Response(`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
       <title>Prueba de conexión</title><h1>Solo datos ficticios</h1>
       <p>Esta demostración no accede a ningún banco. No introduzcas claves bancarias.</p>
       <form method="post" action="/demo/complete"><input type="hidden" name="state" value="${state}">
       <button name="decision" value="allow">Conectar cuenta ficticia</button>
       <button name="decision" value="deny">Cancelar</button></form></html>`,
-    { headers: securityHeaders({ 'Content-Type': 'text/html; charset=utf-8' }) });
+    // A no-referrer page makes browser form POSTs send Origin: null. Preserve
+    // only the HTTPS origin so the strict check below works without leaking state.
+    { headers: securityHeaders({ 'Content-Type': 'text/html; charset=utf-8', 'Referrer-Policy': 'strict-origin' }) });
   }
   if (request.method !== 'POST' || url.pathname !== '/demo/complete') throw new Fault(404, 'not_found');
   if (request.headers.get('origin') !== origin(env)
@@ -61,7 +64,18 @@ export async function handle(request, env) {
   mode(env);
   if (url.origin !== origin(env) || url.hash || url.username || url.password) throw new Fault(400, 'invalid_host');
   if (url.pathname === '/health' && request.method === 'GET') return json({ status: 'ok' });
-  if (url.pathname.startsWith('/demo/')) return demoConsent(request, url, env);
+  if (url.pathname.startsWith('/demo/')) {
+    try { return await demoConsent(request, url, env); }
+    catch (error) {
+      if (!(error instanceof Fault) || error.code !== 'invalid_authorization') throw error;
+      return new Response(`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Vuelve a iniciar la conexión</title><h1>Vuelve a iniciar la conexión</h1>
+        <p>Esta autorización ha caducado, ya se ha utilizado o no es válida.</p>
+        <p>Cierra esta ventana con Cancelar o el botón de cierre. Después, vuelve a elegir el banco en la app para abrir una autorización nueva.</p>
+        <p>No recargues ni vuelvas atrás en este formulario. No se han modificado tus datos financieros.</p></html>`,
+      { status: 400, headers: securityHeaders({ 'Content-Type': 'text/html; charset=utf-8' }) });
+    }
+  }
   if (url.pathname === '/v1/callback' && request.method === 'GET' && mode(env) === 'sandbox') return callback(request, url, env);
   // A native client does not need browser CORS. Even a correct token is refused in a browser-origin request.
   if (request.headers.has('origin')) throw new Fault(403, 'forbidden');

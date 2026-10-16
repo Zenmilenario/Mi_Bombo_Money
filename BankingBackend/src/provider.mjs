@@ -116,13 +116,18 @@ export async function normalizeTransaction(t, account) {
     currency: account.currency, description };
 }
 export async function accountData(conn, account, from, to, continuation, env) {
-  if (mode(env) === 'demo') return {
-    balances: [{ amountMinor: 123456, currency: 'EUR', type: 'CLBD' }],
-    transactions: [
-      { id: 'demo-income', bookingDate: to, signedAmountMinor: 150000, currency: 'EUR', description: 'Nómina ficticia' },
-      { id: 'demo-expense', bookingDate: to, signedAmountMinor: -26544, currency: 'EUR', description: 'Compra ficticia' }
-    ], continuation: null
-  };
+  if (mode(env) === 'demo') {
+    // Fixtures belong to the connection's creation day, not to the query's end
+    // date. Changing the date range must never invent another salary/purchase.
+    const bookingDate = new Date(Date.parse(conn.validUntil) - 86400_000).toISOString().slice(0, 10);
+    return {
+      balances: [{ amountMinor: 123456, currency: 'EUR', type: 'CLBD' }],
+      transactions: [
+        { id: 'demo-income', bookingDate, signedAmountMinor: 150000, currency: 'EUR', description: 'Nómina ficticia' },
+        { id: 'demo-expense', bookingDate, signedAmountMinor: -26544, currency: 'EUR', description: 'Compra ficticia' }
+      ].filter(row => row.bookingDate >= from && row.bookingDate <= to), continuation: null
+    };
+  }
   await verifySandbox(env);
   const path = `/accounts/${encodeURIComponent(account.uid)}`;
   const query = new URLSearchParams({ date_from: from, date_to: to, transaction_status: 'BOOK' });

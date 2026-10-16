@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.isBankingTestWorkspace) private var isBankingTestWorkspace
     @AppStorage("hideAmounts") private var hideAmounts = false
     @AppStorage("appLockEnabled") private var appLockEnabled = true
     @AppStorage("appearanceMode") private var appearanceMode = AppAppearance.system.rawValue
@@ -49,22 +50,27 @@ struct SettingsView: View {
                 }
 
                 Section("Datos") {
-                    NavigationLink {
-                        BankConnectionsView()
-                    } label: {
-                        Label("Conexión bancaria · Prueba", systemImage: "building.columns.circle")
-                    }
+                    if isBankingTestWorkspace {
+                        Text("Estás en el espacio de prueba. Sus cuentas, movimientos y presupuestos se guardan aparte. Usa Volver a mis finanzas para salir.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        NavigationLink {
+                            BankConnectionsView()
+                        } label: {
+                            Label("Conexiones bancarias", systemImage: "building.columns.circle")
+                        }
 
-                    NavigationLink {
-                        BackupView()
-                    } label: {
-                        Label("Copia de seguridad", systemImage: "externaldrive")
-                    }
+                        NavigationLink {
+                            BackupView()
+                        } label: {
+                            Label("Copia de seguridad", systemImage: "externaldrive")
+                        }
 
-                    NavigationLink {
-                        CSVImportView()
-                    } label: {
-                        Label("Importar movimientos", systemImage: "square.and.arrow.down")
+                        NavigationLink {
+                            CSVImportView()
+                        } label: {
+                            Label("Importar movimientos", systemImage: "square.and.arrow.down")
+                        }
                     }
 
                     NavigationLink {
@@ -269,7 +275,7 @@ private struct PrivacyInformationView: View {
             }
 
             Section {
-                Text("La prueba de conexión bancaria es opcional y requiere internet. El servidor privado guarda sesiones cifradas de demostración o sandbox; no guarda el historial de movimientos. La clave de acceso queda en el llavero de este dispositivo. Esta versión bloquea las cuentas reales y no incorpora los datos de prueba a tu contabilidad.")
+                Text("La conexión bancaria de prueba requiere internet. El servidor guarda sesiones cifradas; el historial sincronizado se guarda solo en un espacio de prueba separado en este dispositivo. No se mezcla con tus finanzas reales ni se incluye en sus copias. La clave de acceso queda en el llavero del dispositivo. Las cuentas bancarias reales siguen bloqueadas en esta versión.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } header: {

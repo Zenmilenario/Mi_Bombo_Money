@@ -1,14 +1,30 @@
-# Prueba privada de conexión bancaria · cliente 0.3.1
+# Prueba privada de conexión bancaria · cliente 0.4.0
 
 ## Qué está preparado
 
+### Integración en toda la app · 0.4.0
+
+El cliente ya incorpora las cuentas, movimientos y saldos ficticios a un espacio con Inicio, Cuentas, Movimientos y Presupuestos. Usa un archivo local distinto del de las finanzas reales, con un indicador permanente y salida directa. Se actualiza al abrir o regresar a primer plano y con el botón Actualizar. Los datos se conservan localmente entre aperturas; la consulta rápida original sigue disponible. El servidor no almacena historial.
+
+La importación de prueba recibe todas las páginas antes de guardar, exige IDs estables, clasifica ingresos/gastos mediante reglas y mantiene un saldo contable sin duplicar el efecto del historial. Solo admite EUR y CLBD en esta fase. No incluye conciliación de transferencias propias, continuidad tras reautorizar ni fusión con movimientos manuales/periódicos. La activación real sigue bloqueada; [pasos para conectar cuentas propias](CONEXION_REAL_PERSONAL.md).
+
+### Corrección del botón «Conectar cuenta ficticia»
+
+Si la página de demostración devuelve `forbidden` al enviar el formulario, actualiza el Worker con `npm run deploy` desde `BankingBackend`. Esta corrección es del servidor: no requiere otro IPA, migraciones ni nuevas claves. La página de consentimiento utiliza `Referrer-Policy: strict-origin`, porque `no-referrer` hace que los navegadores envíen `Origin: null` al enviar un formulario POST ([Fetch Standard](https://fetch.spec.whatwg.org/#append-a-request-origin-header)). Solo se transmite el origen HTTPS como referencia, sin ruta ni parámetros. La comprobación de origen exacto sigue rechazando orígenes nulos, ausentes o externos, y el estado continúa siendo de un solo uso y con caducidad. La API y el retorno a la app conservan `no-referrer`.
+
+### Autorizaciones caducadas o ya utilizadas
+
+Cada autorización dura diez minutos y admite un solo envío. El servidor comprueba también su vigencia antes de mostrar el formulario; visitar o recargar un formulario válido no lo consume. Si caduca, se reutiliza o no existe, se muestra una página en español indicando que hay que cerrar la ventana y volver a elegir el banco en la app. La autorización no se renueva desde una página antigua ni se permite reutilizar su estado. Esto sustituye el error técnico `invalid_authorization` de la demostración.
+
+### Corrección anterior del cliente
+
 La corrección 0.3.1 afecta únicamente al cliente iOS: coordinación de autenticación y retorno del navegador. Si el servidor demo ya está desplegado, no es necesario repetir despliegue, migraciones ni generación/subida de claves. El número de build del IPA puede variar porque GitHub Actions utiliza su número de ejecución; comprueba la versión **0.3.1**.
 
-Backend para **Cloudflare Workers Free + D1 Free** y pantalla **Ajustes → Datos → Conexión bancaria · Prueba** en iOS/iPadOS. Dos modos: `demo` (no llama a ningún proveedor) y `sandbox` (API oficial de Enable Banking con datos de prueba).
+Backend para **Cloudflare Workers Free + D1 Free** y pantalla **Ajustes → Datos → Conexiones bancarias** en iOS/iPadOS. Dos modos: `demo` (no llama a ningún proveedor) y `sandbox` (API oficial de Enable Banking con datos de prueba).
 
 **El acceso a cuentas reales está bloqueado en el código.** Cambiar una variable a `production` no lo habilita. El servidor comprueba que las claves de Enable Banking pertenecen realmente a una aplicación SANDBOX, activa, con servicio AIS y la URL de retorno exacta.
 
-Se pueden autorizar conexiones, consultar cuentas, saldos y movimientos contabilizados de los últimos 30 días, paginar y revocar. Esta primera fase **no importa los datos a la contabilidad**, no modifica saldos existentes y no crea ni ejecuta pagos. No conecta la cartera de valores de Trade Republic.
+Se pueden autorizar conexiones, consultar cuentas, saldos y movimientos contabilizados de los últimos 30 días, paginar y revocar. La importación solo escribe en el espacio de prueba separado: no modifica las finanzas reales ni crea o ejecuta pagos. No conecta la cartera de valores de Trade Republic.
 
 La importación automática de dinero real requiere una fase posterior: vinculación explícita con cuentas locales, reconciliación con movimientos manuales/periódicos, emparejamiento de transferencias propias y tratamiento de pendientes/valoraciones. No debe activarse sin esas comprobaciones.
 
@@ -58,9 +74,9 @@ Ambos archivos están excluidos de Git. No los adjuntes al chat, a una incidenci
 
    El primer despliegue crea el Worker sin acceso habilitado; hasta subir sus secretos no admite consultas privadas. `upload-secrets.mjs` pasa los secretos por entrada estándar, sin ponerlos en argumentos de comandos ni mostrarlos. Requiere que `wrangler login` ya esté completado. Estos comandos crean recursos en tu cuenta: comprueba que sigues en Free y que la base de datos es la nueva del prototipo.
 
-4. Abre la app actualizada → **Ajustes → Datos → Conexión bancaria · Prueba**. Introduce la URL de TU despliegue y la clave del campo `token` del archivo local `.client-setup.json`. La app comprobará el servidor y pedirá Face ID/Touch ID/código; el dispositivo debe tener código configurado.
+4. Abre la app actualizada → **Ajustes → Datos → Conexiones bancarias**. Introduce la URL de TU despliegue y la clave del campo `token` del archivo local `.client-setup.json`. La app comprobará el servidor y pedirá Face ID/Touch ID/código; el dispositivo debe tener código configurado.
 
-5. Pulsa un banco y **Conectar cuenta ficticia**. Consulta los saldos/movimientos y prueba **Desconectar**. Los nombres de los bancos en demostración son etiquetas de prueba, no conexiones reales. Cerrar/reabrir la app conserva la configuración del dispositivo; los datos de consulta se mantienen solo en memoria.
+5. Pulsa un banco y **Conectar cuenta ficticia**. Se abrirá la app de prueba con sus cuentas/movimientos en las pestañas habituales. Las conexiones anteriores tienen **Abrir Inicio, Cuentas y Movimientos de prueba**. Los nombres de los bancos en demostración son etiquetas, no conexiones reales. El saldo inicial de cada cuenta de ejemplo es 1.234,56 €; repetir Actualizar no debe duplicar movimientos ni saldo. Desconectar revoca la sesión, pero no borra el historial de prueba ya guardado; deja de actualizarlo.
 
 6. Cuando hayas guardado la clave en la app, elimina la copia local de `.client-setup.json` o consérvala únicamente en tu gestor de contraseñas. Desconecta las sesiones antes de usar «Olvidar acceso»: borrar la clave del dispositivo no revoca por sí solo el acceso del servidor.
 
