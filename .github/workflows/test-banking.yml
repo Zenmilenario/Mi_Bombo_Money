@@ -27,6 +27,29 @@ jobs:
             -o build/banking-client-check/BankingSecurityCheck
           build/banking-client-check/BankingSecurityCheck
 
+  workspace:
+    name: Integración bancaria en la app de prueba
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Comprobar importación, cálculos, repetición y aislamiento
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/banking-workspace-check
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
+            MiPatrimonio/Core/Models/Models.swift \
+            MiPatrimonio/Shared/Formatting.swift \
+            MiPatrimonio/Core/Services/FinanceCalculator.swift \
+            MiPatrimonio/Core/Services/CategoryDefaultsService.swift \
+            MiPatrimonio/Core/Services/CategoryRuleService.swift \
+            MiPatrimonio/Core/Services/BankingConnectionModels.swift \
+            MiPatrimonio/Core/Services/BankingWorkspaceImporter.swift \
+            Tests/BankingWorkspaceCheck.swift \
+            -o build/banking-workspace-check/BankingWorkspaceCheck
+          build/banking-workspace-check/BankingWorkspaceCheck
+
   banking:
     runs-on: ubuntu-latest
     timeout-minutes: 10

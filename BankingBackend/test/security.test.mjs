@@ -2,11 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, generateKeyPairSync } from 'node:crypto';
 import { authenticate, origin, mode, seal, unseal, sha256, readJSON, now } from '../src/security.mjs';
-import { providerJWT, verifySandbox, amountMinor, normalizeTransaction } from '../src/provider.mjs';
+import { providerJWT, verifySandbox, amountMinor, normalizeTransaction, accountData } from '../src/provider.mjs';
 
 const token = randomBytes(32).toString('hex');
 const env = { PROVIDER_MODE: 'demo', PUBLIC_ORIGIN: 'https://bank-test.personal.workers.dev',
   ACCESS_TOKEN_SHA256: await sha256(token), DATA_ENCRYPTION_KEY: randomBytes(32).toString('base64') };
+
+test('demo booking dates stay stable across queries and respect the requested history range', async () => {
+  const connection = { validUntil: '2026-10-16T12:00:00.000Z' };
+  const first = await accountData(connection, {}, '2026-10-01', '2026-10-15', null, env);
+  const later = await accountData(connection, {}, '2026-10-01', '2026-10-16', null, env);
+  assert.deepEqual(first, later);
+  assert.equal(first.transactions[0].bookingDate, '2026-10-15');
+  const outside = await accountData(connection, {}, '2026-10-16', '2026-10-16', null, env);
+  assert.deepEqual(outside.transactions, []);
+});
 
 test('authentication refuses missing, malformed, truncated and wrong bearer credentials', async () => {
   for (const auth of [null, '', `Bearer ${'b'.repeat(64)}`, `Basic ${token}`, `Bearer ${token.slice(1)}`]) {

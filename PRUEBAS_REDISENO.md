@@ -1,5 +1,19 @@
 # Lista de pruebas del rediseño
 
+## Integración bancaria en toda la app · 0.4.0
+
+- [ ] Con una conexión ya creada, abrir Ajustes → Datos → Conexiones bancarias → Abrir Inicio, Cuentas y Movimientos de prueba. No pide volver a autorizar el banco.
+- [ ] Una conexión nueva abre automáticamente el espacio completo al volver del navegador.
+- [ ] El indicador «App de prueba · Datos ficticios» y Volver a mis finanzas permanecen visibles en todas las pestañas. En iPhone estrecho, iPad en vertical/horizontal, Split View y letra grande, título y botones se apilan sin recortes.
+- [ ] Para una sola cuenta demo, Cuentas muestra 1.234,56 €, Movimientos contiene un ingreso de 1.500,00 € y un gasto de 265,44 €, e Inicio refleja ambos. Los movimientos tienen categoría e icono.
+- [ ] Actualizar varias veces no crea más cuentas, movimientos, importaciones ni valoraciones duplicadas. Cambiar una categoría y actualizar conserva la categoría elegida.
+- [ ] Crear un presupuesto de Otros gastos en el espacio de prueba y comprobar que el gasto ficticio afecta al presupuesto y al resumen.
+- [ ] Volver a mis finanzas conserva exactamente las cuentas, movimientos y saldos reales anteriores; la copia JSON normal no incluye el espacio de prueba. Las opciones de importar/exportar no aparecen dentro de la prueba.
+- [ ] Cancelar una carga o fallar una página conserva los datos anteriores y permite reintentar sin guardar una carga parcial.
+- [ ] Pasar a segundo plano oculta también la pantalla completa de prueba. Volver requiere desbloquear si el bloqueo está activo. La actualización no provoca nuevas peticiones de identidad.
+- [ ] Tras desconectar un banco, su historial de prueba permanece, pero deja de actualizarse. No se presenta como una conexión bancaria real.
+- [ ] La información explica que Cloudflare solo aloja el servidor, incluye el enlace a Enable Banking y no pide contraseñas bancarias ni la clave privada en la app.
+
 ## Inicio
 
 - [ ] El botón azul aparece abajo a la derecha y no tapa la barra inferior.

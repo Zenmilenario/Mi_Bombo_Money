@@ -2,23 +2,22 @@ import Foundation
 import SwiftData
 
 enum PersistenceController {
+    static let schema = Schema([
+        FinancialInstitution.self,
+        FinancialAccount.self,
+        ReservedFund.self,
+        PaymentCard.self,
+        FinanceCategory.self,
+        CategoryRule.self,
+        FinancialTransaction.self,
+        MonthlyBudget.self,
+        RecurringBudget.self,
+        SavingsGoal.self,
+        RecurringMovement.self,
+        BalanceSnapshot.self,
+        ImportBatch.self,
+    ])
     static let shared: ModelContainer = {
-        let schema = Schema([
-            FinancialInstitution.self,
-            FinancialAccount.self,
-            ReservedFund.self,
-            PaymentCard.self,
-            FinanceCategory.self,
-            CategoryRule.self,
-            FinancialTransaction.self,
-            MonthlyBudget.self,
-            RecurringBudget.self,
-            SavingsGoal.self,
-            RecurringMovement.self,
-            BalanceSnapshot.self,
-            ImportBatch.self,
-        ])
-
         do {
             let directory = try protectedApplicationSupportDirectory()
             let storeURL = directory.appendingPathComponent("MiPatrimonio.store")
@@ -37,6 +36,19 @@ enum PersistenceController {
             fatalError("No se ha podido crear el almacenamiento local: \(error.localizedDescription)")
         }
     }()
+
+    // The testing workspace never uses MiPatrimonio.store or an in-memory fallback
+    // to the real container. A failure leaves the user's real store untouched.
+    @MainActor static func makeBankingTestContainer() throws -> ModelContainer {
+        let directory = try protectedApplicationSupportDirectory()
+        let configuration = ModelConfiguration("BankingTests", schema: schema,
+            url: directory.appendingPathComponent("MiPatrimonioBankingTests.store"),
+            allowsSave: true, cloudKitDatabase: .none)
+        let container = try ModelContainer(for: schema, configurations: configuration)
+        try CategoryDefaultsService.restoreMissing(in: container.mainContext)
+        applyCompleteFileProtection(to: directory)
+        return container
+    }
 
     private static func protectedApplicationSupportDirectory() throws -> URL {
         let fileManager = FileManager.default

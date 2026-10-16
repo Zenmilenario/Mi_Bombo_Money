@@ -84,10 +84,76 @@ test('end-to-end consent, encrypted persistence, read-only preview and revocatio
   assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM connections').first()).n, 0);
 });
 
+test('consent page preserves the browser POST origin without exposing the authorization URL as referrer', async () => {
+  const flow = await start();
+  const response = await mf.dispatchFetch(flow.authorizationURL);
+  assert.equal(response.status, 200);
+  // no-referrer turns Origin into "null" on a browser form POST (Fetch standard).
+  // strict-origin preserves the HTTPS origin, but omits path/query (including state).
+  assert.equal(response.headers.get('Referrer-Policy'), 'strict-origin');
+  assert.match(response.headers.get('Content-Security-Policy'), /form-action 'self'/);
+  assert.match(response.headers.get('Cache-Control'), /no-store/);
+  const html = await response.text();
+  assert.match(html, /<form method="post" action="\/demo\/complete">/);
+  const state = /name="state" value="([A-Za-z0-9_-]{43})"/.exec(html)?.[1];
+  assert.equal(state, new URL(flow.authorizationURL).searchParams.get('state'));
+  const result = await mf.dispatchFetch(`${host}/demo/complete`, {
+    method: 'POST', redirect: 'manual',
+    headers: { Origin: new URL(flow.authorizationURL).origin, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ state, decision: 'allow' })
+  });
+  assert.equal(result.status, 303);
+  assert.match(result.headers.get('Location'), /result=ok/);
+  assert.equal(result.headers.get('Referrer-Policy'), 'no-referrer');
+  assert.equal((await call('/v1/status')).headers.get('Referrer-Policy'), 'no-referrer');
+});
+
+test('consent rejects missing, null and foreign origins without consuming the valid single-use authorization', async () => {
+  const flow = await start();
+  const state = new URL(flow.authorizationURL).searchParams.get('state');
+  for (const origin of [undefined, 'null', 'https://evil.test', `${host}.evil.test`, 'http://bank-test.personal.workers.dev']) {
+    const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+    if (origin !== undefined) headers.Origin = origin;
+    const response = await mf.dispatchFetch(`${host}/demo/complete`, {
+      method: 'POST', headers, body: new URLSearchParams({ state, decision: 'allow' })
+    });
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: 'forbidden' });
+  }
+  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM connections').first()).n, 0);
+  assert.equal((await complete(flow)).status, 303);
+  assert.equal((await complete(flow)).status, 400);
+  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM connections').first()).n, 1);
+});
+
 test('replayed and concurrent callbacks can only create one connection', async () => {
   const flow = await start('Bankinter');
   const results = await Promise.all([complete(flow), complete(flow)]);
   assert.deepEqual(results.map(r => r.status).sort(), [303, 400]);
+  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM connections').first()).n, 1);
+});
+
+test('consent page refuses unknown, expired or used authorizations and explains how to restart', async () => {
+  async function expectRestart(response) {
+    assert.equal(response.status, 400);
+    assert.match(response.headers.get('Content-Type'), /^text\/html/);
+    const html = await response.text();
+    assert.match(html, /Vuelve a iniciar la conexión/);
+    assert.match(html, /vuelve a elegir el banco en la app/);
+    assert.ok(!html.includes('invalid_authorization'));
+  }
+  await expectRestart(await mf.dispatchFetch(`${host}/demo/consent?state=${'A'.repeat(43)}`));
+  const expired = await start();
+  await db.prepare('UPDATE auth_requests SET expires_at=0').run();
+  await expectRestart(await mf.dispatchFetch(expired.authorizationURL));
+  await expectRestart(await complete(expired));
+  const fresh = await start();
+  // Viewing or reloading a valid form must not consume the one-use authorization.
+  assert.equal((await mf.dispatchFetch(fresh.authorizationURL)).status, 200);
+  assert.equal((await mf.dispatchFetch(fresh.authorizationURL)).status, 200);
+  assert.equal((await complete(fresh)).status, 303);
+  await expectRestart(await mf.dispatchFetch(fresh.authorizationURL));
+  await expectRestart(await complete(fresh));
   assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM connections').first()).n, 1);
 });
 

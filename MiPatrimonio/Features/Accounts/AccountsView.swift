@@ -18,6 +18,7 @@ private enum AccountManagementTool: String, Identifiable {
 
 struct AccountsView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.isBankingTestWorkspace) private var isBankingTestWorkspace
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
     @Query(sort: \PaymentCard.name) private var cards: [PaymentCard]
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
@@ -143,6 +144,13 @@ struct AccountsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
+                        if !isBankingTestWorkspace {
+                            NavigationLink {
+                                BankConnectionsView()
+                            } label: {
+                                Label("Conectar banco", systemImage: "link")
+                            }
+                        }
                         Button {
                             showingAdd = true
                         } label: {
