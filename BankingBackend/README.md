@@ -1,6 +1,12 @@
-# Prueba privada de conexión bancaria · cliente 0.4.1
+# Prueba privada de conexión bancaria · cliente 0.4.2
 
 ## Qué está preparado
+
+### Escenario completo ya cargado · 0.4.2
+
+El 16 de octubre de 2026 se cargaron tres cuentas en Mock ASPSP y se completó su autorización con el proveedor. La consulta por el Worker personal confirmó los 75 apuntes y los saldos esperados. La conexión permanece disponible para la app mientras dure el consentimiento. El cliente 0.4.2 añade un espacio separado para este escenario, seis transferencias propias, reglas, presupuestos, reserva y tarjeta de ejemplo. Consulta [los pasos y cifras de comprobación](../Samples/sandbox/LEEME.md).
+
+La consulta de BBVA devolvía cero movimientos y saldos de varios tipos; una cuenta sin CLBD hacía fallar todo el importador. Ahora se usa ITBD o CLBD y se informa por cuenta cuando no son compatibles; los saldos de apertura, previstos o disponibles no se usan como saldos contables. La simulación de inversión de Mock ASPSP no conecta una cartera real.
 
 ### Sandbox activado en el despliegue personal
 
@@ -8,9 +14,9 @@ El 16 de octubre de 2026 se verificó la aplicación de Enable Banking como SAND
 
 El catálogo real del sandbox ofrece BBVA, Banco de Sabadell y Mock ASPSP entre los bancos habilitados para esta app. Bankinter y Trade Republic no figuran en el catálogo de prueba consultado. No se deduce de ello la cobertura del entorno real.
 
-La API devuelve en esta configuración `https://tilisy-sandbox.enablebanking.com` como origen de autorización. Se admite ese dominio exacto en el Worker y en el cliente 0.4.1, además de `auth.enablebanking.com`. No se aceptan comodines, HTTP, credenciales en la URL, puertos alternativos ni subdominios parecidos. [Referencia oficial del sandbox](https://enablebanking.com/docs/api/quick-start/alt).
+La API devuelve en esta configuración `https://tilisy-sandbox.enablebanking.com` como origen de autorización. Se admite ese dominio exacto en el Worker y en el cliente 0.4.2, además de `auth.enablebanking.com`. No se aceptan comodines, HTTP, credenciales en la URL, puertos alternativos ni subdominios parecidos. [Referencia oficial del sandbox](https://enablebanking.com/docs/api/quick-start/alt).
 
-Para probar BBVA, instala el IPA 0.4.1 tras pasar Actions, abre Conexiones bancarias, pulsa Actualizar conexiones y elige BBVA. Las credenciales ficticias publicadas por Enable Banking son usuario `user1`, contraseña `1234` y OTP `012345`. Úsalas únicamente en el flujo sandbox, sin introducir tus credenciales reales. [Credenciales oficiales](https://enablebanking.com/docs/api/sandbox/#bbva).
+Para probar BBVA, instala el IPA 0.4.2 tras pasar Actions, abre Conexiones bancarias, pulsa Actualizar conexiones y elige BBVA. Las credenciales ficticias publicadas por Enable Banking son usuario `user1`, contraseña `1234` y OTP `012345`. Úsalas únicamente en el flujo sandbox, sin introducir tus credenciales reales. [Credenciales oficiales](https://enablebanking.com/docs/api/sandbox/#bbva).
 
 Mock ASPSP permite preparar datos propios de prueba desde su pestaña en el panel del proveedor; hay que crear esos casos para que la autorización devuelva cuentas y movimientos útiles. Su flujo no necesita credenciales bancarias reales. Las conexiones y el archivo local demo anterior se conservan aparte, sin borrarse ni añadirse al espacio sandbox nuevo.
 
@@ -18,7 +24,7 @@ Mock ASPSP permite preparar datos propios de prueba desde su pestaña en el pane
 
 El cliente ya incorpora las cuentas, movimientos y saldos ficticios a un espacio con Inicio, Cuentas, Movimientos y Presupuestos. Usa un archivo local distinto del de las finanzas reales, con un indicador permanente y salida directa. Se actualiza al abrir o regresar a primer plano y con el botón Actualizar. Los datos se conservan localmente entre aperturas; la consulta rápida original sigue disponible. El servidor no almacena historial.
 
-La importación de prueba recibe todas las páginas antes de guardar, exige IDs estables, clasifica ingresos/gastos mediante reglas y mantiene un saldo contable sin duplicar el efecto del historial. Solo admite EUR y CLBD en esta fase. No incluye conciliación de transferencias propias, continuidad tras reautorizar ni fusión con movimientos manuales/periódicos. La activación real sigue bloqueada; [pasos para conectar cuentas propias](CONEXION_REAL_PERSONAL.md).
+La importación de prueba recibe todas las páginas antes de guardar, exige IDs estables, clasifica ingresos/gastos mediante reglas y mantiene un saldo contable sin duplicar el efecto del historial. Admite EUR con ITBD o CLBD. Empareja transferencias propias solo con referencias explícitas y cuentas recíprocas; no infiere coincidencias por texto/importe. El escenario sintético conocido conserva identidades al reautorizarse; las demás conexiones aún no tienen continuidad automática ni fusión con movimientos manuales/periódicos. Las plantillas periódicas del escenario están pausadas para no duplicar el historial importado. La activación real sigue bloqueada; [pasos para conectar cuentas propias](CONEXION_REAL_PERSONAL.md).
 
 ### Corrección del botón «Conectar cuenta ficticia»
 
@@ -36,7 +42,7 @@ Backend para **Cloudflare Workers Free + D1 Free** y pantalla **Ajustes → Dato
 
 **El acceso a cuentas reales está bloqueado en el código.** Cambiar una variable a `production` no lo habilita. El servidor comprueba que las claves de Enable Banking pertenecen realmente a una aplicación SANDBOX, activa, con servicio AIS y la URL de retorno exacta.
 
-Se pueden autorizar conexiones, consultar cuentas, saldos y movimientos contabilizados de los últimos 30 días, paginar y revocar. La importación solo escribe en el espacio de prueba separado: no modifica las finanzas reales ni crea o ejecuta pagos. No conecta la cartera de valores de Trade Republic.
+Se pueden autorizar conexiones, consultar cuentas, saldos y movimientos contabilizados de los últimos 90 días, paginar y revocar. La importación solo escribe en el espacio de prueba separado: no modifica las finanzas reales ni crea o ejecuta pagos. No conecta la cartera de valores de Trade Republic.
 
 La importación automática de dinero real requiere una fase posterior: vinculación explícita con cuentas locales, reconciliación con movimientos manuales/periódicos, emparejamiento de transferencias propias y tratamiento de pendientes/valoraciones. No debe activarse sin esas comprobaciones.
 

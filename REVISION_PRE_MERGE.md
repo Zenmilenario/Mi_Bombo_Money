@@ -2,6 +2,16 @@
 
 Fecha: 5 de octubre de 2026. Rama: `codex/dynamic-clean-start-icon`.
 
+## Prueba completa con datos · 0.4.2 (16 de octubre de 2026)
+
+- Diagnóstico remoto: BBVA devolvió siete cuentas y cero movimientos. Tres cuentas ofrecían CLBD; otras OPBD/XPCD causaban el rechazo completo. El importador admite ahora ITBD o CLBD y explica individualmente las cuentas incompatibles; las cargas con movimientos incoherentes siguen rechazándose antes de escribir.
+- Cargado el escenario propio en Mock ASPSP a través del panel autenticado: tres cuentas, 75 apuntes de agosto a octubre y saldos coherentes. Autorización completada tras confirmación del usuario de los términos del proveedor. Lectura autenticada por el Worker: 6 apuntes en Máster, 9 en Inversión y 60 en Día a día; todos los movimientos normalizados coinciden exactamente con el archivo de comprobación.
+- Espacio local específico del escenario; conserva el anterior sandbox manual y las finanzas reales. Importación de 90 días, emparejamiento recíproco con referencias explícitas (seis transferencias), identidad estable al renovar este escenario y selección de su conexión más reciente. No se generaliza esa renovación a bancos reales.
+- Reglas de categorías, cuatro presupuestos repetidos (uno superado), reserva de 1.500 €, tarjeta vinculada y dos plantillas periódicas pausadas, instaladas una vez en este escenario. Las plantillas se pausan para impedir duplicados con los cargos importados del banco.
+- Versión 0.4.2, build local 19. Sin cambio del esquema SwiftData, D1 o formato de copia. Worker desplegado: `fee149ef-7d5e-4220-bf91-39a1ae62b55b`. No se regeneraron secretos ni se eliminaron conexiones/datos anteriores. La conexión Mock queda preparada para el usuario.
+- Pruebas de servidor: 13 unitarias y 17 de integración superadas; empaquetado seco correcto. El caso nuevo cubre todo el escenario en workerd/D1 con páginas de diez operaciones, cifrado y reautorización. La prueba SwiftData de Actions añade saldos, resumen mensual, reserva, presupuesto, categorías, compras de igual importe, repetición y aislamiento. Su compilación y ejecución requieren macOS; no se han ejecutado en Windows. Pasos/resultados en `Samples/sandbox/LEEME.md`.
+- Revisión local final: 43 archivos Swift sin errores sintácticos; las 39 fuentes de app incluidas exactamente una vez; versión Debug/Release, familias iPhone/iPad, plist y esquemas correctos; cinco workflows y 21 scripts comprobados; JSON y codificación UTF-8 válidos; `git diff --check` limpio; auditoría npm sin vulnerabilidades conocidas. No hay claves privadas seguidas por Git. Los ejemplos locales se instalan una vez y se respetan sus modificaciones/eliminaciones al actualizar.
+
 ## Activación del sandbox del proveedor · 0.4.1 (16 de octubre de 2026)
 
 - Verificada la clave RSA local (4096 bits), exclusión de Git y ausencia en su historial. Petición autenticada al proveedor: aplicación SANDBOX activa, AIS, ID coherente y callback exacto. Conversión PKCS#8 en memoria y subida de dos secretos a Cloudflare sin imprimir contenido ni alterar las claves de acceso/cifrado anteriores.

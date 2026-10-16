@@ -99,7 +99,7 @@ final class BankingConnectionClient {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withFullDate]
         let to = asOf
-        let from = Calendar.autoupdatingCurrent.date(byAdding: .day, value: -30, to: to) ?? to
+        let from = to.addingTimeInterval(-89 * 86_400)
         var query = [URLQueryItem(name: "from", value: formatter.string(from: from)), URLQueryItem(name: "to", value: formatter.string(from: to))]
         if let continuation { query.append(URLQueryItem(name: "continuation", value: continuation)) }
         return try await get("/v1/connections/\(connection.id)/accounts/\(account.id)", query: query)

@@ -80,6 +80,12 @@ struct BankConnectionsView: View {
                         }
                     }
                 }
+                if status?.mode == "sandbox" {
+                    Section("Prueba completa preparada") {
+                        Text("Elige Mock ASPSP y autoriza las tres cuentas: Día a día, Máster e Inversión. Se cargarán movimientos, categorías, presupuestos y una reserva para el máster en un espacio de prueba propio.")
+                            .font(.callout)
+                    }
+                }
                 ForEach(connections) { connection in
                     Section(connection.bank) {
                         ForEach(connection.accounts) { account in
@@ -215,7 +221,7 @@ private struct BankAccountPreviewView: View {
         List {
             Section {
                 Label("Datos de prueba · No se contabilizan", systemImage: "testtube.2")
-                Text("Consulta de los últimos 30 días. Solo movimientos contabilizados por el banco de pruebas; no incluye la cartera de valores.")
+                Text("Consulta de los últimos 90 días. Solo movimientos contabilizados por el banco de pruebas; no incluye la cartera de valores.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if let preview {

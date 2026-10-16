@@ -16,11 +16,12 @@ struct BankingWorkspaceView: View {
     @State private var container: ModelContainer?
     @State private var configuration: BankingServerConfiguration?
     @State private var mode = ""
+    @State private var scenario: String?
     @State private var errorMessage: String?
     var body: some View {
         Group {
             if let container, let configuration {
-                BankingWorkspaceContent(container: container, server: configuration.serverURL, mode: mode)
+                BankingWorkspaceContent(container: container, server: configuration.serverURL, mode: mode, scenario: scenario)
                     .modelContainer(container)
                     .environment(\.isBankingTestWorkspace, true)
             } else if let errorMessage {
@@ -35,10 +36,13 @@ struct BankingWorkspaceView: View {
             guard container == nil else { return }
             do {
                 guard let configuration = try BankingCredentialStore.load() else { throw BankingConnectionError.missingConfiguration }
-                let status = try await BankingConnectionClient(configuration: configuration).status()
+                let client = BankingConnectionClient(configuration: configuration)
+                let status = try await client.status()
+                let connections = try await client.connections()
+                let scenario = connections.contains(where: { $0.testScenario == BankingWorkspaceImporter.scenarioID }) ? BankingWorkspaceImporter.scenarioID : nil
                 try Task.checkCancellation()
-                let opened = try PersistenceController.makeBankingTestContainer(server: configuration.serverURL, mode: status.mode)
-                self.configuration = configuration; mode = status.mode; container = opened
+                let opened = try PersistenceController.makeBankingTestContainer(server: configuration.serverURL, mode: status.mode, scenario: scenario)
+                self.configuration = configuration; mode = status.mode; self.scenario = scenario; container = opened
             }
             catch is CancellationError { }
             catch let error as BankingConnectionError { errorMessage = error.localizedDescription }
@@ -55,10 +59,12 @@ private struct BankingWorkspaceContent: View {
     let container: ModelContainer
     let server: URL
     let mode: String
+    let scenario: String?
     @State private var busy = false
     @State private var lastSync: Date?
     @State private var summary = "Conectando con las cuentas de prueba…"
     @State private var errorMessage: String?
+    @State private var warnings: [String] = []
 
     private var canAccessContent: Bool { scenePhase == .active && (!appLockEnabled || lockManager.isUnlocked) }
     var body: some View {
@@ -70,6 +76,11 @@ private struct BankingWorkspaceContent: View {
                         VStack(alignment: .leading, spacing: 10) { title; actions }
                     }
                     Text(errorMessage ?? summary).font(.caption).foregroundStyle(errorMessage == nil ? Color.secondary : .red)
+                    if !warnings.isEmpty {
+                        DisclosureGroup("\(warnings.count) cuentas requieren atención") {
+                            ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in Text(warning).font(.caption) }
+                        }
+                    }
                     Text("Almacenamiento de prueba separado. Tus cuentas reales no cambian.").font(.caption)
                 }
                 .padding().frame(maxWidth: .infinity, alignment: .leading)
@@ -97,7 +108,7 @@ private struct BankingWorkspaceContent: View {
         }
     }
     private var title: some View {
-        Label(mode == "sandbox" ? "Sandbox · Datos de prueba" : "Demostración · Datos ficticios", systemImage: "testtube.2").font(.headline)
+        Label(scenario != nil ? "Prueba completa · Mock ASPSP" : (mode == "sandbox" ? "Sandbox · Datos de prueba" : "Demostración · Datos ficticios"), systemImage: "testtube.2").font(.headline)
     }
     private var actions: some View {
         ViewThatFits(in: .horizontal) {
@@ -117,7 +128,7 @@ private struct BankingWorkspaceContent: View {
     @MainActor private func synchronize(force: Bool) async {
         guard canAccessContent, !busy else { return }
         if !force, let lastSync, Date.now.timeIntervalSince(lastSync) < 60 { return }
-        busy = true; errorMessage = nil
+        busy = true; errorMessage = nil; warnings = []
         defer { busy = false }
         do {
             guard let configuration = try BankingCredentialStore.load() else { throw BankingConnectionError.missingConfiguration }
@@ -126,7 +137,10 @@ private struct BankingWorkspaceContent: View {
             guard ["demo", "sandbox"].contains(status.mode) else { throw BankingWorkspaceError.unsupportedEnvironment }
             guard configuration.serverURL == server, status.mode == mode else { throw BankingWorkspaceError.environmentChanged }
             let observedAt = Date.now
-            let connections = try await client.connections()
+            let available = try await client.connections()
+            let currentScenario = available.contains(where: { $0.testScenario == BankingWorkspaceImporter.scenarioID }) ? BankingWorkspaceImporter.scenarioID : nil
+            guard currentScenario == scenario else { throw BankingWorkspaceError.environmentChanged }
+            let connections = scenario == nil ? available : Array(available.filter { $0.testScenario == scenario }.prefix(1))
             var feeds: [BankingAccountFeed] = []
             for connection in connections {
                 for account in connection.accounts {
@@ -152,10 +166,13 @@ private struct BankingWorkspaceContent: View {
             try Task.checkCancellation()
             guard canAccessContent else { throw CancellationError() }
             let result = try BankingWorkspaceImporter.apply(feeds, server: configuration.serverURL,
-                mode: status.mode, in: container.mainContext, observedAt: observedAt)
+                mode: status.mode, in: container.mainContext, observedAt: observedAt, scenario: scenario)
+            warnings = result.warnings
             lastSync = observedAt
             summary = "\(result.accounts) cuentas actualizadas · \(result.inserted) movimientos nuevos. Se ven en Inicio, Cuentas y Movimientos."
             if connections.isEmpty { summary = "No hay conexiones activas. Vuelve a mis finanzas y conecta un banco de prueba." }
+            else if result.accounts == 0 { summary = "El proveedor no ofrece cuentas con un saldo contable compatible. Consulta el detalle o conecta Mock ASPSP para usar el escenario completo." }
+            else if result.inserted == 0 && result.skipped == 0 { summary = "\(result.accounts) cuentas actualizadas. El banco no ha devuelto movimientos en los últimos 90 días; puedes usar Mock ASPSP para probar el flujo completo." }
         } catch is CancellationError { }
         catch let error as URLError where error.code == .cancelled { }
         catch let error as BankingWorkspaceError { errorMessage = error.localizedDescription }
