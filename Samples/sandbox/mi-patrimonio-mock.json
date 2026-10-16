@@ -1,0 +1,1342 @@
+{
+  "accounts": [
+    {
+      "info": {
+        "name": "Día a día · Prueba",
+        "details": "mi-patrimonio-v1:daily",
+        "currency": "EUR",
+        "usage": "PRIV",
+        "cash_account_type": "CACC",
+        "account_id": {
+          "iban": "ES5299990000000000001111"
+        },
+        "all_account_ids": [
+          {
+            "scheme_name": "IBAN",
+            "identification": "ES5299990000000000001111"
+          }
+        ],
+        "resource_id": "10000000-0000-4000-8000-000000000001"
+      },
+      "transactions": [
+        {
+          "entry_reference": "2026-10-charge-13",
+          "transaction_id": "2026-10-charge-13",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "25.90",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-15",
+          "value_date": "2026-10-15",
+          "remittance_information": [
+            "Mascotas"
+          ],
+          "reference_number": "2026-10-charge-13"
+        },
+        {
+          "entry_reference": "2026-10-charge-14",
+          "transaction_id": "2026-10-charge-14",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "6.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-15",
+          "value_date": "2026-10-15",
+          "remittance_information": [
+            "Café compra uno"
+          ],
+          "reference_number": "2026-10-charge-14"
+        },
+        {
+          "entry_reference": "2026-10-charge-15",
+          "transaction_id": "2026-10-charge-15",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "6.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-15",
+          "value_date": "2026-10-15",
+          "remittance_information": [
+            "Café compra dos"
+          ],
+          "reference_number": "2026-10-charge-15"
+        },
+        {
+          "entry_reference": "2026-10-charge-12",
+          "transaction_id": "2026-10-charge-12",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "27.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-14",
+          "value_date": "2026-10-14",
+          "remittance_information": [
+            "Ocio cine"
+          ],
+          "reference_number": "2026-10-charge-12"
+        },
+        {
+          "entry_reference": "2026-10-refund",
+          "transaction_id": "2026-10-refund",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "25.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-10-14",
+          "value_date": "2026-10-14",
+          "remittance_information": [
+            "Reembolso compra de prueba"
+          ],
+          "reference_number": "2026-10-refund"
+        },
+        {
+          "entry_reference": "2026-10-charge-11",
+          "transaction_id": "2026-10-charge-11",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "24.30",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-13",
+          "value_date": "2026-10-13",
+          "remittance_information": [
+            "Supermercado"
+          ],
+          "reference_number": "2026-10-charge-11"
+        },
+        {
+          "entry_reference": "2026-10-charge-10",
+          "transaction_id": "2026-10-charge-10",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "12.99",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-12",
+          "value_date": "2026-10-12",
+          "remittance_information": [
+            "Suscripción streaming"
+          ],
+          "reference_number": "2026-10-charge-10"
+        },
+        {
+          "entry_reference": "2026-10-charge-9",
+          "transaction_id": "2026-10-charge-9",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "99.95",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-11",
+          "value_date": "2026-10-11",
+          "remittance_information": [
+            "Compras hogar"
+          ],
+          "reference_number": "2026-10-charge-9"
+        },
+        {
+          "entry_reference": "2026-10-charge-8",
+          "transaction_id": "2026-10-charge-8",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "61.25",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-10",
+          "value_date": "2026-10-10",
+          "remittance_information": [
+            "Supermercado"
+          ],
+          "reference_number": "2026-10-charge-8"
+        },
+        {
+          "entry_reference": "2026-10-charge-7",
+          "transaction_id": "2026-10-charge-7",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "42.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-09",
+          "value_date": "2026-10-09",
+          "remittance_information": [
+            "Restaurante"
+          ],
+          "reference_number": "2026-10-charge-7"
+        },
+        {
+          "entry_reference": "2026-10-charge-6",
+          "transaction_id": "2026-10-charge-6",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "18.40",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-08",
+          "value_date": "2026-10-08",
+          "remittance_information": [
+            "Farmacia"
+          ],
+          "reference_number": "2026-10-charge-6"
+        },
+        {
+          "entry_reference": "2026-10-charge-5",
+          "transaction_id": "2026-10-charge-5",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "35.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-07",
+          "value_date": "2026-10-07",
+          "remittance_information": [
+            "Transporte abono"
+          ],
+          "reference_number": "2026-10-charge-5"
+        },
+        {
+          "entry_reference": "2026-10-charge-4",
+          "transaction_id": "2026-10-charge-4",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "72.80",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-06",
+          "value_date": "2026-10-06",
+          "remittance_information": [
+            "Supermercado compra familiar"
+          ],
+          "reference_number": "2026-10-charge-4"
+        },
+        {
+          "entry_reference": "2026-10-charge-3",
+          "transaction_id": "2026-10-charge-3",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "39.90",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-05",
+          "value_date": "2026-10-05",
+          "remittance_information": [
+            "Internet y móvil"
+          ],
+          "reference_number": "2026-10-charge-3"
+        },
+        {
+          "entry_reference": "2026-10-own-transfer-2-out",
+          "transaction_id": "2026-10-own-transfer-2-out",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "250.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-05",
+          "value_date": "2026-10-05",
+          "remittance_information": [
+            "Aportación inversión"
+          ],
+          "reference_number": "2026-10-own-transfer-2",
+          "creditor_account": {
+            "iban": "ES0499990000000000003333"
+          }
+        },
+        {
+          "entry_reference": "2026-10-charge-2",
+          "transaction_id": "2026-10-charge-2",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "82.35",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-04",
+          "value_date": "2026-10-04",
+          "remittance_information": [
+            "Electricidad hogar"
+          ],
+          "reference_number": "2026-10-charge-2"
+        },
+        {
+          "entry_reference": "2026-10-charge-1",
+          "transaction_id": "2026-10-charge-1",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "45.60",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-03",
+          "value_date": "2026-10-03",
+          "remittance_information": [
+            "Supermercado cesta semanal"
+          ],
+          "reference_number": "2026-10-charge-1"
+        },
+        {
+          "entry_reference": "2026-10-own-transfer-1-out",
+          "transaction_id": "2026-10-own-transfer-1-out",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "300.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-03",
+          "value_date": "2026-10-03",
+          "remittance_information": [
+            "Aportación máster"
+          ],
+          "reference_number": "2026-10-own-transfer-1",
+          "creditor_account": {
+            "iban": "ES2899990000000000002222"
+          }
+        },
+        {
+          "entry_reference": "2026-10-charge-0",
+          "transaction_id": "2026-10-charge-0",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "850.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-02",
+          "value_date": "2026-10-02",
+          "remittance_information": [
+            "Alquiler vivienda"
+          ],
+          "reference_number": "2026-10-charge-0"
+        },
+        {
+          "entry_reference": "2026-10-salary",
+          "transaction_id": "2026-10-salary",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "2500.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-10-01",
+          "value_date": "2026-10-01",
+          "remittance_information": [
+            "Nómina empresa de prueba"
+          ],
+          "reference_number": "2026-10-salary"
+        },
+        {
+          "entry_reference": "2026-09-charge-13",
+          "transaction_id": "2026-09-charge-13",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "25.90",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-15",
+          "value_date": "2026-09-15",
+          "remittance_information": [
+            "Mascotas"
+          ],
+          "reference_number": "2026-09-charge-13"
+        },
+        {
+          "entry_reference": "2026-09-charge-14",
+          "transaction_id": "2026-09-charge-14",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "6.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-15",
+          "value_date": "2026-09-15",
+          "remittance_information": [
+            "Café compra uno"
+          ],
+          "reference_number": "2026-09-charge-14"
+        },
+        {
+          "entry_reference": "2026-09-charge-15",
+          "transaction_id": "2026-09-charge-15",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "6.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-15",
+          "value_date": "2026-09-15",
+          "remittance_information": [
+            "Café compra dos"
+          ],
+          "reference_number": "2026-09-charge-15"
+        },
+        {
+          "entry_reference": "2026-09-charge-12",
+          "transaction_id": "2026-09-charge-12",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "27.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-14",
+          "value_date": "2026-09-14",
+          "remittance_information": [
+            "Ocio cine"
+          ],
+          "reference_number": "2026-09-charge-12"
+        },
+        {
+          "entry_reference": "2026-09-refund",
+          "transaction_id": "2026-09-refund",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "25.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-09-14",
+          "value_date": "2026-09-14",
+          "remittance_information": [
+            "Reembolso compra de prueba"
+          ],
+          "reference_number": "2026-09-refund"
+        },
+        {
+          "entry_reference": "2026-09-charge-11",
+          "transaction_id": "2026-09-charge-11",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "24.30",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-13",
+          "value_date": "2026-09-13",
+          "remittance_information": [
+            "Supermercado"
+          ],
+          "reference_number": "2026-09-charge-11"
+        },
+        {
+          "entry_reference": "2026-09-charge-10",
+          "transaction_id": "2026-09-charge-10",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "12.99",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-12",
+          "value_date": "2026-09-12",
+          "remittance_information": [
+            "Suscripción streaming"
+          ],
+          "reference_number": "2026-09-charge-10"
+        },
+        {
+          "entry_reference": "2026-09-charge-9",
+          "transaction_id": "2026-09-charge-9",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "99.95",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-11",
+          "value_date": "2026-09-11",
+          "remittance_information": [
+            "Compras hogar"
+          ],
+          "reference_number": "2026-09-charge-9"
+        },
+        {
+          "entry_reference": "2026-09-charge-8",
+          "transaction_id": "2026-09-charge-8",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "61.25",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-10",
+          "value_date": "2026-09-10",
+          "remittance_information": [
+            "Supermercado"
+          ],
+          "reference_number": "2026-09-charge-8"
+        },
+        {
+          "entry_reference": "2026-09-charge-7",
+          "transaction_id": "2026-09-charge-7",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "42.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-09",
+          "value_date": "2026-09-09",
+          "remittance_information": [
+            "Restaurante"
+          ],
+          "reference_number": "2026-09-charge-7"
+        },
+        {
+          "entry_reference": "2026-09-charge-6",
+          "transaction_id": "2026-09-charge-6",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "18.40",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-08",
+          "value_date": "2026-09-08",
+          "remittance_information": [
+            "Farmacia"
+          ],
+          "reference_number": "2026-09-charge-6"
+        },
+        {
+          "entry_reference": "2026-09-charge-5",
+          "transaction_id": "2026-09-charge-5",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "35.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-07",
+          "value_date": "2026-09-07",
+          "remittance_information": [
+            "Transporte abono"
+          ],
+          "reference_number": "2026-09-charge-5"
+        },
+        {
+          "entry_reference": "2026-09-charge-4",
+          "transaction_id": "2026-09-charge-4",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "72.80",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-06",
+          "value_date": "2026-09-06",
+          "remittance_information": [
+            "Supermercado compra familiar"
+          ],
+          "reference_number": "2026-09-charge-4"
+        },
+        {
+          "entry_reference": "2026-09-charge-3",
+          "transaction_id": "2026-09-charge-3",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "39.90",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-05",
+          "value_date": "2026-09-05",
+          "remittance_information": [
+            "Internet y móvil"
+          ],
+          "reference_number": "2026-09-charge-3"
+        },
+        {
+          "entry_reference": "2026-09-own-transfer-2-out",
+          "transaction_id": "2026-09-own-transfer-2-out",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "250.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-05",
+          "value_date": "2026-09-05",
+          "remittance_information": [
+            "Aportación inversión"
+          ],
+          "reference_number": "2026-09-own-transfer-2",
+          "creditor_account": {
+            "iban": "ES0499990000000000003333"
+          }
+        },
+        {
+          "entry_reference": "2026-09-charge-2",
+          "transaction_id": "2026-09-charge-2",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "82.35",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-04",
+          "value_date": "2026-09-04",
+          "remittance_information": [
+            "Electricidad hogar"
+          ],
+          "reference_number": "2026-09-charge-2"
+        },
+        {
+          "entry_reference": "2026-09-charge-1",
+          "transaction_id": "2026-09-charge-1",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "45.60",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-03",
+          "value_date": "2026-09-03",
+          "remittance_information": [
+            "Supermercado cesta semanal"
+          ],
+          "reference_number": "2026-09-charge-1"
+        },
+        {
+          "entry_reference": "2026-09-own-transfer-1-out",
+          "transaction_id": "2026-09-own-transfer-1-out",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "300.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-03",
+          "value_date": "2026-09-03",
+          "remittance_information": [
+            "Aportación máster"
+          ],
+          "reference_number": "2026-09-own-transfer-1",
+          "creditor_account": {
+            "iban": "ES2899990000000000002222"
+          }
+        },
+        {
+          "entry_reference": "2026-09-charge-0",
+          "transaction_id": "2026-09-charge-0",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "850.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-02",
+          "value_date": "2026-09-02",
+          "remittance_information": [
+            "Alquiler vivienda"
+          ],
+          "reference_number": "2026-09-charge-0"
+        },
+        {
+          "entry_reference": "2026-09-salary",
+          "transaction_id": "2026-09-salary",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "2500.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-09-01",
+          "value_date": "2026-09-01",
+          "remittance_information": [
+            "Nómina empresa de prueba"
+          ],
+          "reference_number": "2026-09-salary"
+        },
+        {
+          "entry_reference": "2026-08-charge-13",
+          "transaction_id": "2026-08-charge-13",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "25.90",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-15",
+          "value_date": "2026-08-15",
+          "remittance_information": [
+            "Mascotas"
+          ],
+          "reference_number": "2026-08-charge-13"
+        },
+        {
+          "entry_reference": "2026-08-charge-14",
+          "transaction_id": "2026-08-charge-14",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "6.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-15",
+          "value_date": "2026-08-15",
+          "remittance_information": [
+            "Café compra uno"
+          ],
+          "reference_number": "2026-08-charge-14"
+        },
+        {
+          "entry_reference": "2026-08-charge-15",
+          "transaction_id": "2026-08-charge-15",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "6.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-15",
+          "value_date": "2026-08-15",
+          "remittance_information": [
+            "Café compra dos"
+          ],
+          "reference_number": "2026-08-charge-15"
+        },
+        {
+          "entry_reference": "2026-08-charge-12",
+          "transaction_id": "2026-08-charge-12",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "27.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-14",
+          "value_date": "2026-08-14",
+          "remittance_information": [
+            "Ocio cine"
+          ],
+          "reference_number": "2026-08-charge-12"
+        },
+        {
+          "entry_reference": "2026-08-refund",
+          "transaction_id": "2026-08-refund",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "25.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-08-14",
+          "value_date": "2026-08-14",
+          "remittance_information": [
+            "Reembolso compra de prueba"
+          ],
+          "reference_number": "2026-08-refund"
+        },
+        {
+          "entry_reference": "2026-08-charge-11",
+          "transaction_id": "2026-08-charge-11",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "24.30",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-13",
+          "value_date": "2026-08-13",
+          "remittance_information": [
+            "Supermercado"
+          ],
+          "reference_number": "2026-08-charge-11"
+        },
+        {
+          "entry_reference": "2026-08-charge-10",
+          "transaction_id": "2026-08-charge-10",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "12.99",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-12",
+          "value_date": "2026-08-12",
+          "remittance_information": [
+            "Suscripción streaming"
+          ],
+          "reference_number": "2026-08-charge-10"
+        },
+        {
+          "entry_reference": "2026-08-charge-9",
+          "transaction_id": "2026-08-charge-9",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "99.95",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-11",
+          "value_date": "2026-08-11",
+          "remittance_information": [
+            "Compras hogar"
+          ],
+          "reference_number": "2026-08-charge-9"
+        },
+        {
+          "entry_reference": "2026-08-charge-8",
+          "transaction_id": "2026-08-charge-8",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "61.25",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-10",
+          "value_date": "2026-08-10",
+          "remittance_information": [
+            "Supermercado"
+          ],
+          "reference_number": "2026-08-charge-8"
+        },
+        {
+          "entry_reference": "2026-08-charge-7",
+          "transaction_id": "2026-08-charge-7",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "42.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-09",
+          "value_date": "2026-08-09",
+          "remittance_information": [
+            "Restaurante"
+          ],
+          "reference_number": "2026-08-charge-7"
+        },
+        {
+          "entry_reference": "2026-08-charge-6",
+          "transaction_id": "2026-08-charge-6",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "18.40",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-08",
+          "value_date": "2026-08-08",
+          "remittance_information": [
+            "Farmacia"
+          ],
+          "reference_number": "2026-08-charge-6"
+        },
+        {
+          "entry_reference": "2026-08-charge-5",
+          "transaction_id": "2026-08-charge-5",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "35.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-07",
+          "value_date": "2026-08-07",
+          "remittance_information": [
+            "Transporte abono"
+          ],
+          "reference_number": "2026-08-charge-5"
+        },
+        {
+          "entry_reference": "2026-08-charge-4",
+          "transaction_id": "2026-08-charge-4",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "72.80",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-06",
+          "value_date": "2026-08-06",
+          "remittance_information": [
+            "Supermercado compra familiar"
+          ],
+          "reference_number": "2026-08-charge-4"
+        },
+        {
+          "entry_reference": "2026-08-charge-3",
+          "transaction_id": "2026-08-charge-3",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "39.90",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-05",
+          "value_date": "2026-08-05",
+          "remittance_information": [
+            "Internet y móvil"
+          ],
+          "reference_number": "2026-08-charge-3"
+        },
+        {
+          "entry_reference": "2026-08-own-transfer-2-out",
+          "transaction_id": "2026-08-own-transfer-2-out",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "250.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-05",
+          "value_date": "2026-08-05",
+          "remittance_information": [
+            "Aportación inversión"
+          ],
+          "reference_number": "2026-08-own-transfer-2",
+          "creditor_account": {
+            "iban": "ES0499990000000000003333"
+          }
+        },
+        {
+          "entry_reference": "2026-08-charge-2",
+          "transaction_id": "2026-08-charge-2",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "82.35",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-04",
+          "value_date": "2026-08-04",
+          "remittance_information": [
+            "Electricidad hogar"
+          ],
+          "reference_number": "2026-08-charge-2"
+        },
+        {
+          "entry_reference": "2026-08-charge-1",
+          "transaction_id": "2026-08-charge-1",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "45.60",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-03",
+          "value_date": "2026-08-03",
+          "remittance_information": [
+            "Supermercado cesta semanal"
+          ],
+          "reference_number": "2026-08-charge-1"
+        },
+        {
+          "entry_reference": "2026-08-own-transfer-1-out",
+          "transaction_id": "2026-08-own-transfer-1-out",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "300.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-03",
+          "value_date": "2026-08-03",
+          "remittance_information": [
+            "Aportación máster"
+          ],
+          "reference_number": "2026-08-own-transfer-1",
+          "creditor_account": {
+            "iban": "ES2899990000000000002222"
+          }
+        },
+        {
+          "entry_reference": "2026-08-charge-0",
+          "transaction_id": "2026-08-charge-0",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "850.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-02",
+          "value_date": "2026-08-02",
+          "remittance_information": [
+            "Alquiler vivienda"
+          ],
+          "reference_number": "2026-08-charge-0"
+        },
+        {
+          "entry_reference": "2026-08-salary",
+          "transaction_id": "2026-08-salary",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "2500.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-08-01",
+          "value_date": "2026-08-01",
+          "remittance_information": [
+            "Nómina empresa de prueba"
+          ],
+          "reference_number": "2026-08-salary"
+        }
+      ],
+      "balances": [
+        {
+          "balance_type": "CLBD",
+          "name": "Saldo contable de prueba",
+          "reference_date": "2026-10-16",
+          "last_change_date_time": null,
+          "last_committed_transaction": null,
+          "balance_amount": {
+            "amount": "3570.68",
+            "currency": "EUR"
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "name": "Máster · Prueba",
+        "details": "mi-patrimonio-v1:reserved",
+        "currency": "EUR",
+        "usage": "PRIV",
+        "cash_account_type": "CACC",
+        "account_id": {
+          "iban": "ES2899990000000000002222"
+        },
+        "all_account_ids": [
+          {
+            "scheme_name": "IBAN",
+            "identification": "ES2899990000000000002222"
+          }
+        ],
+        "resource_id": "10000000-0000-4000-8000-000000000002"
+      },
+      "transactions": [
+        {
+          "entry_reference": "2026-10-savings-interest",
+          "transaction_id": "2026-10-savings-interest",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "3.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-10-15",
+          "value_date": "2026-10-15",
+          "remittance_information": [
+            "Intereses ahorro"
+          ],
+          "reference_number": "2026-10-savings-interest"
+        },
+        {
+          "entry_reference": "2026-10-own-transfer-1-in",
+          "transaction_id": "2026-10-own-transfer-1-in",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "300.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-10-03",
+          "value_date": "2026-10-03",
+          "remittance_information": [
+            "Aportación máster"
+          ],
+          "reference_number": "2026-10-own-transfer-1",
+          "debtor_account": {
+            "iban": "ES5299990000000000001111"
+          }
+        },
+        {
+          "entry_reference": "2026-09-savings-interest",
+          "transaction_id": "2026-09-savings-interest",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "3.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-09-15",
+          "value_date": "2026-09-15",
+          "remittance_information": [
+            "Intereses ahorro"
+          ],
+          "reference_number": "2026-09-savings-interest"
+        },
+        {
+          "entry_reference": "2026-09-own-transfer-1-in",
+          "transaction_id": "2026-09-own-transfer-1-in",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "300.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-09-03",
+          "value_date": "2026-09-03",
+          "remittance_information": [
+            "Aportación máster"
+          ],
+          "reference_number": "2026-09-own-transfer-1",
+          "debtor_account": {
+            "iban": "ES5299990000000000001111"
+          }
+        },
+        {
+          "entry_reference": "2026-08-savings-interest",
+          "transaction_id": "2026-08-savings-interest",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "3.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-08-15",
+          "value_date": "2026-08-15",
+          "remittance_information": [
+            "Intereses ahorro"
+          ],
+          "reference_number": "2026-08-savings-interest"
+        },
+        {
+          "entry_reference": "2026-08-own-transfer-1-in",
+          "transaction_id": "2026-08-own-transfer-1-in",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "300.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-08-03",
+          "value_date": "2026-08-03",
+          "remittance_information": [
+            "Aportación máster"
+          ],
+          "reference_number": "2026-08-own-transfer-1",
+          "debtor_account": {
+            "iban": "ES5299990000000000001111"
+          }
+        }
+      ],
+      "balances": [
+        {
+          "balance_type": "CLBD",
+          "name": "Saldo contable de prueba",
+          "reference_date": "2026-10-16",
+          "last_change_date_time": null,
+          "last_committed_transaction": null,
+          "balance_amount": {
+            "amount": "1909.00",
+            "currency": "EUR"
+          }
+        }
+      ]
+    },
+    {
+      "info": {
+        "name": "Inversión · Prueba",
+        "details": "mi-patrimonio-v1:investment",
+        "currency": "EUR",
+        "usage": "PRIV",
+        "cash_account_type": "CACC",
+        "account_id": {
+          "iban": "ES0499990000000000003333"
+        },
+        "all_account_ids": [
+          {
+            "scheme_name": "IBAN",
+            "identification": "ES0499990000000000003333"
+          }
+        ],
+        "resource_id": "10000000-0000-4000-8000-000000000003"
+      },
+      "transactions": [
+        {
+          "entry_reference": "2026-10-dividend",
+          "transaction_id": "2026-10-dividend",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "12.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-10-14",
+          "value_date": "2026-10-14",
+          "remittance_information": [
+            "Dividendos de prueba"
+          ],
+          "reference_number": "2026-10-dividend"
+        },
+        {
+          "entry_reference": "2026-10-fee",
+          "transaction_id": "2026-10-fee",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "1.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-10-07",
+          "value_date": "2026-10-07",
+          "remittance_information": [
+            "Comisión cuenta de valores"
+          ],
+          "reference_number": "2026-10-fee"
+        },
+        {
+          "entry_reference": "2026-10-own-transfer-2-in",
+          "transaction_id": "2026-10-own-transfer-2-in",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "250.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-10-05",
+          "value_date": "2026-10-05",
+          "remittance_information": [
+            "Aportación inversión"
+          ],
+          "reference_number": "2026-10-own-transfer-2",
+          "debtor_account": {
+            "iban": "ES5299990000000000001111"
+          }
+        },
+        {
+          "entry_reference": "2026-09-dividend",
+          "transaction_id": "2026-09-dividend",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "12.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-09-14",
+          "value_date": "2026-09-14",
+          "remittance_information": [
+            "Dividendos de prueba"
+          ],
+          "reference_number": "2026-09-dividend"
+        },
+        {
+          "entry_reference": "2026-09-fee",
+          "transaction_id": "2026-09-fee",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "1.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-09-07",
+          "value_date": "2026-09-07",
+          "remittance_information": [
+            "Comisión cuenta de valores"
+          ],
+          "reference_number": "2026-09-fee"
+        },
+        {
+          "entry_reference": "2026-09-own-transfer-2-in",
+          "transaction_id": "2026-09-own-transfer-2-in",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "250.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-09-05",
+          "value_date": "2026-09-05",
+          "remittance_information": [
+            "Aportación inversión"
+          ],
+          "reference_number": "2026-09-own-transfer-2",
+          "debtor_account": {
+            "iban": "ES5299990000000000001111"
+          }
+        },
+        {
+          "entry_reference": "2026-08-dividend",
+          "transaction_id": "2026-08-dividend",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "12.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-08-14",
+          "value_date": "2026-08-14",
+          "remittance_information": [
+            "Dividendos de prueba"
+          ],
+          "reference_number": "2026-08-dividend"
+        },
+        {
+          "entry_reference": "2026-08-fee",
+          "transaction_id": "2026-08-fee",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "1.50",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "DBIT",
+          "booking_date": "2026-08-07",
+          "value_date": "2026-08-07",
+          "remittance_information": [
+            "Comisión cuenta de valores"
+          ],
+          "reference_number": "2026-08-fee"
+        },
+        {
+          "entry_reference": "2026-08-own-transfer-2-in",
+          "transaction_id": "2026-08-own-transfer-2-in",
+          "status": "BOOK",
+          "transaction_amount": {
+            "amount": "250.00",
+            "currency": "EUR"
+          },
+          "credit_debit_indicator": "CRDT",
+          "booking_date": "2026-08-05",
+          "value_date": "2026-08-05",
+          "remittance_information": [
+            "Aportación inversión"
+          ],
+          "reference_number": "2026-08-own-transfer-2",
+          "debtor_account": {
+            "iban": "ES5299990000000000001111"
+          }
+        }
+      ],
+      "balances": [
+        {
+          "balance_type": "CLBD",
+          "name": "Saldo contable de prueba",
+          "reference_date": "2026-10-16",
+          "last_change_date_time": null,
+          "last_committed_transaction": null,
+          "balance_amount": {
+            "amount": "1281.50",
+            "currency": "EUR"
+          }
+        }
+      ]
+    }
+  ]
+}

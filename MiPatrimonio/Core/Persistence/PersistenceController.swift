@@ -39,9 +39,9 @@ enum PersistenceController {
 
     // The testing workspace never uses MiPatrimonio.store or an in-memory fallback
     // to the real container. A failure leaves the user's real store untouched.
-    @MainActor static func makeBankingTestContainer(server: URL, mode: String) throws -> ModelContainer {
+    @MainActor static func makeBankingTestContainer(server: URL, mode: String, scenario: String? = nil) throws -> ModelContainer {
         let directory = try protectedApplicationSupportDirectory()
-        let filename = try BankingWorkspaceImporter.storeFilename(server: server, mode: mode)
+        let filename = try BankingWorkspaceImporter.storeFilename(server: server, mode: mode, scenario: scenario)
         let configuration = ModelConfiguration("BankingTests", schema: schema,
             url: directory.appendingPathComponent(filename),
             allowsSave: true, cloudKitDatabase: .none)

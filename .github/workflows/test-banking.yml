@@ -33,11 +33,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
       - name: Comprobar importación, cálculos, repetición y aislamiento
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build/banking-workspace-check
+          node BankingBackend/tools/prepare-sandbox-check.mjs build/banking-workspace-check/scenario.json
           xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
             MiPatrimonio/Core/Models/Models.swift \
             MiPatrimonio/Shared/Formatting.swift \

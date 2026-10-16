@@ -1,5 +1,6 @@
 import { Fault, mode, origin, now, base64url, limitedBytes, sha256 } from './security.mjs';
 import { Buffer } from 'node:buffer';
+import { SCENARIO_ID, scenarioRole } from './sandbox-scenario.mjs';
 
 const API = 'https://api.enablebanking.com';
 const BANKS = ['Bankinter', 'BBVA', 'Trade Republic'];
@@ -85,14 +86,19 @@ export async function exchange(code, bank, env) {
   if (!Array.isArray(data.accounts) || data.accounts.length > 30
       || !/^[a-f0-9-]{36}$/i.test(data.session_id ?? '') || !data.access?.valid_until
       || data.aspsp?.name !== bank || data.aspsp?.country !== 'ES' || data.psu_type !== 'personal') throw new Fault(502, 'invalid_provider_data');
-  const accounts = await Promise.all(data.accounts.map(async (account, index) => ({
-    id: await sha256(`${data.session_id}:${account.uid}`), uid: account.uid,
-    // Do not persist account-holder names or a full IBAN embedded in the bank's account label.
-    name: `Cuenta de prueba ${index + 1}`, currency: account.currency,
-    lastFour: String(account.account_id?.iban ?? '').replace(/\s/g, '').slice(-4)
-  })));
+  const accounts = await Promise.all(data.accounts.map(async (account, index) => {
+    const iban = String(account.account_id?.iban ?? '').replace(/\s/g, '').toUpperCase();
+    const testRole = scenarioRole(bank, iban);
+    return {
+      // Only this named synthetic fixture keeps its identity through renewed consents.
+      id: await sha256(testRole ? `${SCENARIO_ID}:${testRole}` : `${data.session_id}:${account.uid}`), uid: account.uid,
+      name: `Cuenta de prueba ${index + 1}`, currency: account.currency,
+      lastFour: iban.slice(-4), ownershipKey: iban ? await sha256(iban) : undefined, testRole
+    };
+  }));
   if (accounts.length > 30 || accounts.some(a => !/^[a-f0-9-]{36}$/i.test(a.uid ?? '') || !/^[A-Z]{3}$/.test(a.currency ?? ''))) throw new Fault(502, 'invalid_provider_data');
-  return { bank, sessionID: data.session_id, validUntil: data.access.valid_until, accounts };
+  const testScenario = accounts.length === 3 && new Set(accounts.map(a => a.testRole).filter(Boolean)).size === 3 ? SCENARIO_ID : undefined;
+  return { bank, sessionID: data.session_id, validUntil: data.access.valid_until, accounts, testScenario };
 }
 export function demoConnection(bank) {
   return { bank, sessionID: 'fictitious-session', validUntil: new Date((now() + 86400) * 1000).toISOString(),
@@ -116,9 +122,13 @@ export async function normalizeTransaction(t, account) {
   const description = (Array.isArray(t.remittance_information) ? t.remittance_information : []).filter(s => typeof s === 'string').join(' ').slice(0, 500)
     || String(t.creditor?.name ?? t.debtor?.name ?? 'Movimiento bancario').slice(0, 500);
   const reference = t.entry_reference || t.transaction_id;
+  const otherIBAN = (t.credit_debit_indicator === 'DBIT' ? t.creditor_account?.iban : t.debtor_account?.iban);
+  const pairReference = t.end_to_end_id || t.reference_number;
   return { id: reference ? await sha256(`${account.id}:${reference}`) : null,
     bookingDate: t.booking_date, signedAmountMinor: t.credit_debit_indicator === 'DBIT' ? -amount : amount,
-    currency: account.currency, description };
+    currency: account.currency, description,
+    counterpartyKey: typeof otherIBAN === 'string' ? await sha256(otherIBAN.replace(/\s/g, '').toUpperCase()) : undefined,
+    transferKey: typeof pairReference === 'string' && pairReference && pairReference !== 'NOTPROVIDED' ? await sha256(pairReference) : undefined };
 }
 export async function accountData(conn, account, from, to, continuation, env) {
   if (mode(env) === 'demo') {

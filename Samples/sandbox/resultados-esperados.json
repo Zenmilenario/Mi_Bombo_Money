@@ -1,0 +1,26 @@
+{
+  "scenario": "mi-patrimonio-v1",
+  "asOf": "2026-10-16",
+  "accounts": 3,
+  "statementRows": 75,
+  "transferPairs": 6,
+  "appMovements": 69,
+  "incomeMinor": 762000,
+  "expenseMinor": 435882,
+  "netSavingsMinor": 326118,
+  "netWorthMinor": 676118,
+  "balances": [
+    {
+      "role": "daily",
+      "balanceMinor": 357068
+    },
+    {
+      "role": "reserved",
+      "balanceMinor": 190900
+    },
+    {
+      "role": "investment",
+      "balanceMinor": 128150
+    }
+  ]
+}

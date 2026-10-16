@@ -2,15 +2,17 @@
 
 Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones.
 
-## Integración bancaria de prueba 0.4.1
+## Integración bancaria de prueba 0.4.2
 
 Disponible en **Ajustes → Datos → Conexiones bancarias** y **Cuentas → + → Conectar banco**. Al conectar se abre un espacio completo con Inicio, Cuentas, Movimientos y Presupuestos. Cada servidor y entorno tiene un archivo `MiPatrimonioBankingTests-<entorno>-<hash>.store`, separado de `MiPatrimonio.store`. Un indicador permanente identifica Sandbox o Demostración y permite **Volver a mis finanzas**. Las conexiones existentes tienen un botón para abrir ese espacio.
 
 El despliegue personal ya está configurado en **Sandbox de Enable Banking**. El catálogo verificado permite BBVA, Banco de Sabadell y Mock ASPSP. La versión 0.4.1 admite el dominio oficial de autorización que está devolviendo este sandbox y separa los datos de la demostración anterior. Las credenciales de prueba y los pasos están en [BankingBackend/README.md](BankingBackend/README.md#sandbox-activado-en-el-despliegue-personal).
 
+**Prueba completa lista:** las tres cuentas de Mock ASPSP ya contienen 75 apuntes ficticios. La app 0.4.2 los incorpora como 69 operaciones, reconociendo seis transferencias propias; prepara categorías, presupuestos, reserva del máster y una tarjeta de ejemplo. El escenario tiene su propio archivo local para conservar también los datos manuales del sandbox anterior. Pasos y resultados esperados: [Prueba completa](Samples/sandbox/LEEME.md). El Worker ya está desplegado; instala el IPA nuevo tras pasar Actions. No necesitas repetir comandos ni claves.
+
 **Las cuentas reales siguen bloqueadas y los datos ficticios no se mezclan con tus finanzas reales.** Cloudflare solo aloja el servidor: para llegar a datos reales falta configurar el proveedor y completar la vinculación/conciliación contable. El siguiente paso para uso personal está en [Conectar mis cuentas reales](BankingBackend/CONEXION_REAL_PERSONAL.md). No hay claves compartidas incluidas en la app.
 
-La actualización se realiza al abrir el espacio de prueba o volver a primer plano, con un intervalo mínimo de un minuto, y con **Actualizar**. No se prometen actualizaciones con la app cerrada. Se reciben todas las páginas antes de guardar; los identificadores por servidor/entorno/cuenta evitan duplicar movimientos al actualizar y los saldos contables se guardan sin sumar dos veces el historial. Se aplican las reglas de categorías y, en su ausencia, Otros ingresos/Otros gastos. La prueba admite euros y saldo CLBD. Las copias de tus finanzas reales no incluyen este espacio; no se permite importar/exportar copias desde el espacio de prueba para evitar confusiones.
+La actualización se realiza al abrir el espacio de prueba o volver a primer plano, con un intervalo mínimo de un minuto, y con **Actualizar**. No se prometen actualizaciones con la app cerrada. Se reciben todas las páginas antes de guardar; los identificadores por servidor/entorno/cuenta evitan duplicar movimientos al actualizar y los saldos contables se guardan sin sumar dos veces el historial. Se aplican las reglas de categorías y, en su ausencia, Otros ingresos/Otros gastos. La prueba admite euros y saldos contables ITBD o CLBD; las cuentas con saldos incompatibles se explican por separado. Se consultan 90 días. Las copias de tus finanzas reales no incluyen este espacio; no se permite importar/exportar copias desde el espacio de prueba para evitar confusiones.
 
 La versión 0.3.1 corrige el cierre en el retorno del navegador y coordina la huella/Face ID del bloqueo general con las operaciones bancarias. Una verificación reciente se reutiliza durante un máximo de 30 segundos; pasar realmente a segundo plano la invalida y sigue ocultando el contenido. Cancelar una autenticación no inicia reintentos automáticos.
 

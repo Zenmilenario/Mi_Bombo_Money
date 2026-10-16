@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createHash, randomBytes, generateKeyPairSync } from 'node:crypto';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { fileURLToPath } from 'node:url';
+import { generateScenario } from '../../tools/generate-sandbox-scenario.mjs';
 
 let mf, db, token;
 const host = 'https://bank-test.personal.workers.dev';
@@ -11,7 +12,7 @@ async function boot(overrides = {}, outboundService) {
   token = randomBytes(32).toString('hex');
   mf = new Miniflare(convertV4MiniflareOptions({
     sendMetrics: false,
-    modules: ['worker', 'security', 'store', 'provider'].map(name => ({ type: 'ESModule',
+    modules: ['worker', 'security', 'store', 'provider', 'sandbox-scenario'].map(name => ({ type: 'ESModule',
       path: fileURLToPath(new URL(`../../src/${name}.mjs`, import.meta.url)) })),
     compatibilityDate: '2026-10-12', compatibilityFlags: ['nodejs_compat'],
     d1Databases: ['DB'],
@@ -212,7 +213,15 @@ async function sandboxFixture(environment = 'SANDBOX', options = {}) {
     if (url.pathname === '/sessions') {
       assert.deepEqual(await request.json(), { code: 'fictitious-code' });
       return Response.json({ session_id: sessionID, aspsp: { name: options.bankName ?? 'BBVA', country: 'ES' }, psu_type: 'personal', access: { valid_until: new Date(Date.now() + 86400_000).toISOString() },
-        accounts: [{ uid: accountID, name: 'Sandbox account', currency: 'EUR', account_id: { iban: 'FICTITIOUS-IBAN-1234' } }] });
+        accounts: options.scenario?.accounts.map(a => ({ ...a.info, uid: a.info.resource_id })) ?? [{ uid: accountID, name: 'Sandbox account', currency: 'EUR', account_id: { iban: 'FICTITIOUS-IBAN-1234' } }] });
+    }
+    if (options.scenario && url.pathname.startsWith('/accounts/')) {
+      const data = options.scenario.accounts.find(a => url.pathname.split('/')[2] === a.info.resource_id);
+      assert.ok(data, 'Only authorized provider accounts can be queried');
+      if (url.pathname.endsWith('/balances')) return Response.json({ balances: data.balances });
+      const offset = Number(url.searchParams.get('continuation_key') ?? 0);
+      return Response.json({ transactions: data.transactions.slice(offset, offset + 10),
+        continuation_key: offset + 10 < data.transactions.length ? String(offset + 10) : null });
     }
     if (url.pathname.endsWith('/balances')) return Response.json({ balances: [{ balance_amount: { amount: '10.00', currency: 'EUR' }, balance_type: 'CLBD' }] });
     if (url.pathname.endsWith('/transactions')) return Response.json({ transactions: [{ status: 'BOOK', entry_reference: 'fixture-reference',
@@ -308,4 +317,48 @@ test('a failed revocation retains the encrypted reference so the user can retry'
   await mf.dispatchFetch(`${host}/v1/callback?state=${state}&code=fictitious-code`, { redirect: 'manual' });
   assert.equal((await call(`/v1/connections/${flow.id}`, { method: 'DELETE' })).status, 502);
   assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM connections').first()).n, 1);
+});
+
+
+test('complete Mock scenario survives D1 encryption, pagination and renewed consents without leaking IBANs', async () => {
+  const { fixture, expected } = generateScenario();
+  await sandboxFixture('SANDBOX', { bankName: 'Mock ASPSP', scenario: fixture,
+    aspsps: [{ name: 'Mock ASPSP', country: 'ES', psu_types: ['personal'], maximum_consent_validity: 86400 }] });
+  const connections = [];
+  for (let renewal = 0; renewal < 2; renewal++) {
+    const flow = await start('Mock ASPSP');
+    const state = new URL(flow.authorizationURL).searchParams.get('state');
+    const result = await mf.dispatchFetch(`${host}/v1/callback?state=${state}&code=fictitious-code`, { redirect: 'manual' });
+    assert.match(result.headers.get('Location'), /result=ok/);
+    const all = (await (await call('/v1/connections')).json()).connections;
+    connections.push(all.find(c => c.id === flow.id));
+  }
+  const [first, renewed] = connections;
+  assert.equal(first.testScenario, 'mi-patrimonio-v1');
+  assert.equal(first.accounts.length, 3);
+  assert.deepEqual(first.accounts.map(a => a.id).sort(), renewed.accounts.map(a => a.id).sort());
+  assert.equal(new Set(first.accounts.map(a => a.ownershipKey)).size, 3);
+  const today = new Date().toISOString().slice(0, 10);
+  const from = new Date(Date.now() - 89 * 86400_000).toISOString().slice(0, 10);
+  let count = 0, pairedLegs = 0;
+  for (const account of renewed.accounts) {
+    let cursor, rows = [], balance;
+    do {
+      const path = `/v1/connections/${renewed.id}/accounts/${account.id}?from=${from}&to=${today}` + (cursor ? `&continuation=${cursor}` : '');
+      const response = await call(path); assert.equal(response.status, 200);
+      const data = await response.json();
+      if (!cursor) balance = data.balances[0]; else assert.deepEqual(data.balances, []);
+      rows.push(...data.transactions); cursor = data.continuation;
+    } while (cursor);
+    count += rows.length;
+    pairedLegs += rows.filter(r => r.counterpartyKey && r.transferKey).length;
+    assert.equal(new Set(rows.map(r => r.id)).size, rows.length);
+    assert.equal(balance.amountMinor, expected.balances.find(b => b.role === account.testRole).balanceMinor);
+    const encoded = JSON.stringify({ account, rows });
+    for (const a of fixture.accounts) assert.ok(!encoded.includes(a.info.account_id.iban));
+  }
+  assert.equal(count, expected.statementRows);
+  assert.equal(pairedLegs, expected.transferPairs * 2);
+  const stored = JSON.stringify((await db.prepare('SELECT * FROM connections').all()).results);
+  for (const a of fixture.accounts) assert.ok(!stored.includes(a.info.account_id.iban));
 });

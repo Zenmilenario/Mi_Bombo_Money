@@ -13,8 +13,9 @@ function assertDate(value) {
       || new Date(value).toISOString().slice(0, 10) !== value) throw new Fault(400, 'invalid_date_range');
 }
 function projectConnection(c) {
-  return { id: c.id, bank: c.bank, validUntil: c.validUntil,
-    accounts: c.accounts.map(a => ({ id: a.id, name: a.name, currency: a.currency, lastFour: a.lastFour })) };
+  return { id: c.id, bank: c.bank, validUntil: c.validUntil, testScenario: c.testScenario,
+    accounts: c.accounts.map(a => ({ id: a.id, name: a.name, currency: a.currency, lastFour: a.lastFour,
+      ownershipKey: a.ownershipKey, testRole: a.testRole })) };
 }
 async function callback(request, url, env) {
   await rateLimit(env, 'callbacks', 20);
