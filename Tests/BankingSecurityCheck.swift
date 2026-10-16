@@ -26,6 +26,11 @@ struct BankingSecurityCheck {
             } catch is BankingConnectionError { }
         }
         precondition(BankingConnectionPolicy.acceptsAuthorizationURL(URL(string: "https://auth.enablebanking.com/authorize")!, server: configuration.serverURL))
+        precondition(BankingConnectionPolicy.acceptsAuthorizationURL(URL(string: "https://tilisy-sandbox.enablebanking.com/authorize")!, server: configuration.serverURL))
+        for invalid in ["https://tilisy-sandbox.enablebanking.com.evil.test/authorize", "http://tilisy-sandbox.enablebanking.com/authorize",
+                        "https://user@tilisy-sandbox.enablebanking.com/authorize", "https://tilisy-sandbox.enablebanking.com:8443/authorize"] {
+            precondition(!BankingConnectionPolicy.acceptsAuthorizationURL(URL(string: invalid)!, server: configuration.serverURL))
+        }
         precondition(!BankingConnectionPolicy.acceptsAuthorizationURL(URL(string: "https://auth.enablebanking.com.evil.test/authorize")!, server: configuration.serverURL))
         precondition(!BankingConnectionPolicy.acceptsAuthorizationURL(URL(string: "http://auth.enablebanking.com/authorize")!, server: configuration.serverURL))
         let flow = UUID().uuidString.lowercased()

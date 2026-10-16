@@ -12,7 +12,7 @@
 		"enabled": false
 	},
 	"vars": {
-		"PROVIDER_MODE": "demo",
+		"PROVIDER_MODE": "sandbox",
 		"PUBLIC_ORIGIN": "https://mi-bombo-banking.albertor7722.workers.dev"
 	},
 	"d1_databases": [

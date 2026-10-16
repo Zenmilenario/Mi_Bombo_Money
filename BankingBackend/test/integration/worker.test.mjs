@@ -201,16 +201,17 @@ async function sandboxFixture(environment = 'SANDBOX', options = {}) {
       if (options.redirectApplication) return new Response(null, { status: 302, headers: { Location: 'https://evil.test/collect' } });
       return Response.json({ environment, kid: appID, active: true, services: ['AIS'], redirect_urls: [`${host}/v1/callback`] });
     }
-    if (url.pathname === '/aspsps') return Response.json({ aspsps: [{ name: 'BBVA', country: 'ES', psu_types: ['personal'], maximum_consent_validity: 86400, beta: false }] });
+    if (url.pathname === '/aspsps') return Response.json({ aspsps: options.aspsps ?? [{ name: 'BBVA', country: 'ES', psu_types: ['personal'], maximum_consent_validity: 86400, beta: false }] });
     if (url.pathname === '/auth') {
       const body = await request.json();
       assert.equal(body.redirect_url, `${host}/v1/callback`);
       assert.equal(body.psu_type, 'personal');
-      return Response.json({ url: `https://auth.enablebanking.com/authorize?state=${body.state}` });
+      assert.equal(body.aspsp.name, options.bankName ?? 'BBVA');
+      return Response.json({ url: `${options.authorizationOrigin ?? 'https://auth.enablebanking.com'}/authorize?state=${body.state}` });
     }
     if (url.pathname === '/sessions') {
       assert.deepEqual(await request.json(), { code: 'fictitious-code' });
-      return Response.json({ session_id: sessionID, aspsp: { name: 'BBVA', country: 'ES' }, psu_type: 'personal', access: { valid_until: new Date(Date.now() + 86400_000).toISOString() },
+      return Response.json({ session_id: sessionID, aspsp: { name: options.bankName ?? 'BBVA', country: 'ES' }, psu_type: 'personal', access: { valid_until: new Date(Date.now() + 86400_000).toISOString() },
         accounts: [{ uid: accountID, name: 'Sandbox account', currency: 'EUR', account_id: { iban: 'FICTITIOUS-IBAN-1234' } }] });
     }
     if (url.pathname.endsWith('/balances')) return Response.json({ balances: [{ balance_amount: { amount: '10.00', currency: 'EUR' }, balance_type: 'CLBD' }] });
@@ -245,6 +246,43 @@ test('sandbox uses signed provider requests, single-use code exchange, sanitized
   assert.equal(second.continuation, null);
   assert.equal((await call(`/v1/connections/${connection.id}`, { method: 'DELETE' })).status, 204);
   assert.equal(fixture.calls.filter(x => x === 'POST /sessions').length, 1);
+});
+
+test('sandbox exposes verified Spanish personal test banks and supports Mock ASPSP through consent and revocation', async () => {
+  const entry = (name, country = 'ES', psu_types = ['personal']) => ({ name, country, psu_types, maximum_consent_validity: 86400, beta: false });
+  await sandboxFixture('SANDBOX', { bankName: 'Mock ASPSP', authorizationOrigin: 'https://tilisy-sandbox.enablebanking.com', aspsps: [
+    entry('BBVA'), entry('Banco de Sabadell'), entry('Mock ASPSP'), entry('Mock ASPSP', 'DE'),
+    entry('Unknown'), entry('Bankinter'), entry('Trade Republic'), entry('BBVA', 'ES', ['business'])
+  ] });
+  const catalog = await call('/v1/banks');
+  assert.equal(catalog.status, 200);
+  assert.deepEqual((await catalog.json()).banks.map(bank => bank.name), ['BBVA', 'Banco de Sabadell', 'Mock ASPSP']);
+  const flow = await start('Mock ASPSP');
+  assert.equal(new URL(flow.authorizationURL).origin, 'https://tilisy-sandbox.enablebanking.com');
+  const state = new URL(flow.authorizationURL).searchParams.get('state');
+  const completed = await mf.dispatchFetch(`${host}/v1/callback?state=${state}&code=fictitious-code`, { redirect: 'manual' });
+  assert.equal(completed.status, 303);
+  assert.match(completed.headers.get('Location'), /result=ok/);
+  const sessions = (await (await call('/v1/connections')).json()).connections;
+  assert.equal(sessions.length, 1);
+  assert.equal(sessions[0].bank, 'Mock ASPSP');
+  assert.equal((await call(`/v1/connections/${sessions[0].id}`, { method: 'DELETE' })).status, 204);
+  const forbidden = await call('/v1/authorizations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bank: 'Unknown' }) });
+  assert.equal(forbidden.status, 400);
+});
+
+test('demo cannot select a sandbox-only bank', async () => {
+  const response = await call('/v1/authorizations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bank: 'Mock ASPSP' }) });
+  assert.equal(response.status, 400);
+  assert.deepEqual(await response.json(), { error: 'unsupported_bank' });
+});
+
+test('sandbox rejects a provider authorization URL on a lookalike host and removes its pending request', async () => {
+  await sandboxFixture('SANDBOX', { authorizationOrigin: 'https://tilisy-sandbox.enablebanking.com.evil.test' });
+  const response = await call('/v1/authorizations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bank: 'BBVA' }) });
+  assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { error: 'invalid_provider_data' });
+  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM auth_requests').first()).n, 0);
 });
 
 test('production credentials cannot accidentally enable real banking in the sandbox worker', async () => {

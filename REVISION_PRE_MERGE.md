@@ -2,6 +2,16 @@
 
 Fecha: 5 de octubre de 2026. Rama: `codex/dynamic-clean-start-icon`.
 
+## Activación del sandbox del proveedor · 0.4.1 (16 de octubre de 2026)
+
+- Verificada la clave RSA local (4096 bits), exclusión de Git y ausencia en su historial. Petición autenticada al proveedor: aplicación SANDBOX activa, AIS, ID coherente y callback exacto. Conversión PKCS#8 en memoria y subida de dos secretos a Cloudflare sin imprimir contenido ni alterar las claves de acceso/cifrado anteriores.
+- Catálogo real consultado: BBVA, Banco de Sabadell y Mock ASPSP disponibles para particulares ES. Se habilitan solo esos nombres del catálogo; las etiquetas demo Bankinter/Trade Republic no se ofrecen como sandbox sin cobertura. Producción sigue bloqueada.
+- Una prueba de inicio detectó que la API utiliza `tilisy-sandbox.enablebanking.com`. Corregidas las listas exactas de destinos en Worker e iOS y añadidas pruebas de dominio parecido, HTTP, usuario y puerto. El JWT no abandona las peticiones del servidor al API oficial.
+- Archivos de prueba separados por origen HTTPS canónico y modo, con hash completo en el nombre. El importador rechaza archivos de otro servidor/entorno y el almacén real. Si el entorno cambia con el espacio abierto, se informa y se exige reabrir. Los archivos demo anteriores no se borran.
+- Versión 0.4.1, build local 18; se requiere IPA nuevo por la validación de URL de iOS. Pruebas locales: 11 unitarias y 16 de integración superadas y empaquetado seco correcto. Añadidas pruebas Swift de separación de almacenes y del dominio sandbox; compilación/ejecución pendientes de macOS/Actions y del dispositivo.
+- Publicado el Worker `5e091c47-746c-4a7f-8803-0df369ea1789` con el modo sandbox y los secretos existentes. Verificación remota autenticada: estado y catálogo 200, inicio de autorización BBVA y Mock ASPSP 201, origen HTTPS oficial validado. Estas comprobaciones no completaron autorización, crearon conexiones ni importaron movimientos. La autorización y consulta completas se deben probar en el dispositivo.
+- Revisión local del cliente: 43 archivos Swift sin errores en el analizador sintáctico; 39 fuentes de app registradas una vez; Debug/Release 0.4.1 (18), plist/esquemas válidos, cinco workflows y 21 scripts comprobados. `git diff --check` sin errores; no hay archivos PEM ni claves privadas seguidos por Git. No sustituye la compilación del SDK de Apple.
+
 ## Integración del espacio bancario · 0.4.0 (15 de octubre de 2026)
 
 - La conexión deja de terminar únicamente en una consulta: tras autorizar abre un espacio completo con las vistas habituales. Las conexiones anteriores tienen acceso directo sin repetir autorización. También se puede abrir Conexiones bancarias desde Cuentas → +.

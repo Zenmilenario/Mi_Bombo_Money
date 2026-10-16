@@ -1,5 +1,13 @@
 # Lista de pruebas del rediseño
 
+## Sandbox del proveedor · 0.4.1
+
+- [ ] Actualizar conexiones muestra entorno Sandbox y los bancos de prueba disponibles. BBVA/Sabadell usan las credenciales ficticias documentadas por Enable Banking.
+- [ ] El navegador abre la autorización oficial del sandbox sin error de destino inválido y vuelve a la app tras autorizar. Cancelar permite volver a intentarlo sin cerrar la app.
+- [ ] El espacio nuevo indica Sandbox y no incluye las cuentas ni movimientos de la demostración anterior. Volver a mis finanzas mantiene los datos reales.
+- [ ] Cambiar de servidor o de entorno mientras está abierto el espacio impide sincronizar en el archivo anterior y pide cerrar/reabrir; no se importan datos parciales.
+- [ ] Mock ASPSP, con datos configurados en el panel, permite ensayar ingresos, gastos, paginación, repetición y revocación. Las pruebas con el proveedor y en iPad quedan pendientes hasta completarlas con su autorización.
+
 ## Integración bancaria en toda la app · 0.4.0
 
 - [ ] Con una conexión ya creada, abrir Ajustes → Datos → Conexiones bancarias → Abrir Inicio, Cuentas y Movimientos de prueba. No pide volver a autorizar el banco.

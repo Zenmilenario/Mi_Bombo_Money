@@ -10,11 +10,12 @@ struct BankingAccountFeed {
 }
 
 enum BankingWorkspaceError: LocalizedError {
-    case invalidData, unsupportedEnvironment, editing, incompleteHistory
+    case invalidData, unsupportedEnvironment, environmentChanged, editing, incompleteHistory
     var errorDescription: String? {
         switch self {
         case .invalidData: "No se han guardado los datos recibidos: falta un saldo contable en euros o un identificador, o hay movimientos incoherentes."
         case .unsupportedEnvironment: "Este espacio solo admite datos de demostración o sandbox."
+        case .environmentChanged: "Ha cambiado el servidor o el entorno. Vuelve a mis finanzas y abre de nuevo el espacio de prueba."
         case .editing: "Termina de guardar tus cambios antes de actualizar las cuentas."
         case .incompleteHistory: "No se ha podido recibir todo el historial. No se han guardado datos parciales. Vuelve a intentarlo."
         }
@@ -26,6 +27,15 @@ enum BankingWorkspaceError: LocalizedError {
 // unchanged; each external identity is scoped to origin, environment and account.
 enum BankingWorkspaceImporter {
     struct Result { let accounts: Int; let inserted: Int; let skipped: Int }
+
+    static func storeFilename(server: URL, mode: String) throws -> String {
+        guard ["demo", "sandbox"].contains(mode), server.scheme == "https", let host = server.host,
+              server.user == nil, server.password == nil, server.port == nil,
+              server.query == nil, server.fragment == nil, server.path.isEmpty || server.path == "/" else {
+            throw BankingWorkspaceError.unsupportedEnvironment
+        }
+        return "MiPatrimonioBankingTests-\(mode)-\(hash("https://" + host.lowercased())).store"
+    }
     private struct Movement {
         let key: String; let date: Date; let amount: Int64; let text: String
     }
@@ -38,9 +48,9 @@ enum BankingWorkspaceImporter {
     @MainActor
     static func apply(_ feeds: [BankingAccountFeed], server: URL, mode: String,
                       in context: ModelContext, observedAt: Date = .now) throws -> Result {
-        guard ["demo", "sandbox"].contains(mode) else { throw BankingWorkspaceError.unsupportedEnvironment }
+        let expectedStore = try storeFilename(server: server, mode: mode)
         guard !context.container.configurations.contains(where: {
-            $0.name == "LocalFinance" || (!$0.isStoredInMemoryOnly && $0.url.lastPathComponent != "MiPatrimonioBankingTests.store")
+            $0.name == "LocalFinance" || (!$0.isStoredInMemoryOnly && $0.url.lastPathComponent != expectedStore)
         }) else { throw BankingWorkspaceError.unsupportedEnvironment }
         guard !context.hasChanges else { throw BankingWorkspaceError.editing }
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withFullDate]

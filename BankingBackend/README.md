@@ -1,6 +1,18 @@
-# Prueba privada de conexión bancaria · cliente 0.4.0
+# Prueba privada de conexión bancaria · cliente 0.4.1
 
 ## Qué está preparado
+
+### Sandbox activado en el despliegue personal
+
+El 16 de octubre de 2026 se verificó la aplicación de Enable Banking como SANDBOX, activa, con servicio AIS y retorno exacto del Worker. La clave RSA local, excluida de Git y no presente en su historial, se convirtió a PKCS#8 en memoria y se subió únicamente como secreto `ENABLE_PRIVATE_KEY`, junto con `ENABLE_APP_ID`. Se conservan los secretos de acceso del dispositivo y cifrado D1. El despliegue está en `PROVIDER_MODE: sandbox`; producción permanece bloqueada.
+
+El catálogo real del sandbox ofrece BBVA, Banco de Sabadell y Mock ASPSP entre los bancos habilitados para esta app. Bankinter y Trade Republic no figuran en el catálogo de prueba consultado. No se deduce de ello la cobertura del entorno real.
+
+La API devuelve en esta configuración `https://tilisy-sandbox.enablebanking.com` como origen de autorización. Se admite ese dominio exacto en el Worker y en el cliente 0.4.1, además de `auth.enablebanking.com`. No se aceptan comodines, HTTP, credenciales en la URL, puertos alternativos ni subdominios parecidos. [Referencia oficial del sandbox](https://enablebanking.com/docs/api/quick-start/alt).
+
+Para probar BBVA, instala el IPA 0.4.1 tras pasar Actions, abre Conexiones bancarias, pulsa Actualizar conexiones y elige BBVA. Las credenciales ficticias publicadas por Enable Banking son usuario `user1`, contraseña `1234` y OTP `012345`. Úsalas únicamente en el flujo sandbox, sin introducir tus credenciales reales. [Credenciales oficiales](https://enablebanking.com/docs/api/sandbox/#bbva).
+
+Mock ASPSP permite preparar datos propios de prueba desde su pestaña en el panel del proveedor; hay que crear esos casos para que la autorización devuelva cuentas y movimientos útiles. Su flujo no necesita credenciales bancarias reales. Las conexiones y el archivo local demo anterior se conservan aparte, sin borrarse ni añadirse al espacio sandbox nuevo.
 
 ### Integración en toda la app · 0.4.0
 
@@ -93,7 +105,7 @@ Después de validar la demostración:
    Get-Content -Raw -LiteralPath 'C:\RUTA-PRIVADA\private-pkcs8.pem' | npx wrangler secret put ENABLE_PRIVATE_KEY
    ```
 
-4. Cambia solo `PROVIDER_MODE` a `sandbox`, vuelve a desplegar y actualiza las conexiones en la app. Se consulta el catálogo sandbox para ES y particulares y se muestran Bankinter, BBVA y Trade Republic únicamente cuando estén disponibles en ese entorno. Si el catálogo de pruebas no los ofrece, se mostrará vacío: no se inventa cobertura.
+4. Cambia solo `PROVIDER_MODE` a `sandbox`, vuelve a desplegar y actualiza las conexiones en la app. Se consulta el catálogo sandbox para ES y particulares y se muestran BBVA, Banco de Sabadell y Mock ASPSP únicamente cuando estén disponibles en ese entorno. Si el catálogo de pruebas no los ofrece, se mostrará vacío: no se inventa cobertura. El despliegue personal de este repositorio ya está configurado; no repitas la generación de claves.
 5. Usa exclusivamente las identidades de prueba que facilite el sandbox. Una conexión sandbox no comprueba que funcione tu cuenta real. Las conexiones demo no aparecen en sandbox y sus datos no pueden descifrarse cambiando de modo; se eliminan al caducar.
 
 ## Seguridad y límites

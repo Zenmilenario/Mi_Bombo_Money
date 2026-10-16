@@ -3,7 +3,7 @@ import Foundation
 enum BankingConnectionPolicy {
     static func acceptsAuthorizationURL(_ url: URL, server: URL) -> Bool {
         url.scheme == "https" && url.user == nil && url.password == nil && url.port == nil
-            && (url.host == "auth.enablebanking.com" || url.host == server.host)
+            && (url.host == "auth.enablebanking.com" || url.host == "tilisy-sandbox.enablebanking.com" || url.host == server.host)
     }
 
     static func acceptsCallback(_ url: URL, flowID: String) -> Bool {
