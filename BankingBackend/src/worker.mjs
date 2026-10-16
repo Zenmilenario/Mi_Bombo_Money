@@ -1,6 +1,6 @@
 import { Fault, authenticate, origin, mode, readJSON, limitedBytes, UUID, isState, json, securityHeaders } from './security.mjs';
 import { rateLimit, newAuthorization, claimAuthorization, assertPendingAuthorization, saveConnection, connection, listConnections } from './store.mjs';
-import { demoBanks, banks, startAuthorization, exchange, demoConnection, accountData, revoke } from './provider.mjs';
+import { acceptsBankName, banks, startAuthorization, exchange, demoConnection, accountData, revoke } from './provider.mjs';
 
 function appRedirect(id, result) {
   // No bank code, state, token or session identifier enters the app URL.
@@ -86,7 +86,7 @@ export async function handle(request, env) {
   if (request.method === 'POST' && url.pathname === '/v1/authorizations') {
     await rateLimit(env, 'authorizations', 5);
     const { bank } = await readJSON(request, ['bank']);
-    if (!demoBanks().some(b => b.name === bank)) throw new Fault(400, 'unsupported_bank');
+    if (!acceptsBankName(bank, env)) throw new Fault(400, 'unsupported_bank');
     if ((await listConnections(env)).length >= 6) throw new Fault(409, 'connection_limit');
     const pending = await newAuthorization(bank, env);
     try { return json({ id: pending.id, authorizationURL: await startAuthorization(bank, pending.state, env) }, 201); }

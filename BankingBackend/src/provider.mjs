@@ -3,8 +3,12 @@ import { Buffer } from 'node:buffer';
 
 const API = 'https://api.enablebanking.com';
 const BANKS = ['Bankinter', 'BBVA', 'Trade Republic'];
+const SANDBOX_BANKS = ['BBVA', 'Banco de Sabadell', 'Mock ASPSP'];
 let cachedJWT;
 export function demoBanks() { return BANKS.map(name => ({ name, country: 'ES', beta: name === 'Trade Republic', maximumConsentValidity: 86400 })); }
+export function acceptsBankName(name, env) {
+  return (mode(env) === 'demo' ? BANKS : SANDBOX_BANKS).includes(name);
+}
 
 export async function providerJWT(env) {
   if (!/^[a-f0-9-]{36}$/i.test(env.ENABLE_APP_ID ?? '') || !env.ENABLE_PRIVATE_KEY) throw new Fault(503, 'not_configured');
@@ -53,7 +57,7 @@ export async function banks(env) {
   await verifySandbox(env);
   const data = await api('/aspsps?country=ES', env);
   if (!Array.isArray(data.aspsps)) throw new Fault(502, 'invalid_provider_data');
-  return data.aspsps.filter(b => b.country === 'ES' && BANKS.includes(b.name) && b.psu_types?.includes('personal'))
+  return data.aspsps.filter(b => b.country === 'ES' && acceptsBankName(b.name, env) && b.psu_types?.includes('personal'))
     .map(b => ({ name: b.name, country: b.country, beta: b.beta === true, maximumConsentValidity: b.maximum_consent_validity }));
 }
 export async function startAuthorization(bank, state, env) {
@@ -69,7 +73,8 @@ export async function startAuthorization(bank, state, env) {
   }) });
   let url;
   try { url = new URL(response.url); } catch { throw new Fault(502, 'invalid_provider_data'); }
-  if (url.protocol !== 'https:' || url.hostname !== 'auth.enablebanking.com' || url.username || url.password || url.port) {
+  if (url.protocol !== 'https:' || !['auth.enablebanking.com', 'tilisy-sandbox.enablebanking.com'].includes(url.hostname)
+      || url.username || url.password || url.port) {
     throw new Fault(502, 'invalid_provider_data');
   }
   return url.href;

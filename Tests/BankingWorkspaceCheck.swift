@@ -9,7 +9,22 @@ struct BankingWorkspaceCheck {
     @MainActor static func main() throws {
         try checkIntegrationAndIsolation()
         try checkValidationAndAtomicity()
+        try checkEnvironmentStores()
         print("Banking workspace checks passed: accounts, monthly totals, categories, snapshot accounting, repeat sync, identity scoping, invalid batches and isolation.")
+    }
+
+    private static func checkEnvironmentStores() throws {
+        let demo = try BankingWorkspaceImporter.storeFilename(server: server, mode: "demo")
+        let sandbox = try BankingWorkspaceImporter.storeFilename(server: server, mode: "sandbox")
+        let other = try BankingWorkspaceImporter.storeFilename(server: URL(string: "https://other.personal.workers.dev")!, mode: "sandbox")
+        precondition(demo != sandbox && sandbox != other, "Servers and environments must have separate stores")
+        let canonical = try BankingWorkspaceImporter.storeFilename(server: URL(string: server.absoluteString + "/")!, mode: "sandbox")
+        precondition(canonical == sandbox)
+        precondition(sandbox != "MiPatrimonio.store" && !sandbox.contains("/"))
+        do {
+            _ = try BankingWorkspaceImporter.storeFilename(server: server, mode: "production")
+            preconditionFailure("Production store accepted")
+        } catch is BankingWorkspaceError { }
     }
 
     private static func feed(bank: String = "BBVA", id: String = "00000000-0000-0000-0000-000000000001",

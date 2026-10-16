@@ -14,11 +14,13 @@ extension EnvironmentValues {
 struct BankingWorkspaceView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var container: ModelContainer?
+    @State private var configuration: BankingServerConfiguration?
+    @State private var mode = ""
     @State private var errorMessage: String?
     var body: some View {
         Group {
-            if let container {
-                BankingWorkspaceContent(container: container)
+            if let container, let configuration {
+                BankingWorkspaceContent(container: container, server: configuration.serverURL, mode: mode)
                     .modelContainer(container)
                     .environment(\.isBankingTestWorkspace, true)
             } else if let errorMessage {
@@ -31,7 +33,15 @@ struct BankingWorkspaceView: View {
         }
         .task {
             guard container == nil else { return }
-            do { container = try PersistenceController.makeBankingTestContainer() }
+            do {
+                guard let configuration = try BankingCredentialStore.load() else { throw BankingConnectionError.missingConfiguration }
+                let status = try await BankingConnectionClient(configuration: configuration).status()
+                try Task.checkCancellation()
+                let opened = try PersistenceController.makeBankingTestContainer(server: configuration.serverURL, mode: status.mode)
+                self.configuration = configuration; mode = status.mode; container = opened
+            }
+            catch is CancellationError { }
+            catch let error as BankingConnectionError { errorMessage = error.localizedDescription }
             catch { errorMessage = "No se han modificado tus datos reales. Cierra esta pantalla y vuelve a intentarlo." }
         }
     }
@@ -43,6 +53,8 @@ private struct BankingWorkspaceContent: View {
     @EnvironmentObject private var lockManager: AppLockManager
     @AppStorage("appLockEnabled") private var appLockEnabled = true
     let container: ModelContainer
+    let server: URL
+    let mode: String
     @State private var busy = false
     @State private var lastSync: Date?
     @State private var summary = "Conectando con las cuentas de prueba…"
@@ -85,7 +97,7 @@ private struct BankingWorkspaceContent: View {
         }
     }
     private var title: some View {
-        Label("App de prueba · Datos ficticios", systemImage: "testtube.2").font(.headline)
+        Label(mode == "sandbox" ? "Sandbox · Datos de prueba" : "Demostración · Datos ficticios", systemImage: "testtube.2").font(.headline)
     }
     private var actions: some View {
         ViewThatFits(in: .horizontal) {
@@ -112,6 +124,7 @@ private struct BankingWorkspaceContent: View {
             let client = BankingConnectionClient(configuration: configuration)
             let status = try await client.status()
             guard ["demo", "sandbox"].contains(status.mode) else { throw BankingWorkspaceError.unsupportedEnvironment }
+            guard configuration.serverURL == server, status.mode == mode else { throw BankingWorkspaceError.environmentChanged }
             let observedAt = Date.now
             let connections = try await client.connections()
             var feeds: [BankingAccountFeed] = []

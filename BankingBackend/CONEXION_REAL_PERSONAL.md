@@ -2,7 +2,9 @@
 
 Cloudflare ya aloja el servidor. Eso no le concede acceso a BBVA, Bankinter ni Trade Republic. Los datos de «cuenta ficticia» se generan en el servidor y nunca proceden de esos bancos.
 
-## Estado de la app 0.4.0
+## Estado de la app 0.4.1
+
+Ya se ha registrado y configurado una aplicación **Sandbox** de Enable Banking. Permite ensayar el flujo del proveedor con datos ficticios, y no concede acceso a las cuentas reales. Cada combinación de servidor y entorno tiene su propio archivo local de prueba.
 
 - El flujo de prueba deja ver cuentas, movimientos y saldos en Inicio, Cuentas y Movimientos, con un archivo local separado del real. La actualización vuelve a consultar el servidor al abrir ese espacio y al regresar a primer plano, con un intervalo mínimo de un minuto; también hay un botón Actualizar. No hay sincronización en segundo plano cuando la app está cerrada.
 - Se importan ingresos/gastos contabilizados con identificador estable, reglas de categoría, deduplicación por cuenta y saldo contable. Se comprueba que hayan llegado todas las páginas antes de guardar. Esta versión de prueba admite euros y saldo `CLBD`; si faltan esos datos o IDs estables se informa sin guardar una importación parcial.

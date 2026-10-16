@@ -2,9 +2,11 @@
 
 Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones.
 
-## Integración bancaria de prueba 0.4.0
+## Integración bancaria de prueba 0.4.1
 
-Disponible en **Ajustes → Datos → Conexiones bancarias** y **Cuentas → + → Conectar banco**. Al conectar se abre un espacio completo con Inicio, Cuentas, Movimientos y Presupuestos. Las cuentas y movimientos recibidos se guardan en `MiPatrimonioBankingTests.store`, separado de `MiPatrimonio.store`. Un indicador permanente identifica la prueba y permite **Volver a mis finanzas**. Las conexiones existentes tienen un botón para abrir ese espacio.
+Disponible en **Ajustes → Datos → Conexiones bancarias** y **Cuentas → + → Conectar banco**. Al conectar se abre un espacio completo con Inicio, Cuentas, Movimientos y Presupuestos. Cada servidor y entorno tiene un archivo `MiPatrimonioBankingTests-<entorno>-<hash>.store`, separado de `MiPatrimonio.store`. Un indicador permanente identifica Sandbox o Demostración y permite **Volver a mis finanzas**. Las conexiones existentes tienen un botón para abrir ese espacio.
+
+El despliegue personal ya está configurado en **Sandbox de Enable Banking**. El catálogo verificado permite BBVA, Banco de Sabadell y Mock ASPSP. La versión 0.4.1 admite el dominio oficial de autorización que está devolviendo este sandbox y separa los datos de la demostración anterior. Las credenciales de prueba y los pasos están en [BankingBackend/README.md](BankingBackend/README.md#sandbox-activado-en-el-despliegue-personal).
 
 **Las cuentas reales siguen bloqueadas y los datos ficticios no se mezclan con tus finanzas reales.** Cloudflare solo aloja el servidor: para llegar a datos reales falta configurar el proveedor y completar la vinculación/conciliación contable. El siguiente paso para uso personal está en [Conectar mis cuentas reales](BankingBackend/CONEXION_REAL_PERSONAL.md). No hay claves compartidas incluidas en la app.
 
