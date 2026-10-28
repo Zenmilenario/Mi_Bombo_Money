@@ -10,6 +10,7 @@ struct FinancialLogicCheck {
     static func main() throws {
         checkBalancesAndHistory()
         checkReservedPayments()
+        checkReservedBudgets()
         checkBudgetRemainders()
         checkReviewedAlerts()
         checkBankIdentity()
@@ -80,6 +81,71 @@ struct FinancialLogicCheck {
         payment.date = date(1, 5); payment.reservedFundID = nil; payment.reservedAmountMinor = nil
         precondition(FinanceCalculator.spendableCash(accounts: [account], funds: [fund], transactions: [payment]) == 10_000,
             "Ordinary expenses must keep reducing free cash")
+    }
+
+    private static func checkReservedBudgets() {
+        let account = FinancialAccount(name: "Corriente", type: .checking, openingBalanceMinor: 100_000, openingDate: date(1))
+        let fund = ReservedFund(name: "Objetivo", amountMinor: 60_000, account: account)
+        let category = FinanceCategory(name: "Formación", kind: .expense)
+        let payment = FinancialTransaction(date: date(1, 5), type: .expense, amountMinor: 20_000,
+            descriptionText: "Pago previsto", reservedFundID: fund.id, reservedAmountMinor: 20_000,
+            sourceAccount: account, category: category)
+        let mixed = FinancialTransaction(date: date(1, 6), type: .expense, amountMinor: 30_000,
+            descriptionText: "Pago mixto", reservedFundID: fund.id, reservedAmountMinor: 20_000,
+            sourceAccount: account, category: category)
+        let ordinary = FinancialTransaction(date: date(1, 7), type: .expense, amountMinor: 5_000,
+            descriptionText: "Pago ordinario", sourceAccount: account, category: category)
+        let transactions = [payment, mixed, ordinary]
+        let budget = MonthlyBudget(monthStart: date(1).startOfMonth(), limitMinor: 15_000, category: category)
+        func progress(_ payments: [FinancialTransaction]) -> BudgetProgress {
+            FinanceCalculator.budgetProgress(for: date(1), categories: [category], budgets: [budget], transactions: payments)[0]
+        }
+        precondition(progress([payment]).spentMinor == 0 && progress([payment]).fraction == 0,
+                     "A fully reserved payment must not consume budget or raise a budget alert")
+        precondition(progress([mixed]).spentMinor == 10_000,
+                     "Only the unreserved part of a mixed payment consumes budget")
+        precondition(progress(transactions).spentMinor == 15_000 && progress(transactions).fraction == 1)
+        precondition(progress([ordinary]).spentMinor == 5_000,
+                     "Ordinary spending still consumes budget and deleting a payment releases its contribution")
+        let summary = FinanceCalculator.monthlySummary(for: date(1), transactions: transactions)
+        precondition(summary.expenseMinor == 55_000 && summary.reservedExpenseMinor == 40_000 && summary.budgetExpenseMinor == 15_000)
+        precondition(summary.netSavingsMinor == -55_000,
+                     "Actual expenses and net savings must include payments made from earlier savings")
+        precondition(FinanceCalculator.spendingByCategory(for: date(1), categories: [category], transactions: transactions)[0].spentMinor == 55_000,
+                     "Expense analysis must retain the real category totals")
+        let plan = RecurringBudget(startMonth: date(1).startOfMonth(), baseLimitMinor: 50_000,
+            remainderChoice: .carryForward, category: category)
+        let carried = FinanceCalculator.budgetLimit(for: category, month: date(2), budgets: [], recurringBudgets: [plan],
+            transactions: transactions, asOf: date(2, 15))
+        precondition(carried.carriedInMinor == 35_000 && carried.limitMinor == 85_000,
+                     "Budget rollover must use the same reserved-payment exclusion")
+        let fee = FinancialTransaction(date: date(1, 8), type: .fee, amountMinor: 500,
+            descriptionText: "Comisión prevista", reservedFundID: fund.id, reservedAmountMinor: 500,
+            sourceAccount: account, category: category)
+        precondition(FinanceCalculator.budgetExpenseAmount(for: fee) == 0)
+        fee.type = .income
+        precondition(FinanceCalculator.reservedExpenseAmount(for: fee) == 0 && FinanceCalculator.budgetExpenseAmount(for: fee) == 0)
+
+        precondition(FinanceCalculator.suggestedReservedPaymentAmount(for: fund, transactionAmountMinor: 30_000, transactions: transactions) == 20_000)
+        precondition(FinanceCalculator.suggestedReservedPaymentAmount(for: fund, transactionAmountMinor: 10_000, transactions: transactions) == 10_000)
+        precondition(FinanceCalculator.suggestedReservedPaymentAmount(for: fund, transactionAmountMinor: 30_000,
+            transactions: transactions, excluding: payment.id) == 30_000, "Editing releases the previous allocation")
+        let future = FinancialTransaction(date: .now.addingTimeInterval(86_400), type: .expense, amountMinor: 15_000,
+            descriptionText: "Pago comprometido", reservedFundID: fund.id, reservedAmountMinor: 15_000, sourceAccount: account)
+        precondition(FinanceCalculator.suggestedReservedPaymentAmount(for: fund, transactionAmountMinor: 30_000,
+            transactions: transactions + [future]) == 5_000, "Suggested funding must respect future commitments")
+        fund.amountMinor = 40_000
+        precondition(progress(transactions).spentMinor == 15_000,
+                     "Exhausting a reserve must not change the funding history of its earlier payments")
+        mixed.reservedAmountMinor = 10_000
+        precondition(progress(transactions).spentMinor == 25_000 && progress(transactions).fraction > 1,
+                     "Editing a payment must immediately update budget alerts")
+        mixed.reservedAmountMinor = 90_000
+        precondition(FinanceCalculator.budgetExpenseAmount(for: mixed) == 0, "Invalid allocations cannot create negative budget spending")
+        mixed.reservedFundID = nil
+        precondition(FinanceCalculator.budgetExpenseAmount(for: mixed) == 30_000, "An unlinked amount is not reserved funding")
+        mixed.date = date(2, 6)
+        precondition(progress(transactions).spentMinor == 5_000, "Only payments in the selected month affect its budget")
     }
 
     private static func checkBankIdentity() {

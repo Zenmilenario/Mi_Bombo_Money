@@ -568,7 +568,7 @@ struct DashboardView: View {
                 )
 
                 MetricCard(
-                    title: "Gastos",
+                    title: "Gastos totales",
                     value: hidden(MoneyFormatter.string(minorUnits: monthSummary.expenseMinor)),
                     systemImage: "arrow.up",
                     tint: .red,
@@ -594,6 +594,16 @@ struct DashboardView: View {
                     )
                 }
 
+            }
+            if monthSummary.reservedExpenseMinor > 0 {
+                VStack(spacing: 6) {
+                    LabeledContent("Gasto para presupuesto", value: hidden(MoneyFormatter.string(minorUnits: monthSummary.budgetExpenseMinor)))
+                    LabeledContent("Pagado con reservas", value: hidden(MoneyFormatter.string(minorUnits: monthSummary.reservedExpenseMinor)))
+                    Text("Los pagos con dinero reservado quedan fuera del presupuesto mensual.")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             ViewThatFits(in: .horizontal) {
                 HStack {
