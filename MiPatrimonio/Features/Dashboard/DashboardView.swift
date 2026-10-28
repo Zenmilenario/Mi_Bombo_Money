@@ -104,7 +104,7 @@ struct DashboardView: View {
     private var reservedCash: Int64 {
         activeAccounts
             .filter { $0.includeInNetWorth && !$0.type.isLiability && $0.type != .investment }
-            .reduce(Int64.zero) { $0 + FinanceCalculator.reservedAmount(for: $1, funds: reservedFunds) }
+            .reduce(Int64.zero) { $0 + FinanceCalculator.reservedAmount(for: $1, funds: reservedFunds, transactions: transactions) }
     }
 
     private var investmentContributionsThisMonth: Int64 {

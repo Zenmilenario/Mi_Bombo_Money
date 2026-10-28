@@ -25,6 +25,7 @@ jobs:
             -parse-as-library \
             MiPatrimonio/Core/Models/Models.swift \
             MiPatrimonio/Core/Services/BackupService.swift \
+            MiPatrimonio/Core/Security/PasswordKeyDerivation.swift \
             MiPatrimonio/Core/Services/CategoryRuleService.swift \
             Tests/BackupRoundTripCheck.swift \
             -o build/backup-check/BackupRoundTripCheck
@@ -59,3 +60,21 @@ jobs:
             Tests/FinancialLogicCheck.swift \
             -o build/finance-check/FinancialLogicCheck
           build/finance-check/FinancialLogicCheck
+
+  passwords:
+    name: Contraseñas y separación de acceso bancario
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verificar derivación de claves y permisos
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/password-check
+          xcrun swiftc -swift-version 5 -parse-as-library \
+            MiPatrimonio/Core/Security/PasswordKeyDerivation.swift \
+            MiPatrimonio/Core/Security/AppAuthenticationPolicy.swift \
+            Tests/PasswordSecurityCheck.swift \
+            -o build/password-check/PasswordSecurityCheck
+          build/password-check/PasswordSecurityCheck

@@ -2,6 +2,12 @@
 
 Fecha: 5 de octubre de 2026. Rama: `codex/dynamic-clean-start-icon`.
 
+## Revisión del ZIP y pagos con reservas · 0.4.3 (28 de octubre de 2026)
+
+Se han integrado las mejoras útiles del ZIP directamente en la carpeta. Los pagos se vinculan explícitamente a una reserva de su cuenta y consumen solo su parte reservada; edición y eliminación recalculan el disponible. Se conserva el gasto real en presupuestos y resumen. Copias v2 con lectura de v1, correcciones del acceso/contraseñas y configuración universal/icono. Informe y pruebas: [Revisión del 28 de octubre](REVISION_2026_10_28.md).
+
+Revisión local: 48 fuentes Swift analizadas, 43 fuentes de app registradas una vez, plist/esquemas/proyecto/generador válidos y cinco workflows/22 scripts revisados. La ejecución de las pruebas SwiftData y compilación Xcode queda pendiente de Actions; hace falta comprobar también la actualización de una instalación existente en el iPad antes del merge.
+
 ## Prueba completa con datos · 0.4.2 (16 de octubre de 2026)
 
 - Diagnóstico remoto: BBVA devolvió siete cuentas y cero movimientos. Tres cuentas ofrecían CLBD; otras OPBD/XPCD causaban el rechazo completo. El importador admite ahora ITBD o CLBD y explica individualmente las cuentas incompatibles; las cargas con movimientos incoherentes siguen rechazándose antes de escribir.

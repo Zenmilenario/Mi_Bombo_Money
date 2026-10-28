@@ -54,10 +54,47 @@ struct NetWorthPoint: Identifiable {
 }
 
 enum FinanceCalculator {
-    static func reservedAmount(for account: FinancialAccount, funds: [ReservedFund]) -> Int64 {
+    static func spentReservedAmount(for fund: ReservedFund, transactions: [FinancialTransaction],
+                                    at date: Date = .now, excluding transactionID: UUID? = nil) -> Int64 {
+        transactions.filter {
+            $0.id != transactionID && $0.reservedFundID == fund.id && $0.type.countsAsExpense
+                && $0.sourceAccount?.id == fund.account?.id && $0.date <= date
+        }.reduce(Int64.zero) { total, transaction in
+            let amount = Swift.max(0, Swift.min(transaction.reservedAmountMinor ?? 0, transaction.amountMinor))
+            let sum = total.addingReportingOverflow(amount)
+            return sum.overflow ? Int64.max : sum.partialValue
+        }
+    }
+
+    static func remainingReservedAmount(for fund: ReservedFund, transactions: [FinancialTransaction],
+                                        at date: Date = .now, excluding transactionID: UUID? = nil) -> Int64 {
+        Swift.max(0, Swift.max(0, fund.amountMinor) - spentReservedAmount(for: fund, transactions: transactions,
+            at: date, excluding: transactionID))
+    }
+
+    static func reservedPaymentError(fund: ReservedFund, amountMinor: Int64, transactionAmountMinor: Int64,
+                                     type: TransactionType, account: FinancialAccount,
+                                     transactions: [FinancialTransaction], excluding transactionID: UUID? = nil) -> String? {
+        guard type.countsAsExpense, fund.account?.id == account.id,
+              account.includeInNetWorth, !account.isArchived, !account.type.isLiability, account.type != .investment else {
+            return "La reserva debe pertenecer a la cuenta desde la que pagas un gasto o comisión."
+        }
+        guard amountMinor > 0, amountMinor <= transactionAmountMinor else {
+            return "El importe de la reserva debe ser mayor que cero y no superar el pago."
+        }
+        // Future dated payments also commit funds; editing releases the old allocation.
+        let available = remainingReservedAmount(for: fund, transactions: transactions, at: .distantFuture, excluding: transactionID)
+        guard amountMinor <= available else {
+            return "La reserva no tiene suficiente dinero sin comprometer. Disponible: \(MoneyFormatter.string(minorUnits: available)). Reduce el importe tomado de la reserva o amplíala."
+        }
+        return nil
+    }
+
+    static func reservedAmount(for account: FinancialAccount, funds: [ReservedFund],
+                               transactions: [FinancialTransaction] = []) -> Int64 {
         funds
             .filter { $0.account?.id == account.id }
-            .reduce(Int64.zero) { $0 + Swift.max(0, $1.amountMinor) }
+            .reduce(Int64.zero) { $0 + remainingReservedAmount(for: $1, transactions: transactions) }
     }
 
     static func spendableCash(
@@ -70,7 +107,7 @@ enum FinanceCalculator {
             .filter { !$0.isArchived && $0.includeInNetWorth && $0.type != .investment && !$0.type.isLiability }
             .reduce(Int64.zero) { partial, account in
                 partial + balance(of: account, transactions: transactions, snapshots: snapshots)
-                    - reservedAmount(for: account, funds: funds)
+                    - reservedAmount(for: account, funds: funds, transactions: transactions)
             }
     }
 
@@ -324,21 +361,48 @@ enum FinanceCalculator {
         calendar: Calendar = .autoupdatingCurrent
     ) -> [NetWorthPoint] {
         let endMonth = month.startOfMonth(calendar: calendar)
+        let activeAccounts = accounts.filter { !$0.isArchived && $0.includeInNetWorth }
+        guard !activeAccounts.isEmpty else {
+            return (0..<Swift.max(0, months)).reversed().map { offset in
+                let monthStart = calendar.date(byAdding: .month, value: -offset, to: endMonth) ?? endMonth
+                return NetWorthPoint(date: monthStart, valueMinor: 0)
+            }
+        }
+
+        // Pre-index transactions and snapshots by account ID to avoid repeated O(M*A*N) full scans
+        var txByAccount: [UUID: [FinancialTransaction]] = [:]
+        for tx in transactions {
+            if let src = tx.sourceAccount?.id {
+                txByAccount[src, default: []].append(tx)
+            }
+            if let dest = tx.destinationAccount?.id, dest != tx.sourceAccount?.id {
+                txByAccount[dest, default: []].append(tx)
+            }
+        }
+        var snapsByAccount: [UUID: [BalanceSnapshot]] = [:]
+        for snap in snapshots {
+            if let accId = snap.account?.id {
+                snapsByAccount[accId, default: []].append(snap)
+            }
+        }
+
         return (0..<Swift.max(0, months)).reversed().map { offset in
             let monthStart = calendar.date(byAdding: .month, value: -offset, to: endMonth) ?? endMonth
             let monthEnd = monthStart.endOfMonth(calendar: calendar)
-            return NetWorthPoint(
-                date: monthStart,
-                valueMinor: netWorth(
-                    accounts: accounts,
-                    transactions: transactions,
-                    snapshots: snapshots,
-                    // The last point must agree with the balance at the requested date,
-                    // rather than include future transactions or valuations in that month.
-                    at: Swift.min(monthEnd, month)
-                )
-            )
+            let evaluationDate = Swift.min(monthEnd, month)
+
+            let total = activeAccounts.reduce(Int64.zero) { partial, account in
+                let accTx = txByAccount[account.id] ?? []
+                let accSnaps = snapsByAccount[account.id] ?? []
+                return partial + balance(of: account, at: evaluationDate, transactions: accTx, snapshots: accSnaps)
+            }
+
+            return NetWorthPoint(date: monthStart, valueMinor: total)
         }
+    }
+
+    static func hasMixedCurrencies(accounts: [FinancialAccount], primaryCurrency: String = "EUR") -> Bool {
+        accounts.contains { !$0.isArchived && $0.includeInNetWorth && $0.currencyCode != primaryCurrency }
     }
 
     static func estimatedAnnualInterestMinor(

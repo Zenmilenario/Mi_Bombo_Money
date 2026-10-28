@@ -2,6 +2,33 @@ import Combine
 import Foundation
 import LocalAuthentication
 
+enum BiometricDeviceType: String, CaseIterable, Identifiable {
+    case faceID
+    case touchID
+    case opticID
+    case passcode
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .faceID: "Face ID"
+        case .touchID: "Touch ID"
+        case .opticID: "Optic ID"
+        case .passcode: "Código"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .faceID: "faceid"
+        case .touchID: "touchid"
+        case .opticID: "opticid"
+        case .passcode: "lock.fill"
+        }
+    }
+}
+
 @MainActor
 final class AppLockManager: ObservableObject {
     @Published private(set) var policy = AppAuthenticationPolicy()
@@ -12,6 +39,20 @@ final class AppLockManager: ObservableObject {
     var isUnlocked: Bool { policy.isUnlocked }
     var isAuthenticating: Bool { policy.authenticationID != nil }
     var protectedActionInProgress: Bool { policy.protectedActionInProgress }
+
+    static var biometricType: BiometricDeviceType {
+        let context = LAContext()
+        var error: NSError?
+        guard context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) else {
+            return .passcode
+        }
+        switch context.biometryType {
+        case .faceID: return .faceID
+        case .touchID: return .touchID
+        case .opticID: return .opticID
+        default: return .passcode
+        }
+    }
 
     enum AuthorizationError: LocalizedError {
         case unavailable, notAuthenticated
@@ -43,6 +84,13 @@ final class AppLockManager: ObservableObject {
 
     func unlockWithoutAuthentication() {
         lock()
+        policy.unlockWithoutAuthentication()
+        lastErrorMessage = nil
+    }
+
+    func unlockWithCredentials() {
+        guard policy.isForeground, !isAuthenticating, !protectedActionInProgress else { return }
+        // An app password never counts as device-owner verification for banking.
         policy.unlockWithoutAuthentication()
         lastErrorMessage = nil
     }

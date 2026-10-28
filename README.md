@@ -2,6 +2,14 @@
 
 Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones.
 
+## Pagos con dinero reservado · 0.4.3
+
+Al registrar o editar un gasto, elige **Origen del dinero → Pagar con → tu reserva**. Solo se ofrecen reservas de la cuenta seleccionada. Puedes pagar todo con la reserva o indicar una parte y completar el resto con dinero disponible. También puedes deslizar una reserva en **Dinero reservado → Pagar** para abrir el movimiento con la cuenta y la reserva seleccionadas.
+
+El gasto reduce el saldo de la cuenta y el importe pendiente de la reserva; la parte pagada con reserva no vuelve a restarse del dinero disponible. Sigue siendo un gasto real en el resumen y los presupuestos. Editar o eliminar el movimiento recalcula la reserva. Para corregir un gasto anterior, edítalo y selecciona su reserva: no se asignan pagos antiguos por su descripción ni se reducen reservas automáticamente sin un vínculo explícito.
+
+Las copias JSON v2 conservan esos vínculos y se siguen leyendo las copias v1. Se incorporan las mejoras del ZIP revisado (CSV, copias cifradas y acceso local por usuario) con correcciones de seguridad, icono y compatibilidad universal. Detalle de la revisión y comprobaciones: [Revisión del 28 de octubre](REVISION_2026_10_28.md).
+
 ## Integración bancaria de prueba 0.4.2
 
 Disponible en **Ajustes → Datos → Conexiones bancarias** y **Cuentas → + → Conectar banco**. Al conectar se abre un espacio completo con Inicio, Cuentas, Movimientos y Presupuestos. Cada servidor y entorno tiene un archivo `MiPatrimonioBankingTests-<entorno>-<hash>.store`, separado de `MiPatrimonio.store`. Un indicador permanente identifica Sandbox o Demostración y permite **Volver a mis finanzas**. Las conexiones existentes tienen un botón para abrir ese espacio.
@@ -38,7 +46,7 @@ En **Ajustes → Datos → Copia de seguridad**, pulsa **Exportar todos mis dato
 
 Para recuperar los datos, abre la misma pantalla, pulsa **Elegir copia JSON** y selecciona el archivo. La app valida el formato y los vínculos entre registros y enseña la fecha y un resumen antes de permitir la restauración. Al confirmar, **reemplaza** todos los datos financieros actuales por los del archivo. Haz una copia reciente antes de sustituir datos que quieras conservar.
 
-El JSON no está cifrado ni protegido por contraseña; guárdalo en una ubicación privada y no lo compartas. Actualizar la app sin desinstalarla conserva normalmente los datos locales, pero la copia permite recuperarlos si reinstalas la app o cambias de dispositivo.
+Puedes exportar una copia cifrada con contraseña (opción predeterminada) o un JSON sin cifrar. El JSON sin cifrar contiene los datos financieros en claro; guárdalo en una ubicación privada. Las copias nuevas usan AES-256-GCM con PBKDF2-SHA256 y se siguen leyendo las copias cifradas anteriores. Actualizar la app sin desinstalarla conserva normalmente los datos locales, pero la copia permite recuperarlos si reinstalas la app o cambias de dispositivo.
 
 El workflow **Comprobar datos y cálculos** ejecuta en macOS una prueba de exportación y restauración de todos los modelos, restauración repetida sin duplicados, compatibilidad con copias antiguas, rechazo de archivos inválidos y conservación de datos ante una copia inválida. El formato JSON lleva su propia versión, independiente de la versión de la app.
 
@@ -50,7 +58,7 @@ Cada tarjeta puede vincularse a una cuenta y guardar los últimos cuatro dígito
 
 ## Dinero reservado y aportaciones a inversión
 
-En **Ajustes → Dinero reservado** puedes indicar, por ejemplo, cuánto dinero de una cuenta está destinado al máster. También puedes hacerlo desde el detalle de esa cuenta. La reserva no modifica el saldo real ni el patrimonio total: aparece descontada del **Disponible para usar** en Inicio y de la cantidad disponible en la cuenta. Cuando pagues el máster, registra el gasto y reduce o elimina la reserva para evitar descontarlo dos veces. Si la reserva supera el saldo de la cuenta, el disponible aparecerá negativo para mostrar el importe que falta.
+En **Ajustes → Dinero reservado** puedes indicar, por ejemplo, cuánto dinero de una cuenta está destinado al máster. También puedes hacerlo desde el detalle de esa cuenta. La reserva no modifica el saldo real ni el patrimonio total: aparece descontada del **Disponible para usar** en Inicio y de la cantidad disponible en la cuenta. Cuando pagues el máster, registra el gasto y selecciona esa reserva en «Pagar con»: el importe pendiente se recalcula automáticamente. No lo reduzcas otra vez a mano. Si la reserva supera el saldo de la cuenta, el disponible aparecerá negativo para mostrar el importe que falta.
 
 Para una aportación mensual, crea primero la cuenta de valores como cuenta de tipo **Inversión**. Después abre **Ajustes → Movimientos recurrentes → Programar aportación mensual a inversión**, elige cuenta origen, cuenta de valores, importe y próxima fecha. La app registrará las mensualidades pendientes al abrirse o volver a primer plano, con una transferencia por fecha prevista y protección frente a duplicados de la misma regla. Esta transferencia reduce el saldo de origen, aumenta el de inversión y se muestra como **Aportado a inversión** en el resumen mensual. No es un gasto, así que no reduce el patrimonio total por sí misma. Puedes pausar o editar la regla en Movimientos recurrentes.
 

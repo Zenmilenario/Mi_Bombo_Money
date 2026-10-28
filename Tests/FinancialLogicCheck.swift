@@ -9,6 +9,7 @@ struct FinancialLogicCheck {
     @MainActor
     static func main() throws {
         checkBalancesAndHistory()
+        checkReservedPayments()
         checkBudgetRemainders()
         checkReviewedAlerts()
         checkBankIdentity()
@@ -24,11 +25,61 @@ struct FinancialLogicCheck {
         precondition(MoneyParser.minorUnits(from: "texto 12,34") == nil)
         precondition(MoneyParser.minorUnits(from: "92233720368547758.08") == nil)
         precondition(MoneyParser.minorUnits(from: "-92233720368547758.08") == nil)
-        print("Financial checks passed: reservations, transfers, dated history, budget remainders, reviewed alerts, bank identity, automatic subscriptions/income/fees, categories and CSV input.")
+
+        let sampleTx = FinancialTransaction(
+            date: date(2, 14),
+            type: .expense,
+            amountMinor: 2_550,
+            descriptionText: "Cena; San Valentín",
+            notes: "Con amigos", sourceAccount: nil
+        )
+        let exportedCSV = CSVExportService.generateCSV(from: [sampleTx])
+        precondition(exportedCSV.contains("2024-02-14") && exportedCSV.contains("Gasto") && exportedCSV.contains("25,50") && exportedCSV.contains("\"Cena; San Valentín\""),
+                     "CSV export must correctly format date, type, amount with European comma, and escape delimiters")
+
+        print("Financial checks passed: reservations, transfers, dated history, budget remainders, reviewed alerts, bank identity, automatic subscriptions/income/fees, categories, CSV input and CSV export.")
     }
 
     private static func date(_ month: Int, _ day: Int = 1) -> Date {
         calendar.date(from: DateComponents(year: 2024, month: month, day: day, hour: 12))!
+    }
+
+    private static func checkReservedPayments() {
+        let account = FinancialAccount(name: "Corriente", type: .checking, openingBalanceMinor: 100_000, openingDate: date(1))
+        let other = FinancialAccount(name: "Otra", type: .checking, openingBalanceMinor: 100_000, openingDate: date(1))
+        let fund = ReservedFund(name: "Máster", amountMinor: 60_000, account: account)
+        let otherFund = ReservedFund(name: "Vacaciones", amountMinor: 10_000, account: account)
+        let payment = FinancialTransaction(date: date(1, 5), type: .expense, amountMinor: 20_000,
+            descriptionText: "Matrícula", reservedFundID: fund.id, reservedAmountMinor: 20_000, sourceAccount: account)
+        precondition(FinanceCalculator.remainingReservedAmount(for: fund, transactions: [payment]) == 40_000)
+        precondition(FinanceCalculator.balance(of: account, transactions: [payment]) == 80_000)
+        precondition(FinanceCalculator.spendableCash(accounts: [account], funds: [fund], transactions: [payment]) == 40_000,
+            "Paying from a reserve must leave free cash unchanged")
+        precondition(FinanceCalculator.remainingReservedAmount(for: otherFund, transactions: [payment]) == 10_000)
+        precondition(FinanceCalculator.monthlySummary(for: date(1), transactions: [payment]).expenseMinor == 20_000,
+            "Reserved payments still count as actual expenses")
+        payment.amountMinor = 30_000 // 200 from reserve + 100 from free cash
+        precondition(FinanceCalculator.spendableCash(accounts: [account], funds: [fund], transactions: [payment]) == 30_000)
+        payment.reservedAmountMinor = 10_000
+        precondition(FinanceCalculator.spendableCash(accounts: [account], funds: [fund], transactions: [payment]) == 20_000)
+        precondition(FinanceCalculator.remainingReservedAmount(for: fund, transactions: []) == 60_000,
+            "Deleting a payment must release its allocation automatically")
+        precondition(FinanceCalculator.reservedPaymentError(fund: fund, amountMinor: 55_000, transactionAmountMinor: 55_000,
+            type: .expense, account: account, transactions: [payment], excluding: payment.id) == nil,
+            "Editing must release the old allocation before validating")
+        precondition(FinanceCalculator.reservedPaymentError(fund: fund, amountMinor: 55_000, transactionAmountMinor: 55_000,
+            type: .expense, account: account, transactions: [payment]) != nil)
+        precondition(FinanceCalculator.reservedPaymentError(fund: fund, amountMinor: 1_000, transactionAmountMinor: 1_000,
+            type: .expense, account: other, transactions: []) != nil)
+        precondition(FinanceCalculator.reservedPaymentError(fund: fund, amountMinor: 2_000, transactionAmountMinor: 1_000,
+            type: .expense, account: account, transactions: []) != nil)
+        payment.date = .now.addingTimeInterval(2 * 86_400)
+        precondition(FinanceCalculator.remainingReservedAmount(for: fund, transactions: [payment]) == 60_000,
+            "A future payment must not release reserved money today")
+        precondition(FinanceCalculator.remainingReservedAmount(for: fund, transactions: [payment], at: .distantFuture) == 50_000)
+        payment.date = date(1, 5); payment.reservedFundID = nil; payment.reservedAmountMinor = nil
+        precondition(FinanceCalculator.spendableCash(accounts: [account], funds: [fund], transactions: [payment]) == 10_000,
+            "Ordinary expenses must keep reducing free cash")
     }
 
     private static func checkBankIdentity() {
@@ -222,6 +273,31 @@ struct FinancialLogicCheck {
     }
 
     private static func checkCSVImport() throws {
+        let account = FinancialAccount(name: "Corriente", type: .checking)
+        let exported = FinancialTransaction(date: date(1, 5), type: .expense, amountMinor: 12_345,
+            descriptionText: "Compra; con \"comillas\"", notes: "=1+1", externalID: "bank-reference", sourceAccount: account)
+        let csv = CSVExportService.generateCSV(from: [exported])
+        let parsed = try CSVImportService.parse(text: csv)
+        precondition(parsed.drafts.count == 1 && parsed.drafts[0].amountMinor == 12_345)
+        precondition(parsed.drafts[0].description == exported.descriptionText)
+        precondition(parsed.drafts[0].externalID == "bank-reference")
+        precondition(parsed.drafts[0].notes == "'=1+1", "CSV text must not become a spreadsheet formula")
+        for newline in ["\n", "\r\n", "\r"] {
+            let input = [
+                "Fecha;Concepto;Importe",
+                "16/07/2026;\"Compra; con \"\"comillas\"\"\";-12,50",
+                "17/07/2026;\"Nota en dos" + newline + "líneas\";125,00",
+                "",
+            ].joined(separator: newline)
+            let result = try CSVImportService.parse(text: input)
+            precondition(result.drafts.count == 2 && result.warnings.isEmpty,
+                         "CSV rows must accept LF, CRLF and CR line endings")
+            precondition(result.drafts[0].description == "Compra; con \"comillas\"")
+            precondition(result.drafts[0].signedAmountMinor == -1_250)
+            precondition(result.drafts[1].description == "Nota en dos" + newline + "líneas",
+                         "Quoted fields must preserve embedded line endings")
+            precondition(result.drafts[1].signedAmountMinor == 12_500)
+        }
         let minimal = try CSVImportService.parse(url: URL(fileURLWithPath: "Samples/plantilla_csv_minima.csv"))
         precondition(minimal.drafts.count == 2 && minimal.warnings.isEmpty)
         precondition(minimal.drafts[0].type == .expense && minimal.drafts[0].amountMinor == 1_250)

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftData
 
@@ -57,7 +58,12 @@ struct BackupRoundTripCheck {
             isArchived: true, notes: "Tarjeta de prueba", institution: institution,
             linkedAccount: account
         ))
-        context.insert(ReservedFund(name: "Máster", amountMinor: 100_000, notes: "Matrícula", account: account))
+        let reserve = ReservedFund(name: "Máster", amountMinor: 100_000, notes: "Matrícula", account: account)
+        context.insert(reserve)
+        let reservedPayment = FinancialTransaction(date: date, type: .expense, amountMinor: 20_000,
+            descriptionText: "Pago matrícula", reservedFundID: reserve.id, reservedAmountMinor: 15_000,
+            sourceAccount: account, category: subscriptionCategory)
+        context.insert(reservedPayment)
         context.insert(FinancialTransaction(
             date: date, type: .transfer, amountMinor: 20_000,
             descriptionText: "Transferencia de prueba", notes: "Detalle",
@@ -74,12 +80,20 @@ struct BackupRoundTripCheck {
         let decoded = try BackupService.decode(encoded)
         let expected = try normalized(encoded)
         var legacy = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+        legacy["formatVersion"] = 1
+        var legacyTransactions = legacy["transactions"] as! [[String: Any]]
+        for index in legacyTransactions.indices {
+            legacyTransactions[index].removeValue(forKey: "reservedFundID")
+            legacyTransactions[index].removeValue(forKey: "reservedAmountMinor")
+        }
+        legacy["transactions"] = legacyTransactions
         legacy.removeValue(forKey: "categoryRules")
         legacy.removeValue(forKey: "recurringBudgets")
         var legacyRecurring = legacy["recurringMovements"] as! [[String: Any]]
         for index in legacyRecurring.indices { legacyRecurring[index].removeValue(forKey: "postsAutomatically") }
         legacy["recurringMovements"] = legacyRecurring
         let legacyBackup = try BackupService.decode(JSONSerialization.data(withJSONObject: legacy))
+        precondition(legacyBackup.transactions.allSatisfy { $0.reservedFundID == nil && $0.reservedAmountMinor == nil })
         precondition(legacyBackup.categoryRules == nil && legacyBackup.recurringBudgets == nil,
                      "Older backups without the new optional collections must remain readable")
         precondition(legacyBackup.recurringMovements.allSatisfy { $0.postsAutomatically == nil },
@@ -92,6 +106,8 @@ struct BackupRoundTripCheck {
             let restored = try BackupService.encode(BackupService.capture(in: destination.mainContext))
             let actual = try normalized(restored)
             precondition(actual == expected, "Round trip changed data or duplicated records")
+            let restoredPayment = try destination.mainContext.fetch(FetchDescriptor<FinancialTransaction>()).first { $0.id == reservedPayment.id }
+            precondition(restoredPayment?.reservedFundID == reserve.id && restoredPayment?.reservedAmountMinor == 15_000)
             let restoredRules = try destination.mainContext.fetch(FetchDescriptor<RecurringMovement>())
             let restoredSubscription = restoredRules.first { $0.id == subscription.id }
             precondition(restoredSubscription?.postsAutomatically == true && restoredSubscription?.isSubscription == true)
@@ -130,6 +146,18 @@ struct BackupRoundTripCheck {
         invalid["transactions"] = transactions
         try expectRejected(invalid)
 
+        for mutation in ["wrong-account", "missing-fund", "overspend", "without-fund"] {
+            var object = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+            var rows = object["transactions"] as! [[String: Any]]
+            let index = rows.firstIndex { $0["reservedFundID"] != nil }!
+            if mutation == "wrong-account" { rows[index]["sourceAccountID"] = investment.id.uuidString }
+            if mutation == "missing-fund" { rows[index]["reservedFundID"] = UUID().uuidString }
+            if mutation == "overspend" { rows[index]["reservedAmountMinor"] = 999_999 }
+            if mutation == "without-fund" { rows[index].removeValue(forKey: "reservedFundID") }
+            object["transactions"] = rows
+            try expectRejected(object)
+        }
+
         do {
             _ = try BackupService.decode(Data("{incomplete".utf8))
             preconditionFailure("Malformed JSON was accepted")
@@ -139,7 +167,42 @@ struct BackupRoundTripCheck {
         try BackupService.restore(BackupService.capture(in: empty.mainContext), in: destination.mainContext)
         let emptyResult = try BackupService.capture(in: destination.mainContext)
         precondition(emptyResult.totalRecords == 0)
-        print("Backup checks passed: complete round trip, repeated restore, invalid input, preservation and empty restore.")
+
+        // Encrypted backup round-trip check
+        let password = "MiContraseñaSegura123!"
+        let encrypted = try BackupService.encodeEncrypted(decoded, password: password)
+        precondition(BackupService.isEncrypted(encrypted), "Backup must be detected as encrypted")
+        do {
+            _ = try BackupService.decode(encrypted)
+            preconditionFailure("Decoding encrypted backup without password must fail")
+        } catch BackupError.passwordRequired { }
+
+        do {
+            _ = try BackupService.decode(encrypted, password: "contraseña-incorrecta")
+            preconditionFailure("Decoding encrypted backup with wrong password must fail")
+        } catch BackupError.invalidPassword { }
+
+        let decrypted = try BackupService.decode(encrypted, password: password)
+        precondition(decrypted.totalRecords == decoded.totalRecords, "Decrypted backup records count must match")
+
+        // Existing encrypted copies from the ZIP remain readable.
+        let salt = Data("0123456789abcdef".utf8)
+        let legacyKey = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: Data(password.utf8)),
+            salt: salt, info: Data("MiPatrimonioBackupKeyV1".utf8), outputByteCount: 32)
+        let sealed = try AES.GCM.seal(encoded, using: legacyKey)
+        let envelope = EncryptedFinanceBackup(magic: EncryptedFinanceBackup.magicHeader,
+            format: "AES-GCM-HKDF-SHA256", saltBase64: salt.base64EncodedString(),
+            combinedCiphertextBase64: sealed.combined!.base64EncodedString(), iterations: nil)
+        let legacyDecrypted = try BackupService.decode(JSONEncoder().encode(envelope), password: password)
+        precondition(legacyDecrypted.totalRecords == decoded.totalRecords)
+        var tampered = try JSONSerialization.jsonObject(with: encrypted) as! [String: Any]
+        tampered["format"] = "unknown-format"
+        do {
+            _ = try BackupService.decode(JSONSerialization.data(withJSONObject: tampered), password: password)
+            preconditionFailure("Unknown cipher format accepted")
+        } catch is BackupError { }
+
+        print("Backup checks passed: complete round trip, repeated restore, invalid input, encryption/decryption, preservation and empty restore.")
     }
 
     @MainActor

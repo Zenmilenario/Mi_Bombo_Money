@@ -490,6 +490,8 @@ final class FinancialTransaction {
     var externalID: String?
     var importBatchID: UUID?
     var recurringMovementID: UUID?
+    var reservedFundID: UUID?
+    var reservedAmountMinor: Int64?
     var createdAt: Date
     var updatedAt: Date
     var sourceAccount: FinancialAccount?
@@ -509,6 +511,8 @@ final class FinancialTransaction {
         externalID: String? = nil,
         importBatchID: UUID? = nil,
         recurringMovementID: UUID? = nil,
+        reservedFundID: UUID? = nil,
+        reservedAmountMinor: Int64? = nil,
         createdAt: Date = .now,
         updatedAt: Date = .now,
         sourceAccount: FinancialAccount?,
@@ -527,6 +531,8 @@ final class FinancialTransaction {
         self.externalID = externalID
         self.importBatchID = importBatchID
         self.recurringMovementID = recurringMovementID
+        self.reservedFundID = reservedFundID
+        self.reservedAmountMinor = reservedAmountMinor
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.sourceAccount = sourceAccount

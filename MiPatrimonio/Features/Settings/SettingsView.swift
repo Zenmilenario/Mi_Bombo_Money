@@ -6,6 +6,7 @@ struct SettingsView: View {
     @Environment(\.isBankingTestWorkspace) private var isBankingTestWorkspace
     @AppStorage("hideAmounts") private var hideAmounts = false
     @AppStorage("appLockEnabled") private var appLockEnabled = true
+    @AppStorage("autoPromptBiometrics") private var autoPromptBiometrics = false
     @AppStorage("appearanceMode") private var appearanceMode = AppAppearance.system.rawValue
 
     @Query private var accounts: [FinancialAccount]
@@ -20,16 +21,36 @@ struct SettingsView: View {
             List {
                 Section {
                     Toggle(isOn: $appLockEnabled) {
-                        Label("Face ID o código", systemImage: "faceid")
+                        Label("Bloqueo de aplicación", systemImage: "lock.shield")
+                    }
+
+                    if appLockEnabled {
+                        NavigationLink {
+                            SecurityCredentialsView()
+                        } label: {
+                            HStack {
+                                Label("Acceso por usuario y contraseña", systemImage: "person.badge.key")
+                                Spacer()
+                                Text(UserAuthService.isConfigured ? "Activo" : "Sin configurar")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+
+                        Toggle(isOn: $autoPromptBiometrics) {
+                            Label("Pedir Face ID / Touch ID al abrir", systemImage: "faceid")
+                        }
                     }
 
                     Toggle(isOn: $hideAmounts) {
                         Label("Ocultar importes", systemImage: "eye.slash")
                     }
                 } header: {
-                    Text("Seguridad")
+                    Text("Seguridad y acceso")
                 } footer: {
-                    Text("La aplicación puede bloquearse al salir y ocultar todas las cantidades en listas y gráficos.")
+                    Text(appLockEnabled
+                        ? "Puedes desbloquear la aplicación con tu usuario y contraseña, o con Face ID / Touch ID. Si la solicitud biométrica directa está desactivada, verás la pantalla de inicio de sesión para elegir cómo entrar."
+                        : "La aplicación puede bloquearse al salir y ocultar todas las cantidades en listas y gráficos.")
                 }
 
                 Section("Apariencia") {
