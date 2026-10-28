@@ -1,521 +1,471 @@
-import LocalAuthentication
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#endif
 
 struct LoginView: View {
     @EnvironmentObject private var lockManager: AppLockManager
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private enum LoginTab: String, CaseIterable, Identifiable {
-        case credentials = "password"
-        case biometrics = "biometrics"
+    private enum AccessMode { case signIn, device, setup }
+    private enum Field: Hashable { case username, password, confirmation }
 
-        var id: String { rawValue }
-    }
-
-    @State private var selectedTab: LoginTab = UserAuthService.isConfigured ? .credentials : .biometrics
+    @State private var mode: AccessMode = UserAuthService.isConfigured ? .signIn : .device
     @State private var isConfigured = UserAuthService.isConfigured
-
-    // Form inputs
     @State private var username = UserAuthService.storedUsername ?? ""
     @State private var password = ""
     @State private var confirmPassword = ""
-    @State private var isPasswordVisible = false
-    @State private var isConfirmPasswordVisible = false
-
-    // State & Feedback
+    @State private var passwordVisible = false
+    @State private var confirmationVisible = false
     @State private var errorMessage: String?
     @State private var isProcessing = false
+    @State private var showingHelp = false
     @State private var biometricType = AppLockManager.biometricType
+    @FocusState private var focusedField: Field?
+    @AccessibilityFocusState private var errorIsFocused: Bool
 
-    private var accentColor: Color {
-        Color(hex: "#176B87")
+    private var accent: Color { Color(hex: colorScheme == .dark ? "#67CDCF" : "#176B87") }
+    private var buttonColor: Color { Color(hex: "#176B87") }
+    private var isBusy: Bool { isProcessing || lockManager.isAuthenticating }
+    private var deviceTitle: String {
+        biometricType == .passcode ? "Entrar con el código del dispositivo" : "Entrar con \(biometricType.title)"
+    }
+    private var title: String {
+        switch mode {
+        case .signIn: "Iniciar sesión"
+        case .device: "Te damos la bienvenida"
+        case .setup: "Crea tu acceso"
+        }
+    }
+    private var subtitle: String {
+        switch mode {
+        case .signIn: "Accede a tu espacio financiero."
+        case .device: "Tus cuentas, tus planes y todo lo que quieres tener bajo control."
+        case .setup: "Un usuario y una contraseña para entrar en esta app."
+        }
     }
 
     var body: some View {
-        ZStack {
-            // Ambient background
-            AppDesign.pageBackground
-                .ignoresSafeArea()
+        GeometryReader { geometry in
+            let wide = geometry.size.width >= 900 && !dynamicTypeSize.isAccessibilitySize
+            ZStack {
+                AppDesign.pageBackground.ignoresSafeArea()
+                LinearGradient(colors: [accent.opacity(0.07), .clear], startPoint: .topTrailing, endPoint: .center)
+                    .ignoresSafeArea()
+                    .accessibilityHidden(true)
 
-            ambientGlowLayer
-
-            ScrollView {
-                VStack(spacing: 28) {
-                    headerSection
-                        .padding(.top, 24)
-
-                    methodSelector
-                        .padding(.horizontal, 24)
-
-                    VStack(spacing: 20) {
-                        if selectedTab == .credentials {
-                            credentialsCard
+                ScrollView {
+                    Group {
+                        if wide {
+                            HStack(alignment: .center, spacing: 48) {
+                                welcomePanel
+                                    .frame(maxWidth: .infinity)
+                                accessContent
+                                    .frame(maxWidth: 480)
+                            }
+                            .frame(maxWidth: 1_160)
                         } else {
-                            biometricsCard
+                            VStack(alignment: .leading, spacing: 32) {
+                                brandSignature
+                                accessContent
+                            }
+                            .frame(maxWidth: 520)
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: selectedTab)
-                    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isConfigured)
-
-                    footerPrivacyBadge
-                        .padding(.top, 8)
-                        .padding(.bottom, 24)
+                    .padding(.horizontal, geometry.size.width < 600 ? 24 : 40)
+                    .padding(.vertical, 32)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: geometry.size.height)
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
-            .scrollDismissesKeyboard(.interactively)
         }
+        .tint(accent)
         .onAppear {
             biometricType = AppLockManager.biometricType
             isConfigured = UserAuthService.isConfigured
-            if username.isEmpty, let stored = UserAuthService.storedUsername {
-                username = stored
+            if username.isEmpty { username = UserAuthService.storedUsername ?? "" }
+        }
+        .onDisappear {
+            password = ""
+            confirmPassword = ""
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background {
+                password = ""
+                confirmPassword = ""
+                passwordVisible = false
+                confirmationVisible = false
+                focusedField = nil
             }
         }
-    }
-
-    // MARK: - Subviews
-
-    private var ambientGlowLayer: some View {
-        VStack {
-            Circle()
-                .fill(accentColor.opacity(colorScheme == .dark ? 0.18 : 0.08))
-                .frame(width: 320, height: 320)
-                .blur(radius: 70)
-                .offset(y: -80)
-            Spacer()
+        .onChange(of: errorMessage) { _, message in
+            if message != nil { errorIsFocused = true }
         }
-        .ignoresSafeArea()
+        .sheet(isPresented: $showingHelp) { accessHelp }
     }
 
-    private var headerSection: some View {
-        VStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            colors: [accentColor, Color(hex: "#0F2C3A")],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 82, height: 82)
-                    .shadow(color: accentColor.opacity(0.35), radius: 16, y: 8)
-
-                Image(systemName: "lock.shield.fill")
-                    .font(.system(size: 38, weight: .semibold))
-                    .foregroundStyle(.white)
-            }
-
-            VStack(spacing: 6) {
+    private var brandSignature: some View {
+        HStack(spacing: 12) {
+            Image("LoginBrand")
+                .resizable()
+                .scaledToFill()
+                .frame(width: 52, height: 52)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
                 Text("Mi Bombo Money")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(.primary)
-
-                Text("Control financiero privado y seguro")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var methodSelector: some View {
-        HStack(spacing: 6) {
-            Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    selectedTab = .credentials
-                    errorMessage = nil
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "person.crop.circle")
-                    Text("Usuario")
-                }
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(
-                    selectedTab == .credentials
-                        ? accentColor
-                        : Color.clear,
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                )
-                .foregroundStyle(selectedTab == .credentials ? .white : .secondary)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    selectedTab = .biometrics
-                    errorMessage = nil
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: biometricType.systemImage)
-                    Text(biometricType.title)
-                }
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
-                .background(
-                    selectedTab == .biometrics
-                        ? accentColor
-                        : Color.clear,
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                )
-                .foregroundStyle(selectedTab == .biometrics ? .white : .secondary)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(4)
-        .background(
-            Color(uiColor: .tertiarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-        )
-    }
-
-    // MARK: - Credentials Card
-
-    private var credentialsCard: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if !isConfigured {
-                setupBanner
-            } else {
-                Text("Inicia sesión con tus credenciales")
                     .font(.headline)
-                    .foregroundStyle(.primary)
-            }
-
-            // Username input
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Usuario")
-                    .font(.caption.weight(.medium))
+                Text("Finanzas personales")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-
-                HStack(spacing: 10) {
-                    Image(systemName: "person.fill")
-                        .foregroundStyle(accentColor)
-                        .frame(width: 22)
-
-                    TextField("Tu nombre o usuario", text: $username)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled(true)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(
-                    Color(uiColor: .tertiarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                )
             }
+        }
+        .accessibilityElement(children: .combine)
+    }
 
-            // Password input
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Contraseña")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-
-                HStack(spacing: 10) {
-                    Image(systemName: "lock.fill")
-                        .foregroundStyle(accentColor)
-                        .frame(width: 22)
-
-                    if isPasswordVisible {
-                        TextField("Contraseña", text: $password)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled(true)
-                    } else {
-                        SecureField("Contraseña", text: $password)
-                            .textInputAutocapitalization(.never)
-                            .autocorrectionDisabled(true)
-                    }
-
-                    Button {
-                        isPasswordVisible.toggle()
-                    } label: {
-                        Image(systemName: isPasswordVisible ? "eye.slash.fill" : "eye.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .background(
-                    Color(uiColor: .tertiarySystemGroupedBackground),
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                )
+    private var welcomePanel: some View {
+        VStack(alignment: .leading, spacing: 48) {
+            brandSignature
+            VStack(alignment: .leading, spacing: 18) {
+                Image(systemName: "square.stack.3d.up")
+                    .font(.largeTitle)
+                    .foregroundStyle(Color(hex: "#9CE3D9"))
+                    .accessibilityHidden(true)
+                Text("Tu dinero,\ncon más claridad.")
+                    .font(.largeTitle.bold())
+                    .fixedSize(horizontal: false, vertical: true)
+                Text("Un lugar para tus cuentas, tus movimientos y los planes que vienen.")
+                    .font(.title3)
+                    .foregroundStyle(.white.opacity(0.8))
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            Label("A tu ritmo. A tu manera.", systemImage: "leaf")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.8))
+        }
+        .padding(36)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .foregroundStyle(.white)
+        .environment(\.colorScheme, .dark)
+        .background {
+            RoundedRectangle(cornerRadius: 32, style: .continuous)
+                .fill(LinearGradient(colors: [Color(hex: "#174F60"), Color(hex: "#102F3A")],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+        }
+    }
 
-            // Confirm Password (Only during first-time setup)
-            if !isConfigured {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Confirmar contraseña")
-                        .font(.caption.weight(.medium))
+    private var accessContent: some View {
+        VStack(spacing: 22) {
+            VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Label("TU ESPACIO PERSONAL", systemImage: "lock")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(accent)
+                    Text(title)
+                        .font(.largeTitle.bold())
+                        .accessibilityAddTraits(.isHeader)
+                    Text(subtitle)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
-
-                    HStack(spacing: 10) {
-                        Image(systemName: "checkmark.shield.fill")
-                            .foregroundStyle(accentColor)
-                            .frame(width: 22)
-
-                        if isConfirmPasswordVisible {
-                            TextField("Repite tu contraseña", text: $confirmPassword)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled(true)
-                        } else {
-                            SecureField("Repite tu contraseña", text: $confirmPassword)
-                                .textInputAutocapitalization(.never)
-                                .autocorrectionDisabled(true)
-                        }
-
-                        Button {
-                            isConfirmPasswordVisible.toggle()
-                        } label: {
-                            Image(systemName: isConfirmPasswordVisible ? "eye.slash.fill" : "eye.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .background(
-                        Color(uiColor: .tertiarySystemGroupedBackground),
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    )
                 }
-            }
+                .fixedSize(horizontal: false, vertical: true)
 
-            if let error = errorMessage {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
-            }
-
-            // Action button
-            Button {
-                if isConfigured {
-                    loginWithCredentials()
+                if mode == .device {
+                    deviceIntroduction
                 } else {
-                    registerAndLogin()
+                    credentialsFields
                 }
-            } label: {
-                HStack(spacing: 8) {
-                    if isProcessing {
-                        ProgressView()
-                            .tint(.white)
+
+                if let message = errorMessage ?? lockManager.lastErrorMessage {
+                    Label(message, systemImage: "exclamationmark.circle.fill")
+                        .font(.callout)
+                        .foregroundStyle(.red)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                        .accessibilityFocused($errorIsFocused)
+                }
+
+                accessActions
+            }
+            .padding(dynamicTypeSize.isAccessibilitySize ? 20 : 28)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppDesign.cardBackground, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 26, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+            }
+
+            Button("¿Necesitas ayuda para entrar?") { showingHelp = true }
+                .font(.subheadline)
+                .frame(minHeight: 44)
+
+            Label("El acceso protege tus finanzas en este dispositivo.", systemImage: "iphone.and.arrow.forward")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var deviceIntroduction: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: biometricType.systemImage)
+                .font(.largeTitle)
+                .foregroundStyle(accent)
+                .accessibilityHidden(true)
+            Text(biometricType == .passcode
+                 ? "Usa el código de tu dispositivo para acceder."
+                 : "Usa \(biometricType.title) para entrar. También puedes utilizar el código del dispositivo.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var credentialsFields: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Usuario").font(.subheadline.weight(.medium))
+                HStack(spacing: 10) {
+                    Image(systemName: "person").foregroundStyle(.secondary).accessibilityHidden(true)
+                    TextField("Nombre de usuario", text: $username)
+                        .textContentType(.username)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .focused($focusedField, equals: .username)
+                        .submitLabel(.next)
+                        .onSubmit { focusedField = .password }
+                        .accessibilityLabel("Usuario")
+                }
+                .padding(.horizontal, 14)
+                .frame(minHeight: 54)
+                .background(fieldBackground(focused: focusedField == .username))
+            }
+            passwordField(title: "Contraseña", text: $password, visible: $passwordVisible, field: .password)
+            if mode == .setup {
+                Text("Usa al menos 10 caracteres. Puedes utilizar una frase fácil de recordar.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                passwordField(title: "Repite la contraseña", text: $confirmPassword, visible: $confirmationVisible, field: .confirmation)
+                Label("Antes de crear el acceso, el dispositivo verificará tu identidad.", systemImage: "person.badge.shield.checkmark")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .disabled(isBusy)
+    }
+
+    private func passwordField(title: String, text: Binding<String>, visible: Binding<Bool>, field: Field) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).font(.subheadline.weight(.medium))
+            HStack(spacing: 10) {
+                Image(systemName: "key.horizontal").foregroundStyle(.secondary).accessibilityHidden(true)
+                Group {
+                    if visible.wrappedValue {
+                        TextField(title, text: text)
                     } else {
-                        Text(isConfigured ? "Iniciar sesión" : "Crear acceso y entrar")
-                            .fontWeight(.semibold)
-                        Image(systemName: "arrow.right")
+                        SecureField(title, text: text)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(accentColor)
-            .disabled(isProcessing || username.isEmpty || password.isEmpty)
-
-            // Alternate shortcut
-            Button {
-                withAnimation { selectedTab = .biometrics }
-                triggerBiometrics()
-            } label: {
-                HStack {
-                    Image(systemName: biometricType.systemImage)
-                    Text("O entrar con \(biometricType.title)")
+                .textContentType(mode == .setup ? .newPassword : .password)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .focused($focusedField, equals: field)
+                .submitLabel(mode == .setup && field == .password ? .next : .go)
+                .onSubmit {
+                    if mode == .setup && field == .password { focusedField = .confirmation }
+                    else { submitCredentials() }
                 }
-                .font(.subheadline)
-                .foregroundStyle(accentColor)
-                .frame(maxWidth: .infinity)
-                .padding(.top, 4)
+                .accessibilityLabel(title)
+                Button {
+                    visible.wrappedValue.toggle()
+                    focusedField = field
+                } label: {
+                    Image(systemName: visible.wrappedValue ? "eye.slash" : "eye")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(visible.wrappedValue ? "Ocultar \(title.lowercased())" : "Mostrar \(title.lowercased())")
             }
-            .buttonStyle(.plain)
-        }
-        .padding(20)
-        .background(
-            Color(uiColor: .secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.05), radius: 12, y: 4)
-    }
-
-    private var setupBanner: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(systemName: "sparkles")
-                    .foregroundStyle(accentColor)
-                Text("Bienvenido")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-            }
-            Text("Establece un nombre de usuario y contraseña para acceder de forma segura a tus finanzas.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            .padding(.leading, 14)
+            .padding(.trailing, 4)
+            .frame(minHeight: 54)
+            .background(fieldBackground(focused: focusedField == field))
         }
     }
 
-    // MARK: - Biometrics Card
-
-    private var biometricsCard: some View {
-        VStack(spacing: 24) {
-            // Pulse circle
-            ZStack {
-                Circle()
-                    .fill(accentColor.opacity(0.09))
-                    .frame(width: 120, height: 120)
-
-                Circle()
-                    .fill(accentColor.opacity(0.16))
-                    .frame(width: 90, height: 90)
-
-                Image(systemName: biometricType.systemImage)
-                    .font(.system(size: 46, weight: .regular))
-                    .foregroundStyle(accentColor)
+    private func fieldBackground(focused: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(AppDesign.pageBackground)
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(focused ? accent : Color.primary.opacity(0.08), lineWidth: focused ? 2 : 1)
             }
-            .padding(.top, 8)
+    }
 
-            VStack(spacing: 8) {
-                Text("Acceso rápido con \(biometricType.title)")
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-
-                Text("Verifica tu identidad en un instante sin tener que introducir tu contraseña.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 8)
-            }
-
-            if let error = errorMessage ?? lockManager.lastErrorMessage {
-                HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 10))
-            }
-
+    private var accessActions: some View {
+        VStack(spacing: 14) {
             Button {
-                triggerBiometrics()
+                if mode == .device { triggerDeviceAuthentication() }
+                else { submitCredentials() }
             } label: {
                 HStack(spacing: 10) {
-                    Image(systemName: biometricType.systemImage)
-                        .font(.title3)
-                    Text("Desbloquear con \(biometricType.title)")
-                        .fontWeight(.semibold)
+                    if isBusy {
+                        ProgressView().tint(.white)
+                        Text("Verificando…")
+                    } else {
+                        Text(mode == .device ? deviceTitle : mode == .setup ? "Crear acceso y entrar" : "Entrar")
+                        Image(systemName: mode == .device ? biometricType.systemImage : "arrow.right")
+                    }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .padding(.vertical, 6)
             }
             .buttonStyle(.borderedProminent)
-            .tint(accentColor)
-            .disabled(lockManager.isAuthenticating)
+            .buttonBorderShape(.roundedRectangle(radius: 14))
+            .tint(buttonColor)
+            .disabled(isBusy)
 
-            Button {
-                withAnimation { selectedTab = .credentials }
-            } label: {
-                HStack {
-                    Image(systemName: "keyboard")
-                    Text("Acceder con usuario y contraseña")
+            if mode == .signIn {
+                HStack(spacing: 12) {
+                    Rectangle().frame(height: 1)
+                    Text("o").font(.footnote)
+                    Rectangle().frame(height: 1)
+                }
+                .foregroundStyle(.secondary.opacity(0.4))
+                .accessibilityHidden(true)
+                Button(action: triggerDeviceAuthentication) {
+                    Label(deviceTitle, systemImage: biometricType.systemImage)
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.roundedRectangle(radius: 14))
+                .disabled(isBusy)
+            } else {
+                Button(mode == .setup ? "Volver al acceso con el dispositivo" : isConfigured ? "Usar usuario y contraseña" : "Configurar usuario y contraseña") {
+                    changeMode(mode == .setup ? .device : isConfigured ? .signIn : .setup)
                 }
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .frame(minHeight: 44)
+                .disabled(isBusy)
+            }
+        }
+    }
+
+    private var accessHelp: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    Label("Tu acceso, paso a paso", systemImage: "key.horizontal")
+                        .font(.title2.bold())
+                    Text("Puedes entrar con \(biometricType == .passcode ? "el código del dispositivo" : biometricType.title + " o el código del dispositivo"). El sistema realiza la comprobación.")
+                    if isConfigured {
+                        Text("Si no recuerdas la contraseña de la app, utiliza el acceso del dispositivo. Después puedes gestionar tus credenciales en Ajustes → Acceso por usuario y contraseña.")
+                    } else {
+                        Text("No necesitas crear un usuario para empezar. Si lo prefieres, puedes configurar un usuario y una contraseña como otra forma de entrar.")
+                    }
+                    Text("Este acceso corresponde a la app en este dispositivo. No utiliza las claves de tus bancos ni sincroniza tus datos entre dispositivos.")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: 600, alignment: .leading)
+                .padding(24)
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.plain)
-        }
-        .padding(24)
-        .background(
-            Color(uiColor: .secondarySystemGroupedBackground),
-            in: RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
-                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
-        )
-        .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.3 : 0.05), radius: 12, y: 4)
-    }
-
-    private var footerPrivacyBadge: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "checkmark.shield.fill")
-                .foregroundStyle(Color(hex: "#2F7D66"))
-            Text("Tus datos permanecen exclusivamente en tu dispositivo")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+            .navigationTitle("Ayuda de acceso")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Cerrar") { showingHelp = false } } }
         }
     }
 
-    // MARK: - Actions
+    private func changeMode(_ newMode: AccessMode) {
+        focusedField = nil
+        password = ""
+        confirmPassword = ""
+        passwordVisible = false
+        confirmationVisible = false
+        errorMessage = nil
+        lockManager.lastErrorMessage = nil
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) { mode = newMode }
+    }
+
+    private func submitCredentials() {
+        guard !isBusy else { return }
+        errorMessage = nil
+        lockManager.lastErrorMessage = nil
+        guard !username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorMessage = "Escribe tu nombre de usuario."
+            focusedField = .username
+            return
+        }
+        guard !password.isEmpty else {
+            errorMessage = "Escribe tu contraseña."
+            focusedField = .password
+            return
+        }
+        if mode == .setup {
+            guard password.count >= 10 else {
+                errorMessage = "La contraseña debe tener al menos 10 caracteres."
+                focusedField = .password
+                return
+            }
+            guard password == confirmPassword else {
+                errorMessage = "Las contraseñas no coinciden."
+                focusedField = .confirmation
+                return
+            }
+            registerAndLogin()
+        } else {
+            loginWithCredentials()
+        }
+    }
 
     private func loginWithCredentials() {
-        errorMessage = nil
+        focusedField = nil
         isProcessing = true
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-            let isValid = UserAuthService.verify(username: username, password: password)
+        let enteredUsername = username
+        let enteredPassword = password
+        Task { @MainActor in
+            let valid = await Task.detached(priority: .userInitiated) {
+                UserAuthService.verify(username: enteredUsername, password: enteredPassword)
+            }.value
             isProcessing = false
-
-            if isValid {
-                #if canImport(UIKit)
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                #endif
+            if valid {
+                password = ""
                 lockManager.unlockWithCredentials()
             } else {
-                #if canImport(UIKit)
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
-                #endif
-                errorMessage = "Usuario o contraseña incorrectos."
+                errorMessage = "Usuario o contraseña incorrectos. Vuelve a intentarlo o utiliza el acceso del dispositivo."
             }
         }
     }
 
     private func registerAndLogin() {
-        errorMessage = nil
-        guard password == confirmPassword else {
-            errorMessage = "Las contraseñas no coinciden."
-            return
-        }
+        focusedField = nil
         isProcessing = true
+        let enteredUsername = username
+        let enteredPassword = password
         Task { @MainActor in
             defer { isProcessing = false }
-            // Creating credentials from the lock screen must first prove device ownership.
+            // Creating credentials from the lock screen still requires device-owner verification.
             guard await lockManager.authenticate() else { return }
             do {
-                try UserAuthService.register(username: username, password: password)
-                isConfigured = true; password = ""; confirmPassword = ""
+                try UserAuthService.register(username: enteredUsername, password: enteredPassword)
+                isConfigured = true
+                password = ""
+                confirmPassword = ""
             } catch { errorMessage = error.localizedDescription }
         }
     }
 
-    private func triggerBiometrics() {
+    private func triggerDeviceAuthentication() {
+        guard !isBusy else { return }
+        focusedField = nil
         errorMessage = nil
-        Task {
-            let success = await lockManager.authenticate()
-            if success {
-                #if canImport(UIKit)
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-                #endif
-            }
-        }
+        Task { await lockManager.authenticate() }
     }
 }
