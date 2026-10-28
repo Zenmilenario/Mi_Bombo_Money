@@ -282,6 +282,22 @@ struct FinancialLogicCheck {
         precondition(parsed.drafts[0].description == exported.descriptionText)
         precondition(parsed.drafts[0].externalID == "bank-reference")
         precondition(parsed.drafts[0].notes == "'=1+1", "CSV text must not become a spreadsheet formula")
+        for newline in ["\n", "\r\n", "\r"] {
+            let input = [
+                "Fecha;Concepto;Importe",
+                "16/07/2026;\"Compra; con \"\"comillas\"\"\";-12,50",
+                "17/07/2026;\"Nota en dos" + newline + "líneas\";125,00",
+                "",
+            ].joined(separator: newline)
+            let result = try CSVImportService.parse(text: input)
+            precondition(result.drafts.count == 2 && result.warnings.isEmpty,
+                         "CSV rows must accept LF, CRLF and CR line endings")
+            precondition(result.drafts[0].description == "Compra; con \"comillas\"")
+            precondition(result.drafts[0].signedAmountMinor == -1_250)
+            precondition(result.drafts[1].description == "Nota en dos" + newline + "líneas",
+                         "Quoted fields must preserve embedded line endings")
+            precondition(result.drafts[1].signedAmountMinor == 12_500)
+        }
         let minimal = try CSVImportService.parse(url: URL(fileURLWithPath: "Samples/plantilla_csv_minima.csv"))
         precondition(minimal.drafts.count == 2 && minimal.warnings.isEmpty)
         precondition(minimal.drafts[0].type == .expense && minimal.drafts[0].amountMinor == 1_250)

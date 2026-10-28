@@ -168,10 +168,8 @@ enum CSVImportService {
             } else if character == delimiter, !inQuotes {
                 row.append(field)
                 field = ""
-            } else if (character == "\n" || character == "\r"), !inQuotes {
-                if character == "\r", index + 1 < characters.count, characters[index + 1] == "\n" {
-                    index += 1
-                }
+            } else if character.isNewline, !inQuotes {
+                // Swift groups CRLF into one Character; literal CR/LF checks miss it.
                 row.append(field)
                 rows.append(row)
                 row = []
