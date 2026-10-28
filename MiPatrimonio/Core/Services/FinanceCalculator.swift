@@ -5,6 +5,9 @@ struct MonthlySummary: Identifiable {
     let monthStart: Date
     let incomeMinor: Int64
     let expenseMinor: Int64
+    var reservedExpenseMinor: Int64 = 0
+
+    var budgetExpenseMinor: Int64 { expenseMinor - reservedExpenseMinor }
 
     var netSavingsMinor: Int64 { incomeMinor - expenseMinor }
     var savingsRate: Double? {
@@ -54,13 +57,30 @@ struct NetWorthPoint: Identifiable {
 }
 
 enum FinanceCalculator {
+    // The saved allocation is the funding history, even after the reserve is exhausted.
+    static func reservedExpenseAmount(for transaction: FinancialTransaction) -> Int64 {
+        guard transaction.type.countsAsExpense, transaction.reservedFundID != nil else { return 0 }
+        return Swift.max(0, Swift.min(transaction.reservedAmountMinor ?? 0, transaction.amountMinor))
+    }
+
+    static func budgetExpenseAmount(for transaction: FinancialTransaction) -> Int64 {
+        guard transaction.type.countsAsExpense else { return 0 }
+        return Swift.abs(transaction.amountMinor) - reservedExpenseAmount(for: transaction)
+    }
+
+    static func suggestedReservedPaymentAmount(for fund: ReservedFund, transactionAmountMinor: Int64,
+                                               transactions: [FinancialTransaction], excluding transactionID: UUID? = nil) -> Int64 {
+        Swift.min(Swift.max(0, transactionAmountMinor), remainingReservedAmount(for: fund,
+            transactions: transactions, at: .distantFuture, excluding: transactionID))
+    }
+
     static func spentReservedAmount(for fund: ReservedFund, transactions: [FinancialTransaction],
                                     at date: Date = .now, excluding transactionID: UUID? = nil) -> Int64 {
         transactions.filter {
             $0.id != transactionID && $0.reservedFundID == fund.id && $0.type.countsAsExpense
                 && $0.sourceAccount?.id == fund.account?.id && $0.date <= date
         }.reduce(Int64.zero) { total, transaction in
-            let amount = Swift.max(0, Swift.min(transaction.reservedAmountMinor ?? 0, transaction.amountMinor))
+            let amount = reservedExpenseAmount(for: transaction)
             let sum = total.addingReportingOverflow(amount)
             return sum.overflow ? Int64.max : sum.partialValue
         }
@@ -185,7 +205,9 @@ enum FinanceCalculator {
             .filter { $0.type.countsAsExpense }
             .reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
 
-        return MonthlySummary(monthStart: start, incomeMinor: income, expenseMinor: expense)
+        let reservedExpense = monthTransactions.reduce(Int64.zero) { $0 + reservedExpenseAmount(for: $1) }
+        return MonthlySummary(monthStart: start, incomeMinor: income, expenseMinor: expense,
+                              reservedExpenseMinor: reservedExpense)
     }
 
     static func monthlySummaries(
@@ -205,6 +227,7 @@ enum FinanceCalculator {
         for month: Date,
         categories: [FinanceCategory],
         transactions: [FinancialTransaction],
+        excludingReservedPayments: Bool = false,
         calendar: Calendar = .autoupdatingCurrent
     ) -> [CategorySpend] {
         let start = month.startOfMonth(calendar: calendar)
@@ -218,7 +241,7 @@ enum FinanceCalculator {
             .map { category in
                 let spent = expenseTransactions
                     .filter { $0.category?.id == category.id }
-                    .reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
+                    .reduce(Int64.zero) { $0 + (excludingReservedPayments ? budgetExpenseAmount(for: $1) : Swift.abs($1.amountMinor)) }
                 return CategorySpend(category: category, spentMinor: spent)
             }
             .filter { $0.spentMinor > 0 }
@@ -238,6 +261,7 @@ enum FinanceCalculator {
             for: monthStart,
             categories: categories,
             transactions: transactions,
+            excludingReservedPayments: true,
             calendar: calendar
         ).map { ($0.category.id, $0.spentMinor) })
 
@@ -300,7 +324,7 @@ enum FinanceCalculator {
         let spentByMonth = transactions
             .filter { $0.category?.id == category.id && $0.type.countsAsExpense && $0.date < target.addingMonths(1, calendar: calendar) }
             .reduce(into: [Date: Int64]()) { result, transaction in
-                result[transaction.date.startOfMonth(calendar: calendar), default: 0] += Swift.abs(transaction.amountMinor)
+                result[transaction.date.startOfMonth(calendar: calendar), default: 0] += budgetExpenseAmount(for: transaction)
             }
 
         var current = firstMonth

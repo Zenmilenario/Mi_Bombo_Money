@@ -752,6 +752,8 @@ private struct TransactionDetailView: View {
                             systemImage: "lock.open")
                         detailRow(title: "Importe de la reserva", value: hideAmounts ? "••••••" : MoneyFormatter.string(
                             minorUnits: transaction.reservedAmountMinor ?? 0), systemImage: "banknote")
+                        detailRow(title: "Cuenta para el presupuesto", value: hideAmounts ? "••••••" : MoneyFormatter.string(
+                            minorUnits: FinanceCalculator.budgetExpenseAmount(for: transaction)), systemImage: "chart.pie")
                     }
                     if let category = transaction.category {
                         Divider().padding(.leading, 38)
@@ -1085,6 +1087,7 @@ struct TransactionFormView: View {
     @State private var notes: String
     @State private var reservedFundID: UUID?
     @State private var reservedAmountText: String
+    @State private var reservedAmountIsCustom = false
     @State private var isReconciled: Bool
     @State private var rememberCategoryRule = false
     @State private var rulePhrase = ""
@@ -1100,13 +1103,14 @@ struct TransactionFormView: View {
         _sourceAccountID = State(initialValue: transaction?.sourceAccount?.id ?? preferredReservedFund?.account?.id)
         _destinationAccountID = State(initialValue: transaction?.destinationAccount?.id)
         _categoryID = State(initialValue: transaction?.category?.id)
-        _descriptionText = State(initialValue: transaction?.descriptionText ?? "")
+        _descriptionText = State(initialValue: transaction?.descriptionText ?? preferredReservedFund?.name ?? "")
         _amountText = State(initialValue: transaction.map {
             String(format: "%.2f", Double($0.amountMinor) / 100)
         } ?? "")
         _notes = State(initialValue: transaction?.notes ?? "")
         _reservedFundID = State(initialValue: transaction?.reservedFundID ?? preferredReservedFund?.id)
         _reservedAmountText = State(initialValue: (transaction?.reservedAmountMinor).map { String(format: "%.2f", Double($0) / 100) } ?? "")
+        _reservedAmountIsCustom = State(initialValue: transaction?.reservedFundID != nil && transaction?.reservedAmountMinor != transaction?.amountMinor)
         _isReconciled = State(initialValue: transaction?.isReconciled ?? false)
     }
 
@@ -1161,10 +1165,8 @@ struct TransactionFormView: View {
 
                     TextField("Importe", text: $amountText)
                         .keyboardType(.decimalPad)
-                        .onChange(of: amountText) { oldValue, newValue in
-                            if reservedFundID != nil && (reservedAmountText.isEmpty || reservedAmountText == oldValue) {
-                                reservedAmountText = newValue
-                            }
+                        .onChange(of: amountText) { _, _ in
+                            updateSuggestedReservedAmount()
                         }
                     TextField("Descripción", text: $descriptionText)
                         .focused($descriptionIsFocused)
@@ -1221,21 +1223,38 @@ struct TransactionFormView: View {
                                 Text(fund.name).tag(Optional(fund.id))
                             }
                         }
-                        .onChange(of: reservedFundID) { _, newID in
-                            reservedAmountText = newID == nil ? "" : amountText
+                        .onChange(of: reservedFundID) { _, _ in
+                            reservedAmountIsCustom = false
+                            updateSuggestedReservedAmount()
                         }
                         if let fund = reservedFunds.first(where: { $0.id == reservedFundID }) {
                             LabeledContent("Disponible en la reserva") {
                                 PrivacyAmountText(minorUnits: FinanceCalculator.remainingReservedAmount(
                                     for: fund, transactions: existingTransactions, at: .distantFuture, excluding: transaction?.id))
                             }
-                            TextField("Importe tomado de la reserva", text: $reservedAmountText)
-                                .keyboardType(.decimalPad)
+                            if reservedAmountIsCustom {
+                                TextField("Importe tomado de la reserva", text: $reservedAmountText)
+                                    .keyboardType(.decimalPad)
+                                Button("Usar importe automático") {
+                                    reservedAmountIsCustom = false
+                                    updateSuggestedReservedAmount()
+                                }
+                            } else {
+                                LabeledContent("Se toma de la reserva") {
+                                    PrivacyAmountText(minorUnits: MoneyParser.minorUnits(from: reservedAmountText) ?? 0)
+                                }
+                                Button("Ajustar importe") { reservedAmountIsCustom = true }
+                            }
+                            LabeledContent("Del presupuesto mensual") {
+                                PrivacyAmountText(minorUnits: Swift.max(0,
+                                    Swift.abs(MoneyParser.minorUnits(from: amountText) ?? 0)
+                                        - Swift.max(0, MoneyParser.minorUnits(from: reservedAmountText) ?? 0)))
+                            }
                         }
                     } header: {
                         Label("Origen del dinero", systemImage: "lock.open")
                     } footer: {
-                        Text("La parte pagada con esta reserva reduce la reserva y el saldo de su cuenta. Solo el resto del pago reduce el dinero disponible.")
+                        Text("Se usa automáticamente el importe disponible en la reserva, hasta cubrir el pago. Esa parte queda fuera del presupuesto mensual. Solo el resto consume presupuesto y dinero disponible.")
                     }
                 }
 
@@ -1279,6 +1298,7 @@ struct TransactionFormView: View {
                 Text(validationMessage ?? "")
             }
             .onAppear {
+                updateSuggestedReservedAmount()
                 if transaction == nil, sourceAccountID == nil {
                     sourceAccountID = existingTransactions
                         .compactMap(\.sourceAccount)
@@ -1301,6 +1321,18 @@ struct TransactionFormView: View {
                 }
             }
         }
+    }
+
+    private func updateSuggestedReservedAmount() {
+        guard !reservedAmountIsCustom else { return }
+        guard let fund = reservedFunds.first(where: { $0.id == reservedFundID }) else {
+            reservedAmountText = ""
+            return
+        }
+        let amount = FinanceCalculator.suggestedReservedPaymentAmount(for: fund,
+            transactionAmountMinor: Swift.abs(MoneyParser.minorUnits(from: amountText) ?? 0),
+            transactions: existingTransactions, excluding: transaction?.id)
+        reservedAmountText = String(format: "%.2f", Double(amount) / 100)
     }
 
     private func preferredCategory(for transactionType: TransactionType) -> FinanceCategory? {
@@ -1365,6 +1397,7 @@ struct TransactionFormView: View {
             return
         }
 
+        updateSuggestedReservedAmount()
         let fundingFund = reservedFunds.first { $0.id == reservedFundID }
         var fundingAmount: Int64?
         if reservedFundID != nil {

@@ -20,7 +20,7 @@ struct ReservedFundsView: View {
     var body: some View {
         List {
             Section {
-                Text("Aparta una parte del saldo de una cuenta para un pago concreto, como el máster. El saldo real no cambia al reservar. Al registrar un gasto, elige esta reserva en «Pagar con», o desliza la reserva y pulsa «Pagar».")
+                Text("Aparta dinero para un objetivo o pago previsto. El saldo real no cambia al reservar. Desliza la reserva y pulsa «Pagar», o elígela en «Pagar con» al registrar un gasto. La parte cubierta por la reserva queda automáticamente fuera del presupuesto mensual.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

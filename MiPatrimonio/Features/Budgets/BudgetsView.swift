@@ -69,6 +69,10 @@ struct BudgetsView: View {
         totalBudgetMinor - totalSpentMinor
     }
 
+    private var reservedPaymentsMinor: Int64 {
+        FinanceCalculator.monthlySummary(for: selectedMonth, transactions: transactions).reservedExpenseMinor
+    }
+
     private var unspentKeptMinor: Int64 {
         budgetedItems.reduce(Int64.zero) { total, item in
             guard let plan = FinanceCalculator.activeRecurringBudget(
@@ -107,6 +111,19 @@ struct BudgetsView: View {
                     }
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
+                }
+
+                if reservedPaymentsMinor > 0 {
+                    Section {
+                        LabeledContent {
+                            PrivacyAmountText(minorUnits: reservedPaymentsMinor, font: .subheadline, weight: .semibold)
+                        } label: {
+                            Label("Pagado con reservas", systemImage: "lock.open")
+                        }
+                        Text("Ya estaba apartado: queda fuera del presupuesto mensual y no genera avisos de exceso.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if selectedMonth < Date.now.startOfMonth(), unspentKeptMinor > 0 {
