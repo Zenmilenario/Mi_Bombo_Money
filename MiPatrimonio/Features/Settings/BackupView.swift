@@ -36,9 +36,19 @@ struct BackupView: View {
     @State private var pendingFileName: String?
     @State private var message: String?
 
+    @State private var encryptExport = true
+    @State private var showingExportPasswordDialog = false
+    @State private var exportPassword = ""
+    @State private var exportPasswordConfirm = ""
+
+    @State private var pendingEncryptedData: Data?
+    @State private var pendingEncryptedFileName: String?
+    @State private var showingImportPasswordDialog = false
+    @State private var importPassword = ""
+
     private var defaultFileName: String {
         let day = String(ISO8601DateFormatter().string(from: .now).prefix(10))
-        return "MiPatrimonio-copia-\(day)"
+        return encryptExport ? "MiPatrimonio-copia-\(day).enc" : "MiPatrimonio-copia-\(day)"
     }
 
     var body: some View {
@@ -49,12 +59,23 @@ struct BackupView: View {
             }
 
             Section("Crear copia") {
+                Toggle("Proteger con contraseña (cifrado AES)", isOn: $encryptExport)
+
                 Button {
-                    exportBackup()
+                    if encryptExport {
+                        exportPassword = ""
+                        exportPasswordConfirm = ""
+                        showingExportPasswordDialog = true
+                    } else {
+                        exportBackup(password: nil)
+                    }
                 } label: {
-                    Label("Exportar todos mis datos", systemImage: "square.and.arrow.up")
+                    Label(encryptExport ? "Exportar copia cifrada" : "Exportar todos mis datos", systemImage: encryptExport ? "lock.doc" : "square.and.arrow.up")
                 }
-                Text("Incluye cuentas, tarjetas, movimientos, presupuestos repetidos, reglas de categorías, objetivos y los demás datos financieros.")
+
+                Text(encryptExport
+                    ? "Cifra todos tus datos con AES-256 para guardarlos de forma segura en iCloud Drive o compartirlos."
+                    : "Incluye cuentas, tarjetas, movimientos, presupuestos, reglas, objetivos y valoraciones.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -63,7 +84,7 @@ struct BackupView: View {
                 Button {
                     showingImporter = true
                 } label: {
-                    Label("Elegir copia JSON", systemImage: "square.and.arrow.down")
+                    Label("Elegir copia JSON o cifrada", systemImage: "square.and.arrow.down")
                 }
 
                 if let backup = pendingBackup {
@@ -88,8 +109,8 @@ struct BackupView: View {
                 Text("La restauración sustituye todos los datos financieros que haya ahora en esta app. Revisa la fecha y el contenido de la copia antes de continuar.")
             }
 
-            Section("Privacidad") {
-                Text("El archivo JSON contiene tus datos financieros sin contraseña. Guárdalo en una ubicación privada y no lo compartas.")
+            Section("Seguridad y Privacidad") {
+                Text("Las copias cifradas con contraseña utilizan AES-GCM y derivación PBKDF2-SHA256. Si olvidas la contraseña, la copia cifrada no se podrá recuperar.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -104,14 +125,14 @@ struct BackupView: View {
             exportDocument = nil
             switch result {
             case .success:
-                message = "Copia guardada. Conserva este archivo para recuperar tus datos."
+                message = "Copia guardada con éxito. Conserva este archivo para recuperar tus datos."
             case .failure(let error):
                 message = error.localizedDescription
             }
         }
         .fileImporter(
             isPresented: $showingImporter,
-            allowedContentTypes: [.json],
+            allowedContentTypes: [.json, .data],
             allowsMultipleSelection: false
         ) { result in
             Task { @MainActor in
@@ -129,6 +150,34 @@ struct BackupView: View {
         } message: {
             Text("Los datos actuales se eliminarán y se reemplazarán por los de «\(pendingFileName ?? "la copia")». Esta acción no se puede deshacer.")
         }
+        .alert("Establecer contraseña de copia", isPresented: $showingExportPasswordDialog) {
+            SecureField("Contraseña", text: $exportPassword)
+            SecureField("Confirmar contraseña", text: $exportPasswordConfirm)
+            Button("Cifrar y guardar") {
+                if exportPassword.count < 10 {
+                    message = "Usa una contraseña de al menos 10 caracteres."
+                } else if exportPassword != exportPasswordConfirm {
+                    message = "Las contraseñas no coinciden."
+                } else {
+                    exportBackup(password: exportPassword)
+                }
+            }
+            Button("Cancelar", role: .cancel) { }
+        } message: {
+            Text("Introduce una contraseña para proteger tu archivo de copia.")
+        }
+        .alert("Copia protegida", isPresented: $showingImportPasswordDialog) {
+            SecureField("Contraseña de la copia", text: $importPassword)
+            Button("Descifrar") {
+                decryptAndLoadPendingBackup(password: importPassword)
+            }
+            Button("Cancelar", role: .cancel) {
+                pendingEncryptedData = nil
+                pendingEncryptedFileName = nil
+            }
+        } message: {
+            Text("Esta copia de seguridad está cifrada. Introduce su contraseña para abrirla.")
+        }
         .alert("Copia de seguridad", isPresented: Binding(
             get: { message != nil },
             set: { if !$0 { message = nil } }
@@ -139,10 +188,17 @@ struct BackupView: View {
         }
     }
 
-    private func exportBackup() {
+    private func exportBackup(password: String?) {
+        defer { exportPassword = ""; exportPasswordConfirm = "" }
         do {
             let backup = try BackupService.capture(in: modelContext)
-            exportDocument = FinanceBackupDocument(data: try BackupService.encode(backup))
+            let data: Data
+            if let password, !password.isEmpty {
+                data = try BackupService.encodeEncrypted(backup, password: password)
+            } else {
+                data = try BackupService.encode(backup)
+            }
+            exportDocument = FinanceBackupDocument(data: data)
             showingExporter = true
         } catch {
             message = error.localizedDescription
@@ -159,11 +215,33 @@ struct BackupView: View {
             }
 
             let data = try Data(contentsOf: url, options: .mappedIfSafe)
-            pendingBackup = try BackupService.decode(data)
-            pendingFileName = url.lastPathComponent
+            let fileName = url.lastPathComponent
+
+            if BackupService.isEncrypted(data) {
+                pendingEncryptedData = data
+                pendingEncryptedFileName = fileName
+                importPassword = ""
+                showingImportPasswordDialog = true
+            } else {
+                pendingBackup = try BackupService.decode(data)
+                pendingFileName = fileName
+            }
         } catch {
             pendingBackup = nil
             pendingFileName = nil
+            message = error.localizedDescription
+        }
+    }
+
+    private func decryptAndLoadPendingBackup(password: String) {
+        defer { importPassword = "" }
+        guard let data = pendingEncryptedData else { return }
+        do {
+            pendingBackup = try BackupService.decode(data, password: password)
+            pendingFileName = pendingEncryptedFileName
+            pendingEncryptedData = nil
+            pendingEncryptedFileName = nil
+        } catch {
             message = error.localizedDescription
         }
     }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +24,15 @@ def setting_lines(settings: list[tuple[str, str]]) -> list[str]:
 
 def generate() -> None:
     PROJECT_DIR.mkdir(parents=True, exist_ok=True)
+    existing_project = PROJECT_DIR / "project.pbxproj"
+    existing = existing_project.read_text(encoding="utf-8") if existing_project.exists() else ""
+    def previous_setting(name: str, default: str) -> str:
+        match = re.search(r"\b" + name + r"\s*=\s*([^;]+);", existing)
+        return match.group(1).strip() if match else default
+    version = previous_setting("MARKETING_VERSION", "0.4.3")
+    build = previous_setting("CURRENT_PROJECT_VERSION", "20")
     swift_files = sorted(SOURCE_ROOT.rglob("*.swift"))
+    asset_catalog = SOURCE_ROOT / "Resources" / "Assets.xcassets"
     info_plist = SOURCE_ROOT / "Resources" / "Info.plist"
     if not info_plist.exists():
         raise FileNotFoundError(info_plist)
@@ -43,11 +52,12 @@ def generate() -> None:
     target_debug_id = object_id("XCBuildConfiguration", "target-debug")
     target_release_id = object_id("XCBuildConfiguration", "target-release")
 
-    directories = [SOURCE_ROOT] + sorted(path for path in SOURCE_ROOT.rglob("*") if path.is_dir())
-    group_ids = {path: object_id("PBXGroup", str(path.relative_to(ROOT))) for path in directories}
-    source_files = swift_files + [info_plist]
-    file_refs = {path: object_id("PBXFileReference", str(path.relative_to(ROOT))) for path in source_files}
-    build_files = {path: object_id("PBXBuildFile", str(path.relative_to(ROOT))) for path in swift_files}
+    directories = [SOURCE_ROOT] + sorted(path for path in SOURCE_ROOT.rglob("*") if path.is_dir()
+        and not any(part.endswith(".xcassets") for part in path.parts))
+    group_ids = {path: object_id("PBXGroup", path.relative_to(ROOT).as_posix()) for path in directories}
+    source_files = swift_files + [info_plist, asset_catalog]
+    file_refs = {path: object_id("PBXFileReference", path.relative_to(ROOT).as_posix()) for path in source_files}
+    build_files = {path: object_id("PBXBuildFile", path.relative_to(ROOT).as_posix()) for path in swift_files + [asset_catalog]}
 
     lines: list[str] = []
     add = lines.append
@@ -61,11 +71,13 @@ def generate() -> None:
     add("\n/* Begin PBXBuildFile section */")
     for path in swift_files:
         add(f"\t\t{build_files[path]} /* {path.name} in Sources */ = {{isa = PBXBuildFile; fileRef = {file_refs[path]} /* {path.name} */; }};")
+    add(f"\t\t{build_files[asset_catalog]} /* Assets.xcassets in Resources */ = {{isa = PBXBuildFile; fileRef = {file_refs[asset_catalog]} /* Assets.xcassets */; }};")
     add("/* End PBXBuildFile section */\n")
 
     add("/* Begin PBXFileReference section */")
     for path in swift_files:
         add(f"\t\t{file_refs[path]} /* {path.name} */ = {{isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = {path.name}; sourceTree = \"<group>\"; }};")
+    add(f"\t\t{file_refs[asset_catalog]} /* Assets.xcassets */ = {{isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = \"<group>\"; }};")
     add(f"\t\t{file_refs[info_plist]} /* Info.plist */ = {{isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = \"<group>\"; }};")
     add(f"\t\t{product_ref_id} /* MiPatrimonio.app */ = {{isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MiPatrimonio.app; sourceTree = BUILT_PRODUCTS_DIR; }};")
     add("/* End PBXFileReference section */\n")
@@ -158,7 +170,7 @@ def generate() -> None:
     add(f"\t\t{resources_phase_id} /* Resources */ = {{")
     add("\t\t\tisa = PBXResourcesBuildPhase;")
     add("\t\t\tbuildActionMask = 2147483647;")
-    add("\t\t\tfiles = ();")
+    add(f"\t\t\tfiles = ({build_files[asset_catalog]} /* Assets.xcassets in Resources */);")
     add("\t\t\trunOnlyForDeploymentPostprocessing = 0;")
     add("\t\t};")
     add("/* End PBXResourcesBuildPhase section */\n")
@@ -214,15 +226,16 @@ def generate() -> None:
         ("SDKROOT", "iphoneos"),
     ]
     target_common = [
+        ("ASSETCATALOG_COMPILER_APPICON_NAME", "AppIcon"),
         ("CODE_SIGN_STYLE", "Automatic"),
-        ("CURRENT_PROJECT_VERSION", "2"),
+        ("CURRENT_PROJECT_VERSION", build),
         ("DEVELOPMENT_TEAM", '""'),
         ("ENABLE_PREVIEWS", "YES"),
         ("GENERATE_INFOPLIST_FILE", "NO"),
         ("INFOPLIST_FILE", "MiPatrimonio/Resources/Info.plist"),
         ("IPHONEOS_DEPLOYMENT_TARGET", "17.0"),
         ("LD_RUNPATH_SEARCH_PATHS", '"$(inherited) @executable_path/Frameworks"'),
-        ("MARKETING_VERSION", "0.2.0"),
+        ("MARKETING_VERSION", version),
         ("PRODUCT_BUNDLE_IDENTIFIER", "com.example.MiPatrimonio"),
         ("PRODUCT_NAME", '"$(TARGET_NAME)"'),
         ("SUPPORTED_PLATFORMS", '"iphoneos iphonesimulator"'),
@@ -230,7 +243,7 @@ def generate() -> None:
         ("SWIFT_EMIT_LOC_STRINGS", "YES"),
         ("SWIFT_STRICT_CONCURRENCY", "targeted"),
         ("SWIFT_VERSION", "5.0"),
-        ("TARGETED_DEVICE_FAMILY", "1"),
+        ("TARGETED_DEVICE_FAMILY", '"1,2"'),
     ]
 
     configurations = [

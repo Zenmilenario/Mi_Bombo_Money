@@ -32,7 +32,6 @@ enum RecurringMovementService {
                    calendar.startOfDay(for: movement.nextDueDate) > calendar.startOfDay(for: endDate) {
                     movement.isActive = false
                     movement.updatedAt = .now
-                    try save(in: context)
                     break
                 }
 
@@ -41,7 +40,6 @@ enum RecurringMovementService {
                 if calendar.startOfDay(for: scheduledDate) < firstAccountDay {
                     movement.nextDueDate = nextDate(after: scheduledDate, for: movement)
                     movement.updatedAt = .now
-                    try save(in: context)
                     iterations += 1
                     continue
                 }
@@ -52,7 +50,6 @@ enum RecurringMovementService {
                 if alreadyPosted {
                     movement.nextDueDate = nextDate(after: scheduledDate, for: movement)
                     movement.updatedAt = .now
-                    try save(in: context)
                 } else {
                     let postingDate = Swift.max(
                         calendar.startOfDay(for: scheduledDate),
@@ -61,13 +58,18 @@ enum RecurringMovementService {
                     let transaction = try createTransaction(
                         from: movement,
                         on: postingDate,
-                        in: context
+                        in: context,
+                        saveImmediately: false
                     )
                     existingTransactions.append(transaction)
                     postedCount += 1
                 }
                 iterations += 1
             }
+        }
+
+        if context.hasChanges {
+            try save(in: context)
         }
 
         return postedCount
@@ -77,7 +79,8 @@ enum RecurringMovementService {
     static func createTransaction(
         from recurring: RecurringMovement,
         on date: Date? = nil,
-        in context: ModelContext
+        in context: ModelContext,
+        saveImmediately: Bool = true
     ) throws -> FinancialTransaction {
         let transactionDate = date ?? recurring.nextDueDate
         let destination = recurring.type == .transfer ? recurring.destinationAccount : nil
@@ -106,7 +109,9 @@ enum RecurringMovementService {
         context.insert(transaction)
         recurring.nextDueDate = nextDate(after: recurring.nextDueDate, for: recurring)
         recurring.updatedAt = .now
-        try save(in: context)
+        if saveImmediately {
+            try save(in: context)
+        }
         return transaction
     }
 

@@ -278,10 +278,48 @@ private struct HeaderIndexes {
         amount = Self.find(in: headers, aliases: ["importe", "cantidad", "amount", "monto", "valor"])
         reconciled = Self.find(in: headers, aliases: ["conciliado", "reconciled", "validado"])
         notes = Self.find(in: headers, aliases: ["notas", "observaciones", "notes", "memo"])
-        externalID = Self.find(in: headers, aliases: ["id", "idmovimiento", "transactionid", "referencia", "reference"])
+        externalID = Self.find(in: headers, aliases: ["id", "idmovimiento", "transactionid", "idexterno", "referencia", "reference"])
     }
 
     private static func find(in headers: [String], aliases: [String]) -> Int? {
         headers.firstIndex { header in aliases.contains(header) }
+    }
+}
+
+enum CSVExportService {
+    static func generateCSV(from transactions: [FinancialTransaction]) -> String {
+        var lines: [String] = []
+        lines.append("Fecha;Tipo;Importe;Cuenta origen;Cuenta destino;Categoría;Concepto;Notas;Conciliado;ID externo")
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withFullDate]
+
+        for tx in transactions {
+            let dateStr = dateFormatter.string(from: tx.date)
+            let typeStr = tx.type.title
+            let amount = Swift.abs(tx.amountMinor)
+            let amountStr = "\(amount / 100)," + String(format: "%02d", Int(amount % 100))
+            let sourceStr = escape(tx.sourceAccount?.bankAndAccountDisplayName ?? tx.sourceAccount?.name ?? "")
+            let destStr = escape(tx.destinationAccount?.bankAndAccountDisplayName ?? tx.destinationAccount?.name ?? "")
+            let catStr = escape(tx.category?.name ?? "")
+            let descStr = escape(tx.descriptionText)
+            let notesStr = escape(tx.notes)
+            let recStr = tx.isReconciled ? "Sí" : "No"
+            let extIDStr = escape(tx.externalID ?? "")
+
+            lines.append("\(dateStr);\(typeStr);\(amountStr);\(sourceStr);\(destStr);\(catStr);\(descStr);\(notesStr);\(recStr);\(extIDStr)")
+        }
+        return lines.joined(separator: "\r\n")
+    }
+
+    private static func escape(_ text: String) -> String {
+        let original = text
+        let first = text.trimmingCharacters(in: .whitespacesAndNewlines).first
+        let trimmed = (first.map { "=+-@".contains($0) } ?? false) || text.hasPrefix("\t") || text.hasPrefix("\r")
+            ? "'" + original : original
+        if trimmed.contains(";") || trimmed.contains("\"") || trimmed.contains("\n") || trimmed.contains("\r") {
+            let escaped = trimmed.replacingOccurrences(of: "\"", with: "\"\"")
+            return "\"\(escaped)\""
+        }
+        return trimmed
     }
 }

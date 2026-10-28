@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftData
 
@@ -5,6 +6,8 @@ enum BackupError: LocalizedError {
     case unsupportedVersion(Int)
     case invalidFile(String)
     case fileTooLarge
+    case invalidPassword
+    case passwordRequired
 
     var errorDescription: String? {
         switch self {
@@ -14,12 +17,27 @@ enum BackupError: LocalizedError {
             "La copia de seguridad no es válida: \(reason)"
         case .fileTooLarge:
             "El archivo supera el límite de 50 MB."
+        case .invalidPassword:
+            "La contraseña no es correcta o el archivo está dañado."
+        case .passwordRequired:
+            "Esta copia de seguridad está cifrada y requiere una contraseña para abrirse."
         }
     }
 }
 
+struct EncryptedFinanceBackup: Codable {
+    static let magicHeader = "MiPatrimonioEncryptedBackupV1"
+    static let currentFormat = "AES-256-GCM-PBKDF2-SHA256"
+
+    let magic: String
+    let format: String
+    let saltBase64: String
+    let combinedCiphertextBase64: String
+    let iterations: UInt32?
+}
+
 struct FinanceBackup: Codable {
-    static let currentVersion = 1
+    static let currentVersion = 2
 
     let formatVersion: Int
     let exportedAt: Date
@@ -45,7 +63,7 @@ struct FinanceBackup: Codable {
     }
 
     func validate() throws {
-        guard formatVersion == Self.currentVersion else {
+        guard (1...Self.currentVersion).contains(formatVersion) else {
             throw BackupError.unsupportedVersion(formatVersion)
         }
 
@@ -67,7 +85,7 @@ struct FinanceBackup: Codable {
         let accountIDs = try unique(accounts.map(\.id), label: "cuentas")
         let categoryIDs = try unique(categories.map(\.id), label: "categorías")
         _ = try unique(cards.map(\.id), label: "tarjetas")
-        _ = try unique(reservedFunds.map(\.id), label: "reservas")
+        let reservedFundIDs = try unique(reservedFunds.map(\.id), label: "reservas")
         _ = try unique(transactions.map(\.id), label: "movimientos")
         _ = try unique(budgets.map(\.id), label: "presupuestos")
         _ = try unique((recurringBudgets ?? []).map(\.id), label: "presupuestos repetidos")
@@ -110,6 +128,7 @@ struct FinanceBackup: Codable {
             }
             try linked(rule.categoryID, to: categoryIDs, label: "categoría de una regla")
         }
+        var reservedSpending: [UUID: Int64] = [:]
         for transaction in transactions {
             guard TransactionType(rawValue: transaction.typeRaw) != nil,
                   DuplicateState(rawValue: transaction.duplicateStateRaw) != nil,
@@ -119,6 +138,22 @@ struct FinanceBackup: Codable {
             try linked(transaction.sourceAccountID, to: accountIDs, label: "cuenta origen de un movimiento")
             try linked(transaction.destinationAccountID, to: accountIDs, label: "cuenta destino de un movimiento")
             try linked(transaction.categoryID, to: categoryIDs, label: "categoría de un movimiento")
+            try linked(transaction.reservedFundID, to: reservedFundIDs, label: "reserva de un pago")
+            if let id = transaction.reservedFundID {
+                guard let fund = reservedFunds.first(where: { $0.id == id }),
+                      let amount = transaction.reservedAmountMinor, amount > 0, amount <= transaction.amountMinor,
+                      TransactionType(rawValue: transaction.typeRaw)?.countsAsExpense == true,
+                      fund.accountID != nil, fund.accountID == transaction.sourceAccountID else {
+                    throw BackupError.invalidFile("pago con reserva o cuenta asociada inválidos.")
+                }
+                let total = (reservedSpending[id] ?? 0).addingReportingOverflow(amount)
+                guard !total.overflow, total.partialValue <= fund.amountMinor else {
+                    throw BackupError.invalidFile("los pagos superan el dinero asignado a una reserva.")
+                }
+                reservedSpending[id] = total.partialValue
+            } else if transaction.reservedAmountMinor != nil {
+                throw BackupError.invalidFile("importe reservado sin su reserva asociada.")
+            }
         }
         for budget in budgets {
             guard budget.limitMinor >= 0 else {
@@ -308,6 +343,8 @@ struct TransactionBackup: Codable {
     let externalID: String?
     let importBatchID: UUID?
     let recurringMovementID: UUID?
+    let reservedFundID: UUID?
+    let reservedAmountMinor: Int64?
     let createdAt: Date
     let updatedAt: Date
     let sourceAccountID: UUID?
@@ -320,6 +357,7 @@ struct TransactionBackup: Codable {
         notes = value.notes; isReconciled = value.isReconciled; fingerprint = value.fingerprint
         duplicateStateRaw = value.duplicateStateRaw; externalID = value.externalID
         importBatchID = value.importBatchID; recurringMovementID = value.recurringMovementID
+        reservedFundID = value.reservedFundID; reservedAmountMinor = value.reservedAmountMinor
         createdAt = value.createdAt; updatedAt = value.updatedAt
         sourceAccountID = value.sourceAccount?.id
         destinationAccountID = value.destinationAccount?.id; categoryID = value.category?.id
@@ -486,12 +524,94 @@ enum BackupService {
         return data
     }
 
-    static func decode(_ data: Data) throws -> FinanceBackup {
+    static func encodeEncrypted(_ backup: FinanceBackup, password: String) throws -> Data {
+        let plainData = try encode(backup)
+        guard password.count >= 10 else {
+            throw BackupError.invalidFile("usa una contraseña de al menos 10 caracteres.")
+        }
+        let saltKey = SymmetricKey(size: .bits128)
+        let salt = saltKey.withUnsafeBytes { Data($0) }
+        let derivedKey = SymmetricKey(data: try PasswordKeyDerivation.derive(password, salt: salt))
+        let sealedBox = try AES.GCM.seal(plainData, using: derivedKey,
+            authenticating: Data(EncryptedFinanceBackup.currentFormat.utf8))
+        guard let combined = sealedBox.combined else {
+            throw BackupError.invalidFile("error al cifrar la copia.")
+        }
+        let encryptedBackup = EncryptedFinanceBackup(
+            magic: EncryptedFinanceBackup.magicHeader,
+            format: EncryptedFinanceBackup.currentFormat,
+            saltBase64: salt.base64EncodedString(),
+            combinedCiphertextBase64: combined.base64EncodedString(),
+            iterations: PasswordKeyDerivation.iterations
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let encoded = try encoder.encode(encryptedBackup)
+        guard encoded.count <= 50_000_000 else { throw BackupError.fileTooLarge }
+        return encoded
+    }
+
+    static func isEncrypted(_ data: Data) -> Bool {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let magic = json["magic"] as? String else {
+            return false
+        }
+        return magic == EncryptedFinanceBackup.magicHeader
+    }
+
+    static func decode(_ data: Data, password: String? = nil) throws -> FinanceBackup {
+        guard data.count <= 50_000_000 else { throw BackupError.fileTooLarge }
+        if isEncrypted(data) {
+            guard let password, !password.isEmpty else {
+                throw BackupError.passwordRequired
+            }
+            return try decodeEncrypted(data, password: password)
+        }
+        return try decodePlain(data)
+    }
+
+    private static func decodeEncrypted(_ data: Data, password: String) throws -> FinanceBackup {
+        do {
+            let container = try JSONDecoder().decode(EncryptedFinanceBackup.self, from: data)
+            guard container.magic == EncryptedFinanceBackup.magicHeader else {
+                throw BackupError.invalidFile("formato de cifrado no reconocido.")
+            }
+            guard let salt = Data(base64Encoded: container.saltBase64),
+                  (16...64).contains(salt.count),
+                  let combined = Data(base64Encoded: container.combinedCiphertextBase64), combined.count >= 28 else {
+                throw BackupError.invalidFile("el contenido cifrado no es válido.")
+            }
+            let derivedKey: SymmetricKey
+            let aad: Data
+            if container.format == EncryptedFinanceBackup.currentFormat, let rounds = container.iterations {
+                derivedKey = SymmetricKey(data: try PasswordKeyDerivation.derive(password, salt: salt, rounds: rounds))
+                aad = Data(container.format.utf8)
+            } else if container.format == "AES-GCM-HKDF-SHA256", container.iterations == nil {
+                derivedKey = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: Data(password.utf8)),
+                    salt: salt, info: Data("MiPatrimonioBackupKeyV1".utf8), outputByteCount: 32)
+                aad = Data()
+            } else { throw BackupError.invalidFile("formato de cifrado no reconocido.") }
+            let sealedBox = try AES.GCM.SealedBox(combined: combined)
+            let decryptedData: Data
+            do {
+                decryptedData = try AES.GCM.open(sealedBox, using: derivedKey, authenticating: aad)
+            } catch {
+                throw BackupError.invalidPassword
+            }
+            return try decodePlain(decryptedData)
+        } catch let error as BackupError {
+            throw error
+        } catch {
+            throw BackupError.invalidFile("no se pudo descifrar la copia de seguridad.")
+        }
+    }
+
+    private static func decodePlain(_ data: Data) throws -> FinanceBackup {
         guard data.count <= 50_000_000 else { throw BackupError.fileTooLarge }
         do {
             let decoder = JSONDecoder()
             let header = try decoder.decode(Header.self, from: data)
-            guard header.formatVersion == FinanceBackup.currentVersion else {
+            guard (1...FinanceBackup.currentVersion).contains(header.formatVersion) else {
                 throw BackupError.unsupportedVersion(header.formatVersion)
             }
             let backup = try decoder.decode(FinanceBackup.self, from: data)
@@ -646,6 +766,7 @@ enum BackupService {
                     duplicateState: DuplicateState(rawValue: record.duplicateStateRaw)!,
                     externalID: record.externalID, importBatchID: record.importBatchID,
                     recurringMovementID: record.recurringMovementID,
+                    reservedFundID: record.reservedFundID, reservedAmountMinor: record.reservedAmountMinor,
                     createdAt: record.createdAt, updatedAt: record.updatedAt,
                     sourceAccount: record.sourceAccountID.flatMap { accounts[$0] },
                     destinationAccount: record.destinationAccountID.flatMap { accounts[$0] },

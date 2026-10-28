@@ -1,6 +1,37 @@
 import Charts
 import SwiftData
 import SwiftUI
+import UniformTypeIdentifiers
+
+private struct TransactionCSVDocument: FileDocument {
+    static var readableContentTypes: [UTType] { [.commaSeparatedText] }
+    static var writableContentTypes: [UTType] { [.commaSeparatedText] }
+
+    var text: String
+
+    init(text: String) {
+        self.text = text
+    }
+
+    init(configuration: ReadConfiguration) throws {
+        guard let data = configuration.file.regularFileContents,
+              let text = String(data: data, encoding: .utf8) else {
+            throw CSVImportError.unreadableFile
+        }
+        self.text = text
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        let data = Data(text.utf8)
+        return FileWrapper(regularFileWithContents: data)
+    }
+}
+
+private struct TransactionDayGroup: Identifiable {
+    var id: Date { date }
+    let date: Date
+    let transactions: [FinancialTransaction]
+}
 
 private enum TransactionDateFilter: String, CaseIterable, Identifiable {
     case all
@@ -35,6 +66,10 @@ struct TransactionsView: View {
     @State private var showingFilters = false
     @State private var selectedTransaction: FinancialTransaction?
     @State private var deletionError: String?
+
+    @State private var showingCSVExporter = false
+    @State private var csvExportDocument: TransactionCSVDocument?
+    @State private var csvExportMessage: String?
 
     private var filteredTransactions: [FinancialTransaction] {
         transactions.filter { transaction in
@@ -83,13 +118,13 @@ struct TransactionsView: View {
         }
     }
 
-    private var groupedDates: [Date] {
-        Array(
-            Dictionary(grouping: filteredTransactions) {
-                Calendar.autoupdatingCurrent.startOfDay(for: $0.date)
-            }.keys
-        )
-        .sorted(by: >)
+    private var groupedTransactionDays: [TransactionDayGroup] {
+        let grouped = Dictionary(grouping: filteredTransactions) {
+            Calendar.autoupdatingCurrent.startOfDay(for: $0.date)
+        }
+        return grouped
+            .sorted { $0.key > $1.key }
+            .map { TransactionDayGroup(date: $0.key, transactions: $0.value) }
     }
 
     private var filteredIncomeMinor: Int64 {
@@ -205,13 +240,13 @@ struct TransactionsView: View {
                                 .frame(maxWidth: .infinity, minHeight: 220)
                             }
                         } else {
-                            ForEach(groupedDates, id: \.self) { date in
+                            ForEach(groupedTransactionDays) { group in
                                 Section(
-                                    date.formatted(
+                                    group.date.formatted(
                                         .dateTime.weekday(.wide).day().month(.wide).year()
                                     )
                                 ) {
-                                    ForEach(transactions(for: date)) { transaction in
+                                    ForEach(group.transactions) { transaction in
                                         Button {
                                             selectedTransaction = transaction
                                         } label: {
@@ -241,16 +276,44 @@ struct TransactionsView: View {
             )
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingFilters = true
-                    } label: {
-                        Image(
-                            systemName: activeFilterCount > 0
-                                ? "line.3.horizontal.decrease.circle.fill"
-                                : "line.3.horizontal.decrease.circle"
-                        )
+                    HStack(spacing: 12) {
+                        Menu {
+                            Button {
+                                exportCSV()
+                            } label: {
+                                Label("Exportar a CSV", systemImage: "square.and.arrow.up")
+                            }
+                            .disabled(filteredTransactions.isEmpty)
+                        } label: {
+                            Image(systemName: "ellipsis.circle")
+                        }
+                        .accessibilityLabel("Más opciones")
+
+                        Button {
+                            showingFilters = true
+                        } label: {
+                            Image(
+                                systemName: activeFilterCount > 0
+                                    ? "line.3.horizontal.decrease.circle.fill"
+                                    : "line.3.horizontal.decrease.circle"
+                            )
+                        }
+                        .accessibilityLabel("Filtros")
                     }
-                    .accessibilityLabel("Filtros")
+                }
+            }
+            .fileExporter(
+                isPresented: $showingCSVExporter,
+                document: csvExportDocument,
+                contentType: .commaSeparatedText,
+                defaultFilename: csvFileName
+            ) { result in
+                csvExportDocument = nil
+                switch result {
+                case .success:
+                    csvExportMessage = "Movimientos exportados a CSV correctamente."
+                case .failure(let error):
+                    csvExportMessage = error.localizedDescription
                 }
             }
             .sheet(isPresented: $showingFilters) {
@@ -268,6 +331,19 @@ struct TransactionsView: View {
             }
             .sheet(item: $selectedTransaction) { transaction in
                 TransactionDetailView(transaction: transaction)
+            }
+            .alert(
+                "Exportar movimientos",
+                isPresented: Binding(
+                    get: { csvExportMessage != nil },
+                    set: { if !$0 { csvExportMessage = nil } }
+                )
+            ) {
+                Button("Aceptar", role: .cancel) {
+                    csvExportMessage = nil
+                }
+            } message: {
+                Text(csvExportMessage ?? "")
             }
             .alert(
                 "No se pudo eliminar",
@@ -353,10 +429,15 @@ struct TransactionsView: View {
         }
     }
 
-    private func transactions(for date: Date) -> [FinancialTransaction] {
-        filteredTransactions.filter {
-            Calendar.autoupdatingCurrent.isDate($0.date, inSameDayAs: date)
-        }
+    private var csvFileName: String {
+        let day = String(ISO8601DateFormatter().string(from: .now).prefix(10))
+        return "MiPatrimonio-movimientos-\(day)"
+    }
+
+    private func exportCSV() {
+        let csv = CSVExportService.generateCSV(from: filteredTransactions)
+        csvExportDocument = TransactionCSVDocument(text: csv)
+        showingCSVExporter = true
     }
 
     private func matchesDateFilter(_ date: Date) -> Bool {
@@ -535,6 +616,7 @@ private struct TransactionRow: View {
 
 
 private struct TransactionDetailView: View {
+    @Query private var reservedFunds: [ReservedFund]
     @Environment(\.dismiss) private var dismiss
     @AppStorage("hideAmounts") private var hideAmounts = false
 
@@ -663,6 +745,14 @@ private struct TransactionDetailView: View {
                         systemImage: "building.columns"
                     )
 
+                    if let fundID = transaction.reservedFundID {
+                        Divider().padding(.leading, 38)
+                        detailRow(title: "Pagado con reserva",
+                            value: reservedFunds.first(where: { $0.id == fundID })?.name ?? "Reserva eliminada",
+                            systemImage: "lock.open")
+                        detailRow(title: "Importe de la reserva", value: hideAmounts ? "••••••" : MoneyFormatter.string(
+                            minorUnits: transaction.reservedAmountMinor ?? 0), systemImage: "banknote")
+                    }
                     if let category = transaction.category {
                         Divider().padding(.leading, 38)
 
@@ -979,6 +1069,7 @@ struct TransactionFormView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
+    @Query private var reservedFunds: [ReservedFund]
     @Query(sort: \CategoryRule.updatedAt, order: .reverse) private var categoryRules: [CategoryRule]
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var existingTransactions: [FinancialTransaction]
 
@@ -992,6 +1083,8 @@ struct TransactionFormView: View {
     @State private var descriptionText: String
     @State private var amountText: String
     @State private var notes: String
+    @State private var reservedFundID: UUID?
+    @State private var reservedAmountText: String
     @State private var isReconciled: Bool
     @State private var rememberCategoryRule = false
     @State private var rulePhrase = ""
@@ -1000,11 +1093,11 @@ struct TransactionFormView: View {
     @State private var validationMessage: String?
     @FocusState private var descriptionIsFocused: Bool
 
-    init(transaction: FinancialTransaction? = nil) {
+    init(transaction: FinancialTransaction? = nil, preferredReservedFund: ReservedFund? = nil) {
         self.transaction = transaction
         _date = State(initialValue: transaction?.date ?? .now)
         _type = State(initialValue: transaction?.type ?? .expense)
-        _sourceAccountID = State(initialValue: transaction?.sourceAccount?.id)
+        _sourceAccountID = State(initialValue: transaction?.sourceAccount?.id ?? preferredReservedFund?.account?.id)
         _destinationAccountID = State(initialValue: transaction?.destinationAccount?.id)
         _categoryID = State(initialValue: transaction?.category?.id)
         _descriptionText = State(initialValue: transaction?.descriptionText ?? "")
@@ -1012,11 +1105,20 @@ struct TransactionFormView: View {
             String(format: "%.2f", Double($0.amountMinor) / 100)
         } ?? "")
         _notes = State(initialValue: transaction?.notes ?? "")
+        _reservedFundID = State(initialValue: transaction?.reservedFundID ?? preferredReservedFund?.id)
+        _reservedAmountText = State(initialValue: (transaction?.reservedAmountMinor).map { String(format: "%.2f", Double($0) / 100) } ?? "")
         _isReconciled = State(initialValue: transaction?.isReconciled ?? false)
     }
 
     private var activeAccounts: [FinancialAccount] {
         accounts.filter { !$0.isArchived }
+    }
+
+    private var eligibleReservedFunds: [ReservedFund] {
+        reservedFunds.filter { fund in
+            fund.account?.id == sourceAccountID && (fund.id == reservedFundID || FinanceCalculator.remainingReservedAmount(
+                for: fund, transactions: existingTransactions, at: .distantFuture, excluding: transaction?.id) > 0)
+        }
     }
 
     private var allowedCategories: [FinanceCategory] {
@@ -1047,6 +1149,7 @@ struct TransactionFormView: View {
                         }
                     }
                     .onChange(of: type) { _, newType in
+                        if !newType.countsAsExpense { reservedFundID = nil; reservedAmountText = "" }
                         categoryChosenManually = false
                         if newType == .transfer {
                             applySuggestedCategory()
@@ -1058,6 +1161,11 @@ struct TransactionFormView: View {
 
                     TextField("Importe", text: $amountText)
                         .keyboardType(.decimalPad)
+                        .onChange(of: amountText) { oldValue, newValue in
+                            if reservedFundID != nil && (reservedAmountText.isEmpty || reservedAmountText == oldValue) {
+                                reservedAmountText = newValue
+                            }
+                        }
                     TextField("Descripción", text: $descriptionText)
                         .focused($descriptionIsFocused)
                         .onChange(of: descriptionText) { _, _ in
@@ -1068,6 +1176,12 @@ struct TransactionFormView: View {
                         Text("Seleccionar").tag(nil as UUID?)
                         ForEach(activeAccounts) { account in
                             Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
+                        }
+                    }
+
+                    .onChange(of: sourceAccountID) { _, newID in
+                        if let fundID = reservedFundID, reservedFunds.first(where: { $0.id == fundID })?.account?.id != newID {
+                            reservedFundID = nil; reservedAmountText = ""
                         }
                     }
 
@@ -1096,6 +1210,32 @@ struct TransactionFormView: View {
                         Label("Sugerida por la regla «\(rule.phrase)»", systemImage: "sparkle.magnifyingglass")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    }
+                }
+
+                if type.countsAsExpense && (!eligibleReservedFunds.isEmpty || reservedFundID != nil) {
+                    Section {
+                        Picker("Pagar con", selection: $reservedFundID) {
+                            Text("Dinero disponible").tag(nil as UUID?)
+                            ForEach(eligibleReservedFunds) { fund in
+                                Text(fund.name).tag(Optional(fund.id))
+                            }
+                        }
+                        .onChange(of: reservedFundID) { _, newID in
+                            reservedAmountText = newID == nil ? "" : amountText
+                        }
+                        if let fund = reservedFunds.first(where: { $0.id == reservedFundID }) {
+                            LabeledContent("Disponible en la reserva") {
+                                PrivacyAmountText(minorUnits: FinanceCalculator.remainingReservedAmount(
+                                    for: fund, transactions: existingTransactions, at: .distantFuture, excluding: transaction?.id))
+                            }
+                            TextField("Importe tomado de la reserva", text: $reservedAmountText)
+                                .keyboardType(.decimalPad)
+                        }
+                    } header: {
+                        Label("Origen del dinero", systemImage: "lock.open")
+                    } footer: {
+                        Text("La parte pagada con esta reserva reduce la reserva y el saldo de su cuenta. Solo el resto del pago reduce el dinero disponible.")
                     }
                 }
 
@@ -1225,6 +1365,21 @@ struct TransactionFormView: View {
             return
         }
 
+        let fundingFund = reservedFunds.first { $0.id == reservedFundID }
+        var fundingAmount: Int64?
+        if reservedFundID != nil {
+            guard let fund = fundingFund, let amount = MoneyParser.minorUnits(from: reservedAmountText) else {
+                validationMessage = "Selecciona una reserva e indica qué parte del pago sale de ella."
+                return
+            }
+            if let error = FinanceCalculator.reservedPaymentError(fund: fund, amountMinor: amount,
+                transactionAmountMinor: Swift.abs(amountMinor), type: type, account: sourceAccount,
+                transactions: existingTransactions, excluding: transaction?.id) {
+                validationMessage = error; return
+            }
+            fundingAmount = amount
+        }
+
         let fingerprint = DuplicateDetectionService.fingerprint(
             date: date,
             sourceAccountID: sourceAccount.id,
@@ -1245,6 +1400,8 @@ struct TransactionFormView: View {
         )
 
         if let transaction {
+            transaction.reservedFundID = fundingFund?.id
+            transaction.reservedAmountMinor = fundingAmount
             transaction.date = date
             transaction.type = type
             transaction.amountMinor = Swift.abs(amountMinor)
@@ -1267,6 +1424,7 @@ struct TransactionFormView: View {
                 isReconciled: isReconciled,
                 fingerprint: fingerprint,
                 duplicateState: candidates.isEmpty ? .none : .possible,
+                reservedFundID: fundingFund?.id, reservedAmountMinor: fundingAmount,
                 sourceAccount: sourceAccount,
                 destinationAccount: type == .transfer ? destinationAccount : nil,
                 category: category

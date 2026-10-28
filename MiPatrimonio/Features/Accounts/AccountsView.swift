@@ -480,7 +480,7 @@ struct AccountsView: View {
                 font: .subheadline,
                 weight: .semibold
             )
-            let reserved = FinanceCalculator.reservedAmount(for: account, funds: reservedFunds)
+            let reserved = FinanceCalculator.reservedAmount(for: account, funds: reservedFunds, transactions: transactions)
             if reserved > 0 && !account.type.isLiability && account.type != .investment {
                 Text("Disponible").font(.caption2).foregroundStyle(.secondary)
                 PrivacyAmountText(
@@ -1039,7 +1039,7 @@ private struct AccountDetailView: View {
     }
 
     private var reservedAmount: Int64 {
-        FinanceCalculator.reservedAmount(for: account, funds: reservedFunds)
+        FinanceCalculator.reservedAmount(for: account, funds: reservedFunds, transactions: transactions)
     }
 
     var body: some View {

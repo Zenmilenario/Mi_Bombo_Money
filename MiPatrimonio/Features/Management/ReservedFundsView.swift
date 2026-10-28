@@ -10,6 +10,7 @@ struct ReservedFundsView: View {
 
     @State private var showingAdd = false
     @State private var editingFund: ReservedFund?
+    @State private var payingFund: ReservedFund?
     @State private var errorMessage: String?
 
     private var eligibleAccounts: [FinancialAccount] {
@@ -19,7 +20,7 @@ struct ReservedFundsView: View {
     var body: some View {
         List {
             Section {
-                Text("Aparta una parte del saldo de una cuenta para un pago concreto, como el máster. El saldo real no cambia; la app lo descuenta del dinero disponible para gastar.")
+                Text("Aparta una parte del saldo de una cuenta para un pago concreto, como el máster. El saldo real no cambia al reservar. Al registrar un gasto, elige esta reserva en «Pagar con», o desliza la reserva y pulsa «Pagar».")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -58,11 +59,17 @@ struct ReservedFundsView: View {
                                         .foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                PrivacyAmountText(minorUnits: fund.amountMinor)
+                                PrivacyAmountText(minorUnits: FinanceCalculator.remainingReservedAmount(for: fund, transactions: transactions))
                             }
                         }
                         .swipeActions {
+                            Button("Pagar") { payingFund = fund }
+                                .tint(.green)
+                                .disabled(FinanceCalculator.remainingReservedAmount(for: fund, transactions: transactions, at: .distantFuture) <= 0)
                             Button("Eliminar", role: .destructive) {
+                                for transaction in transactions where transaction.reservedFundID == fund.id {
+                                    transaction.reservedFundID = nil; transaction.reservedAmountMinor = nil
+                                }
                                 modelContext.delete(fund)
                                 save()
                             }
@@ -99,6 +106,7 @@ struct ReservedFundsView: View {
         }
         .sheet(isPresented: $showingAdd) { ReservedFundFormView() }
         .sheet(item: $editingFund) { ReservedFundFormView(fund: $0) }
+        .sheet(item: $payingFund) { TransactionFormView(preferredReservedFund: $0) }
         .alert("No se pudo guardar", isPresented: Binding(
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
@@ -123,6 +131,9 @@ struct ReservedFundFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
+
+    @Query private var transactions: [FinancialTransaction]
+    @State private var loadedAmount = false
 
     private let fund: ReservedFund?
     private let preferredAccount: FinancialAccount?
@@ -153,7 +164,7 @@ struct ReservedFundFormView: View {
             Form {
                 Section("Reserva") {
                     TextField("Nombre, por ejemplo Máster", text: $name)
-                    TextField("Importe reservado", text: $amountText)
+                    TextField("Importe que queda reservado", text: $amountText)
                         .keyboardType(.decimalPad)
                     Picker("Está en la cuenta", selection: $accountID) {
                         Text("Selecciona una cuenta").tag(nil as UUID?)
@@ -161,13 +172,14 @@ struct ReservedFundFormView: View {
                             Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
                         }
                     }
+                    .disabled(fund.map { value in transactions.contains { $0.reservedFundID == value.id } } ?? false)
                 }
 
                 Section {
                     TextField("Notas", text: $notes, axis: .vertical)
                         .lineLimit(2...5)
                 } footer: {
-                    Text("La reserva no crea un movimiento. Cuando pagues el máster, registra el gasto y reduce o elimina esta reserva.")
+                    Text("Este importe es lo que quieres mantener reservado ahora. Los pagos vinculados se descuentan automáticamente. Una reserva con pagos permanece asociada a su cuenta.")
                 }
 
                 if let errorMessage {
@@ -186,6 +198,10 @@ struct ReservedFundFormView: View {
                 }
             }
             .onAppear {
+                if !loadedAmount, let fund {
+                    amountText = String(format: "%.2f", Double(FinanceCalculator.remainingReservedAmount(for: fund, transactions: transactions)) / 100)
+                    loadedAmount = true
+                }
                 if accountID == nil { accountID = preferredAccount?.id ?? eligibleAccounts.first?.id }
             }
         }
@@ -197,7 +213,7 @@ struct ReservedFundFormView: View {
             errorMessage = "Indica para qué reservas el dinero."
             return
         }
-        guard let amount = MoneyParser.minorUnits(from: amountText), amount > 0 else {
+        guard let amount = MoneyParser.minorUnits(from: amountText), amount >= 0, amount > 0 || fund != nil else {
             errorMessage = "Introduce un importe mayor que cero."
             return
         }
@@ -207,8 +223,20 @@ struct ReservedFundFormView: View {
         }
 
         if let fund {
+            let hasPayments = transactions.contains { $0.reservedFundID == fund.id }
+            guard !hasPayments || fund.account?.id == account.id else {
+                errorMessage = "Esta reserva tiene pagos vinculados. Crea otra reserva para una cuenta diferente."
+                return
+            }
+            let spent = FinanceCalculator.spentReservedAmount(for: fund, transactions: transactions)
+            let total = amount.addingReportingOverflow(spent)
+            guard !total.overflow, total.partialValue >= FinanceCalculator.spentReservedAmount(for: fund,
+                transactions: transactions, at: .distantFuture) else {
+                errorMessage = "El importe no puede dejar sin cubrir los pagos futuros vinculados a la reserva."
+                return
+            }
             fund.name = cleanName
-            fund.amountMinor = amount
+            fund.amountMinor = total.partialValue
             fund.account = account
             fund.notes = notes
             fund.updatedAt = .now
