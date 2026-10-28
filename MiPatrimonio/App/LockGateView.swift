@@ -18,10 +18,16 @@ struct LockGateView: View {
                     .allowsHitTesting(!contentHidden)
                     .accessibilityHidden(contentHidden)
             }
+            if appLockEnabled && !lockManager.isUnlocked {
+                LoginView()
+                    // AutoFill and biometric sheets temporarily deactivate the scene.
+                    // Preserve the form while hiding it from view, touches and accessibility.
+                    .opacity(scenePhase == .active ? 1 : 0)
+                    .allowsHitTesting(scenePhase == .active)
+                    .accessibilityHidden(scenePhase != .active)
+            }
             if scenePhase != .active {
                 AppDesign.pageBackground.ignoresSafeArea()
-            } else if appLockEnabled && !lockManager.isUnlocked {
-                LoginView()
             }
         }
         .tint(Color(hex: "#176B87"))
