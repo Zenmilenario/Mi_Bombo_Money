@@ -31,7 +31,7 @@ struct FinancialLogicCheck {
             type: .expense,
             amountMinor: 2_550,
             descriptionText: "Cena; San Valentín",
-            notes: "Con amigos"
+            notes: "Con amigos", sourceAccount: nil
         )
         let exportedCSV = CSVExportService.generateCSV(from: [sampleTx])
         precondition(exportedCSV.contains("2024-02-14") && exportedCSV.contains("Gasto") && exportedCSV.contains("25,50") && exportedCSV.contains("\"Cena; San Valentín\""),
