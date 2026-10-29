@@ -192,6 +192,9 @@ struct SettingsView: View {
                     }
                 }
             }
+            .cloudSyncToolbar()
+            .scrollContentBackground(.hidden)
+            .background(AppDesign.pageBackground)
             .navigationTitle("Ajustes")
         }
         .confirmationDialog(

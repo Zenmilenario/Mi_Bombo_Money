@@ -30,7 +30,7 @@ struct LockGateView: View {
                 AppDesign.pageBackground.ignoresSafeArea()
             }
         }
-        .tint(Color(hex: "#176B87"))
+        .tint(AppDesign.accent)
         .preferredColorScheme(AppAppearance(rawValue: appearanceMode)?.colorScheme)
         .task(id: appLockEnabled) {
             if scenePhase == .active { lockManager.becameActive() }

@@ -269,6 +269,9 @@ struct TransactionsView: View {
                     .listStyle(.insetGrouped)
                 }
             }
+            .cloudSyncToolbar()
+            .scrollContentBackground(.hidden)
+            .background(AppDesign.pageBackground)
             .navigationTitle("Movimientos")
             .searchable(
                 text: $searchText,
