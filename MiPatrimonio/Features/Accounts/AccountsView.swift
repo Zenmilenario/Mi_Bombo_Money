@@ -83,6 +83,7 @@ struct AccountsView: View {
                             showingAdd = true
                         }
                         .buttonStyle(.borderedProminent)
+                        .tint(AppDesign.actionFill)
                     }
                 } else {
                     List {
@@ -135,6 +136,8 @@ struct AccountsView: View {
                 }
             }
             .frame(maxWidth: .infinity)
+            .cloudSyncToolbar()
+            .scrollContentBackground(.hidden)
             .background(AppDesign.pageBackground)
             .navigationTitle("Cuentas")
             .searchable(text: $searchText, prompt: "Buscar cuenta, banco o tarjeta")

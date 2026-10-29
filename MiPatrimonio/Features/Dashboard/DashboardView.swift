@@ -356,17 +356,16 @@ struct DashboardView: View {
                         } actions: {
                             Button("Añadir mi primera cuenta", action: onOpenAccounts)
                                 .buttonStyle(.borderedProminent)
+                                .tint(AppDesign.actionFill)
                         }
                         .frame(maxWidth: .infinity, minHeight: 320)
                     } else {
-                        AdaptiveCardGrid {
-                            netWorthCard
-                            monthlyOverview
-                        }
                         if !alertPresentation.expanded.isEmpty {
                             alertsSection
                         }
-                        AdaptiveCardGrid {
+                        AdaptiveCardGrid(spacing: AppDesign.sectionSpacing, packsColumns: true) {
+                            netWorthCard
+                            monthlyOverview
                             budgetsSection
                             netWorthChart
                             primaryGoalSection
@@ -376,9 +375,10 @@ struct DashboardView: View {
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
                 .padding(.bottom, 24)
-                .frame(maxWidth: AppDesign.overviewContentWidth)
                 .frame(maxWidth: .infinity)
             }
+            .cloudSyncToolbar()
+            .scrollContentBackground(.hidden)
             .background(AppDesign.pageBackground)
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
@@ -406,7 +406,7 @@ struct DashboardView: View {
             monthlyMetrics
         }
         .padding(AppDesign.cardPadding)
-        .background(AppDesign.cardBackground, in: RoundedRectangle(cornerRadius: AppDesign.cardRadius))
+        .financeCardSurface()
     }
 
     private var welcomeHeader: some View {
@@ -496,16 +496,10 @@ struct DashboardView: View {
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            LinearGradient(
-                colors: [
-                    Color.accentColor.opacity(0.24),
-                    Color.accentColor.opacity(0.08),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            ),
-            in: RoundedRectangle(cornerRadius: AppDesign.heroRadius, style: .continuous)
-        )
+            LinearGradient(colors: [AppDesign.accent.opacity(0.14), .clear],
+                           startPoint: .topLeading, endPoint: .bottomTrailing),
+            in: RoundedRectangle(cornerRadius: AppDesign.heroRadius, style: .continuous))
+        .financeCardSurface(radius: AppDesign.heroRadius)
     }
 
     private var netWorthTitle: some View {
@@ -558,12 +552,12 @@ struct DashboardView: View {
 
     private var monthlyMetrics: some View {
         VStack(spacing: 12) {
-            AdaptiveCardGrid(minimumColumnWidth: 145, maximumColumns: 4, spacing: 12) {
+            AdaptiveCardGrid(minimumColumnWidth: 145, maximumColumns: hasInvestmentContributions ? 2 : 3, spacing: 12) {
                 MetricCard(
                     title: "Ingresos",
                     value: hidden(MoneyFormatter.string(minorUnits: monthSummary.incomeMinor)),
                     systemImage: "arrow.down",
-                    tint: .green,
+                    tint: AppDesign.income,
                     usesTintedBackground: true
                 )
 
@@ -571,7 +565,7 @@ struct DashboardView: View {
                     title: "Gastos totales",
                     value: hidden(MoneyFormatter.string(minorUnits: monthSummary.expenseMinor)),
                     systemImage: "arrow.up",
-                    tint: .red,
+                    tint: AppDesign.expense,
                     usesTintedBackground: true
                 )
 
@@ -579,8 +573,8 @@ struct DashboardView: View {
                     title: "Ahorro neto",
                     value: hidden(MoneyFormatter.string(minorUnits: monthSummary.netSavingsMinor)),
                     systemImage: "banknote",
-                    tint: monthSummary.netSavingsMinor >= 0 ? .blue : .red,
-                    valueColor: monthSummary.netSavingsMinor >= 0 ? .primary : .red,
+                    tint: monthSummary.netSavingsMinor >= 0 ? AppDesign.savings : AppDesign.expense,
+                    valueColor: monthSummary.netSavingsMinor >= 0 ? .primary : AppDesign.expense,
                     usesTintedBackground: true
                 )
 
@@ -589,7 +583,7 @@ struct DashboardView: View {
                         title: "Aportado a inversión",
                         value: hidden(MoneyFormatter.string(minorUnits: investmentContributionsThisMonth)),
                         systemImage: "chart.line.uptrend.xyaxis",
-                        tint: .purple,
+                        tint: AppDesign.investment,
                         usesTintedBackground: true
                     )
                 }
@@ -704,7 +698,7 @@ struct DashboardView: View {
     }
 
     private func minimizedAlertsStrip(items: [DashboardAlertItem]) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        HStack(spacing: 8) {
             Text("Revisados")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -728,8 +722,9 @@ struct DashboardView: View {
                 }
             }
         }
-        .padding(12)
-        .background(AppDesign.cardBackground, in: RoundedRectangle(cornerRadius: AppDesign.cardRadius))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .financeCardSurface()
     }
 
     private var budgetsSection: some View {
@@ -951,15 +946,15 @@ struct DashboardView: View {
     }
 
     private var changeTint: Color {
-        if currentMonthChange > 0 { return .green }
-        if currentMonthChange < 0 { return .red }
+        if currentMonthChange > 0 { return AppDesign.income }
+        if currentMonthChange < 0 { return AppDesign.expense }
         return .secondary
     }
 
     private var budgetOverallTint: Color {
-        if totalBudgetFraction > 1 { return .red }
+        if totalBudgetFraction > 1 { return AppDesign.expense }
         if totalBudgetFraction >= 0.85 { return .orange }
-        return .accentColor
+        return AppDesign.accent
     }
 
     private var budgetPacingText: String {

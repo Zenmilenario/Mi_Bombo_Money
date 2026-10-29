@@ -187,8 +187,9 @@ struct BudgetsView: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .frame(maxWidth: AppDesign.overviewContentWidth)
             .frame(maxWidth: .infinity)
+            .cloudSyncToolbar()
+            .scrollContentBackground(.hidden)
             .background(AppDesign.pageBackground)
             .navigationTitle("Presupuestos")
             .toolbar {

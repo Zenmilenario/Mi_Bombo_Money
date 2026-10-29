@@ -181,6 +181,7 @@ struct CSVImportView: View {
                     .padding(.vertical, 4)
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(AppDesign.actionFill)
                 .disabled(importableRows.isEmpty)
                 .padding()
                 .background(.bar)

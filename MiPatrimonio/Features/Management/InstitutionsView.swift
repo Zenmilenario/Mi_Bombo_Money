@@ -22,6 +22,7 @@ struct InstitutionsView: View {
                     )
                     Button("Añadir entidad") { showingAdd = true }
                         .buttonStyle(.borderedProminent)
+                        .tint(AppDesign.actionFill)
                 }
             } else {
                 ForEach(institutions) { institution in

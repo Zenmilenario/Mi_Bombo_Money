@@ -68,6 +68,7 @@ struct CloudSignInView: View {
                         }.frame(maxWidth: .infinity, minHeight: 44)
                     }
                     .buttonStyle(.borderedProminent)
+                    .tint(AppDesign.actionFill)
                     .disabled(account.busy || !account.isConfigured)
                 }
                 if let message = validation ?? account.message {
@@ -158,7 +159,6 @@ private struct CloudFinanceWorkspaceView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("appLockEnabled") private var appLockEnabled = true
     @StateObject private var sync = CloudSyncCoordinator()
-    @State private var showingAccount = false
     var body: some View {
         Group {
             if sync.ready, let container = sync.container {
@@ -167,22 +167,6 @@ private struct CloudFinanceWorkspaceView: View {
                     .modelContainer(container)
                     .environment(\.isCloudWorkspace, true)
                     .environmentObject(sync)
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        Button { showingAccount = true } label: {
-                            HStack {
-                                Label(sync.status, systemImage: sync.conflict == nil ? "cloud" : "exclamationmark.icloud")
-                                Spacer()
-                                if sync.busy { ProgressView() }
-                                else { Image(systemName: "chevron.right") }
-                            }
-                            .font(.caption)
-                            .padding(.horizontal, 18).padding(.vertical, 10)
-                            .frame(maxWidth: .infinity)
-                            .background(.bar)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("Cuenta cloud. \(sync.status)")
-                    }
             } else if sync.needsMigrationChoice {
                 NavigationStack {
                     List {
@@ -208,9 +192,6 @@ private struct CloudFinanceWorkspaceView: View {
                 }.padding(24)
             }
         }
-        .sheet(isPresented: $showingAccount) {
-            NavigationStack { CloudAccountSettingsView().environmentObject(sync) }
-        }
         .task {
             await sync.open(account: account)
             while !Task.isCancelled {
@@ -231,6 +212,63 @@ private struct CloudFinanceWorkspaceView: View {
         }
         #endif
         return true
+    }
+}
+
+// The status belongs to each navigation stack, never above the TabView's safe area.
+// Local and banking-test workspaces do not instantiate a view requiring a cloud object.
+private struct CloudSyncToolbar: ViewModifier {
+    @Environment(\.isCloudWorkspace) private var isCloudWorkspace
+    @Environment(\.isBankingTestWorkspace) private var isBankingTestWorkspace
+    @ViewBuilder func body(content: Content) -> some View {
+        if isCloudWorkspace && !isBankingTestWorkspace {
+            content.toolbar {
+                ToolbarItem(placement: .topBarLeading) { CloudSyncStatusButton() }
+            }
+        } else { content }
+    }
+}
+
+extension View {
+    func cloudSyncToolbar() -> some View { modifier(CloudSyncToolbar()) }
+}
+
+private struct CloudSyncStatusButton: View {
+    @EnvironmentObject private var sync: CloudSyncCoordinator
+    @State private var showingAccount = false
+    private var needsAttention: Bool { sync.conflict != nil || sync.errorMessage != nil }
+    var body: some View {
+        Button { showingAccount = true } label: {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    statusIcon
+                    Text(needsAttention ? "Revisar nube" : sync.busy ? "Sincronizando" : "Mi nube")
+                        .font(.caption.weight(.semibold))
+                }
+                statusIcon
+            }
+            .frame(minWidth: 44, minHeight: 44)
+            .foregroundStyle(needsAttention ? AppDesign.warning : AppDesign.accent)
+        }
+        .accessibilityLabel("Cuenta cloud. \(sync.status)")
+        .accessibilityHint("Ver el estado de sincronización y gestionar tu cuenta")
+        .sheet(isPresented: $showingAccount) {
+            NavigationStack {
+                CloudAccountSettingsView()
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Cerrar") { showingAccount = false }
+                        }
+                    }
+            }
+            .environmentObject(sync)
+        }
+    }
+    @ViewBuilder private var statusIcon: some View {
+        if sync.busy { ProgressView().controlSize(.small) }
+        else {
+            Image(systemName: needsAttention ? "exclamationmark.icloud" : sync.status == "Al día" ? "checkmark.icloud" : "icloud")
+        }
     }
 }
 

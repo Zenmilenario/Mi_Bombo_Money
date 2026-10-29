@@ -83,6 +83,7 @@ struct RootTabView: View {
                 }
         }
 
+        .accentColor(AppDesign.accent)
         .animation(
             .easeInOut(duration: 0.18),
             value: selectedTab

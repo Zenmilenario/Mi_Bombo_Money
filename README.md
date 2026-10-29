@@ -173,6 +173,10 @@ MiPatrimonio/
   Resources/           Info.plist e icono de la app
 ```
 
+## Diseño visual
+
+La revisión de navegación cloud, paletas clara/oscura y distribución adaptable de Inicio se documenta en [DISENO_VISUAL_2026_10_29.md](DISENO_VISUAL_2026_10_29.md), con sus referencias y pruebas pendientes en dispositivos.
+
 ## Verificación antes del merge
 
 La revisión local del 5 de octubre de 2026 ha comprobado la sintaxis de los 31 archivos Swift de la app y los dos archivos de pruebas, las referencias del proyecto Xcode, el esquema compartido, `Info.plist`, los recursos del icono y los cuatro workflows con actionlint. Los detalles y las correcciones están en `REVISION_PRE_MERGE.md`.
