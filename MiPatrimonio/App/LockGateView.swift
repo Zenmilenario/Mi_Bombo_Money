@@ -13,7 +13,7 @@ struct LockGateView: View {
             // Keep the authenticated browser flow alive when iOS makes the app inactive.
             // The lock overlay hides content and blocks touches and accessibility immediately.
             if hasOpenedContent || !appLockEnabled || lockManager.isUnlocked {
-                RootTabView()
+                FinanceWorkspaceRouter()
                     .opacity(contentHidden ? 0 : 1)
                     .allowsHitTesting(!contentHidden)
                     .accessibilityHidden(contentHidden)

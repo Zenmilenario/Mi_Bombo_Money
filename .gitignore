@@ -46,3 +46,8 @@ node_modules/
 *.crt
 BankingBackend/.client-setup.json
 BankingBackend/.test-vars.json
+
+# Supabase: estado local, credenciales y exportaciones privadas
+supabase/.temp/
+supabase/.branches/
+CloudBackend/.local/

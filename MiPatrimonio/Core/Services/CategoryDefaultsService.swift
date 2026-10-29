@@ -47,13 +47,14 @@ enum CategoryDefaultsService {
         UserDefaults.standard.set(true, forKey: installationKey)
     }
 
-    static func restoreMissing(in context: ModelContext) throws {
+    static func restoreMissing(in context: ModelContext, stableIDs: Bool = false) throws {
         let existing = try context.fetch(FetchDescriptor<FinanceCategory>())
         var names = Set(existing.map { normalized($0.name) })
 
         for (index, template) in templates.enumerated() {
             guard names.insert(normalized(template.name)).inserted else { continue }
             context.insert(FinanceCategory(
+                id: stableIDs ? UUID(uuidString: String(format: "B0B00000-DEFA-4000-8000-%012d", index + 1))! : UUID(),
                 name: template.name,
                 kind: template.kind,
                 systemImage: template.symbol,
@@ -66,9 +67,10 @@ enum CategoryDefaultsService {
     }
 
     // A reset removes financial records but leaves the category catalog ready to use.
-    static func insertDefaults(in context: ModelContext) {
+    static func insertDefaults(in context: ModelContext, stableIDs: Bool = false) {
         for (index, template) in templates.enumerated() {
             context.insert(FinanceCategory(
+                id: stableIDs ? UUID(uuidString: String(format: "B0B00000-DEFA-4000-8000-%012d", index + 1))! : UUID(),
                 name: template.name,
                 kind: template.kind,
                 systemImage: template.symbol,

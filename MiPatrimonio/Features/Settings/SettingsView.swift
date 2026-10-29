@@ -4,6 +4,8 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.isBankingTestWorkspace) private var isBankingTestWorkspace
+    @Environment(\.isCloudWorkspace) private var isCloudWorkspace
+    @AppStorage("cloudAccountModeEnabled") private var cloudMode = false
     @AppStorage("hideAmounts") private var hideAmounts = false
     @AppStorage("appLockEnabled") private var appLockEnabled = true
     @AppStorage("autoPromptBiometrics") private var autoPromptBiometrics = false
@@ -75,6 +77,17 @@ struct SettingsView: View {
                         Text("Estás en el espacio de prueba. Sus cuentas, movimientos y presupuestos se guardan aparte. Usa Volver a mis finanzas para salir.")
                             .foregroundStyle(.secondary)
                     } else {
+                        if isCloudWorkspace {
+                            NavigationLink {
+                                CloudAccountSettingsView()
+                            } label: {
+                                Label("Cuenta y sincronización", systemImage: "cloud")
+                            }
+                        } else {
+                            Button { cloudMode = true } label: {
+                                Label("Conectar sincronización cloud", systemImage: "icloud.and.arrow.up")
+                            }
+                        }
                         NavigationLink {
                             BankConnectionsView()
                         } label: {
@@ -190,7 +203,9 @@ struct SettingsView: View {
                 clearAllData()
             }
         } message: {
-            Text("Se eliminarán cuentas, movimientos, categorías personalizadas, presupuestos y demás datos locales. Las categorías comunes volverán a aparecer. Esta acción no se puede deshacer.")
+            Text(isCloudWorkspace
+                ? "Se eliminarán los datos de esta cuenta cloud al sincronizar, también en tus otros dispositivos. Las categorías comunes volverán a aparecer. Exporta una copia antes de continuar."
+                : "Se eliminarán cuentas, movimientos, categorías personalizadas, presupuestos y demás datos locales. Las categorías comunes volverán a aparecer. Esta acción no se puede deshacer.")
         }
         .alert("No se pudieron eliminar los datos", isPresented: Binding(
             get: { resetError != nil },
@@ -217,7 +232,7 @@ struct SettingsView: View {
             try modelContext.delete(model: FinancialAccount.self)
             try modelContext.delete(model: FinanceCategory.self)
             try modelContext.delete(model: FinancialInstitution.self)
-            CategoryDefaultsService.insertDefaults(in: modelContext)
+            CategoryDefaultsService.insertDefaults(in: modelContext, stableIDs: isCloudWorkspace)
             try modelContext.save()
         } catch {
             modelContext.rollback()
@@ -237,6 +252,7 @@ struct SettingsView: View {
 }
 
 private struct LocalDataSummaryView: View {
+    @Environment(\.isCloudWorkspace) private var isCloudWorkspace
     let accountCount: Int
     let transactionCount: Int
     let cardCount: Int
@@ -252,13 +268,15 @@ private struct LocalDataSummaryView: View {
             }
 
             Section {
-                Label("Los datos se guardan localmente en este iPhone.", systemImage: "iphone")
+                Label(isCloudWorkspace ? "Esta copia local se sincroniza con tu cuenta cloud." : "Los datos se guardan localmente en este dispositivo.", systemImage: "internaldrive")
                 Label("No se almacenan contraseñas bancarias.", systemImage: "key.slash")
                 Label("Los archivos quedan protegidos cuando el dispositivo está bloqueado.", systemImage: "lock.shield")
             } header: {
                 Text("Protección")
             } footer: {
-                Text("Al eliminar la aplicación también se eliminan sus datos locales. Las copias de seguridad cifradas se incorporarán en una versión posterior.")
+                Text(isCloudWorkspace
+                    ? "Al eliminar la app se pierde la copia local y cualquier cambio que no se haya subido. Los datos ya sincronizados permanecen en tu cuenta. Puedes exportar copias cifradas desde Ajustes."
+                    : "Al eliminar la app se eliminan sus datos locales. Exporta una copia cifrada desde Ajustes para poder recuperarlos.")
             }
         }
         .navigationTitle("Datos locales")
@@ -267,6 +285,7 @@ private struct LocalDataSummaryView: View {
 }
 
 private struct PrivacyInformationView: View {
+    @Environment(\.isCloudWorkspace) private var isCloudWorkspace
     var body: some View {
         List {
             Section {
@@ -278,7 +297,7 @@ private struct PrivacyInformationView: View {
 
                 PrivacyInfoRow(
                     title: "Sin credenciales bancarias",
-                    message: "La aplicación no solicita ni almacena usuarios, contraseñas, PIN o CVV.",
+                    message: "La app no solicita ni almacena contraseñas, PIN o CVV de tus bancos. El acceso cloud usa una cuenta independiente.",
                     systemImage: "key.slash"
                 )
 
@@ -286,6 +305,14 @@ private struct PrivacyInformationView: View {
                     title: "Acceso protegido",
                     message: "Puedes exigir Face ID, Touch ID o el código del dispositivo para abrir la aplicación.",
                     systemImage: "faceid"
+                )
+
+                PrivacyInfoRow(
+                    title: isCloudWorkspace ? "Sincronización activada" : "Almacenamiento local",
+                    message: isCloudWorkspace
+                        ? "Tus datos se envían mediante HTTPS a tu cuenta de Supabase y se conservan también en este dispositivo. Cada usuario tiene su espacio y los cambios sin conexión quedan pendientes."
+                        : "Los datos de este modo se guardan en el dispositivo. Puedes conectar una cuenta cloud y elegir explícitamente si quieres copiarlos.",
+                    systemImage: "cloud"
                 )
 
                 PrivacyInfoRow(
