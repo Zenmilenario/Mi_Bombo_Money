@@ -259,6 +259,9 @@ struct FinancialLogicCheck {
         precondition(posted == 3 && repeated == 0, "Reopening the app must not duplicate automatic transfers")
         let transactions = try context.fetch(FetchDescriptor<FinancialTransaction>())
         precondition(transactions.count == 3 && transactions.allSatisfy { $0.recurringMovementID == movement.id })
+        let expectedIDs = Set((1...3).map { RecurringMovementService.occurrenceID(ruleID: movement.id, scheduledDate: date($0, 5)) })
+        precondition(Set(transactions.map(\.id)) == expectedIDs,
+                     "The same scheduled occurrence must have the same UUID on every device")
         precondition(FinanceCalculator.balance(of: cash, at: date(3, 10), transactions: transactions) == 70_000)
         precondition(FinanceCalculator.balance(of: investment, at: date(3, 10), transactions: transactions) == 30_000)
         precondition(FinanceCalculator.netWorth(accounts: [cash, investment], transactions: transactions, at: date(3, 10)) == 100_000)

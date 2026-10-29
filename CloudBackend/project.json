@@ -1,0 +1,22 @@
+{
+  "project_ref": "coeicjffmpclqowsqeys",
+  "url": "https://coeicjffmpclqowsqeys.supabase.co",
+  "region": "eu-central-1",
+  "environment": "development",
+  "migrations": [
+    {
+      "version": "20261029000100",
+      "sha256": "3150705e81b386260fdad8cf7f875f663d804ab12bea415e91864078666c4843",
+      "applied_via": "dashboard_sql_transaction"
+    },
+    {
+      "version": "20261029000200",
+      "sha256": "3038472d7892ee572ac6f2f3c4190b499d6954b1e97bfe357d6dad23c7b841eb",
+      "applied_via": "dashboard_sql_transaction"
+    }
+  ],
+  "auth_redirect": {
+    "url": "mibombomoney-cloud://auth",
+    "status": "configured_and_verified"
+  }
+}

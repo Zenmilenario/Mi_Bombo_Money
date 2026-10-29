@@ -51,6 +51,24 @@ enum PersistenceController {
         return container
     }
 
+    static func cloudDirectory(ownerID: UUID) throws -> URL {
+        let directory = try protectedApplicationSupportDirectory()
+            .appendingPathComponent("Cloud", isDirectory: true)
+            .appendingPathComponent(ownerID.uuidString.lowercased(), isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
+            attributes: [.protectionKey: FileProtectionType.complete])
+        return directory
+    }
+
+    @MainActor static func makeCloudContainer(ownerID: UUID) throws -> ModelContainer {
+        let directory = try cloudDirectory(ownerID: ownerID)
+        let configuration = ModelConfiguration("CloudFinance", schema: schema,
+            url: directory.appendingPathComponent("Finance.store"), allowsSave: true, cloudKitDatabase: .none)
+        let container = try ModelContainer(for: schema, configurations: configuration)
+        applyCompleteFileProtection(to: directory)
+        return container
+    }
+
     private static func protectedApplicationSupportDirectory() throws -> URL {
         let fileManager = FileManager.default
         let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

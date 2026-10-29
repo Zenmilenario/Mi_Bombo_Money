@@ -50,6 +50,14 @@
 		A4E14766AFDBBDDC5EE3CFDD /* UserAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A619545850C5CDC24A58C6F /* UserAuthService.swift */; };
 		175119382378D137D78D8C40 /* PasswordKeyDerivation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E8016F244CDBCC5C8358626 /* PasswordKeyDerivation.swift */; };
 		5FF90A5330220AED3748C0F2 /* SecurityCredentialsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C1297BA82450C622FAFB989 /* SecurityCredentialsView.swift */; };
+		9658E36C7AECFCC8F1042974 /* CloudAccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07894A7F26A22F26C22A6087 /* CloudAccountManager.swift */; };
+		849605C776918286229CCD56 /* CloudBackupAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1CBF9E9192BD25C8E6CDB0 /* CloudBackupAdapter.swift */; };
+		7BF2CAC15FEB19EB8638FE15 /* CloudClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF3F06AE53D10C9BC95B7825 /* CloudClient.swift */; };
+		C3DAB8D79CA375F6CA949E59 /* CloudDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = D77A9BD151BE6B1444C547CB /* CloudDocument.swift */; };
+		527306F9FF1123D08D736733 /* CloudPKCEFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48BD00230B6DFFB5560E6A4B /* CloudPKCEFlow.swift */; };
+		9B87AB9E319E4D1D6EB01E82 /* CloudSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0F6DD79C76F1067BA509B3 /* CloudSyncCoordinator.swift */; };
+		6A410D88D103D3D95C5392EC /* CloudWorkspaceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E51D909C530659865AA133F /* CloudWorkspaceViews.swift */; };
+		5BEAF89DE01A1252C47A97C6 /* CloudConfiguration.json in Resources */ = {isa = PBXBuildFile; fileRef = 4153A4CD5143856B809FEDDE /* CloudConfiguration.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -99,6 +107,14 @@
 		7A619545850C5CDC24A58C6F /* UserAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UserAuthService.swift; sourceTree = "<group>"; };
 		3E8016F244CDBCC5C8358626 /* PasswordKeyDerivation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasswordKeyDerivation.swift; sourceTree = "<group>"; };
 		1C1297BA82450C622FAFB989 /* SecurityCredentialsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityCredentialsView.swift; sourceTree = "<group>"; };
+		07894A7F26A22F26C22A6087 /* CloudAccountManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAccountManager.swift; sourceTree = "<group>"; };
+		DA1CBF9E9192BD25C8E6CDB0 /* CloudBackupAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudBackupAdapter.swift; sourceTree = "<group>"; };
+		EF3F06AE53D10C9BC95B7825 /* CloudClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudClient.swift; sourceTree = "<group>"; };
+		D77A9BD151BE6B1444C547CB /* CloudDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDocument.swift; sourceTree = "<group>"; };
+		48BD00230B6DFFB5560E6A4B /* CloudPKCEFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudPKCEFlow.swift; sourceTree = "<group>"; };
+		3A0F6DD79C76F1067BA509B3 /* CloudSyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncCoordinator.swift; sourceTree = "<group>"; };
+		5E51D909C530659865AA133F /* CloudWorkspaceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceViews.swift; sourceTree = "<group>"; };
+		4153A4CD5143856B809FEDDE /* CloudConfiguration.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = CloudConfiguration.json; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -142,6 +158,7 @@
 		1C6539E82AE98E769399C1AB /* App */ = {
 			isa = PBXGroup;
 			children = (
+				5E51D909C530659865AA133F /* CloudWorkspaceViews.swift */,
 				8C31E5AF492D2AAE8EB3803A /* LoginView.swift */,
 				5D3282C30D1EAF9EDC47CBFE /* LockGateView.swift */,
 				82F6DC5E11A8B16F805133B8 /* MiPatrimonioApp.swift */,
@@ -153,6 +170,7 @@
 		04753A52B36B7065E9B44083 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				0C8EAA6BDE06944741E537B5 /* Cloud */,
 				5C0F47206198B83FE96357A5 /* Models */,
 				F66EA7AEAC154F607FA5B551 /* Persistence */,
 				38D755DFA4F47CC7F88BACDF /* Security */,
@@ -283,6 +301,7 @@
 		FC125BD4015EED8D7FA08971 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				4153A4CD5143856B809FEDDE /* CloudConfiguration.json */,
 				B913B5C88D1449A2890A1235 /* Assets.xcassets */,
 				A127ED4D4661EC13F0B2E90A /* Info.plist */,
 			);
@@ -297,6 +316,19 @@
 				E17AEC79C657D638F5E7C5D4 /* ReusableViews.swift */,
 			);
 			path = Shared;
+			sourceTree = "<group>";
+		};
+		0C8EAA6BDE06944741E537B5 /* Cloud */ = {
+			isa = PBXGroup;
+			children = (
+				07894A7F26A22F26C22A6087 /* CloudAccountManager.swift */,
+				DA1CBF9E9192BD25C8E6CDB0 /* CloudBackupAdapter.swift */,
+				EF3F06AE53D10C9BC95B7825 /* CloudClient.swift */,
+				D77A9BD151BE6B1444C547CB /* CloudDocument.swift */,
+				48BD00230B6DFFB5560E6A4B /* CloudPKCEFlow.swift */,
+				3A0F6DD79C76F1067BA509B3 /* CloudSyncCoordinator.swift */,
+			);
+			path = Cloud;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -348,7 +380,8 @@
 		A4372A4EA8ADF13BF65D058E /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
-			files = (B913B5C88D1449A2890A1234 /* Assets.xcassets in Resources */);
+			files = (
+				5BEAF89DE01A1252C47A97C6 /* CloudConfiguration.json in Resources */,B913B5C88D1449A2890A1234 /* Assets.xcassets in Resources */);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
@@ -358,6 +391,13 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6A410D88D103D3D95C5392EC /* CloudWorkspaceViews.swift in Sources */,
+				9B87AB9E319E4D1D6EB01E82 /* CloudSyncCoordinator.swift in Sources */,
+				527306F9FF1123D08D736733 /* CloudPKCEFlow.swift in Sources */,
+				C3DAB8D79CA375F6CA949E59 /* CloudDocument.swift in Sources */,
+				7BF2CAC15FEB19EB8638FE15 /* CloudClient.swift in Sources */,
+				849605C776918286229CCD56 /* CloudBackupAdapter.swift in Sources */,
+				9658E36C7AECFCC8F1042974 /* CloudAccountManager.swift in Sources */,
 				5FF90A5330220AED3748C0F2 /* SecurityCredentialsView.swift in Sources */,
 				175119382378D137D78D8C40 /* PasswordKeyDerivation.swift in Sources */,
 				A4E14766AFDBBDDC5EE3CFDD /* UserAuthService.swift in Sources */,

@@ -30,6 +30,12 @@
             <key>CFBundleURLSchemes</key>
             <array><string>mibombomoney-bank</string></array>
         </dict>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>com.mibombomoney.cloud-callback</string>
+            <key>CFBundleURLSchemes</key>
+            <array><string>mibombomoney-cloud</string></array>
+        </dict>
     </array>
     <key>NSFaceIDUsageDescription</key>
     <string>Face ID protege el acceso a tu información financiera guardada en el dispositivo.</string>

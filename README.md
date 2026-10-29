@@ -2,11 +2,15 @@
 
 Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e inversiones.
 
+## Almacenamiento cloud en desarrollo
+
+El proyecto de Supabase `mi-bombo-money-dev` ya dispone de un esquema PostgreSQL con permisos por usuario y pruebas de aislamiento. El código incorpora acceso cloud y sincronización con copia local separada por usuario; queda pendiente su validación completa en iOS y entre dispositivos. Se activa desde Ajustes → Datos → Conectar sincronización cloud. Instalación, estado verificado y pruebas reproducibles: [CloudBackend/README.md](CloudBackend/README.md).
+
 ## Pagos con dinero reservado · 0.4.3
 
 Al registrar o editar un gasto, elige **Origen del dinero → Pagar con → tu reserva**. Solo se ofrecen reservas de la cuenta seleccionada. Puedes pagar todo con la reserva o indicar una parte y completar el resto con dinero disponible. También puedes deslizar una reserva en **Dinero reservado → Pagar** para abrir el movimiento con la cuenta y la reserva seleccionadas.
 
-El gasto reduce el saldo de la cuenta y el importe pendiente de la reserva; la parte pagada con reserva no vuelve a restarse del dinero disponible. Sigue siendo un gasto real en el resumen y los presupuestos. Editar o eliminar el movimiento recalcula la reserva. Para corregir un gasto anterior, edítalo y selecciona su reserva: no se asignan pagos antiguos por su descripción ni se reducen reservas automáticamente sin un vínculo explícito.
+El gasto reduce el saldo de la cuenta y el importe pendiente de la reserva; la parte pagada con reserva no vuelve a restarse del dinero disponible. Sigue siendo un gasto real en el resumen; la parte cubierta por la reserva queda automáticamente fuera del presupuesto mensual. Editar o eliminar el movimiento recalcula la reserva. Para corregir un gasto anterior, edítalo y selecciona su reserva: no se asignan pagos antiguos por su descripción ni se reducen reservas automáticamente sin un vínculo explícito.
 
 Las copias JSON v2 conservan esos vínculos y se siguen leyendo las copias v1. Se incorporan las mejoras del ZIP revisado (CSV, copias cifradas y acceso local por usuario) con correcciones de seguridad, icono y compatibilidad universal. Detalle de la revisión y comprobaciones: [Revisión del 28 de octubre](REVISION_2026_10_28.md).
 
