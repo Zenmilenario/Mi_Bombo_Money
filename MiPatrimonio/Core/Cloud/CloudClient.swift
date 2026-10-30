@@ -123,6 +123,7 @@ actor CloudClient {
         return try JSONDecoder().decode(CloudSnapshot.self, from: data)
     }
     private func send(path: String, query: String? = nil, token: String? = nil, body: CloudJSON? = nil, method: String = "POST") async throws -> Data {
+        try Task.checkCancellation()
         var components = URLComponents(url: configuration.url, resolvingAgainstBaseURL: false)!
         components.path = path
         components.percentEncodedQuery = query
@@ -149,6 +150,7 @@ actor CloudClient {
             return data
         } catch let error as CloudTransportError { throw error }
         catch is CancellationError { throw CancellationError() }
+        catch let error as URLError where error.code == .cancelled && Task.isCancelled { throw CancellationError() }
         catch { throw CloudTransportError.unavailable }
     }
 }

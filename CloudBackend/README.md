@@ -11,9 +11,9 @@ La base tiene **14 tablas**: un espacio de trabajo y los 13 modelos de SwiftData
 
 La migración `20261029000200_snapshot_protocol.sql` también está aplicada y probada en remoto. Añade lectura y escritura atómicas del conjunto de datos, bloqueo por espacio y control de revisiones. La prueba remota rechazó una versión obsoleta y la lectura del espacio de otro usuario; todos los datos ficticios se revirtieron.
 
-**Implementado en el código:** acceso con correo y contraseña, confirmación y recuperación mediante PKCE, sesiones en Keychain, copia local por usuario y sincronización con revisión explícita de conflictos. Se activa desde **Ajustes → Datos → Conectar sincronización cloud**. El modo local continúa disponible. No se han subido finanzas personales ni modificado el servidor bancario.
+**Implementado en el código:** acceso con correo y contraseña, confirmación y recuperación mediante PKCE, sesiones en Keychain, copia local por usuario y sincronización con revisión explícita de conflictos. Se activa desde **Ajustes → Datos → Conectar sincronización cloud**. El modo local continúa disponible. Ya se ha observado la carga del usuario desde la app; la documentación de validación no copia sus conceptos ni importes. No se ha modificado el servidor bancario.
 
-**Pendiente de validar:** compilación completa con Xcode, prueba visual en iPhone/iPad y acceso real con correo más sincronización entre dos dispositivos. Windows permite ejecutar las pruebas SQL y el protocolo Swift puro, pero no sustituye al SDK de iOS. La URL exacta de retorno `mibombomoney-cloud://auth` quedó guardada en el panel de Auth, autorizada por el usuario; es la única entrada y no usa comodines. No desactivar la confirmación de correo.
+**Validación en curso:** el acceso real y la subida desde el iPad están comprobados, incluido el reenvío automático de una edición hecha sin conexión y la descarga manual de un cambio de la nube. La descarga automática no superó la comprobación de la versión instalada: se ha preparado una corrección del ciclo de vida, pendiente de probar en el iPad. La sincronización entre dos dispositivos físicos sigue pendiente. El detalle de las comprobaciones y sus límites está en [VALIDACION_SINCRONIZACION_2026_10_29.md](VALIDACION_SINCRONIZACION_2026_10_29.md). No se han ejecutado pruebas nuevas con Xcode en esta sesión. Windows permite ejecutar las pruebas SQL y el protocolo Swift puro, pero no sustituye al SDK de iOS. La URL exacta de retorno `mibombomoney-cloud://auth` quedó guardada en el panel de Auth, autorizada por el usuario; es la única entrada y no usa comodines. No desactivar la confirmación de correo.
 
 ## Modelo y seguridad
 
@@ -56,6 +56,8 @@ Las 22 pruebas incluyen los permisos de todas las tablas, suplantación de propi
 
 `bootstrap_local.sql` simula únicamente `auth.users`, `auth.uid()` y los roles en esa base temporal. **Nunca se aplica al proyecto remoto.** Las pruebas locales no verifican emisión/validación de JWT, correo, recuperación de contraseña ni el SDK de iOS. La prueba remota verifica el contexto de identidad y RLS reales, pero tampoco es un inicio de sesión extremo a extremo.
 
+El script `audit_sync_readonly.sql` comprueba la carga y coherencia mediante recuentos. `verify_sync_roundtrip.sql` comprueba dos clientes lógicos y la propagación de cambios sobre propietarios ficticios, dentro de una transacción revertida. Son herramientas administrativas de verificación, no migraciones ni llamadas desde la app. La prueba con dos dispositivos físicos sigue siendo independiente.
+
 ## Migraciones y despliegue
 
 En un proyecto NUEVO, `supabase db push` aplica la migración después de vincular el proyecto con el CLI. No ejecutes `supabase db reset --linked` contra esta base.
@@ -77,7 +79,7 @@ El archivo `config.toml` configura el entorno local; no cambia automáticamente 
 - La primera conexión ofrece copiar los datos locales únicamente si el espacio remoto está vacío. Los originales permanecen en el almacén local. No se copian pruebas bancarias ni credenciales.
 - Cada cuenta cloud tiene un archivo SwiftData separado por UUID. Se guardan la última base de comparación y una copia previa a la aplicación de cambios, cifradas con la clave local del llavero.
 - Se compara cada registro con la última versión conocida: los cambios independientes se combinan; dos cambios incompatibles en el mismo registro requieren elegir una versión. También se comprueban relaciones y financiación de reservas. Las eliminaciones se deducen de esa base y se conservan como marcas en el servidor.
-- Se sincroniza al abrir, al regresar a primer plano y cada 15 segundos durante el uso, con la app desbloqueada. Se pausa la sincronización automática mientras hay formularios presentados. Se vuelven a capturar los datos después de cada espera de red para conservar ediciones hechas durante la subida.
+- El ciclo automático se inicia cuando el espacio está preparado, con sesión, primer plano y desbloqueo; se reinicia al cambiar esos estados y consulta cada 15 segundos durante el uso. Se pausa la sincronización automática mientras hay formularios presentados. Se vuelven a capturar los datos después de cada espera de red para conservar ediciones hechas durante la subida.
 - Un fallo de red conserva los cambios en el dispositivo. Cerrar sesión conserva la copia pendiente, accesible al volver a entrar con la misma cuenta; no la mezcla con otra identidad. El primer acceso en un dispositivo necesita conexión.
 - Los cargos automáticos usan UUID derivados de la regla y su fecha programada: dos dispositivos que registren la misma ejecución no crean dos cargos.
 - El protocolo envía una instantánea completa, con límite de 10 MB. Es una primera implementación para uso personal; grandes históricos requerirán sincronización incremental y medir consumos.

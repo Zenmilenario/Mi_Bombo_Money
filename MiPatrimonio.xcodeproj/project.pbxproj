@@ -58,6 +58,7 @@
 		9B87AB9E319E4D1D6EB01E82 /* CloudSyncCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A0F6DD79C76F1067BA509B3 /* CloudSyncCoordinator.swift */; };
 		6A410D88D103D3D95C5392EC /* CloudWorkspaceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E51D909C530659865AA133F /* CloudWorkspaceViews.swift */; };
 		5BEAF89DE01A1252C47A97C6 /* CloudConfiguration.json in Resources */ = {isa = PBXBuildFile; fileRef = 4153A4CD5143856B809FEDDE /* CloudConfiguration.json */; };
+		B3A1C153334F75875B2007D5 /* CloudAutomaticSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC06AF16B384F319E521BBB5 /* CloudAutomaticSync.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -115,6 +116,7 @@
 		3A0F6DD79C76F1067BA509B3 /* CloudSyncCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudSyncCoordinator.swift; sourceTree = "<group>"; };
 		5E51D909C530659865AA133F /* CloudWorkspaceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceViews.swift; sourceTree = "<group>"; };
 		4153A4CD5143856B809FEDDE /* CloudConfiguration.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = CloudConfiguration.json; sourceTree = "<group>"; };
+		CC06AF16B384F319E521BBB5 /* CloudAutomaticSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAutomaticSync.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -321,6 +323,7 @@
 		0C8EAA6BDE06944741E537B5 /* Cloud */ = {
 			isa = PBXGroup;
 			children = (
+				CC06AF16B384F319E521BBB5 /* CloudAutomaticSync.swift */,
 				07894A7F26A22F26C22A6087 /* CloudAccountManager.swift */,
 				DA1CBF9E9192BD25C8E6CDB0 /* CloudBackupAdapter.swift */,
 				EF3F06AE53D10C9BC95B7825 /* CloudClient.swift */,
@@ -397,6 +400,7 @@
 				C3DAB8D79CA375F6CA949E59 /* CloudDocument.swift in Sources */,
 				7BF2CAC15FEB19EB8638FE15 /* CloudClient.swift in Sources */,
 				849605C776918286229CCD56 /* CloudBackupAdapter.swift in Sources */,
+				B3A1C153334F75875B2007D5 /* CloudAutomaticSync.swift in Sources */,
 				9658E36C7AECFCC8F1042974 /* CloudAccountManager.swift in Sources */,
 				5FF90A5330220AED3748C0F2 /* SecurityCredentialsView.swift in Sources */,
 				175119382378D137D78D8C40 /* PasswordKeyDerivation.swift in Sources */,

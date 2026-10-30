@@ -10,6 +10,7 @@ final class CloudSyncCoordinator: ObservableObject {
     @Published private(set) var needsMigrationChoice = false
     @Published private(set) var status = "Conectando…"
     @Published private(set) var lastSync: Date?
+    @Published private(set) var automaticPauseReason: String?
     @Published var errorMessage: String?
     @Published private(set) var conflict: CloudMergeConflict?
     @Published private(set) var viewGeneration = UUID()
@@ -20,6 +21,10 @@ final class CloudSyncCoordinator: ObservableObject {
     private var pendingRemote: CloudSnapshot?
     private var pendingLocal: CloudJSON?
     private var pendingBase: CloudJSON?
+
+    func setAutomaticPauseReason(_ reason: String?) {
+        if automaticPauseReason != reason { automaticPauseReason = reason }
+    }
 
     var migrationRecordCount: Int { localMigration?.totalRecords ?? 0 }
     var conflictDescriptions: [String] {
@@ -145,6 +150,9 @@ final class CloudSyncCoordinator: ObservableObject {
             }
             try finish(result, preserving: finalLocal)
             conflict = nil; pendingRemote = nil; pendingLocal = nil; pendingBase = nil
+        } catch is CancellationError {
+            status = "Guardado en este dispositivo"
+            errorMessage = nil
         } catch let issue as CloudMergeConflict {
             conflict = issue
             status = "Cambios por revisar"

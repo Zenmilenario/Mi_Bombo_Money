@@ -22,6 +22,13 @@ private final class MockCloudProtocol: URLProtocol {
     override func stopLoading() { }
 }
 
+@MainActor private final class AutomaticSyncProbe {
+    var permitted = true
+    var calls = 0
+    var running = 0
+    var maximumRunning = 0
+}
+
 @main
 struct CloudProtocolCheck {
     static func check(_ condition: @autoclosure () throws -> Bool, _ message: String = "Check failed") throws {
@@ -74,7 +81,77 @@ struct CloudProtocolCheck {
         }
         #endif
         try await checkTransport()
-        print("Cloud checks passed: exact integer cents, three-way merge, explicit conflicts, relational/funding conflicts, replay safety, edits during upload, scoped HTTPS transport, session refresh and server revision rejection.")
+        try await checkCancelledRequest()
+        try await checkAutomaticPolling()
+        print("Cloud checks passed: exact integer cents, three-way merge, explicit conflicts, relational/funding conflicts, replay safety, edits during upload, scoped HTTPS transport, session refresh, server revision rejection and automatic polling lifecycle.")
+    }
+
+    @MainActor static func checkCancelledRequest() async throws {
+        let settings = URLSessionConfiguration.ephemeral
+        settings.protocolClasses = [MockCloudProtocol.self]
+        let transport = URLSession(configuration:settings)
+        let config = CloudConfiguration(url:URL(string:"https://\(CloudConfiguration.projectHost)")!,publishableKey:"sb_publishable_fictional")
+        let client = try CloudClient(configuration:config,transport:transport)
+        let session = CloudSession(accessToken:"fictional",refreshToken:"fictional",expiresAt:Date.now.timeIntervalSince1970+3600,
+                                   user:CloudUser(id:UUID(),email:nil))
+        let before = MockCloudProtocol.calls
+        let request = Task { @MainActor in try await client.snapshot(session:session) }
+        request.cancel()
+        do {
+            _ = try await request.value
+            preconditionFailure("A cancelled lifecycle must not start a cloud request")
+        } catch is CancellationError { }
+        precondition(MockCloudProtocol.calls == before,"Cancellation must be checked before transmitting credentials")
+    }
+
+    @MainActor static func checkAutomaticPolling() async throws {
+        let active = CloudAutomaticSyncState(ready:true,foreground:true,unlocked:true,authenticated:true)
+        let probe = AutomaticSyncProbe()
+        for blocked in [
+            CloudAutomaticSyncState(ready:false,foreground:true,unlocked:true,authenticated:true),
+            CloudAutomaticSyncState(ready:true,foreground:false,unlocked:true,authenticated:true),
+            CloudAutomaticSyncState(ready:true,foreground:true,unlocked:false,authenticated:true),
+            CloudAutomaticSyncState(ready:true,foreground:true,unlocked:true,authenticated:false)
+        ] {
+            await CloudAutomaticSync.run(state:blocked,interval:.milliseconds(5),
+                maySynchronize:{ preconditionFailure("A blocked lifecycle must not start polling") },
+                synchronize:{ probe.calls += 1 })
+            precondition(blocked != active, "SwiftUI must restart when a lifecycle input changes")
+        }
+        func start() -> Task<Void,Never> {
+            Task { @MainActor in
+                await CloudAutomaticSync.run(state:active,interval:.milliseconds(5),maySynchronize:{probe.permitted}) {
+                    probe.calls += 1; probe.running += 1
+                    probe.maximumRunning = max(probe.maximumRunning,probe.running)
+                    try? await Task.sleep(for:.milliseconds(3))
+                    probe.running -= 1
+                }
+            }
+        }
+        func eventually(_ condition:() -> Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by:.seconds(5))
+            while !condition() {
+                precondition(ContinuousClock.now < deadline,"Automatic polling failed to resume")
+                try await Task.sleep(for:.milliseconds(1))
+            }
+        }
+        let first = start()
+        try await eventually { probe.calls >= 2 }
+        probe.permitted = false
+        try await eventually { probe.running == 0 }
+        let pausedCount = probe.calls
+        try await Task.sleep(for:.milliseconds(30))
+        precondition(probe.calls == pausedCount,"A presented form must pause automatic sync")
+        probe.permitted = true
+        try await eventually { probe.calls > pausedCount }
+        first.cancel(); await first.value
+        let stoppedCount = probe.calls
+        try await Task.sleep(for:.milliseconds(20))
+        precondition(probe.calls == stoppedCount,"A cancelled lifecycle must stop polling")
+        let restarted = start()
+        try await eventually { probe.calls > stoppedCount }
+        restarted.cancel(); await restarted.value
+        precondition(probe.maximumRunning == 1,"Polling must not overlap its own requests")
     }
     static func checkGraphConflicts() throws {
         let account=record(1,"Cuenta")

@@ -49,6 +49,7 @@ jobs:
             MiPatrimonio/Core/Cloud/CloudDocument.swift \
             MiPatrimonio/Core/Cloud/CloudClient.swift \
             MiPatrimonio/Core/Cloud/CloudPKCEFlow.swift \
+            MiPatrimonio/Core/Cloud/CloudAutomaticSync.swift \
             Tests/CloudProtocolCheck.swift -o build/cloud-check/CloudProtocolCheck
           build/cloud-check/CloudProtocolCheck
       - name: Comprobar integración con SwiftData

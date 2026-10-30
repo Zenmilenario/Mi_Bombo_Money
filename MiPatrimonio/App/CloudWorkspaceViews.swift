@@ -160,7 +160,8 @@ private struct CloudFinanceWorkspaceView: View {
     @AppStorage("appLockEnabled") private var appLockEnabled = true
     @StateObject private var sync = CloudSyncCoordinator()
     var body: some View {
-        Group {
+        // A stable host keeps lifecycle tasks alive when loading/migration becomes the TabView.
+        ZStack {
             if sync.ready, let container = sync.container {
                 RootTabView()
                     .id(sync.viewGeneration)
@@ -194,24 +195,35 @@ private struct CloudFinanceWorkspaceView: View {
         }
         .task {
             await sync.open(account: account)
-            while !Task.isCancelled {
-                if canSyncAutomatically { await sync.synchronize(account: account) }
-                do { try await Task.sleep(for: .seconds(15)) } catch { break }
+        }
+        .task(id: automaticSyncState) {
+            await CloudAutomaticSync.run(state: automaticSyncState) {
+                let paused = hasPresentedWindow
+                sync.setAutomaticPauseReason(paused ? "Se reanudará al cerrar la ventana abierta." : nil)
+                return !paused
+            } synchronize: {
+                await sync.synchronize(account: account)
             }
         }
-        .onChange(of: scenePhase) { _, phase in
-            if phase == .active && canSyncAutomatically { Task { await sync.synchronize(account: account) } }
-        }
     }
-    private var canSyncAutomatically: Bool {
-        guard scenePhase == .active, !appLockEnabled || lock.isUnlocked else { return false }
+    private var automaticSyncState: CloudAutomaticSyncState {
+        .init(ready: sync.ready, foreground: scenePhase == .active,
+              unlocked: !appLockEnabled || lock.isUnlocked,
+              authenticated: account.session != nil && !account.needsSignIn)
+    }
+    private var hasPresentedWindow: Bool {
         #if canImport(UIKit)
         // Avoid pulling while an account/transaction form or a system sheet is open.
-        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) {
-            if scene.windows.contains(where: { $0.isKeyWindow && $0.rootViewController?.presentedViewController != nil }) { return false }
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) where scene.activationState == .foregroundActive {
+            for window in scene.windows where window.isKeyWindow {
+                if let presented = window.rootViewController?.presentedViewController,
+                   presented.isViewLoaded, presented.view.window != nil, !presented.isBeingDismissed {
+                    return true
+                }
+            }
         }
         #endif
-        return true
+        return false
     }
 }
 
@@ -284,6 +296,10 @@ struct CloudAccountSettingsView: View {
                 LabeledContent("Estado", value: sync.status)
                 if let date = sync.lastSync {
                     LabeledContent("Última sincronización", value: date.formatted(date: .abbreviated, time: .shortened))
+                }
+                if let reason = sync.automaticPauseReason {
+                    LabeledContent("Actualización automática", value: "En pausa")
+                    Text(reason).font(.footnote).foregroundStyle(.secondary)
                 }
                 Text("Los cambios se guardan en este dispositivo y se sincronizan al abrir la app y mientras la utilizas. Sin conexión, permanecen pendientes.")
                     .font(.footnote).foregroundStyle(.secondary)
