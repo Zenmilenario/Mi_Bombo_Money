@@ -1,14 +1,26 @@
-# Conexión bancaria personal · versión 0.6.0
+# Conexión bancaria personal · versión 0.6.1
 
 ## Estado del 30 de octubre de 2026
 
-Implementación preparada en la carpeta del proyecto. Primer piloto previsto: una cuenta personal de Bankinter. No se ha autorizado ni consultado ninguna cuenta real.
+Implementación preparada en la carpeta del proyecto. Primer piloto previsto: una cuenta personal de Bankinter. El propietario ha completado la vinculación de su cuenta de prueba en el panel de Enable Banking. Se ha verificado la activación de la aplicación sin consultar saldos ni movimientos; queda conectar desde el IPA y validar la primera importación.
 
 - Worker personal independiente desplegado en `https://mi-bombo-banking-personal.albertor7722.workers.dev` y D1 independiente con jurisdicción UE. El servidor sandbox anterior conserva su configuración y sus claves.
-- Aplicación PRODUCTION registrada por el propietario en Enable Banking. Su firma, entorno, servicio exclusivo AIS y retorno exacto se han verificado mediante la API. Sigue INACTIVE hasta que el propietario vincule una cuenta.
+- Aplicación PRODUCTION registrada por el propietario en Enable Banking. Su firma, entorno, servicio exclusivo AIS y retorno exacto se han verificado mediante la API. Tras la vinculación realizada por el propietario, se ha verificado mediante la API que figura ACTIVE, con servicio exclusivo AIS y retorno correcto. El catálogo para particulares en España incluye Bankinter.
 - Claves nuevas subidas como secretos del Worker personal. Configuración y copia local excluidas de Git, con acceso NTFS limitado al propietario y SYSTEM. No se guardan claves ni identificadores del propietario en esta documentación.
 - Migración `20261030000100_bank_account_identity.sql` aplicada y verificada en Supabase: dos campos opcionales, dos índices de unicidad y RLS forzada conservada. No se han modificado movimientos ni importado datos bancarios reales.
-- Código iOS, pruebas nuevas y registro de fuentes preparados. La compilación nativa y las pruebas de persistencia SwiftData requieren ejecutar los checks de GitHub Actions antes de instalar esta versión. Las comprobaciones locales no sustituyen esa compilación.
+- Commit `0722b8c` de la versión 0.6.0 publicado por el propietario y verificado en main: once checks aprobados, incluidas ambas compilaciones iOS, persistencia SwiftData, conciliación personal, sandbox, copias, cálculos y PostgreSQL. No se han detectado archivos privados en el árbol del commit.
+
+## Corrección de autorización · 0.6.1
+
+La primera prueba física devolvía un error al elegir Bankinter, después de la verificación biométrica. Se ha reproducido la respuesta de `POST /auth` sin completar ninguna autorización ni consultar datos de cuentas: el proveedor devuelve `https://tilisy.enablebanking.com`. La lista de destinos del servidor y el cliente 0.6.0 solo admitía `auth.enablebanking.com` en producción.
+
+La corrección admite exactamente los dos hosts oficiales de producción, `auth.enablebanking.com` y `tilisy.enablebanking.com`. La validación sigue exigiendo HTTPS, sin credenciales en la URL ni puertos alternativos. El cliente de producción rechaza el servidor de demostración y el dominio sandbox. No se utilizan comodines ni se reescriben las URLs del proveedor.
+
+La corrección del servidor ya está desplegada con la misma base y configuración de propietario. Se conservan los secretos existentes, sin regenerar claves, alterar consentimientos ni migrar datos. El cliente también necesita actualizarse a 0.6.1: instalar únicamente la corrección del servidor no basta para el IPA 0.6.0. Se añaden mensajes específicos para destino rechazado y respuesta del proveedor incompatible.
+
+Verificación local de esta revisión: 20 pruebas Node, 21 pruebas workerd/D1 y prueba Swift de la política de destinos y ciclo de autenticación, todas aprobadas. Se cubren el dominio real devuelto por producción, el nuevo dominio oficial, destinos parecidos, sandbox en modo real, HTTP, credenciales y puertos alternativos. La compilación nativa de 0.6.1 y la prueba física quedan pendientes de publicar los cambios y generar el nuevo IPA.
+
+Fuentes: [ejemplo oficial de Account Information](https://enablebanking.com/accounts-api/) y [migración de orígenes anunciada por Enable Banking](https://enablebanking.com/blog/2026/06/12/enable-banking-changelog-may-2026).
 
 ## Flujo implementado
 
@@ -66,9 +78,9 @@ Son controles implementados y comprobaciones concretas; no constituyen una garan
 - Plan de conciliación compilado y ejecutado con Swift: ambigüedades, renovaciones, transferencias propias y aportaciones vistas solo desde un banco.
 - Política del cliente compilada y ejecutada: destino cloud exacto, autorización y retorno.
 - Bundle del Worker comprobado con despliegue en seco; servidor personal desplegado. Comprobaciones HTTPS reales: salud correcta, ausencia de credenciales y credenciales ficticias rechazadas, orígenes de navegador rechazados.
-- Firma de la aplicación Enable Banking real comprobada sin consultar ninguna cuenta. Estado: PRODUCTION / AIS / INACTIVE.
+- Firma de la aplicación Enable Banking real comprobada sin consultar ninguna cuenta. Estado actualizado tras la vinculación del propietario: PRODUCTION / AIS / ACTIVE. No se han consultado saldos ni movimientos en esta comprobación.
 
-Pendientes antes del piloto: compilación iOS y pruebas nativas SwiftData de esta revisión en Actions, instalar el nuevo IPA, vincular únicamente la cuenta personal de Bankinter y completar la autorización en la app. La prueba física verificará saldos, primera importación, reservas, transferencias e idempotencia de una segunda actualización.
+Pendientes antes del piloto físico: instalar el nuevo IPA y completar la conexión de Bankinter desde la app, asociar la cuenta con su registro existente y revisar la primera descarga. La vinculación de cuentas propias en el panel ya está completada; no sustituye la autorización desde la app. Los once checks del commit `0722b8c` ya están aprobados. El [workflow número 22](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41055414514) ha terminado correctamente y ofrece `MiPatrimonio-0.6.0-22-unsigned.ipa` del mismo commit.  La prueba física verificará saldos, primera importación, reservas, transferencias e idempotencia de una segunda actualización.
 
 ## Preparación reproducible
 

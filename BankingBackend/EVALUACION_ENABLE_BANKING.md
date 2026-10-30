@@ -1,6 +1,6 @@
 # Recuperar Enable Banking — evaluación del 30 de octubre de 2026
 
-> Evolución posterior de esta evaluación: ya se ha preparado la [integración personal](INTEGRACION_PERSONAL.md). El piloto real y la compilación nativa de la revisión siguen pendientes.
+> Evolución posterior de esta evaluación: ya se ha preparado la [integración personal](INTEGRACION_PERSONAL.md). La compilación nativa y los once checks del commit `0722b8c` han pasado; el piloto real sigue pendiente.
 
 ## Recomendación
 
