@@ -59,6 +59,7 @@
 		6A410D88D103D3D95C5392EC /* CloudWorkspaceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E51D909C530659865AA133F /* CloudWorkspaceViews.swift */; };
 		5BEAF89DE01A1252C47A97C6 /* CloudConfiguration.json in Resources */ = {isa = PBXBuildFile; fileRef = 4153A4CD5143856B809FEDDE /* CloudConfiguration.json */; };
 		B3A1C153334F75875B2007D5 /* CloudAutomaticSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC06AF16B384F319E521BBB5 /* CloudAutomaticSync.swift */; };
+		D6CE9127C3B6EE61A6F42CBE /* TransactionReviewService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1EA6C82FA1DD444429186CCE /* TransactionReviewService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -117,6 +118,7 @@
 		5E51D909C530659865AA133F /* CloudWorkspaceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWorkspaceViews.swift; sourceTree = "<group>"; };
 		4153A4CD5143856B809FEDDE /* CloudConfiguration.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = CloudConfiguration.json; sourceTree = "<group>"; };
 		CC06AF16B384F319E521BBB5 /* CloudAutomaticSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudAutomaticSync.swift; sourceTree = "<group>"; };
+		1EA6C82FA1DD444429186CCE /* TransactionReviewService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionReviewService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -223,6 +225,7 @@
 				11AAA08F6E2ADDFAC1EF2CD3 /* RecurringMovementService.swift */,
 				773BDE4A7B8F40C38BFA65A2 /* BackupService.swift */,
 				A117E9A14B274522AD3AA112 /* CategoryDefaultsService.swift */,
+				1EA6C82FA1DD444429186CCE /* TransactionReviewService.swift */,
 				B2C4D6E8F00A112233445502 /* CategoryRuleService.swift */,
 				D3A6D97B49C04E4EAAB09202 /* DashboardAlertReviewState.swift */,
 			);
@@ -427,6 +430,7 @@
 				6547D7CB25BFF0C2FB6BEE6F /* RecurringMovementService.swift in Sources */,
 				773BDE4A7B8F40C38BFA65A1 /* BackupService.swift in Sources */,
 				A117E9A14B274522AD3AA111 /* CategoryDefaultsService.swift in Sources */,
+				D6CE9127C3B6EE61A6F42CBE /* TransactionReviewService.swift in Sources */,
 				B2C4D6E8F00A112233445501 /* CategoryRuleService.swift in Sources */,
 				D3A6D97B49C04E4EAAB09201 /* DashboardAlertReviewState.swift in Sources */,
 				A6625ABF4993F0CFF183DDEE /* AccountsView.swift in Sources */,

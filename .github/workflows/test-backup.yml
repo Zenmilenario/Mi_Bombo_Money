@@ -61,6 +61,17 @@ jobs:
             -o build/finance-check/FinancialLogicCheck
           build/finance-check/FinancialLogicCheck
 
+      - name: Comprobar bandeja de revisión
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
+            MiPatrimonio/Core/Models/Models.swift \
+            MiPatrimonio/Core/Services/TransactionReviewService.swift \
+            MiPatrimonio/Core/Services/DuplicateDetectionService.swift \
+            Tests/TransactionReviewCheck.swift -o build/finance-check/TransactionReviewCheck
+          build/finance-check/TransactionReviewCheck
+
   passwords:
     name: Contraseñas y separación de acceso bancario
     runs-on: macos-latest

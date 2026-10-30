@@ -63,6 +63,7 @@ struct TransactionsView: View {
     @State private var selectedType: TransactionType?
     @State private var dateFilter: TransactionDateFilter = .all
     @State private var showOnlyDuplicates = false
+    @State private var showOnlyReview = false
     @State private var showingFilters = false
     @State private var selectedTransaction: FinancialTransaction?
     @State private var deletionError: String?
@@ -71,7 +72,7 @@ struct TransactionsView: View {
     @State private var csvExportDocument: TransactionCSVDocument?
     @State private var csvExportMessage: String?
 
-    private var filteredTransactions: [FinancialTransaction] {
+    private var scopedTransactions: [FinancialTransaction] {
         transactions.filter { transaction in
             if let selectedAccountID,
                transaction.sourceAccount?.id != selectedAccountID,
@@ -118,6 +119,10 @@ struct TransactionsView: View {
         }
     }
 
+    private var filteredTransactions: [FinancialTransaction] {
+        scopedTransactions.filter { !showOnlyReview || !TransactionReviewService.issues(for: $0).isEmpty }
+    }
+
     private var groupedTransactionDays: [TransactionDayGroup] {
         let grouped = Dictionary(grouping: filteredTransactions) {
             Calendar.autoupdatingCurrent.startOfDay(for: $0.date)
@@ -139,8 +144,8 @@ struct TransactionsView: View {
             .reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
     }
 
-    private var duplicateCount: Int {
-        transactions.filter { $0.duplicateState == .possible }.count
+    private var reviewCount: Int {
+        scopedTransactions.filter { !TransactionReviewService.issues(for: $0).isEmpty }.count
     }
 
     var body: some View {
@@ -166,41 +171,10 @@ struct TransactionsView: View {
                             .listRowBackground(Color.clear)
                         }
 
-                        if duplicateCount > 0 && !showOnlyDuplicates {
-                            Section {
-                                Button {
-                                    showOnlyDuplicates = true
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: "doc.on.doc.fill")
-                                            .foregroundStyle(.orange)
-                                            .frame(width: 36, height: 36)
-                                            .background(Color.orange.opacity(0.11), in: Circle())
-
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(
-                                                duplicateCount == 1
-                                                    ? "Revisar 1 posible duplicado"
-                                                    : "Revisar \(duplicateCount) posibles duplicados"
-                                            )
-                                            .font(.subheadline.weight(.semibold))
-                                            .foregroundStyle(.primary)
-
-                                            Text("Comprueba los movimientos antes de conservarlos.")
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-
-                                        Spacer()
-
-                                        Image(systemName: "chevron.right")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(.tertiary)
-                                    }
-                                    .padding(.vertical, 4)
-                                }
-                                .buttonStyle(.plain)
-                            }
+                        Section {
+                            reviewSummary
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(Color.clear)
                         }
 
                         if activeFilterCount > 0 {
@@ -233,9 +207,11 @@ struct TransactionsView: View {
                         if filteredTransactions.isEmpty {
                             Section {
                                 ContentUnavailableView(
-                                    "Sin resultados",
-                                    systemImage: "line.3.horizontal.decrease.circle",
-                                    description: Text("Prueba a cambiar la búsqueda o limpiar los filtros.")
+                                    showOnlyReview && reviewCount == 0 ? "Sin revisiones pendientes" : "Sin resultados",
+                                    systemImage: showOnlyReview && reviewCount == 0 ? "checkmark.circle" : "line.3.horizontal.decrease.circle",
+                                    description: Text(showOnlyReview && reviewCount == 0
+                                        ? "No se detectan duplicados pendientes ni problemas de categoría con los filtros actuales."
+                                        : "Prueba a cambiar la búsqueda o limpiar los filtros.")
                                 )
                                 .frame(maxWidth: .infinity, minHeight: 220)
                             }
@@ -327,6 +303,7 @@ struct TransactionsView: View {
                         selectedType: $selectedType,
                         dateFilter: $dateFilter,
                         showOnlyDuplicates: $showOnlyDuplicates,
+                        showOnlyReview: $showOnlyReview,
                         accounts: accounts.filter { !$0.isArchived },
                         categories: categories.filter { !$0.isArchived }
                     )
@@ -368,6 +345,34 @@ struct TransactionsView: View {
         }
     }
 
+    private var reviewSummary: some View {
+        Button {
+            showOnlyReview.toggle()
+        } label: {
+            AdaptiveValueRow {
+                HStack(spacing: 12) {
+                    Image(systemName: reviewCount == 0 ? "checkmark.circle" : "checklist")
+                        .font(.title3).foregroundStyle(reviewCount == 0 ? AppDesign.income : AppDesign.warning)
+                        .frame(width: 42, height: 42)
+                        .background(AppDesign.tertiaryBackground, in: RoundedRectangle(cornerRadius: 12))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Por revisar").font(.headline).foregroundStyle(.primary)
+                        Text(reviewCount == 0 ? "Sin incidencias detectadas" : reviewCount == 1
+                            ? "1 movimiento con revisión pendiente" : "\(reviewCount) movimientos con revisión pendiente")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } value: {
+                Label(showOnlyReview ? "Ver todos" : "Ver pendientes", systemImage: "chevron.right")
+                    .font(.caption.weight(.semibold)).foregroundStyle(AppDesign.accent)
+            }
+            .padding(AppDesign.cardPadding)
+            .financeCardSurface()
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Muestra posibles duplicados y movimientos sin una categoría compatible")
+    }
+
     private var activeFilterCount: Int {
         [
             selectedAccountID != nil,
@@ -375,6 +380,7 @@ struct TransactionsView: View {
             selectedType != nil,
             dateFilter != .all,
             showOnlyDuplicates,
+            showOnlyReview,
         ]
         .filter { $0 }
         .count
@@ -418,6 +424,11 @@ struct TransactionsView: View {
                         systemImage: "calendar",
                         onRemove: { dateFilter = .all }
                     )
+                }
+
+                if showOnlyReview {
+                    FilterChip(title: "Por revisar", systemImage: "checklist", tint: AppDesign.warning,
+                               onRemove: { showOnlyReview = false })
                 }
 
                 if showOnlyDuplicates {
@@ -466,6 +477,7 @@ struct TransactionsView: View {
         selectedType = nil
         dateFilter = .all
         showOnlyDuplicates = false
+        showOnlyReview = false
     }
 
     private func delete(_ transaction: FinancialTransaction) {
@@ -559,6 +571,10 @@ private struct TransactionRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+                if let issue = TransactionReviewService.issues(for: transaction).first(where: { $0 != .possibleDuplicate }) {
+                    Label(issue.title, systemImage: issue.systemImage)
+                        .font(.caption2).foregroundStyle(AppDesign.warning)
+                }
             }
 
             Spacer(minLength: 8)
@@ -618,6 +634,147 @@ private struct TransactionRow: View {
 }
 
 
+private struct TransactionReviewActions: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query private var transactions: [FinancialTransaction]
+    @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
+    @Query private var rules: [CategoryRule]
+    @State private var rememberChoice = true
+    @State private var errorMessage: String?
+    let transaction: FinancialTransaction
+
+    private var issues: [TransactionReviewIssue] { TransactionReviewService.issues(for: transaction) }
+    private var needsCategory: Bool { issues.contains(.missingCategory) || issues.contains(.incompatibleCategory) }
+    private var allowedCategories: [FinanceCategory] {
+        categories.filter { CategoryRuleService.supports($0, for: transaction.type) }
+    }
+    private var suggestedRule: CategoryRule? {
+        CategoryRuleService.match(description: transaction.descriptionText, type: transaction.type, rules: rules)
+    }
+    private var similarMovements: [DuplicateCandidate] {
+        DuplicateDetectionService.candidates(date: transaction.date,
+            sourceAccountID: transaction.sourceAccount?.id, destinationAccountID: transaction.destinationAccount?.id,
+            type: transaction.type, amountMinor: transaction.amountMinor, description: transaction.descriptionText,
+            existing: transactions, excluding: transaction.id)
+    }
+
+    var body: some View {
+        SectionCard("Por revisar", subtitle: "Resuelve solo lo que necesita atención") {
+            ForEach(issues) { issue in
+                Label(issue.title, systemImage: issue.systemImage)
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(AppDesign.warning)
+            }
+            if needsCategory { categoryActions }
+            if issues.contains(.possibleDuplicate) { duplicateActions }
+        }
+        .alert("No se pudo guardar la revisión", isPresented: Binding(
+            get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("Aceptar", role: .cancel) { errorMessage = nil }
+        } message: { Text(errorMessage ?? "") }
+    }
+
+    private var categoryActions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if let rule = suggestedRule, let category = rule.category {
+                Button { assign(category, usingExistingRule: true) } label: {
+                    Label("Usar \(category.name)", systemImage: category.systemImage)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                Text("Sugerida por tu regla «\(rule.phrase)».")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Menu {
+                ForEach(allowedCategories) { category in
+                    Button { assign(category) } label: {
+                        Label(category.name, systemImage: category.systemImage)
+                    }
+                }
+            } label: {
+                Label("Elegir categoría", systemImage: "tag")
+                    .frame(minHeight: 44, alignment: .leading)
+            }
+            .disabled(allowedCategories.isEmpty)
+            if allowedCategories.isEmpty {
+                Text("Añade una categoría compatible desde Ajustes → Categorías.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if CategoryRuleService.normalized(transaction.descriptionText).count >= 3 {
+                Toggle("Recordar esta elección", isOn: $rememberChoice)
+                Text("Se usará la categoría elegida en próximos movimientos cuyo concepto contenga esta descripción.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var duplicateActions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Compara este movimiento con los registros similares antes de decidir.")
+                .font(.subheadline)
+            ForEach(Array(similarMovements.prefix(3))) { candidate in
+                similarRow(candidate.transaction)
+            }
+            if similarMovements.isEmpty {
+                Text("Actualmente no se encuentra una coincidencia clara con los demás movimientos.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Button {
+                commit {
+                    transaction.duplicateState = .none
+                    transaction.updatedAt = .now
+                }
+            } label: {
+                Label("Conservar: no es un duplicado", systemImage: "checkmark.circle")
+            }
+            .buttonStyle(.bordered)
+                .controlSize(.large)
+            Text("Esta opción conserva los movimientos. Si sobra uno, elimínalo desde la lista de Movimientos.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private func similarRow(_ other: FinancialTransaction) -> some View {
+        AdaptiveValueRow {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(other.descriptionText).font(.subheadline.weight(.medium))
+                Text("\(other.sourceAccount?.bankAndAccountDisplayName ?? "Sin cuenta") · \(other.type.title) · \(other.date.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        } value: {
+            PrivacyAmountText(minorUnits: other.type.countsAsExpense ? -other.amountMinor : other.amountMinor,
+                              currencyCode: other.sourceAccount?.currencyCode ?? "EUR",
+                              font: .subheadline, weight: .semibold, signed: other.type != .transfer)
+        }
+        .padding(12)
+        .background(AppDesign.tertiaryBackground, in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
+    }
+
+    private func assign(_ category: FinanceCategory, usingExistingRule: Bool = false) {
+        guard CategoryRuleService.supports(category, for: transaction.type) else {
+            errorMessage = "Esta categoría ya no está disponible para este tipo de movimiento."
+            return
+        }
+        commit {
+            transaction.category = category
+            transaction.updatedAt = .now
+            if rememberChoice && !usingExistingRule {
+                CategoryRuleService.remember(phrase: transaction.descriptionText, type: transaction.type,
+                    category: category, existing: rules, in: modelContext)
+            }
+        }
+    }
+
+    private func commit(_ update: () -> Void) {
+        // Roll back only this review's changes if the final save fails.
+        do { try modelContext.save() }
+        catch { errorMessage = error.localizedDescription; return }
+        update()
+        do { try modelContext.save() }
+        catch { modelContext.rollback(); errorMessage = error.localizedDescription }
+    }
+}
+
 private struct TransactionDetailView: View {
     @Query private var reservedFunds: [ReservedFund]
     @Environment(\.dismiss) private var dismiss
@@ -643,16 +800,8 @@ private struct TransactionDetailView: View {
                         }
                     }
 
-                    if transaction.duplicateState == .possible {
-                        SectionCard("Revisión pendiente") {
-                            Label(
-                                "Este movimiento se parece a otro y podría estar duplicado.",
-                                systemImage: "doc.on.doc.fill"
-                            )
-                            .font(.subheadline)
-                            .foregroundStyle(.orange)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                    if !TransactionReviewService.issues(for: transaction).isEmpty {
+                        TransactionReviewActions(transaction: transaction)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -832,6 +981,7 @@ private struct TransactionFiltersView: View {
     @Binding var selectedType: TransactionType?
     @Binding var dateFilter: TransactionDateFilter
     @Binding var showOnlyDuplicates: Bool
+    @Binding var showOnlyReview: Bool
 
     let accounts: [FinancialAccount]
     let categories: [FinanceCategory]
@@ -870,6 +1020,7 @@ private struct TransactionFiltersView: View {
             }
 
             Section("Revisión") {
+                Toggle("Solo por revisar", isOn: $showOnlyReview)
                 Toggle("Solo posibles duplicados", isOn: $showOnlyDuplicates)
             }
 
@@ -880,6 +1031,7 @@ private struct TransactionFiltersView: View {
                     selectedType = nil
                     dateFilter = .all
                     showOnlyDuplicates = false
+                    showOnlyReview = false
                 }
             }
         }
@@ -1436,6 +1588,13 @@ struct TransactionFormView: View {
         )
 
         if let transaction {
+            let previousFingerprint = DuplicateDetectionService.fingerprint(
+                date: transaction.date, sourceAccountID: transaction.sourceAccount?.id,
+                destinationAccountID: transaction.destinationAccount?.id, type: transaction.type,
+                amountMinor: transaction.amountMinor, description: transaction.descriptionText)
+            let nextDuplicateState = TransactionReviewService.duplicateStateAfterEdit(
+                previous: transaction.duplicateState, previousFingerprint: previousFingerprint,
+                newFingerprint: fingerprint, hasCandidates: !candidates.isEmpty)
             transaction.reservedFundID = fundingFund?.id
             transaction.reservedAmountMinor = fundingAmount
             transaction.date = date
@@ -1448,7 +1607,7 @@ struct TransactionFormView: View {
             transaction.notes = notes
             transaction.isReconciled = isReconciled
             transaction.fingerprint = fingerprint
-            transaction.duplicateState = candidates.isEmpty ? .none : .possible
+            transaction.duplicateState = nextDuplicateState
             transaction.updatedAt = .now
         } else {
             modelContext.insert(FinancialTransaction(

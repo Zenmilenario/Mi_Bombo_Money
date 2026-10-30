@@ -1,54 +1,52 @@
-# Validación de sincronización — 29 de octubre de 2026
+# Validación de sincronización — estado al 30 de octubre de 2026
 
-## Estado verificado
+## Resultado actual
 
-Se ha consultado el proyecto configurado en la app mediante el panel de Supabase. Existe un usuario confirmado y una carga real del espacio personal. Esta nota no incluye identificadores, conceptos, importes, credenciales ni una exportación de sus registros.
+La corrección del commit `7c0d181` («Update Sync V 0.5») ha superado las pruebas realizadas con el usuario en un iPad. El usuario confirmó que instaló esa compilación. Sus diez checks más recientes de GitHub han terminado correctamente, incluidas las compilaciones Debug para simulador y Release para dispositivo y los tests de sesiones, PKCE y adaptación SwiftData.
 
-La auditoría de lectura no detectó relaciones activas sin destino, reservas sobreasignadas, pagos reservados vinculados a una cuenta diferente, identificadores bancarios repetidos ni ejecuciones periódicas duplicadas por regla y día. RLS estaba habilitado y forzado en las tablas financieras y las dos funciones públicas de sincronización se ejecutaban sin elevación de permisos. Estos controles son concretos: no constituyen una auditoría de seguridad completa ni una certificación de todos los cálculos financieros.
+Fuentes: [compilación iOS](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41019868725) y [pruebas cloud](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41019868750).
 
-## Prueba real en iPad
+## Pruebas físicas superadas
 
-La prueba usa exclusivamente una categoría ficticia sin movimientos asociados.
+Se utilizó exclusivamente una categoría ficticia sin movimientos asociados:
 
-1. **Creación y subida manual: comprobadas.** El usuario creó una categoría de gasto y pulsó Sincronizar ahora. La nueva categoría apareció en Supabase; el número de movimientos permaneció igual. «Gastos» es el tipo de la categoría, no un movimiento contable.
-2. **Edición sin conexión: comprobada.** El usuario desconectó internet y renombró la categoría. Confirmó que el nombre nuevo se veía al volver a Categorías. Durante ese periodo, Supabase conservaba el nombre anterior.
-3. **Reenvío automático al reconectar: comprobado.** Tras recuperar internet, dejar Inicio abierto y esperar sin sincronización manual, el nombre modificado apareció en Supabase.
-4. **Descarga manual desde nube: comprobada. Descarga automática: no superó la comprobación en la versión instalada.** Se renombró únicamente esa categoría ficticia en Supabase. La operación exigió modificar exactamente una fila y revirtió ante cualquier otro resultado. El usuario no vio el nombre nuevo durante la espera y confirmó que sí apareció al pulsar Sincronizar ahora. No se dispone de un registro del ciclo de vida de SwiftUI que demuestre una causa única del fallo.
-5. **Eliminación de la categoría ficticia y propagación: pendiente.** Se conserva activa la categoría «Prueba sync desde nube», sin movimientos asociados, para repetir las pruebas. No se ha eliminado ningún movimiento personal.
+1. **Nube → iPad automática.** Se renombró desde Supabase a «Prueba sync 30-10 A». El usuario confirmó que apareció después de esperar en Inicio, sin pulsar Sincronizar ahora.
+2. **Conservación sin internet tras cierre completo.** El usuario renombró a «Prueba sync 30-10 B», guardó sin conexión, cerró la app desde la multitarea y la volvió a abrir todavía sin internet. El nombre nuevo seguía presente.
+3. **Subida automática al reconectar.** Al recuperar internet y esperar en Inicio sin sincronizar manualmente, Supabase recibió ese nombre nuevo.
+4. **Reanudación tras bloqueo.** Con el iPad bloqueado se cambió el nombre en Supabase a «Prueba sync 30-10 C». Después de desbloquear y esperar, apareció automáticamente en el dispositivo.
+5. **Eliminación y propagación.** El usuario eliminó la categoría ficticia desde la app. Supabase mantuvo su marca de eliminación y no quedó ningún registro de prueba activo. La comprobación posterior tampoco mostró reaparición. Se comprobaron los recuentos de cuentas y movimientos antes y después, sin variación durante ese ensayo.
 
-No se ha demostrado todavía la recuperación tras forzar el cierre de la app sin conexión ni la resolución de conflictos en dos dispositivos físicos. El usuario solo dispone del iPad ahora y podrá usar otro dispositivo más adelante.
+La categoría de prueba ya está retirada de las categorías activas. No se ha modificado ningún movimiento personal desde las herramientas ni se han copiado conceptos, importes, identificadores privados o exportaciones del usuario a esta documentación.
 
-## Corrección preparada para la siguiente compilación
+## Incidencia anterior y corrección
 
-- La carga inicial y la actualización periódica pasan a tareas separadas. Un contenedor `ZStack` estable evita que el trabajo de apertura dependa de sustituir una rama de `Group` por la pantalla principal.
-- El ciclo periódico usa `.task(id:)` con el estado actual de carga, primer plano, desbloqueo y sesión. Se reinicia cuando cambia cualquiera de esos valores y no arranca mientras la app está bloqueada o inactiva.
-- El [ciclo de vida de las tareas de SwiftUI documentado por Apple](https://developer.apple.com/documentation/swiftui/view/task(id:priority:_:)) permite cancelarlas al desaparecer la vista y reiniciarlas cuando cambia el identificador. La revisión refuerza esos puntos; su eficacia en el escenario del iPad aún debe comprobarse.
-- Se consulta la presencia de ventanas abiertas en cada iteración; se ignoran escenas que no están activas y presentaciones ya descartadas o sin ventana visible. Se mantiene la pausa para proteger formularios abiertos. Cuenta y sincronización explica cuándo hay una pausa por presentación.
-- Una cancelación esperada del ciclo no debe mostrarse como fallo de conexión. Se comprueba la cancelación antes de enviar una petición.
-- Se añade `CloudAutomaticSync.swift` al proyecto Xcode y al workflow de pruebas. Los tests nuevos verifican arranque, repetición, pausa/reanudación, cancelación, nuevo arranque y ausencia de peticiones simultáneas del mismo ciclo; también que una tarea ya cancelada no envía credenciales.
+El 29 de octubre, la descarga manual funcionaba, pero el usuario no recibió automáticamente un cambio durante la espera. Se reforzó el ciclo de sincronización:
 
-La corrección está en el código local. No está instalada automáticamente en el iPad ni se ha validado allí. Hace falta compilar/subir la nueva versión y repetir la descarga automática.
+- Host `ZStack` estable, separando la carga inicial de la actualización periódica.
+- `.task(id:)` con estado de carga, primer plano, desbloqueo y sesión: reinicio al cambiar esos valores.
+- Consulta de la presentación de ventanas en cada iteración, ignorando escenas inactivas y presentaciones descartadas o no visibles. Se conserva la pausa para proteger formularios abiertos.
+- Explicación del estado de pausa en Cuenta y sincronización.
+- Cancelaciones esperadas que no se presentan como fallos de conexión; comprobación de cancelación antes de transmitir una petición.
 
-## Ensayos de servidor y protocolo
+El [ciclo de vida de tareas documentado por Apple](https://developer.apple.com/documentation/swiftui/view/task(id:priority:_:)) permite cancelarlas al desaparecer una vista y reiniciarlas al cambiar el identificador. La revisión reforzó esos puntos. No se dispone de trazas de la versión anterior que demuestren una única causa interna; sí se ha observado que la nueva compilación supera los escenarios físicos enumerados arriba.
 
-- Las 22 pruebas de PostgreSQL en una base local temporal han pasado. Incluyen aislamiento, revisiones, reservas concurrentes y transacciones atómicas.
-- Las pruebas Swift del protocolo han pasado en Linux: combinación de versiones, conflictos, reintentos y conservación de ediciones durante una subida. Las ramas dependientes de CryptoKit/SwiftData/macOS no se ejecutaron en Linux.
-- `verify_sync_roundtrip.sql` pasó en el proyecto remoto usando dos clientes lógicos representados por instantáneas y revisiones. Rechazó una versión obsoleta, conservó cambios distintos tras releer y propagó una eliminación mediante marca. Los propietarios y registros ficticios del ensayo se revirtieron con ROLLBACK. Esto no equivale a probar dos iPhone/iPad ni emisión de JWT.
+## Auditoría y ensayos independientes
 
-## Herramientas guardadas en el repositorio
+- La auditoría de lectura de Supabase no detectó relaciones activas sin destino, reservas sobreasignadas, pagos reservados vinculados a otra cuenta, identificadores bancarios repetidos ni ejecuciones periódicas duplicadas por regla y día. RLS estaba habilitado y forzado en las tablas financieras; las funciones de sincronización se ejecutaban sin elevación de permisos.
+- Las 22 pruebas PostgreSQL locales pasaron. Comprueban aislamiento, revisiones, reservas concurrentes y escritura atómica.
+- Los tests Swift comprueban combinación de versiones, conflictos, reintentos, conservación de ediciones durante subida y ciclo automático: arranque, repetición, pausa/reanudación, cancelación, nuevo arranque y ausencia de solapamiento del propio ciclo.
+- `verify_sync_roundtrip.sql` pasó en el proyecto remoto con dos clientes lógicos representados por instantáneas y revisiones. Rechazó una versión antigua, conservó cambios distintos tras releer y propagó una eliminación. Los propietarios y registros ficticios de ese ensayo se revirtieron con ROLLBACK y no permanecieron en Supabase.
 
-- `audit_sync_readonly.sql`: consulta de solo lectura para el administrador del proyecto. Devuelve recuentos y resultados de integridad, sin nombres de cuentas, correos, conceptos, tokens o valores monetarios. No sustituye a las políticas RLS.
-- `verify_sync_roundtrip.sql`: ensayo transaccional con propietarios ficticios, sin tocar los registros del usuario. Requiere un entorno autorizado y permisos administrativos; no se instala en la app ni como migración.
+Estas comprobaciones son específicas: no constituyen una certificación de seguridad ni demuestran todos los escenarios de cálculo financiero. Dos clientes simulados no equivalen a dos dispositivos físicos.
 
-## Qué probar al volver
+## Herramientas reproducibles
 
-1. Subir los cambios en una rama y esperar los checks del último commit antes del merge. Compilar e instalar la nueva versión del iPad.
-2. Repetir nube → iPad con la categoría ficticia, dejando Inicio visible, sin formularios ni hojas abiertas, sin pulsar Sincronizar ahora. Confirmar que llega el cambio y avanza Última sincronización.
-3. Repetir tras cambiar de pestaña, bloquear/desbloquear, salir/regresar a la app y desconectar/reconectar internet. Comprobar que un formulario abierto muestra la pausa y que se reanuda al cerrarlo.
-4. Hacer una edición sin conexión, forzar el cierre, volver a abrir sin internet y comprobar su conservación. Reconectar y comprobar su subida.
-5. Eliminar únicamente la categoría ficticia desde la app y comprobar que su eliminación se propaga sin reaparecer tras sincronizar.
-6. Cuando haya un segundo dispositivo, probar misma cuenta en ambos, cambios independientes, edición conflictiva del mismo registro y separación respecto a otra cuenta cloud.
+- `audit_sync_readonly.sql`: consulta administrativa de solo lectura con recuentos y controles de integridad, sin nombres de cuentas, correos, conceptos, tokens o valores monetarios.
+- `verify_sync_roundtrip.sql`: ensayo transaccional sobre propietarios ficticios. No es una migración ni se ejecuta desde la app.
+- `Tests/CloudProtocolCheck.swift`: protocolo y ciclo automático; las ramas Apple se comprueban en macOS mediante GitHub Actions.
 
-La auditoría final mantuvo un único usuario confirmado y no detectó relaciones rotas, problemas de reservas ni los duplicados comprobados. Los usuarios ficticios del ensayo no permanecen en Supabase. No se necesita una migración ni desplegar el servidor bancario para esta corrección.
+## Pendiente
 
-Desde Windows se comprobaron la sintaxis, las referencias del proyecto, el YAML del workflow y el protocolo Swift ejecutable. También se hizo una comprobación auxiliar de tipos del coordinador con sustitutos locales de las dependencias exclusivas de Apple; esto no verifica SwiftData ni la interfaz real. La compilación completa y la prueba física se mantienen pendientes.
+- Mismo usuario en dos dispositivos físicos, cambios independientes y resolución de un conflicto sobre el mismo registro.
+- Comprobar físicamente la pausa mientras hay un formulario abierto y su reanudación, así como combinaciones adicionales de navegación y ventanas.
+- La nueva bandeja «Por revisar» es una entrega posterior al commit validado de sincronización. Está en el código local y necesita sus propios checks de GitHub y prueba de interfaz: ver [REVISION_MOVIMIENTOS.md](../REVISION_MOVIMIENTOS.md).

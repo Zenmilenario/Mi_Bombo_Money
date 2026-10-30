@@ -133,6 +133,10 @@ No hay dependencias de terceros ni pasos de instalación.
 
 La app no inserta saldos ni movimientos de ejemplo. En una instalación nueva solo crea el catálogo de categorías habituales. Al registrar un movimiento, propone una categoría general según su tipo y exige que elijas una válida. En **Ajustes → Categorías** puedes cambiar el nombre, el icono y el color mediante controles visuales; el menú de opciones permite volver a añadir las categorías habituales que falten. En **Presupuestos → Crear presupuesto** puedes seleccionar una categoría sin límite y fijar su presupuesto para el mes mostrado. Las tarjetas vinculadas muestran su cuenta asociada, sin repetir su saldo.
 
+## Movimientos por revisar
+
+La nueva tarjeta **Por revisar** reúne posibles duplicados y movimientos sin categoría o con una categoría incompatible. Desde el detalle puedes asignar una categoría con su icono, usar una regla sugerida o conservar un movimiento que no está duplicado. La elección de categoría puede recordarse para próximos conceptos similares. Se respetan los filtros y la ocultación de importes. Implementación y pruebas de la próxima compilación: [REVISION_MOVIMIENTOS.md](REVISION_MOVIMIENTOS.md).
+
 ## Importación CSV
 
 En `Samples/` se incluyen:
