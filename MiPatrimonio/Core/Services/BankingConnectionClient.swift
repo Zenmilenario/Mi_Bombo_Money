@@ -105,10 +105,9 @@ final class BankingConnectionClient {
     }
     func start(bank: ConnectedBank) async throws -> BankingAuthorizationStart {
         let value: BankingAuthorizationStart = try await send("/v1/authorizations", method: "POST", body: ["bank": bank.name])
-        guard UUID(uuidString: value.id) != nil,
-              !live || value.authorizationURL.host == "auth.enablebanking.com",
-              BankingConnectionPolicy.acceptsAuthorizationURL(value.authorizationURL, server: configuration.serverURL) else {
-            throw BankingConnectionError.invalidResponse
+        guard UUID(uuidString: value.id) != nil else { throw BankingConnectionError.invalidResponse }
+        guard BankingConnectionPolicy.acceptsAuthorizationURL(value.authorizationURL, server: configuration.serverURL, live: live) else {
+            throw BankingConnectionError.server("authorization_destination_rejected")
         }
         return value
     }

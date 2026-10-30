@@ -78,10 +78,11 @@ export async function startAuthorization(bank, state, env) {
   }) });
   let url;
   try { url = new URL(response.url); } catch { throw new Fault(502, 'invalid_provider_data'); }
-  const allowedHosts = mode(env) === 'production' ? ['auth.enablebanking.com'] : ['auth.enablebanking.com', 'tilisy-sandbox.enablebanking.com'];
+  // Enable Banking is migrating production authorizations between these two exact origins.
+  const allowedHosts = mode(env) === 'production' ? ['auth.enablebanking.com', 'tilisy.enablebanking.com'] : ['auth.enablebanking.com', 'tilisy-sandbox.enablebanking.com'];
   if (url.protocol !== 'https:' || !allowedHosts.includes(url.hostname)
       || url.username || url.password || url.port) {
-    throw new Fault(502, 'invalid_provider_data');
+    throw new Fault(502, 'authorization_destination_rejected');
   }
   return url.href;
 }

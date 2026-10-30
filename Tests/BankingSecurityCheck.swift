@@ -15,6 +15,15 @@ struct BankingSecurityCheck {
             catch is BankingConnectionError { }
         }
         let configuration = try BankingServerConfiguration.validated(url: server, token: token)
+        for host in ["auth.enablebanking.com", "tilisy.enablebanking.com"] {
+            precondition(BankingConnectionPolicy.acceptsAuthorizationURL(URL(string: "https://\(host)/ais/start?sessionid=fixture")!, server: configuration.serverURL, live: true))
+        }
+        for invalid in ["https://tilisy.enablebanking.com.evil.test/ais/start", "https://evil-tilisy.enablebanking.com/ais/start",
+                        "http://tilisy.enablebanking.com/ais/start", "https://user:password@tilisy.enablebanking.com/ais/start",
+                        "https://tilisy.enablebanking.com:8443/ais/start", "https://tilisy-sandbox.enablebanking.com/authorize", server + "/demo/consent"] {
+            precondition(!BankingConnectionPolicy.acceptsAuthorizationURL(URL(string: invalid)!, server: configuration.serverURL, live: true))
+        }
+        precondition(!BankingConnectionPolicy.acceptsAuthorizationURL(URL(string: "https://tilisy.enablebanking.com/ais/start")!, server: configuration.serverURL))
         precondition(configuration.serverURL.absoluteString == server)
         for invalid in ["http://bank-test.personal.workers.dev", "https://evil.test", "https://bank-test.personal.workers.dev.evil.test",
                         "https://user@bank-test.personal.workers.dev", "https://bank-test.personal.workers.dev:443",

@@ -2,7 +2,7 @@
 
 ## Conexión personal · 0.6.0
 
-Ya hay un servidor personal independiente y una aplicación PRODUCTION de servicio AIS. El código incorpora conciliación, vinculación con cuentas cloud y conservación de reservas. No se han leído cuentas reales: faltan los checks nativos del nuevo IPA y la autorización del primer piloto Bankinter. [Estado, controles y pasos actuales](INTEGRACION_PERSONAL.md).
+Ya hay un servidor personal independiente y una aplicación PRODUCTION de servicio AIS. El código incorpora conciliación, vinculación con cuentas cloud y conservación de reservas. No se han leído cuentas reales: los once checks de la versión 0.6.0 han pasado y queda la autorización del primer piloto Bankinter. [Estado, controles y pasos actuales](INTEGRACION_PERSONAL.md).
 
 El resto de este documento describe el servidor sandbox y sus versiones anteriores. Ese despliegue sigue separado del personal y rechaza las claves de producción.
 

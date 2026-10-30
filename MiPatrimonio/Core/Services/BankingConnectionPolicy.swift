@@ -2,9 +2,12 @@ import Foundation
 
 enum BankingConnectionPolicy {
     static let personalServerHost = "mi-bombo-banking-personal.albertor7722.workers.dev"
-    static func acceptsAuthorizationURL(_ url: URL, server: URL) -> Bool {
-        url.scheme == "https" && url.user == nil && url.password == nil && url.port == nil
-            && (url.host == "auth.enablebanking.com" || url.host == "tilisy-sandbox.enablebanking.com" || url.host == server.host)
+    static func acceptsAuthorizationURL(_ url: URL, server: URL, live: Bool = false) -> Bool {
+        guard url.scheme == "https", url.user == nil, url.password == nil, url.port == nil else { return false }
+        if live {
+            return url.host == "auth.enablebanking.com" || url.host == "tilisy.enablebanking.com"
+        }
+        return url.host == "auth.enablebanking.com" || url.host == "tilisy-sandbox.enablebanking.com" || url.host == server.host
     }
 
     static func acceptsCallback(_ url: URL, flowID: String) -> Bool {
@@ -68,6 +71,9 @@ enum BankingConnectionError: LocalizedError {
             case "identity_unavailable": "No se ha podido verificar tu sesión cloud. Inténtalo más tarde."
             case "production_configuration_required": "El servidor necesita una aplicación de Enable Banking de producción activa, con acceso AIS y el retorno correcto."
             case "stable_account_identity_required": "El banco no devuelve una identificación estable de la cuenta. No se importará para evitar duplicados al renovar el permiso."
+            case "authorization_destination_rejected": "No se ha abierto la autorización porque la dirección recibida no es un destino permitido de Enable Banking. Actualiza la app y, si continúa, revisa la conexión con el proveedor."
+            case "invalid_provider_data": "El proveedor ha devuelto datos incompletos o no compatibles. No se han incorporado movimientos."
+            case "service_unavailable": "El servidor de conexión no ha podido completar la operación. Inténtalo de nuevo más tarde."
             case "rate_limited": "Se han hecho demasiadas solicitudes. Espera un minuto antes de reintentar."
             case "live_banking_disabled", "sandbox_configuration_required": "Esta versión solo admite demostración y pruebas sandbox. Las cuentas reales están bloqueadas."
             case "not_configured", "invalid_signing_key": "Falta completar la configuración del servidor de prueba."

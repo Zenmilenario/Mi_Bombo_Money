@@ -234,7 +234,7 @@ async function sandboxFixture(environment = 'SANDBOX', options = {}) {
       assert.equal(body.redirect_url, `${host}/v1/callback`);
       assert.equal(body.psu_type, 'personal');
       assert.equal(body.aspsp.name, options.bankName ?? 'BBVA');
-      return Response.json({ url: `${options.authorizationOrigin ?? 'https://auth.enablebanking.com'}/authorize?state=${body.state}` });
+      return Response.json({ url: `${options.authorizationOrigin ?? (production ? 'https://tilisy.enablebanking.com' : 'https://auth.enablebanking.com')}/authorize?state=${body.state}` });
     }
     if (url.pathname === '/sessions') {
       assert.deepEqual(await request.json(), { code: 'fictitious-code' });
@@ -317,7 +317,7 @@ test('sandbox rejects a provider authorization URL on a lookalike host and remov
   await sandboxFixture('SANDBOX', { authorizationOrigin: 'https://tilisy-sandbox.enablebanking.com.evil.test' });
   const response = await call('/v1/authorizations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bank: 'BBVA' }) });
   assert.equal(response.status, 502);
-  assert.deepEqual(await response.json(), { error: 'invalid_provider_data' });
+  assert.deepEqual(await response.json(), { error: 'authorization_destination_rejected' });
   assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM auth_requests').first()).n, 0);
 });
 
@@ -398,6 +398,7 @@ test('personal production verifies owner identity end-to-end, encrypts consent, 
   assert.equal((await call('/v1/connections', { headers: { Authorization: 'Bearer other.payload.signature' } })).status, 403);
   assert.equal((await call('/v1/connections', { headers: { Authorization: `Bearer ${'a'.repeat(64)}` } })).status, 401);
   const flow = await start('Bankinter');
+  assert.equal(new URL(flow.authorizationURL).origin, 'https://tilisy.enablebanking.com', 'The real production authorization origin must work');
   const state = new URL(flow.authorizationURL).searchParams.get('state');
   const callback = await mf.dispatchFetch(`${host}/v1/callback?state=${state}&code=fictitious-code`, { redirect: 'manual' });
   assert.equal(callback.status, 303);
@@ -423,4 +424,22 @@ test('personal production verifies owner identity end-to-end, encrypts consent, 
   assert.equal((await call('/v1/payments', { method: 'POST' })).status, 404);
   assert.equal((await call(`/v1/connections/${renewal.id}`, { method: 'DELETE' })).status, 204);
   assert.equal((await db.prepare('SELECT count(*) AS n FROM connections').first()).n, 0, 'Disconnect revokes superseded permissions from the same bank too');
+});
+
+
+test('production also accepts the new official auth origin during the provider migration', async () => {
+  await sandboxFixture('PRODUCTION', { production: true, authorizationOrigin: 'https://auth.enablebanking.com' });
+  const flow = await start();
+  assert.equal(new URL(flow.authorizationURL).origin, 'https://auth.enablebanking.com');
+});
+
+test('production refuses sandbox, lookalike hosts, HTTP, credentials and alternate ports', async () => {
+  for (const authorizationOrigin of ['https://tilisy-sandbox.enablebanking.com', 'https://tilisy.enablebanking.com.evil.test',
+    'http://tilisy.enablebanking.com', 'https://user:password@tilisy.enablebanking.com', 'https://tilisy.enablebanking.com:8443']) {
+    await sandboxFixture('PRODUCTION', { production: true, authorizationOrigin });
+    const response = await call('/v1/authorizations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ bank: 'BBVA' }) });
+    assert.equal(response.status, 502);
+    assert.deepEqual(await response.json(), { error: 'authorization_destination_rejected' });
+    assert.equal((await db.prepare('SELECT count(*) AS n FROM auth_requests').first()).n, 0, 'Rejected destinations leave no pending flow');
+  }
 });
