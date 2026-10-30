@@ -1,6 +1,12 @@
 import Foundation
 
 struct BankingServerStatus: Decodable { let mode: String; let liveBankingEnabled: Bool; let accountingImportEnabled: Bool }
+struct BankingAccountFeed {
+    let connection: ConnectedBankSession
+    let account: ConnectedBankAccount
+    let balances: [BankingPreview.Balance]
+    let movements: [BankingPreview.Movement]
+}
 struct ConnectedBank: Decodable, Identifiable {
     let name: String
     let country: String

@@ -15,6 +15,7 @@ struct CloudPersistenceCheck {
         let institution=FinancialInstitution(name:"Entidad ficticia")
         let account=FinancialAccount(name:"Cuenta",type:.checking,openingBalanceMinor:10000,
             openingDate:Date(timeIntervalSince1970:0),institution:institution)
+        account.bankIdentityKey = "enable:" + String(repeating: "a", count: 64)
         let category=FinanceCategory(name:"Formación",kind:.expense)
         let fund=ReservedFund(name:"Estudios",amountMinor:1000,account:account)
         let batch=ImportBatch(fileName:"ficticio.csv",source:.csv)

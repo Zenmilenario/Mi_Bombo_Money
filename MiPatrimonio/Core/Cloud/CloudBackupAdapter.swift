@@ -58,6 +58,7 @@ enum CloudBackupAdapter {
                     annualInterestRate: record.annualInterestRate,
                     targetBalanceMinor: record.targetBalanceMinor,
                     creditLimitMinor: record.creditLimitMinor,
+                    bankIdentityKey: record.bankIdentityKey,
                     includeInNetWorth: record.includeInNetWorth,
                     isArchived: record.isArchived, sortOrder: record.sortOrder,
                     notes: record.notes, lastUpdatedAt: record.lastUpdatedAt,
@@ -74,6 +75,7 @@ enum CloudBackupAdapter {
                 value.annualInterestRate = record.annualInterestRate
                 value.targetBalanceMinor = record.targetBalanceMinor
                 value.creditLimitMinor = record.creditLimitMinor
+                value.bankIdentityKey = record.bankIdentityKey
                 value.includeInNetWorth = record.includeInNetWorth
                 value.isArchived = record.isArchived
                 value.sortOrder = record.sortOrder
@@ -259,7 +261,7 @@ enum CloudBackupAdapter {
                     descriptionText: record.descriptionText, notes: record.notes,
                     isReconciled: record.isReconciled, fingerprint: record.fingerprint,
                     duplicateState: DuplicateState(rawValue: record.duplicateStateRaw)!,
-                    externalID: record.externalID, importBatchID: record.importBatchID,
+                    externalID: record.externalID, bankEntryKey: record.bankEntryKey, importBatchID: record.importBatchID,
                     recurringMovementID: record.recurringMovementID,
                     reservedFundID: record.reservedFundID, reservedAmountMinor: record.reservedAmountMinor,
                     createdAt: record.createdAt, updatedAt: record.updatedAt,
@@ -278,6 +280,7 @@ enum CloudBackupAdapter {
                 value.fingerprint = record.fingerprint
                 value.duplicateStateRaw = record.duplicateStateRaw
                 value.externalID = record.externalID
+                value.bankEntryKey = record.bankEntryKey
                 value.importBatchID = record.importBatchID
                 value.recurringMovementID = record.recurringMovementID
                 value.reservedFundID = record.reservedFundID

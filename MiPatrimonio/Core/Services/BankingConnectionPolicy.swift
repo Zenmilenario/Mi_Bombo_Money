@@ -1,6 +1,7 @@
 import Foundation
 
 enum BankingConnectionPolicy {
+    static let personalServerHost = "mi-bombo-banking-personal.albertor7722.workers.dev"
     static func acceptsAuthorizationURL(_ url: URL, server: URL) -> Bool {
         url.scheme == "https" && url.user == nil && url.password == nil && url.port == nil
             && (url.host == "auth.enablebanking.com" || url.host == "tilisy-sandbox.enablebanking.com" || url.host == server.host)
@@ -22,6 +23,16 @@ enum BankingConnectionPolicy {
 struct BankingServerConfiguration: Codable {
     let serverURL: URL
     let token: String
+
+    static func cloud(url: String, accessToken: String) throws -> Self {
+        // Reuse exact host validation. Cloud credentials are short-lived and are never saved here.
+        let origin = try validated(url: url, token: String(repeating: "0", count: 64)).serverURL
+        guard origin.host == BankingConnectionPolicy.personalServerHost, accessToken.count <= 8192,
+              accessToken.range(of: #"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil else {
+            throw BankingConnectionError.invalidConfiguration
+        }
+        return Self(serverURL: origin, token: accessToken)
+    }
 
     static func validated(url: String, token: String) throws -> Self {
         guard let components = URLComponents(string: url.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -53,6 +64,10 @@ enum BankingConnectionError: LocalizedError {
         case .server(let code):
             switch code {
             case "unauthorized": "La clave de acceso no es válida o ha sido revocada."
+            case "owner_required": "Esta conexión bancaria pertenece a otra cuenta cloud."
+            case "identity_unavailable": "No se ha podido verificar tu sesión cloud. Inténtalo más tarde."
+            case "production_configuration_required": "El servidor necesita una aplicación de Enable Banking de producción activa, con acceso AIS y el retorno correcto."
+            case "stable_account_identity_required": "El banco no devuelve una identificación estable de la cuenta. No se importará para evitar duplicados al renovar el permiso."
             case "rate_limited": "Se han hecho demasiadas solicitudes. Espera un minuto antes de reintentar."
             case "live_banking_disabled", "sandbox_configuration_required": "Esta versión solo admite demostración y pruebas sandbox. Las cuentas reales están bloqueadas."
             case "not_configured", "invalid_signing_key": "Falta completar la configuración del servidor de prueba."

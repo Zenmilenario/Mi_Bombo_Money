@@ -8,6 +8,12 @@ struct BankingSecurityCheck {
         // Fictional credentials used only to validate destination policy; never used for a server.
         let token = String(repeating: "a", count: 64)
         let server = "https://bank-test.personal.workers.dev"
+        let personal = "https://" + BankingConnectionPolicy.personalServerHost
+        _ = try BankingServerConfiguration.cloud(url: personal, accessToken: "fixture.payload.signature")
+        for invalid in [server, "https://evil.workers.dev", personal + ".evil.test"] {
+            do { _ = try BankingServerConfiguration.cloud(url: invalid, accessToken: "fixture.payload.signature"); preconditionFailure("Cloud token could be sent to another host") }
+            catch is BankingConnectionError { }
+        }
         let configuration = try BankingServerConfiguration.validated(url: server, token: token)
         precondition(configuration.serverURL.absoluteString == server)
         for invalid in ["http://bank-test.personal.workers.dev", "https://evil.test", "https://bank-test.personal.workers.dev.evil.test",

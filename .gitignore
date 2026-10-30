@@ -51,3 +51,6 @@ BankingBackend/.test-vars.json
 supabase/.temp/
 supabase/.branches/
 CloudBackend/.local/
+
+# Configuración y secretos independientes para la conexión bancaria personal
+BankingBackend/.personal/

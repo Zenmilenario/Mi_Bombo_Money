@@ -13,6 +13,11 @@
       "version": "20261029000200",
       "sha256": "3038472d7892ee572ac6f2f3c4190b499d6954b1e97bfe357d6dad23c7b841eb",
       "applied_via": "dashboard_sql_transaction"
+    },
+    {
+      "version": "20261030000100",
+      "sha256": "f01159a42bb295d4305d1e7d5a39c91722bb77755e79f5a0a84c78d69da32790",
+      "applied_via": "dashboard_sql_transaction"
     }
   ],
   "auth_redirect": {

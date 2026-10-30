@@ -9,6 +9,37 @@ permissions:
   contents: read
 
 jobs:
+  personal:
+    name: Importación bancaria personal y conciliación
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Comprobar coincidencias, renovaciones y transferencias
+        run: |
+          set -euo pipefail
+          mkdir -p build/personal-banking
+          xcrun swiftc -swift-version 5 -parse-as-library \
+            MiPatrimonio/Core/Services/BankingConnectionModels.swift \
+            MiPatrimonio/Core/Services/PersonalBankingPlan.swift \
+            Tests/PersonalBankingPlanCheck.swift -o build/personal-banking/plan-check
+          build/personal-banking/plan-check
+      - name: Comprobar persistencia, reservas y cargos periódicos
+        run: |
+          set -euo pipefail
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
+            MiPatrimonio/Core/Models/Models.swift \
+            MiPatrimonio/Shared/Formatting.swift \
+            MiPatrimonio/Core/Services/FinanceCalculator.swift \
+            MiPatrimonio/Core/Services/CategoryRuleService.swift \
+            MiPatrimonio/Core/Services/DuplicateDetectionService.swift \
+            MiPatrimonio/Core/Services/RecurringMovementService.swift \
+            MiPatrimonio/Core/Services/BankingConnectionModels.swift \
+            MiPatrimonio/Core/Services/PersonalBankingPlan.swift \
+            MiPatrimonio/Core/Services/PersonalBankingImporter.swift \
+            Tests/PersonalBankingImporterCheck.swift -o build/personal-banking/importer-check
+          build/personal-banking/importer-check
+
   client-policy:
     name: Destinos y retorno de autorización iOS
     runs-on: macos-latest

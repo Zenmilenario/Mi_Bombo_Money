@@ -95,6 +95,28 @@ struct FinanceBackup: Codable {
         _ = try unique(snapshots.map(\.id), label: "valoraciones")
         _ = try unique(importBatches.map(\.id), label: "importaciones")
 
+        let bankKeys = accounts.compactMap(\.bankIdentityKey)
+        let entryKeys = transactions.compactMap(\.bankEntryKey)
+        guard Set(bankKeys).count == bankKeys.count, Set(entryKeys).count == entryKeys.count,
+              bankKeys.allSatisfy({ $0.range(of: #"^enable:[a-f0-9]{64}$"#, options: .regularExpression) != nil }),
+              entryKeys.allSatisfy({ $0.hasPrefix("enable-") && $0.count <= 4096 }) else {
+            throw BackupError.invalidFile("identificadores bancarios repetidos o inválidos.")
+        }
+        var bankReferences = Set<String>()
+        for encoded in entryKeys {
+            let references: [String]
+            if encoded.hasPrefix("enable-entry:") { references = [encoded] }
+            else if encoded.hasPrefix("enable-keys:"),
+                    let data = String(encoded.dropFirst("enable-keys:".count)).data(using: .utf8),
+                    let decoded = try? JSONDecoder().decode([String].self, from: data), (1...2).contains(decoded.count) {
+                references = decoded
+            } else { throw BackupError.invalidFile("referencia bancaria inválida.") }
+            for reference in references {
+                guard reference.hasPrefix("enable-entry:"), bankReferences.insert(reference).inserted else {
+                    throw BackupError.invalidFile("un mismo apunte bancario figura en varios movimientos.")
+                }
+            }
+        }
         for account in accounts {
             guard AccountType(rawValue: account.typeRaw) != nil else {
                 throw BackupError.invalidFile("tipo de cuenta desconocido.")
@@ -222,6 +244,7 @@ struct AccountBackup: Codable {
     let annualInterestRate: Double
     let targetBalanceMinor: Int64
     let creditLimitMinor: Int64?
+    let bankIdentityKey: String?
     let includeInNetWorth: Bool
     let isArchived: Bool
     let sortOrder: Int
@@ -236,6 +259,7 @@ struct AccountBackup: Codable {
         currencyCode = value.currencyCode; openingBalanceMinor = value.openingBalanceMinor
         openingDate = value.openingDate; annualInterestRate = value.annualInterestRate
         targetBalanceMinor = value.targetBalanceMinor; creditLimitMinor = value.creditLimitMinor
+        bankIdentityKey = value.bankIdentityKey
         includeInNetWorth = value.includeInNetWorth; isArchived = value.isArchived
         sortOrder = value.sortOrder; notes = value.notes; lastUpdatedAt = value.lastUpdatedAt
         createdAt = value.createdAt; updatedAt = value.updatedAt
@@ -341,6 +365,7 @@ struct TransactionBackup: Codable {
     let fingerprint: String
     let duplicateStateRaw: String
     let externalID: String?
+    let bankEntryKey: String?
     let importBatchID: UUID?
     let recurringMovementID: UUID?
     let reservedFundID: UUID?
@@ -355,7 +380,7 @@ struct TransactionBackup: Codable {
         id = value.id; date = value.date; typeRaw = value.typeRaw
         amountMinor = value.amountMinor; descriptionText = value.descriptionText
         notes = value.notes; isReconciled = value.isReconciled; fingerprint = value.fingerprint
-        duplicateStateRaw = value.duplicateStateRaw; externalID = value.externalID
+        duplicateStateRaw = value.duplicateStateRaw; externalID = value.externalID; bankEntryKey = value.bankEntryKey
         importBatchID = value.importBatchID; recurringMovementID = value.recurringMovementID
         reservedFundID = value.reservedFundID; reservedAmountMinor = value.reservedAmountMinor
         createdAt = value.createdAt; updatedAt = value.updatedAt
@@ -668,6 +693,7 @@ enum BackupService {
                     annualInterestRate: record.annualInterestRate,
                     targetBalanceMinor: record.targetBalanceMinor,
                     creditLimitMinor: record.creditLimitMinor,
+                    bankIdentityKey: record.bankIdentityKey,
                     includeInNetWorth: record.includeInNetWorth,
                     isArchived: record.isArchived, sortOrder: record.sortOrder,
                     notes: record.notes, lastUpdatedAt: record.lastUpdatedAt,
@@ -764,7 +790,7 @@ enum BackupService {
                     descriptionText: record.descriptionText, notes: record.notes,
                     isReconciled: record.isReconciled, fingerprint: record.fingerprint,
                     duplicateState: DuplicateState(rawValue: record.duplicateStateRaw)!,
-                    externalID: record.externalID, importBatchID: record.importBatchID,
+                    externalID: record.externalID, bankEntryKey: record.bankEntryKey, importBatchID: record.importBatchID,
                     recurringMovementID: record.recurringMovementID,
                     reservedFundID: record.reservedFundID, reservedAmountMinor: record.reservedAmountMinor,
                     createdAt: record.createdAt, updatedAt: record.updatedAt,

@@ -18,6 +18,9 @@ enum RecurringMovementService {
                 continue
             }
             let destination = movement.type == .transfer ? movement.destinationAccount : nil
+            // Linked accounts receive actual postings from the bank; keep the template
+            // but do not generate another copy of the same payment.
+            if source.bankIdentityKey != nil || destination?.bankIdentityKey != nil { continue }
             if movement.type == .transfer {
                 guard let destination, !destination.isArchived, source.id != destination.id else { continue }
             } else {

@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct BankConnectionsView: View {
+    @Environment(\.isCloudWorkspace) private var isCloudWorkspace
     @EnvironmentObject private var lockManager: AppLockManager
     @Environment(\.scenePhase) private var scenePhase
     @State private var serverURL = ""
@@ -19,6 +20,13 @@ struct BankConnectionsView: View {
 
     var body: some View {
         List {
+            if isCloudWorkspace {
+                Section {
+                    NavigationLink { PersonalBankConnectionsView() } label: {
+                        Label("Conectar mis bancos reales", systemImage: "building.columns.fill")
+                    }
+                }
+            }
             Section {
                 Label("Conecta tus cuentas con la app", systemImage: "building.columns.circle")
                     .font(.headline)
@@ -34,7 +42,7 @@ struct BankConnectionsView: View {
                 }
             }
             Section("Para conectar tus bancos reales") {
-                Text("Cloudflare aloja tu servidor; no da acceso a tus bancos. También necesitas registrar y activar una aplicación de Enable Banking para tus propias cuentas. Esta versión aún mantiene bloqueada la conexión real.")
+                Text("Cloudflare aloja tu servidor; no da acceso a tus bancos. También necesitas registrar y activar una aplicación de Enable Banking para tus propias cuentas. La conexión personal se configura por separado desde Conectar mis bancos reales, dentro del modo cloud.")
                 Link("Configurar el acceso a mis propias cuentas", destination: URL(string: "https://enablebanking.com/docs/api/linked-accounts")!)
                 if configured {
                     LabeledContent("URL de retorno del proveedor") {

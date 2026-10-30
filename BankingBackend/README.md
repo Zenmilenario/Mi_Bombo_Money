@@ -1,4 +1,10 @@
-# Prueba privada de conexión bancaria · cliente 0.4.2
+# Conexión bancaria · sandbox y conexión personal
+
+## Conexión personal · 0.6.0
+
+Ya hay un servidor personal independiente y una aplicación PRODUCTION de servicio AIS. El código incorpora conciliación, vinculación con cuentas cloud y conservación de reservas. No se han leído cuentas reales: faltan los checks nativos del nuevo IPA y la autorización del primer piloto Bankinter. [Estado, controles y pasos actuales](INTEGRACION_PERSONAL.md).
+
+El resto de este documento describe el servidor sandbox y sus versiones anteriores. Ese despliegue sigue separado del personal y rechaza las claves de producción.
 
 ## Qué está preparado
 
@@ -40,7 +46,7 @@ La corrección 0.3.1 afecta únicamente al cliente iOS: coordinación de autenti
 
 Backend para **Cloudflare Workers Free + D1 Free** y pantalla **Ajustes → Datos → Conexiones bancarias** en iOS/iPadOS. Dos modos: `demo` (no llama a ningún proveedor) y `sandbox` (API oficial de Enable Banking con datos de prueba).
 
-**El acceso a cuentas reales está bloqueado en el código.** Cambiar una variable a `production` no lo habilita. El servidor comprueba que las claves de Enable Banking pertenecen realmente a una aplicación SANDBOX, activa, con servicio AIS y la URL de retorno exacta.
+**El despliegue sandbox rechaza las cuentas reales.** El servidor personal exige su propia configuración, sesión Supabase del propietario y credenciales PRODUCTION de AIS; cambiar una variable del sandbox no basta. El servidor comprueba que las claves de Enable Banking pertenecen realmente a una aplicación SANDBOX, activa, con servicio AIS y la URL de retorno exacta.
 
 Se pueden autorizar conexiones, consultar cuentas, saldos y movimientos contabilizados de los últimos 90 días, paginar y revocar. La importación solo escribe en el espacio de prueba separado: no modifica las finanzas reales ni crea o ejecuta pagos. No conecta la cartera de valores de Trade Republic.
 

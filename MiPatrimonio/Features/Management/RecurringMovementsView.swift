@@ -166,7 +166,8 @@ struct RecurringMovementsView: View {
                             .foregroundStyle(.secondary)
                     }
                     if movement.postsAutomatically == true {
-                        Label("Automático", systemImage: "clock.arrow.circlepath")
+                        Label(movement.sourceAccount?.bankIdentityKey != nil || movement.destinationAccount?.bankIdentityKey != nil
+                            ? "Desde el banco" : "Automático", systemImage: "clock.arrow.circlepath")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }

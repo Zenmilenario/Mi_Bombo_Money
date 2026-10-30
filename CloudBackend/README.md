@@ -105,3 +105,7 @@ No se ha contratado correo propio. El correo integrado de desarrollo tiene lími
 Para el máster, `analytics/monthly_expenses.sql` es una primera consulta de gastos reales frente a gasto presupuestario. No se ha ejecutado con datos reales ni exporta nada automáticamente. El análisis debe filtrar el espacio y usar el contexto de usuario apropiado; las credenciales administrativas no son una solución de permisos para los informes. El conjunto académico inicial debe ser sintético.
 
 Referencias: [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security), [seguridad de API](https://supabase.com/docs/guides/api/securing-your-api), [Swift](https://supabase.com/docs/guides/getting-started/tutorials/with-swift).
+
+## Referencias bancarias · 30 de octubre de 2026
+
+La migración `20261030000100_bank_account_identity.sql` añade dos campos opcionales, `bankIdentityKey` en cuentas y `bankEntryKey` en movimientos, con índices de unicidad. Conserva las tablas, políticas de acceso y el protocolo de revisión existente. Está aplicada en el proyecto de desarrollo y comprobada sin incorporar datos bancarios reales. Las referencias permiten conservar vínculos y deduplicación en las copias y la sincronización; no incluyen credenciales ni el IBAN completo. [Integración y límites](../BankingBackend/INTEGRACION_PERSONAL.md).

@@ -159,6 +159,7 @@ private struct CloudFinanceWorkspaceView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("appLockEnabled") private var appLockEnabled = true
     @StateObject private var sync = CloudSyncCoordinator()
+    @StateObject private var banking = PersonalBankingCoordinator()
     var body: some View {
         // A stable host keeps lifecycle tasks alive when loading/migration becomes the TabView.
         ZStack {
@@ -168,6 +169,7 @@ private struct CloudFinanceWorkspaceView: View {
                     .modelContainer(container)
                     .environment(\.isCloudWorkspace, true)
                     .environmentObject(sync)
+                    .environmentObject(banking)
             } else if sync.needsMigrationChoice {
                 NavigationStack {
                     List {
@@ -203,6 +205,13 @@ private struct CloudFinanceWorkspaceView: View {
                 return !paused
             } synchronize: {
                 await sync.synchronize(account: account)
+                if !Task.isCancelled, sync.conflict == nil, !hasPresentedWindow,
+                   let context = sync.container?.mainContext {
+                    let changed = await banking.synchronize(account: account, context: context) {
+                        automaticSyncState.canRun && !hasPresentedWindow
+                    }
+                    if changed, !Task.isCancelled { await sync.synchronize(account: account) }
+                }
             }
         }
     }

@@ -87,6 +87,19 @@ class CloudStorageTests(unittest.TestCase):
                 for role, privilege in [('anon','SELECT'),('anon','INSERT'),('anon','UPDATE'),('anon','DELETE'),('authenticated','DELETE'),('authenticated','TRUNCATE')]:
                     self.assertFalse(self.db.execute('SELECT has_table_privilege(%s,%s,%s)', (role,table,privilege)).fetchone()[0])
 
+    def test_banking_links_are_unique_per_workspace_and_survive_snapshot_roundtrip(self):
+        key = 'enable:' + 'a' * 64
+        self.db.execute('UPDATE public.finance_accounts SET bank_identity_key=%s WHERE id=%s', (key, self.ids[A]['accounts']))
+        self.db.execute('UPDATE public.finance_transactions SET bank_entry_key=%s WHERE id=%s', ('enable-entry:fixture', self.ids[A]['transactions']))
+        document = self.db.execute('SELECT public.finance_snapshot(%s)', (WA,)).fetchone()[0]
+        self.assertEqual(document['document']['accounts'][0]['bankIdentityKey'], key)
+        self.assertEqual(document['document']['transactions'][0]['bankEntryKey'], 'enable-entry:fixture')
+        saved = self.db.execute('SELECT public.finance_save_snapshot(%s,%s,%s)', (WA, document['revision'], Jsonb(document['document']))).fetchone()[0]
+        self.assertEqual(saved['document']['accounts'][0]['bankIdentityKey'], key)
+        self.expect_sqlstate('23505', lambda: self.insert('accounts', dict(self.record('accounts', new=True), bank_identity_key=key)))
+        self.expect_sqlstate('23505', lambda: self.insert('transactions', dict(self.record('transactions', new=True), bank_entry_key='enable-entry:fixture')))
+        self.expect_sqlstate('23514', lambda: self.db.execute('UPDATE public.finance_accounts SET bank_identity_key=%s WHERE id=%s', ('raw-iban-not-allowed', self.ids[A]['accounts'])))
+
     def test_user_sees_only_own_rows_in_every_table(self):
         for owner in [A,B]:
             self.as_user(owner)

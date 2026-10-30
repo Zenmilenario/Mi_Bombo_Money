@@ -207,3 +207,7 @@ El repositorio dispone de dos procesos adicionales:
 - `.github/workflows/build-ios-ipa-signed.yml`: crea un IPA firmado e instalable en los dispositivos incluidos en el perfil de aprovisionamiento, una vez configurados los certificados como GitHub Actions Secrets.
 
 Desde GitHub entra en **Actions**, selecciona el workflow correspondiente y pulsa **Run workflow**. Consulta `DISTRIBUCION_IPA.md` para la configuración completa y las medidas de seguridad.
+
+## Enable Banking personal · 0.6.0
+
+Conexión personal separada del sandbox, autenticada con Supabase, con selección de bancos del proveedor y vinculación con cuentas existentes. La importación concilia pagos ya registrados y conserva reservas; la primera descarga requiere revisión. [Estado, seguridad, pruebas y piloto Bankinter pendiente](BankingBackend/INTEGRACION_PERSONAL.md).

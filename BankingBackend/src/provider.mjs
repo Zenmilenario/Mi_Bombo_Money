@@ -1,14 +1,14 @@
-import { Fault, mode, origin, now, base64url, limitedBytes, sha256 } from './security.mjs';
+import { Fault, mode, origin, now, base64url, limitedBytes, sha256, accountIdentity } from './security.mjs';
 import { Buffer } from 'node:buffer';
 import { SCENARIO_ID, scenarioRole } from './sandbox-scenario.mjs';
 
 const API = 'https://api.enablebanking.com';
 const BANKS = ['Bankinter', 'BBVA', 'Trade Republic'];
-const SANDBOX_BANKS = ['BBVA', 'Banco de Sabadell', 'Mock ASPSP'];
 let cachedJWT;
 export function demoBanks() { return BANKS.map(name => ({ name, country: 'ES', beta: name === 'Trade Republic', maximumConsentValidity: 86400 })); }
 export function acceptsBankName(name, env) {
-  return (mode(env) === 'demo' ? BANKS : SANDBOX_BANKS).includes(name);
+  return mode(env) === 'demo' ? BANKS.includes(name)
+    : typeof name === 'string' && name.length > 0 && name.length <= 200 && !/[\x00-\x1f]/.test(name);
 }
 
 export async function providerJWT(env) {
@@ -48,25 +48,29 @@ async function api(path, env, options = {}, transport = fetch) {
 export async function verifySandbox(env, transport = fetch) {
   if (mode(env) === 'demo') return;
   const app = await api('/application', env, {}, transport);
-  if (app.environment !== 'SANDBOX' || app.kid !== env.ENABLE_APP_ID || app.active !== true
+  const production = mode(env) === 'production';
+  if (app.environment !== (production ? 'PRODUCTION' : 'SANDBOX') || app.kid !== env.ENABLE_APP_ID || app.active !== true
+      || (production && app.services?.length !== 1)
       || !app.services?.includes('AIS') || !app.redirect_urls?.includes(`${origin(env)}/v1/callback`)) {
-    throw new Fault(503, 'sandbox_configuration_required');
+    throw new Fault(503, production ? 'production_configuration_required' : 'sandbox_configuration_required');
   }
 }
-export async function banks(env) {
+export async function banks(env, transport = fetch) {
   if (mode(env) === 'demo') return demoBanks();
-  await verifySandbox(env);
-  const data = await api('/aspsps?country=ES', env);
+  await verifySandbox(env, transport);
+  const data = await api('/aspsps?country=ES', env, {}, transport);
   if (!Array.isArray(data.aspsps)) throw new Fault(502, 'invalid_provider_data');
   return data.aspsps.filter(b => b.country === 'ES' && acceptsBankName(b.name, env) && b.psu_types?.includes('personal'))
-    .map(b => ({ name: b.name, country: b.country, beta: b.beta === true, maximumConsentValidity: b.maximum_consent_validity }));
+    .map(b => ({ name: b.name, country: b.country, beta: b.beta === true, maximumConsentValidity: b.maximum_consent_validity }))
+    .filter((bank, index, all) => all.findIndex(b => b.name === bank.name) === index)
+    .sort((a, b) => a.name.localeCompare(b.name, 'es'));
 }
 export async function startAuthorization(bank, state, env) {
   if (mode(env) === 'demo') return `${origin(env)}/demo/consent?state=${encodeURIComponent(state)}`;
   const available = await banks(env);
   const selected = available.find(b => b.name === bank);
   if (!selected) throw new Fault(400, 'unsupported_bank');
-  const duration = Math.min(86400, selected.maximumConsentValidity);
+  const duration = Math.min(mode(env) === 'production' ? 180 * 86400 : 86400, selected.maximumConsentValidity);
   if (!(duration > 0)) throw new Fault(502, 'invalid_provider_data');
   const response = await api('/auth', env, { method: 'POST', body: JSON.stringify({
     access: { valid_until: new Date((now() + duration) * 1000).toISOString() },
@@ -74,31 +78,45 @@ export async function startAuthorization(bank, state, env) {
   }) });
   let url;
   try { url = new URL(response.url); } catch { throw new Fault(502, 'invalid_provider_data'); }
-  if (url.protocol !== 'https:' || !['auth.enablebanking.com', 'tilisy-sandbox.enablebanking.com'].includes(url.hostname)
+  const allowedHosts = mode(env) === 'production' ? ['auth.enablebanking.com'] : ['auth.enablebanking.com', 'tilisy-sandbox.enablebanking.com'];
+  if (url.protocol !== 'https:' || !allowedHosts.includes(url.hostname)
       || url.username || url.password || url.port) {
     throw new Fault(502, 'invalid_provider_data');
   }
   return url.href;
 }
-export async function exchange(code, bank, env) {
-  await verifySandbox(env);
-  const data = await api('/sessions', env, { method: 'POST', body: JSON.stringify({ code }) });
+export async function exchange(code, bank, env, transport = fetch) {
+  await verifySandbox(env, transport);
+  const data = await api('/sessions', env, { method: 'POST', body: JSON.stringify({ code }) }, transport);
+  try {
   if (!Array.isArray(data.accounts) || data.accounts.length > 30
       || !/^[a-f0-9-]{36}$/i.test(data.session_id ?? '') || !data.access?.valid_until
       || data.aspsp?.name !== bank || data.aspsp?.country !== 'ES' || data.psu_type !== 'personal') throw new Fault(502, 'invalid_provider_data');
   const accounts = await Promise.all(data.accounts.map(async (account, index) => {
     const iban = String(account.account_id?.iban ?? '').replace(/\s/g, '').toUpperCase();
-    const testRole = scenarioRole(bank, iban);
+    const live = mode(env) === 'production';
+    // No session-derived identity in production: renewal must not create a second account.
+    if (live && !/^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/.test(iban)) throw new Fault(502, 'stable_account_identity_required');
+    const testRole = live ? undefined : scenarioRole(bank, iban);
     return {
       // Only this named synthetic fixture keeps its identity through renewed consents.
-      id: await sha256(testRole ? `${SCENARIO_ID}:${testRole}` : `${data.session_id}:${account.uid}`), uid: account.uid,
-      name: `Cuenta de prueba ${index + 1}`, currency: account.currency,
-      lastFour: iban.slice(-4), ownershipKey: iban ? await sha256(iban) : undefined, testRole
+      id: live ? await accountIdentity(`${bank}:${iban}`, env)
+        : await sha256(testRole ? `${SCENARIO_ID}:${testRole}` : `${data.session_id}:${account.uid}`), uid: account.uid,
+      name: live ? `Cuenta •••• ${iban.slice(-4)}` : `Cuenta de prueba ${index + 1}`, currency: account.currency,
+      lastFour: iban.slice(-4), ownershipKey: iban ? await accountIdentity(iban, env) : undefined, testRole
     };
   }));
   if (accounts.length > 30 || accounts.some(a => !/^[a-f0-9-]{36}$/i.test(a.uid ?? '') || !/^[A-Z]{3}$/.test(a.currency ?? ''))) throw new Fault(502, 'invalid_provider_data');
   const testScenario = accounts.length === 3 && new Set(accounts.map(a => a.testRole).filter(Boolean)).size === 3 ? SCENARIO_ID : undefined;
   return { bank, sessionID: data.session_id, validUntil: data.access.valid_until, accounts, testScenario };
+  } catch (error) {
+    // A valid provider session must not be orphaned if validation or persistence fails.
+    if (/^[a-f0-9-]{36}$/i.test(data.session_id ?? '')) {
+      try { await api(`/sessions/${encodeURIComponent(data.session_id)}`, env, { method: 'DELETE' }, transport); }
+      catch { /* Do not expose provider data through logs or error messages. */ }
+    }
+    throw error;
+  }
 }
 export function demoConnection(bank) {
   return { bank, sessionID: 'fictitious-session', validUntil: new Date((now() + 86400) * 1000).toISOString(),
@@ -112,7 +130,7 @@ export function amountMinor(value) {
   if (!Number.isSafeInteger(number)) throw new Fault(502, 'invalid_provider_data');
   return negative ? -number : number;
 }
-export async function normalizeTransaction(t, account) {
+export async function normalizeTransaction(t, account, env) {
   if (t.status !== 'BOOK') return null;
   const amount = amountMinor(t.transaction_amount?.amount);
   if (amount < 0 || !['CRDT', 'DBIT'].includes(t.credit_debit_indicator)
@@ -127,7 +145,8 @@ export async function normalizeTransaction(t, account) {
   return { id: reference ? await sha256(`${account.id}:${reference}`) : null,
     bookingDate: t.booking_date, signedAmountMinor: t.credit_debit_indicator === 'DBIT' ? -amount : amount,
     currency: account.currency, description,
-    counterpartyKey: typeof otherIBAN === 'string' ? await sha256(otherIBAN.replace(/\s/g, '').toUpperCase()) : undefined,
+    counterpartyKey: typeof otherIBAN === 'string' ? (env ? await accountIdentity(otherIBAN.replace(/\s/g, '').toUpperCase(), env)
+      : await sha256(otherIBAN.replace(/\s/g, '').toUpperCase())) : undefined,
     transferKey: typeof pairReference === 'string' && pairReference && pairReference !== 'NOTPROVIDED' ? await sha256(pairReference) : undefined };
 }
 export async function accountData(conn, account, from, to, continuation, env) {
@@ -149,7 +168,7 @@ export async function accountData(conn, account, from, to, continuation, env) {
   if (continuation) query.set('continuation_key', continuation);
   const transactionResponse = await api(`${path}/transactions?${query}`, env);
   if (!Array.isArray(transactionResponse.transactions)) throw new Fault(502, 'invalid_provider_data');
-  const transactions = (await Promise.all(transactionResponse.transactions.map(t => normalizeTransaction(t, account)))).filter(Boolean);
+  const transactions = (await Promise.all(transactionResponse.transactions.map(t => normalizeTransaction(t, account, env)))).filter(Boolean);
   const balanceResponse = continuation ? { balances: [] } : await api(`${path}/balances`, env);
   if (!Array.isArray(balanceResponse.balances)) throw new Fault(502, 'invalid_provider_data');
   const balances = balanceResponse.balances.filter(b => b.balance_amount?.currency === account.currency)

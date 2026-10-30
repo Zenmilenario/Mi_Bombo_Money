@@ -18,7 +18,7 @@ export async function newAuthorization(bank, env) {
   const state = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url');
   const id = randomID(); const expiresAt = now() + 600;
   await env.DB.prepare('INSERT INTO auth_requests(id,state_hash,encrypted_data,expires_at) VALUES (?,?,?,?)')
-    .bind(id, await sha256(state), await seal({ bank }, `auth:${id}`, env), expiresAt).run();
+    .bind(id, await sha256(state), await seal({ bank, owner: env.SUPABASE_OWNER_ID }, `auth:${id}`, env), expiresAt).run();
   return { id, state };
 }
 export async function claimAuthorization(state, env) {
@@ -41,7 +41,7 @@ export async function saveConnection(id, value, env) {
   const expiresAt = Math.floor(Date.parse(value.validUntil) / 1000);
   if (!Number.isSafeInteger(expiresAt) || expiresAt <= now()) throw new Fault(502, 'invalid_provider_data');
   await env.DB.prepare('INSERT INTO connections(id,mode,encrypted_data,created_at,expires_at) VALUES (?,?,?,?,?)')
-    .bind(id, env.PROVIDER_MODE, await seal(value, `connection:${id}`, env), now(), expiresAt).run();
+    .bind(id, env.PROVIDER_MODE, await seal(value, `connection:${id}`, env), Date.now(), expiresAt).run();
 }
 export async function connection(id, env) {
   const row = await env.DB.prepare('SELECT * FROM connections WHERE id=? AND mode=? AND expires_at>?')
@@ -49,8 +49,16 @@ export async function connection(id, env) {
   if (!row) throw new Fault(404, 'connection_not_found');
   return { id, ...await unseal(row.encrypted_data, `connection:${id}`, env) };
 }
-export async function listConnections(env) {
+export async function listConnections(env, includeSuperseded = false) {
   const { results } = await env.DB.prepare('SELECT id FROM connections WHERE mode=? AND expires_at>? ORDER BY created_at DESC')
     .bind(env.PROVIDER_MODE, now()).all();
-  return Promise.all(results.map(row => connection(row.id, env)));
+  const connections = await Promise.all(results.map(row => connection(row.id, env)));
+  if (env.PROVIDER_MODE !== 'production' || includeSuperseded) return connections;
+  const seen = new Set();
+  // A renewed consent has new provider UIDs but the same stable account IDs.
+  // Prefer the newest session rather than importing two copies of one account.
+  return connections.map(conn => ({ ...conn, accounts: conn.accounts.filter(account => {
+    if (seen.has(account.id)) return false;
+    seen.add(account.id); return true;
+  }) })).filter(conn => conn.accounts.length > 0);
 }

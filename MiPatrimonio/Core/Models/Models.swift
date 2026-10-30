@@ -227,6 +227,7 @@ final class FinancialAccount {
     var annualInterestRate: Double
     var targetBalanceMinor: Int64
     var creditLimitMinor: Int64?
+    var bankIdentityKey: String?
     var includeInNetWorth: Bool
     var isArchived: Bool
     var sortOrder: Int
@@ -246,6 +247,7 @@ final class FinancialAccount {
         annualInterestRate: Double = 0,
         targetBalanceMinor: Int64 = 0,
         creditLimitMinor: Int64? = nil,
+        bankIdentityKey: String? = nil,
         includeInNetWorth: Bool = true,
         isArchived: Bool = false,
         sortOrder: Int = 0,
@@ -264,6 +266,7 @@ final class FinancialAccount {
         self.annualInterestRate = annualInterestRate
         self.targetBalanceMinor = targetBalanceMinor
         self.creditLimitMinor = creditLimitMinor
+        self.bankIdentityKey = bankIdentityKey
         self.includeInNetWorth = includeInNetWorth
         self.isArchived = isArchived
         self.sortOrder = sortOrder
@@ -488,6 +491,7 @@ final class FinancialTransaction {
     var fingerprint: String
     var duplicateStateRaw: String
     var externalID: String?
+    var bankEntryKey: String?
     var importBatchID: UUID?
     var recurringMovementID: UUID?
     var reservedFundID: UUID?
@@ -509,6 +513,7 @@ final class FinancialTransaction {
         fingerprint: String = "",
         duplicateState: DuplicateState = .none,
         externalID: String? = nil,
+        bankEntryKey: String? = nil,
         importBatchID: UUID? = nil,
         recurringMovementID: UUID? = nil,
         reservedFundID: UUID? = nil,
@@ -529,6 +534,7 @@ final class FinancialTransaction {
         self.fingerprint = fingerprint
         self.duplicateStateRaw = duplicateState.rawValue
         self.externalID = externalID
+        self.bankEntryKey = bankEntryKey
         self.importBatchID = importBatchID
         self.recurringMovementID = recurringMovementID
         self.reservedFundID = reservedFundID

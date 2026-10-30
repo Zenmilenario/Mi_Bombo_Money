@@ -36,7 +36,8 @@
       "lastUpdatedAt": "last_updated_at",
       "createdAt": "created_at",
       "updatedAt": "updated_at",
-      "institutionID": "institution_id"
+      "institutionID": "institution_id",
+      "bankIdentityKey": "bank_identity_key"
     },
     "dates": [
       "openingDate",
@@ -292,7 +293,8 @@
       "updatedAt": "updated_at",
       "sourceAccountID": "source_account_id",
       "destinationAccountID": "destination_account_id",
-      "categoryID": "category_id"
+      "categoryID": "category_id",
+      "bankEntryKey": "bank_entry_key"
     },
     "dates": [
       "date",

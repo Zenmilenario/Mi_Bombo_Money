@@ -21,8 +21,10 @@ async function boot(overrides = {}, outboundService) {
     outboundService: outboundService ?? (() => { throw new Error('A demonstration must never contact any bank or provider'); })
   }));
   db = await mf.getD1Database('DB');
-  const sql = await readFile(new URL('../../migrations/0001_connections.sql', import.meta.url), 'utf8');
-  await db.exec(sql.replace(/^--.*$/gm, '').replaceAll('\n', ' '));
+  for (const name of ['0001_connections.sql', '0002_production.sql']) {
+    const sql = await readFile(new URL(`../../migrations/${name}`, import.meta.url), 'utf8');
+    await db.exec(sql.replace(/^--.*$/gm, '').replaceAll('\n', ' '));
+  }
 }
 beforeEach(() => boot());
 afterEach(async () => { await mf?.dispose(); });
@@ -50,6 +52,19 @@ test('native API requires bearer credentials and rejects browser origins, arbitr
   assert.match(response.headers.get('Content-Security-Policy'), /frame-ancestors 'none'/);
   assert.deepEqual(await response.json(), { mode: 'demo', liveBankingEnabled: false, accountingImportEnabled: false });
   assert.equal((await call('/v1/payments', { method: 'POST' })).status, 404);
+});
+
+test('personal information pages work during setup while every real banking endpoint remains locked', async () => {
+  await mf.dispose(); await boot({ PROVIDER_MODE: 'production' });
+  for (const path of ['/privacy', '/terms']) {
+    const response = await mf.dispatchFetch(`${host}${path}`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('Content-Type'), /text\/html/);
+    assert.match(await response.text(), /Mi Bombo Money Personal/);
+  }
+  const response = await call('/v1/connections');
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'live_banking_disabled' });
 });
 
 test('end-to-end consent, encrypted persistence, read-only preview and revocation run in workerd with real D1', async () => {
@@ -193,10 +208,21 @@ async function sandboxFixture(environment = 'SANDBOX', options = {}) {
   const appID = crypto.randomUUID(); const accountID = crypto.randomUUID(); const sessionID = crypto.randomUUID();
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 4096 });
   const calls = [];
-  await boot({ PROVIDER_MODE: 'sandbox', ENABLE_APP_ID: appID,
+  const owner = crypto.randomUUID();
+  const production = options.production === true;
+  await boot({ PROVIDER_MODE: production ? 'production' : 'sandbox', ENABLE_APP_ID: appID,
+    ...(production ? { BANKING_AUTH: 'supabase-owner', SUPABASE_URL: 'https://coeicjffmpclqowsqeys.supabase.co',
+      SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_fixture', SUPABASE_OWNER_ID: owner,
+      ACCOUNT_IDENTITY_KEY: randomBytes(32).toString('base64') } : {}),
     ENABLE_PRIVATE_KEY: privateKey.export({ format: 'pem', type: 'pkcs8' }) }, async request => {
     const url = new URL(request.url); calls.push(`${request.method} ${url.pathname}`);
+    if (url.origin === 'https://coeicjffmpclqowsqeys.supabase.co') {
+      assert.equal(url.pathname, '/auth/v1/user');
+      assert.equal(request.headers.get('apikey'), 'sb_publishable_fixture');
+      return Response.json({ id: request.headers.get('Authorization') === 'Bearer fixture.payload.signature' ? owner : crypto.randomUUID() });
+    }
     assert.equal(url.origin, 'https://api.enablebanking.com');
+    assert.notEqual(request.headers.get('Authorization'), 'Bearer fixture.payload.signature');
     assert.match(request.headers.get('Authorization'), /^Bearer [^.]+\.[^.]+\.[^.]+$/);
     if (url.pathname === '/application') {
       if (options.redirectApplication) return new Response(null, { status: 302, headers: { Location: 'https://evil.test/collect' } });
@@ -213,7 +239,7 @@ async function sandboxFixture(environment = 'SANDBOX', options = {}) {
     if (url.pathname === '/sessions') {
       assert.deepEqual(await request.json(), { code: 'fictitious-code' });
       return Response.json({ session_id: sessionID, aspsp: { name: options.bankName ?? 'BBVA', country: 'ES' }, psu_type: 'personal', access: { valid_until: new Date(Date.now() + 86400_000).toISOString() },
-        accounts: options.scenario?.accounts.map(a => ({ ...a.info, uid: a.info.resource_id })) ?? [{ uid: accountID, name: 'Sandbox account', currency: 'EUR', account_id: { iban: 'FICTITIOUS-IBAN-1234' } }] });
+        accounts: options.scenario?.accounts.map(a => ({ ...a.info, uid: a.info.resource_id })) ?? [{ uid: accountID, name: 'Sandbox account', currency: 'EUR', account_id: { iban: production ? 'ES7620770024003102575766' : 'FICTITIOUS-IBAN-1234' } }] });
     }
     if (options.scenario && url.pathname.startsWith('/accounts/')) {
       const data = options.scenario.accounts.find(a => url.pathname.split('/')[2] === a.info.resource_id);
@@ -231,6 +257,7 @@ async function sandboxFixture(environment = 'SANDBOX', options = {}) {
     if (url.pathname === `/sessions/${sessionID}` && request.method === 'DELETE') return new Response(null, { status: options.revokeStatus ?? 204 });
     throw new Error('Unexpected provider endpoint');
   });
+  if (production) token = 'fixture.payload.signature';
   return { calls, sessionID, accountID };
 }
 
@@ -261,11 +288,11 @@ test('sandbox exposes verified Spanish personal test banks and supports Mock ASP
   const entry = (name, country = 'ES', psu_types = ['personal']) => ({ name, country, psu_types, maximum_consent_validity: 86400, beta: false });
   await sandboxFixture('SANDBOX', { bankName: 'Mock ASPSP', authorizationOrigin: 'https://tilisy-sandbox.enablebanking.com', aspsps: [
     entry('BBVA'), entry('Banco de Sabadell'), entry('Mock ASPSP'), entry('Mock ASPSP', 'DE'),
-    entry('Unknown'), entry('Bankinter'), entry('Trade Republic'), entry('BBVA', 'ES', ['business'])
+    entry('ING'), entry('Bankinter'), entry('Trade Republic'), entry('BBVA', 'ES', ['business'])
   ] });
   const catalog = await call('/v1/banks');
   assert.equal(catalog.status, 200);
-  assert.deepEqual((await catalog.json()).banks.map(bank => bank.name), ['BBVA', 'Banco de Sabadell', 'Mock ASPSP']);
+  assert.deepEqual((await catalog.json()).banks.map(bank => bank.name), ['Banco de Sabadell', 'Bankinter', 'BBVA', 'ING', 'Mock ASPSP', 'Trade Republic']);
   const flow = await start('Mock ASPSP');
   assert.equal(new URL(flow.authorizationURL).origin, 'https://tilisy-sandbox.enablebanking.com');
   const state = new URL(flow.authorizationURL).searchParams.get('state');
@@ -361,4 +388,39 @@ test('complete Mock scenario survives D1 encryption, pagination and renewed cons
   assert.equal(pairedLegs, expected.transferPairs * 2);
   const stored = JSON.stringify((await db.prepare('SELECT * FROM connections').all()).results);
   for (const a of fixture.accounts) assert.ok(!stored.includes(a.info.account_id.iban));
+});
+
+
+test('personal production verifies owner identity end-to-end, encrypts consent, imports only authorised reads and revokes', async () => {
+  await sandboxFixture('PRODUCTION', { production: true, bankName: 'Bankinter',
+    aspsps: [{ name: 'Bankinter', country: 'ES', psu_types: ['personal'], maximum_consent_validity: 180 * 86400 }] });
+  assert.deepEqual(await (await call('/v1/status')).json(), { mode: 'production', liveBankingEnabled: true, accountingImportEnabled: true });
+  assert.equal((await call('/v1/connections', { headers: { Authorization: 'Bearer other.payload.signature' } })).status, 403);
+  assert.equal((await call('/v1/connections', { headers: { Authorization: `Bearer ${'a'.repeat(64)}` } })).status, 401);
+  const flow = await start('Bankinter');
+  const state = new URL(flow.authorizationURL).searchParams.get('state');
+  const callback = await mf.dispatchFetch(`${host}/v1/callback?state=${state}&code=fictitious-code`, { redirect: 'manual' });
+  assert.equal(callback.status, 303);
+  assert.match(callback.headers.get('Location'), /result=ok/);
+  assert.equal((await mf.dispatchFetch(`${host}/v1/callback?state=${state}&code=fictitious-code`)).status, 400);
+  const stored = JSON.stringify((await db.prepare('SELECT * FROM connections').all()).results);
+  assert.ok(!stored.includes('ES7620770024003102575766'));
+  const first = (await (await call('/v1/connections')).json()).connections[0];
+  assert.equal(first.accounts[0].name, 'Cuenta •••• 5766');
+  assert.ok(!JSON.stringify(first).includes('sessionID'));
+  const to = new Date().toISOString().slice(0, 10);
+  const query = `/v1/connections/${first.id}/accounts/${first.accounts[0].id}?from=${to}&to=${to}`;
+  const data = await call(query);
+  assert.equal(data.status, 200);
+  assert.equal((await data.json()).transactions[0].signedAmountMinor, -1000);
+  const renewal = await start('Bankinter');
+  const renewedState = new URL(renewal.authorizationURL).searchParams.get('state');
+  await mf.dispatchFetch(`${host}/v1/callback?state=${renewedState}&code=fictitious-code`, { redirect: 'manual' });
+  const renewed = (await (await call('/v1/connections')).json()).connections;
+  assert.equal(renewed.length, 1, 'Renewed consents must not expose two copies of the same account');
+  assert.equal(renewed[0].id, renewal.id);
+  assert.equal(renewed[0].accounts[0].id, first.accounts[0].id);
+  assert.equal((await call('/v1/payments', { method: 'POST' })).status, 404);
+  assert.equal((await call(`/v1/connections/${renewal.id}`, { method: 'DELETE' })).status, 204);
+  assert.equal((await db.prepare('SELECT count(*) AS n FROM connections').first()).n, 0, 'Disconnect revokes superseded permissions from the same bank too');
 });

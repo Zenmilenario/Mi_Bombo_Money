@@ -2,13 +2,6 @@ import CryptoKit
 import Foundation
 import SwiftData
 
-struct BankingAccountFeed {
-    let connection: ConnectedBankSession
-    let account: ConnectedBankAccount
-    let balances: [BankingPreview.Balance]
-    let movements: [BankingPreview.Movement]
-}
-
 enum BankingWorkspaceError: LocalizedError {
     case invalidData, unsupportedEnvironment, environmentChanged, editing, incompleteHistory
     var errorDescription: String? {

@@ -48,8 +48,10 @@ private final class BankingSessionDelegate: NSObject, URLSessionTaskDelegate {
 final class BankingConnectionClient {
     private let configuration: BankingServerConfiguration
     private let session: URLSession
-    init(configuration: BankingServerConfiguration) {
+    private let live: Bool
+    init(configuration: BankingServerConfiguration, live: Bool = false) {
         self.configuration = configuration
+        self.live = live
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
         config.httpCookieStorage = nil
@@ -63,7 +65,8 @@ final class BankingConnectionClient {
 
     func status() async throws -> BankingServerStatus {
         let value: BankingServerStatus = try await get("/v1/status")
-        guard ["demo", "sandbox"].contains(value.mode), !value.liveBankingEnabled, !value.accountingImportEnabled else {
+        guard live ? (value.mode == "production" && value.liveBankingEnabled && value.accountingImportEnabled)
+            : (["demo", "sandbox"].contains(value.mode) && !value.liveBankingEnabled && !value.accountingImportEnabled) else {
             throw BankingConnectionError.invalidResponse
         }
         return value
@@ -78,9 +81,32 @@ final class BankingConnectionClient {
         let value: Payload = try await get("/v1/connections")
         return value.connections
     }
+    func feeds(_ connections: [ConnectedBankSession], asOf: Date) async throws -> [BankingAccountFeed] {
+        var result: [BankingAccountFeed] = []
+        for connection in connections {
+            for account in connection.accounts {
+                var rows: [BankingPreview.Movement] = []; var balances: [BankingPreview.Balance] = []
+                var cursor: String?; var visited = Set<String>(); var complete = false
+                for page in 0..<50 {
+                    try Task.checkCancellation()
+                    let data = try await preview(connection: connection, account: account, continuation: cursor, asOf: asOf)
+                    if page == 0 { balances = data.balances }
+                    rows.append(contentsOf: data.transactions)
+                    guard rows.count <= 20_000 else { throw BankingWorkspaceError.incompleteHistory }
+                    guard let next = data.continuation else { complete = true; break }
+                    guard visited.insert(next).inserted else { throw BankingWorkspaceError.incompleteHistory }
+                    cursor = next
+                }
+                guard complete else { throw BankingWorkspaceError.incompleteHistory }
+                result.append(BankingAccountFeed(connection: connection, account: account, balances: balances, movements: rows))
+            }
+        }
+        return result
+    }
     func start(bank: ConnectedBank) async throws -> BankingAuthorizationStart {
         let value: BankingAuthorizationStart = try await send("/v1/authorizations", method: "POST", body: ["bank": bank.name])
         guard UUID(uuidString: value.id) != nil,
+              !live || value.authorizationURL.host == "auth.enablebanking.com",
               BankingConnectionPolicy.acceptsAuthorizationURL(value.authorizationURL, server: configuration.serverURL) else {
             throw BankingConnectionError.invalidResponse
         }
