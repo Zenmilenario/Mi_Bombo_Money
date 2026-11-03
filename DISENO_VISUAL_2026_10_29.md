@@ -73,3 +73,13 @@ El usuario solicita revisar la representación de la cuenta de reinversión desp
 ## Ajustes · 0.6.4
 
 La revisión de Ajustes mantiene la dirección elegida y reduce pantallas intermedias, separa la conexión personal del laboratorio y añade búsqueda con secciones desplegables. Incluye lo preparado en 0.6.3. [Mapa actualizado y validación pendiente](AJUSTES.md).
+
+## Corrección del check macOS · 3 de noviembre de 2026
+
+En el commit `c83c917` de la PR 23 fallan los jobs de cálculos de push y pull_request, ambos en Comprobar filas adaptables sin espacios vacíos. Los pasos de cálculos financieros y bandeja de revisión terminan correctamente; los otros diez checks, incluidas las compilaciones Debug y Release, figuran aprobados.
+
+Los dos registros muestran que el ejecutable de prueba no encuentra `CGRect.zero`, `CGSize.zero`, los límites de CGRect ni la igualdad de CGSize. La plantilla Swift de `Tests/check_adaptive_layout.py` importaba únicamente Foundation. Se añade `import CoreGraphics` condicionado a `canImport(CoreGraphics)` para cargar las extensiones del SDK Apple y conservar la ejecución de Foundation en Linux. No se modifica el layout de la app, los cálculos financieros ni las aserciones de la prueba.
+
+Verificación: las 576 combinaciones vuelven a pasar localmente en Linux y `git diff --check` no informa problemas. La corrección de importación debe publicarse y volver a ejecutarse en macOS para confirmar el resultado; todavía no existe un check remoto de esta corrección. Se mantiene la versión 0.6.4, porque el cambio solo corrige la prueba.
+
+Registros revisados: [pull_request](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41636047831/job/125917406014?pr=23) y [push](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41635998853/job/125917233069?pr=23).

@@ -46,3 +46,7 @@ Eliminar datos permanece en Avanzado, con una confirmación explícita y explica
 Compilación nativa Debug/Release en los checks macOS tras publicar, e instalación en iPad/iPhone para revisar búsqueda, desplegables, vuelta desde los formularios, texto grande y las dos apariencias. Las pruebas locales no acreditan el renderizado de SwiftUI. No se añade una capa de menús para distribuir las opciones en otras páginas.
 
 La revisión financiera de inversión/reinversión sigue pendiente para después del UX y no forma parte de este cambio de Ajustes.
+
+## Resultado inicial de GitHub Actions
+
+Las compilaciones iOS Debug/Release del commit `c83c917` están aprobadas. El job de cálculos falla solo en el nuevo ejecutable de prueba geométrica por una importación CoreGraphics ausente en macOS; el ajuste local mantiene todas las aserciones y necesita un nuevo push para validarse remotamente. Cálculos financieros, revisión de movimientos y checks de acceso bancario están aprobados en ese commit. Detalle y enlaces en [Diseño visual](DISENO_VISUAL_2026_10_29.md#corrección-del-check-macos--3-de-noviembre-de-2026).

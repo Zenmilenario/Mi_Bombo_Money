@@ -16,6 +16,9 @@ layout = source[start:end]
 
 fixtures = r"""
 import Foundation
+#if canImport(CoreGraphics)
+import CoreGraphics
+#endif
 protocol Layout {}
 struct ProposedViewSize {
     var width: CGFloat? = nil
