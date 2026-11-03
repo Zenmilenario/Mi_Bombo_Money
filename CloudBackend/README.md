@@ -43,7 +43,7 @@ La migración `20261103000100_reserved_fund_transfers.sql`, aplicada en `mi-bomb
 
 Las transferencias no consumen la financiación total; solo la trasladan. Los gastos y comisiones sí la consumen. La comprobación inmediata conserva los bloqueos y el límite total, incluidos los pagos futuros. Nuevos triggers diferibles comprueban el historial final por cuenta y fecha, de modo que la restauración atómica no dependa del orden del JSON. Impiden gastar antes de recibir la reserva, borrar o reducir una transferencia necesaria, gastar dos veces y trasladar reservas entre monedas diferentes. Las 14 tablas conservan RLS habilitado y forzado. El contrato RPC y las columnas de copia no cambian.
 
-La app 0.6.8 incorpora la misma validación en cálculos, copias y combinación de conflictos cloud. Hay que actualizar todos los dispositivos antes de usar traslados con reserva: clientes anteriores rechazan esa relación al validar. El despliegue SQL está comprobado; la compilación iOS de 0.6.8 y su prueba física siguen pendientes. Véase [Reservas entre cuentas](../RESERVAS.md).
+La app 0.6.8 incorpora la misma validación en cálculos, copias y combinación de conflictos cloud. Hay que actualizar todos los dispositivos antes de usar traslados con reserva: clientes anteriores rechazan esa relación al validar. El despliegue SQL está comprobado y el usuario confirma el recorrido principal de reservas en un iPad con 0.6.8. Queda comprobar propagación cloud y recuperación de ese caso. Véase [Reservas entre cuentas](../RESERVAS.md).
 
 ## Pruebas reproducibles
 

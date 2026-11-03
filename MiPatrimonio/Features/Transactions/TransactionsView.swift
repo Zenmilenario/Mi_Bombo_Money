@@ -1285,14 +1285,16 @@ struct TransactionFormView: View {
     @State private var validationMessage: String?
     @FocusState private var descriptionIsFocused: Bool
 
-    init(transaction: FinancialTransaction? = nil, preferredReservedFund: ReservedFund? = nil) {
+    init(transaction: FinancialTransaction? = nil, preferredReservedFund: ReservedFund? = nil,
+         preferredType: TransactionType = .expense, preferredSource: FinancialAccount? = nil,
+         preferredDestination: FinancialAccount? = nil, preferredDescription: String = "") {
         self.transaction = transaction
         _date = State(initialValue: transaction?.date ?? .now)
-        _type = State(initialValue: transaction?.type ?? .expense)
-        _sourceAccountID = State(initialValue: transaction?.sourceAccount?.id ?? preferredReservedFund?.account?.id)
-        _destinationAccountID = State(initialValue: transaction?.destinationAccount?.id)
+        _type = State(initialValue: transaction?.type ?? preferredType)
+        _sourceAccountID = State(initialValue: transaction?.sourceAccount?.id ?? preferredReservedFund?.account?.id ?? preferredSource?.id)
+        _destinationAccountID = State(initialValue: transaction?.destinationAccount?.id ?? preferredDestination?.id)
         _categoryID = State(initialValue: transaction?.category?.id)
-        _descriptionText = State(initialValue: transaction?.descriptionText ?? preferredReservedFund?.name ?? "")
+        _descriptionText = State(initialValue: transaction?.descriptionText ?? preferredReservedFund?.name ?? preferredDescription)
         _amountText = State(initialValue: transaction.map {
             String(format: "%.2f", Double($0.amountMinor) / 100)
         } ?? "")
@@ -1315,6 +1317,8 @@ struct TransactionFormView: View {
     }
 
     private var eligibleReservedFunds: [ReservedFund] {
+        if type == .transfer, let destination = activeAccounts.first(where: { $0.id == destinationAccountID }),
+           destination.type == .investment || destination.type.isLiability || !destination.includeInNetWorth { return [] }
         guard let source = activeAccounts.first(where: { $0.id == sourceAccountID }),
               source.includeInNetWorth, !source.type.isLiability, source.type != .investment else { return [] }
         return reservedFunds.filter { fund in

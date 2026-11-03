@@ -6,6 +6,12 @@ Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e 
 
 El proyecto de Supabase `mi-bombo-money-dev` ya dispone de un esquema PostgreSQL con permisos por usuario y pruebas de aislamiento. El código incorpora acceso cloud y sincronización con copia local separada por usuario; queda pendiente su validación completa en iOS y entre dispositivos. Se activa desde Ajustes → Activar mi nube. Instalación, estado verificado y pruebas reproducibles: [CloudBackend/README.md](CloudBackend/README.md).
 
+## Efectivo e inversiones · 0.6.9
+
+Preparado en el código local el acceso **Cuentas → Efectivo e inversiones**. Se distinguen el efectivo de cada entidad y el valor registrado de la cartera; se muestran aportaciones y retiradas del mes, acciones con las cuentas preseleccionadas y actualización de valoraciones. Las carteras excluidas del patrimonio tienen una acción para revisar su configuración. Las aportaciones futuras dejan de contarse como realizadas en Inicio. No se modifican automáticamente saldos ni preferencias existentes.
+
+La cartera se actualiza con valoraciones registradas; no hay cotizaciones ni posiciones automáticas. Detalles, pruebas y límites en [Efectivo e inversiones](INVERSIONES.md). Pendientes los checks nativos y la prueba física de 0.6.9 (build 26).
+
 ## Dinero reservado entre cuentas · 0.6.8
 
 Una reserva puede repartirse entre tus cuentas de efectivo. Al registrar o editar una transferencia propia, elige la reserva en **Origen del dinero → Dinero que trasladas**. El importe reservado acompaña al dinero hasta la cuenta de destino; la transferencia no consume la reserva ni cuenta como gasto.
@@ -14,7 +20,7 @@ Al registrar o editar el cobro posterior, selecciona **Pagar con → tu reserva*
 
 La parte cubierta reduce la reserva y el saldo real de la cuenta, mantiene el disponible libre y queda fuera del presupuesto mensual. El resto sí consume presupuesto y disponible. Editar un pago recalcula la asignación; borrar una transferencia necesaria para pagos posteriores se impide. Las copias JSON v2 conservan los traslados y los pagos, y se siguen leyendo copias anteriores.
 
-La migración cloud de esta función ya está aplicada en `mi-bombo-money-dev`; los cambios de la app están preparados localmente. **Pendiente:** push con GitHub Desktop, compilación iOS en Actions y prueba en el dispositivo. Detalle, ejemplo sintético y comprobaciones: [Reservas entre cuentas](RESERVAS.md). No hace falta borrar datos ni duplicar reservas.
+La migración cloud de esta función ya está aplicada en `mi-bombo-money-dev`. El usuario confirma 0.6.8 instalada y el recorrido principal de reservas comprobado en un iPad. **Pendiente:** propagación cloud y recuperación de ese caso. Detalle, ejemplo sintético y comprobaciones: [Reservas entre cuentas](RESERVAS.md). No hace falta borrar datos ni duplicar reservas.
 
 ## Integración bancaria de prueba 0.4.2
 

@@ -109,15 +109,10 @@ struct DashboardView: View {
     }
 
     private var investmentContributionsThisMonth: Int64 {
-        let start = selectedMonth.startOfMonth()
-        let end = Calendar.autoupdatingCurrent.date(byAdding: .month, value: 1, to: start) ?? start
-        return transactions
-            .filter {
-                $0.type == .transfer && $0.date >= start && $0.date < end
-                    && $0.destinationAccount?.type == .investment
-                    && $0.sourceAccount?.type != .investment
-            }
-            .reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
+        accounts.filter { $0.type == .investment }.reduce(Int64.zero) {
+            $0 + FinanceCalculator.investmentFlows(for: $1, month: selectedMonth,
+                transactions: transactions).contributedMinor
+        }
     }
 
     private var hasInvestmentContributions: Bool {

@@ -40,6 +40,12 @@ Las copias v2 mantienen los campos y aceptan copias anteriores. Actualizar todos
 
 La migración `20261103000100_reserved_fund_transfers.sql` se aplicó al proyecto cloud existente. Las claves siguen incluyendo propietario y espacio; no se amplían permisos. La comprobación remota de estructura confirmó los nuevos controles y las 14 tablas con RLS habilitado y forzado. No se modificaron filas financieras personales para la prueba.
 
+## Prueba física en iPad · 3 de noviembre de 2026
+
+El usuario confirma que tiene la versión 0.6.8 instalada. La reserva ya aparece al editar el cobro desde la cuenta de destino y confirma una mejora en la coherencia de los importes tras revisar reserva, disponible y presupuesto. Se considera comprobado el recorrido principal en ese dispositivo, sin registrar importes ni conceptos personales.
+
+Esta confirmación no equivale a una auditoría de todos los saldos ni a la validación de todos los casos límite. Quedan por comprobar la propagación cloud de este caso y su recuperación desde copia; los resultados nativos de GitHub Actions no se han consultado de nuevo en esta sesión.
+
 ## Verificado y pendiente
 
 Verificado localmente:
@@ -50,4 +56,4 @@ Verificado localmente:
 - 28 pruebas sobre PostgreSQL 18 local desechable: aislamiento, permisos, concurrencia, integridad, historial por cuenta, monedas y restauración de un JSON cuyo pago aparece antes de su transferencia. GitHub ejecuta este conjunto en PostgreSQL 17.
 - Análisis sintáctico Swift de los formularios y pruebas modificadas; revisión de referencias del proyecto y fuentes de los workflows.
 
-Pendiente: push del usuario, checks y compilación iOS de la versión 0.6.8 (build 25), y validación visual y funcional en dispositivo. Las pruebas de Linux no sustituyen SwiftUI, SwiftData ni el SDK de Apple. No se promete asociación automática de cualquier pago por concepto, ni se ha añadido una regla personal para un banco o un objetivo concreto.
+La versión 0.6.8 (build 25) ya está instalada y su recorrido principal de reservas ha sido comprobado por el usuario en un iPad. Pendiente: consultar los checks nativos del commit instalado y comprobar propagación cloud y recuperación de este caso. Las pruebas de Linux no sustituyen SwiftUI, SwiftData ni el SDK de Apple. No se promete asociación automática de cualquier pago por concepto, ni se ha añadido una regla personal para un banco o un objetivo concreto.

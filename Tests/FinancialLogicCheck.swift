@@ -9,6 +9,7 @@ struct FinancialLogicCheck {
     @MainActor
     static func main() throws {
         checkBalancesAndHistory()
+        checkInvestmentFlows()
         checkReservedPayments()
         checkReservedTransfers()
         checkReservedBudgets()
@@ -273,6 +274,44 @@ struct FinancialLogicCheck {
         let snapshot = BalanceSnapshot(date: date(1, 7), balanceMinor: 80_000, account: cash)
         precondition(FinanceCalculator.balance(of: cash, at: date(1, 15), transactions: transactions, snapshots: [snapshot]) == 70_000,
                      "A valuation must replace the previous balance and apply only subsequent movements")
+    }
+
+    private static func checkInvestmentFlows() {
+        let cash = FinancialAccount(name: "Efectivo", type: .checking, openingBalanceMinor: 100_000, openingDate: date(1))
+        let portfolio = FinancialAccount(name: "Cartera", type: .investment, openingBalanceMinor: 20_000, openingDate: date(1))
+        let otherPortfolio = FinancialAccount(name: "Otra cartera", type: .investment, openingDate: date(1))
+        let contribution = FinancialTransaction(date: date(1, 3), type: .transfer, amountMinor: 10_000,
+            descriptionText: "Aportación", sourceAccount: cash, destinationAccount: portfolio)
+        let withdrawal = FinancialTransaction(date: date(1, 4), type: .transfer, amountMinor: 2_000,
+            descriptionText: "Retirada", sourceAccount: portfolio, destinationAccount: cash)
+        let betweenPortfolios = FinancialTransaction(date: date(1, 5), type: .transfer, amountMinor: 1_000,
+            descriptionText: "Entre carteras", sourceAccount: portfolio, destinationAccount: otherPortfolio)
+        let income = FinancialTransaction(date: date(1, 6), type: .interest, amountMinor: 500,
+            descriptionText: "Intereses cobrados", sourceAccount: cash)
+        let future = FinancialTransaction(date: date(1, 20), type: .transfer, amountMinor: 50_000,
+            descriptionText: "Aportación futura", sourceAccount: cash, destinationAccount: portfolio)
+        let entries = [contribution, withdrawal, betweenPortfolios, income, future]
+        let flows = FinanceCalculator.investmentFlows(for: portfolio, month: date(1), transactions: entries, at: date(1, 10))
+        precondition(flows.contributedMinor == 10_000 && flows.withdrawnMinor == 2_000 && flows.netMinor == 8_000)
+        precondition(FinanceCalculator.investmentFlows(for: cash, month: date(1), transactions: entries).netMinor == 0)
+        precondition(FinanceCalculator.investmentFlows(for: portfolio, month: date(2), transactions: entries).netMinor == 0)
+        precondition(FinanceCalculator.netWorth(accounts: [cash, portfolio, otherPortfolio], transactions: entries, at: date(1, 10)) == 120_500)
+        let summary = FinanceCalculator.monthlySummary(for: date(1), transactions: entries)
+        precondition(summary.incomeMinor == 500 && summary.expenseMinor == 0,
+            "Only received interest is income; contributions and withdrawals must not inflate income or expense")
+        let reinvestment = FinancialTransaction(date: date(1, 7), type: .transfer, amountMinor: 500,
+            descriptionText: "Reinversión de intereses cobrados", sourceAccount: cash, destinationAccount: portfolio)
+        let withReinvestment = entries + [reinvestment]
+        precondition(FinanceCalculator.netWorth(accounts: [cash, portfolio, otherPortfolio], transactions: withReinvestment, at: date(1, 10)) == 120_500)
+        precondition(FinanceCalculator.monthlySummary(for: date(1), transactions: withReinvestment).incomeMinor == 500,
+            "Reinvesting received interest must not record that income a second time")
+        precondition(FinanceCalculator.investmentFlows(for: portfolio, month: date(1), transactions: withReinvestment,
+            at: date(1, 10)).contributedMinor == 10_500)
+        let valuation = BalanceSnapshot(date: date(1, 8), balanceMinor: 28_500, account: portfolio)
+        precondition(FinanceCalculator.balance(of: portfolio, at: date(1, 10), transactions: entries, snapshots: [valuation]) == 28_500,
+            "A new portfolio valuation replaces the previous amount instead of adding it again")
+        precondition(FinanceCalculator.investmentFlows(for: portfolio, month: date(1), transactions: entries, at: date(1, 10)).netMinor == 8_000,
+            "Valuation changes must not be confused with contributed capital")
     }
 
     private static func checkBudgetRemainders() {
