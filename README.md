@@ -4,7 +4,7 @@ Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e 
 
 ## Almacenamiento cloud en desarrollo
 
-El proyecto de Supabase `mi-bombo-money-dev` ya dispone de un esquema PostgreSQL con permisos por usuario y pruebas de aislamiento. El código incorpora acceso cloud y sincronización con copia local separada por usuario; queda pendiente su validación completa en iOS y entre dispositivos. Se activa desde Ajustes → Datos → Conectar sincronización cloud. Instalación, estado verificado y pruebas reproducibles: [CloudBackend/README.md](CloudBackend/README.md).
+El proyecto de Supabase `mi-bombo-money-dev` ya dispone de un esquema PostgreSQL con permisos por usuario y pruebas de aislamiento. El código incorpora acceso cloud y sincronización con copia local separada por usuario; queda pendiente su validación completa en iOS y entre dispositivos. Se activa desde Ajustes → Activar mi nube. Instalación, estado verificado y pruebas reproducibles: [CloudBackend/README.md](CloudBackend/README.md).
 
 ## Pagos con dinero reservado · 0.4.3
 
@@ -16,7 +16,7 @@ Las copias JSON v2 conservan esos vínculos y se siguen leyendo las copias v1. S
 
 ## Integración bancaria de prueba 0.4.2
 
-Disponible en **Ajustes → Datos → Conexiones bancarias** y **Cuentas → + → Conectar banco**. Al conectar se abre un espacio completo con Inicio, Cuentas, Movimientos y Presupuestos. Cada servidor y entorno tiene un archivo `MiPatrimonioBankingTests-<entorno>-<hash>.store`, separado de `MiPatrimonio.store`. Un indicador permanente identifica Sandbox o Demostración y permite **Volver a mis finanzas**. Las conexiones existentes tienen un botón para abrir ese espacio.
+Disponible en **Ajustes → Opciones avanzadas → Laboratorio bancario** (solo pruebas). Las cuentas personales se conectan desde **Ajustes → Mis bancos** o **Cuentas → + → Conectar banco**. En el laboratorio, al conectar un banco de prueba se puede abrir un espacio separado con Inicio, Cuentas, Movimientos y Presupuestos. Cada servidor y entorno tiene un archivo `MiPatrimonioBankingTests-<entorno>-<hash>.store`, separado de `MiPatrimonio.store`. Un indicador permanente identifica Sandbox o Demostración y permite **Volver a mis finanzas**. Las conexiones existentes tienen un botón para abrir ese espacio.
 
 El despliegue personal ya está configurado en **Sandbox de Enable Banking**. El catálogo verificado permite BBVA, Banco de Sabadell y Mock ASPSP. La versión 0.4.1 admite el dominio oficial de autorización que está devolviendo este sandbox y separa los datos de la demostración anterior. Las credenciales de prueba y los pasos están en [BankingBackend/README.md](BankingBackend/README.md#sandbox-activado-en-el-despliegue-personal).
 
@@ -32,7 +32,7 @@ La versión 0.3.1 corrige el cierre en el retorno del navegador y coordina la hu
 
 Una instalación nueva empieza sin cuentas, movimientos, presupuestos ni objetivos precargados. Incluye categorías comunes para clasificar tus datos desde el primer movimiento; puedes editarlas, archivarlas o eliminarlas si no están en uso. Desde Inicio o Cuentas puedes añadir tu primera cuenta. La app es universal para iPhone y iPad; el resumen se adapta al ancho disponible y el iPad admite orientación vertical y horizontal. El icono usa la foto de Doge incluida en `MiPatrimonio/Resources/Assets.xcassets`.
 
-Si ya tenías instalada una versión anterior, tus datos existentes se conservan. Para empezar completamente de cero, ve a **Ajustes → Datos → Empezar desde cero** y confirma la eliminación. Esta acción borra todos los datos financieros locales y no se puede deshacer.
+Si ya tenías instalada una versión anterior, tus datos existentes se conservan. Para empezar completamente de cero, ve a **Ajustes → Opciones avanzadas → Eliminar todos los datos financieros** y confirma la eliminación. En modo local esta acción borra los datos financieros del dispositivo. En modo cloud la eliminación se sincroniza también con los otros dispositivos de la misma cuenta. Revisa la confirmación y exporta una copia antes de continuar.
 
 ## Cuentas, resumen mensual y avisos
 
@@ -46,7 +46,7 @@ Los accesos **Gestionar dinero reservado** y **Aportaciones y cargos periódicos
 
 ## Copia de seguridad y restauración
 
-En **Ajustes → Datos → Copia de seguridad**, pulsa **Exportar todos mis datos** y guarda el archivo JSON en Archivos, por ejemplo en una carpeta privada de iCloud Drive. La copia incluye todas las entidades financieras locales y sus relaciones: cuentas, entidades, tarjetas, movimientos, presupuestos, presupuestos repetidos, reglas de categorías, objetivos, reservas, reglas periódicas, valoraciones e historial de importación. También se pueden importar copias anteriores que no incluyan las dos funciones nuevas. No incluye las preferencias del dispositivo.
+En **Ajustes → Exportar o restaurar copia**, pulsa **Exportar copia cifrada** y guarda el archivo y su contraseña. Si desactivas la protección puedes exportar un JSON sin cifrar; ambas opciones usan Archivos. La copia incluye todas las entidades financieras locales y sus relaciones: cuentas, entidades, tarjetas, movimientos, presupuestos, presupuestos repetidos, reglas de categorías, objetivos, reservas, reglas periódicas, valoraciones e historial de importación. También se pueden importar copias anteriores que no incluyan las dos funciones nuevas. No incluye las preferencias del dispositivo.
 
 Para recuperar los datos, abre la misma pantalla, pulsa **Elegir copia JSON** y selecciona el archivo. La app valida el formato y los vínculos entre registros y enseña la fecha y un resumen antes de permitir la restauración. Al confirmar, **reemplaza** todos los datos financieros actuales por los del archivo. Haz una copia reciente antes de sustituir datos que quieras conservar.
 
@@ -211,3 +211,11 @@ Desde GitHub entra en **Actions**, selecciona el workflow correspondiente y puls
 ## Enable Banking personal · 0.6.2
 
 Conexión personal separada del sandbox, autenticada con Supabase, con selección de bancos del proveedor y vinculación con cuentas existentes. La importación concilia pagos ya registrados y conserva reservas; la primera descarga requiere revisión. La revisión 0.6.2 añade comparación con registros existentes, propuestas confirmables en conjunto y contadores de nuevos, reconocidos y dudas. Está preparada localmente; quedan los checks macOS y la instalación. [Estado, seguridad, pruebas y piloto Bankinter](BankingBackend/INTEGRACION_PERSONAL.md).
+
+## UX y revisión · 0.6.3
+
+Primera adaptación a la referencia oscura elegida en Stitch, conservando los modos Claro, Oscuro y Automático. Inicio separa disponible y reservado y sitúa Añadir movimiento en la barra. Las filas compartidas miden su contenido para evitar huecos grandes; Por revisar deja de activar un filtro vacío cuando no hay incidencias. Incluye navegación adaptable desde iOS 18. Preparado localmente y con pruebas de geometría y revisión aprobadas; quedan checks macOS y revisión física. La gestión de inversión/reinversión se estudiará después del UX. [Detalle de implementación, pruebas y pendientes](DISENO_VISUAL_2026_10_29.md#evolución-del-3-de-noviembre-de-2026--063).
+
+## Ajustes simplificados · 0.6.4
+
+Búsqueda por nombre y tarea, acceso directo a Mis bancos y Mi nube y opciones secundarias desplegables en la misma pantalla. Laboratorio, resumen de datos y eliminación confirmada quedan en Avanzado. Se retiran la opción de Excel sin implementar y textos bancarios obsoletos. Las funciones financieras, copias y autenticación se conservan. [Mapa de navegación, comprobaciones y pendientes](AJUSTES.md).

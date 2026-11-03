@@ -3,6 +3,16 @@ import Foundation
 @main
 struct BankingSecurityCheck {
     static func main() throws {
+        for cloud in [false, true] {
+            for testOnly in [false, true] {
+                precondition(BankingConnectionPolicy.entryDestination(cloud: cloud, testWorkspace: true, testOnly: testOnly) == .requiresPersonalWorkspace,
+                    "A sandbox workspace must never open the personal bank connection")
+            }
+            precondition(BankingConnectionPolicy.entryDestination(cloud: cloud, testWorkspace: false, testOnly: true) == .sandbox,
+                "Only the explicit laboratory entry opens sandbox configuration")
+        }
+        precondition(BankingConnectionPolicy.entryDestination(cloud: true, testWorkspace: false, testOnly: false) == .personal)
+        precondition(BankingConnectionPolicy.entryDestination(cloud: false, testWorkspace: false, testOnly: false) == .requiresPersonalWorkspace)
         checkAuthenticationLifecycle()
         checkSingleCompletion()
         // Fictional credentials used only to validate destination policy; never used for a server.

@@ -1,7 +1,44 @@
 import SwiftUI
 
 struct BankConnectionsView: View {
+    private let testOnly: Bool
     @Environment(\.isCloudWorkspace) private var isCloudWorkspace
+    @Environment(\.isBankingTestWorkspace) private var isBankingTestWorkspace
+    @AppStorage("cloudAccountModeEnabled") private var cloudMode = false
+
+    init(testOnly: Bool = false) { self.testOnly = testOnly }
+
+    var body: some View {
+        switch BankingConnectionPolicy.entryDestination(cloud: isCloudWorkspace, testWorkspace: isBankingTestWorkspace, testOnly: testOnly) {
+        case .sandbox:
+            BankingSandboxConnectionsView()
+        case .personal:
+            PersonalBankConnectionsView()
+        case .requiresPersonalWorkspace:
+            List {
+                Section {
+                    Label("Conecta tus bancos a tus finanzas", systemImage: "building.columns.circle")
+                        .font(.headline)
+                    Text(isBankingTestWorkspace
+                        ? "Vuelve a tus finanzas personales para conectar una cuenta real."
+                        : "Activa tu cuenta de la nube para conectar bancos y guardar los movimientos en tu espacio personal.")
+                        .foregroundStyle(.secondary)
+                    if !isBankingTestWorkspace {
+                        Button { cloudMode = true } label: {
+                            Label("Activar mi nube", systemImage: "icloud.and.arrow.up")
+                        }
+                    }
+                }
+            }
+            .scrollContentBackground(.hidden)
+            .background(AppDesign.pageBackground)
+            .navigationTitle("Mis bancos")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+    }
+}
+
+private struct BankingSandboxConnectionsView: View {
     @EnvironmentObject private var lockManager: AppLockManager
     @Environment(\.scenePhase) private var scenePhase
     @State private var serverURL = ""
@@ -20,13 +57,6 @@ struct BankConnectionsView: View {
 
     var body: some View {
         List {
-            if isCloudWorkspace {
-                Section {
-                    NavigationLink { PersonalBankConnectionsView() } label: {
-                        Label("Conectar mis bancos reales", systemImage: "building.columns.fill")
-                    }
-                }
-            }
             Section {
                 Label("Conecta tus cuentas con la app", systemImage: "building.columns.circle")
                     .font(.headline)
@@ -38,15 +68,6 @@ struct BankConnectionsView: View {
                 if !connections.isEmpty {
                     Button { showingWorkspace = true } label: {
                         Label("Abrir Inicio, Cuentas y Movimientos de prueba", systemImage: "rectangle.stack")
-                    }
-                }
-            }
-            Section("Para conectar tus bancos reales") {
-                Text("Cloudflare aloja tu servidor; no da acceso a tus bancos. También necesitas registrar y activar una aplicación de Enable Banking para tus propias cuentas. La conexión personal se configura por separado desde Conectar mis bancos reales, dentro del modo cloud.")
-                Link("Configurar el acceso a mis propias cuentas", destination: URL(string: "https://enablebanking.com/docs/api/linked-accounts")!)
-                if configured {
-                    LabeledContent("URL de retorno del proveedor") {
-                        Text(serverURL + "/v1/callback").font(.caption).textSelection(.enabled)
                     }
                 }
             }
@@ -123,7 +144,9 @@ struct BankConnectionsView: View {
             }
         }
         .disabled(busy)
-        .navigationTitle("Conexión bancaria")
+        .scrollContentBackground(.hidden)
+        .background(AppDesign.pageBackground)
+        .navigationTitle("Laboratorio bancario")
         .navigationBarTitleDisplayMode(.inline)
         .task {
             do {

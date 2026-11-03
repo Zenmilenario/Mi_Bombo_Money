@@ -1,6 +1,14 @@
 import Foundation
 
 enum BankingConnectionPolicy {
+    enum EntryDestination: Equatable { case personal, sandbox, requiresPersonalWorkspace }
+
+    static func entryDestination(cloud: Bool, testWorkspace: Bool, testOnly: Bool) -> EntryDestination {
+        if testWorkspace { return .requiresPersonalWorkspace }
+        if testOnly { return .sandbox }
+        return cloud ? .personal : .requiresPersonalWorkspace
+    }
+
     static let personalServerHost = "mi-bombo-banking-personal.albertor7722.workers.dev"
     static func acceptsAuthorizationURL(_ url: URL, server: URL, live: Bool = false) -> Bool {
         guard url.scheme == "https", url.user == nil, url.password == nil, url.port == nil else { return false }

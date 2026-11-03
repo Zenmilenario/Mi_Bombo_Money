@@ -45,7 +45,7 @@ struct SecurityCredentialsView: View {
 
             infoSection
         }
-        .navigationTitle("Acceso por usuario")
+        .navigationTitle("Usuario local")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             refreshProfile()
@@ -59,7 +59,7 @@ struct SecurityCredentialsView: View {
                 deleteCredentials()
             }
         } message: {
-            Text("Ya no podrás iniciar sesión con usuario y contraseña. El acceso se realizará mediante Face ID, Touch ID o el código de tu iPhone.")
+            Text("Ya no podrás desbloquear la app con este usuario y contraseña local. El acceso se realizará mediante la autenticación del dispositivo. Tu cuenta de la nube no se elimina.")
         }
     }
 
@@ -223,16 +223,16 @@ struct SecurityCredentialsView: View {
                 Label("Eliminar usuario y contraseña", systemImage: "trash")
             }
         } footer: {
-            Text("Al eliminar las credenciales, la app solicitará únicamente biometría o el código del iPhone para desbloquear.")
+            Text("Esta opción elimina el usuario local. La cuenta de la nube se gestiona por separado en Mi nube.")
         }
     }
 
     private var infoSection: some View {
         Section {
-            Label("Las credenciales se guardan de forma local en el Llavero seguro (Keychain) de este iPhone.", systemImage: "lock.shield")
+            Label("La verificación de este usuario se guarda en el llavero del dispositivo.", systemImage: "lock.shield")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Label("Nunca se transmiten por internet ni se almacenan en servidores externos.", systemImage: "icloud.slash")
+            Label("Este acceso local no se envía a la nube. Tu cuenta de sincronización tiene su propio acceso.", systemImage: "icloud.slash")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         } header: {

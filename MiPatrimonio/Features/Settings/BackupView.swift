@@ -59,7 +59,7 @@ struct BackupView: View {
             }
 
             Section("Crear copia") {
-                Toggle("Proteger con contraseña (cifrado AES)", isOn: $encryptExport)
+                Toggle("Proteger copia con contraseña", isOn: $encryptExport)
 
                 Button {
                     if encryptExport {
@@ -74,7 +74,7 @@ struct BackupView: View {
                 }
 
                 Text(encryptExport
-                    ? "Cifra todos tus datos con AES-256 para guardarlos de forma segura en iCloud Drive o compartirlos."
+                    ? "Protege la copia completa con una contraseña antes de guardarla en Archivos."
                     : "Incluye cuentas, tarjetas, movimientos, presupuestos, reglas, objetivos y valoraciones.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -109,8 +109,8 @@ struct BackupView: View {
                 Text("La restauración sustituye todos los datos financieros que haya ahora en esta app. Revisa la fecha y el contenido de la copia antes de continuar.")
             }
 
-            Section("Seguridad y Privacidad") {
-                Text("Las copias cifradas con contraseña utilizan AES-GCM y derivación PBKDF2-SHA256. Si olvidas la contraseña, la copia cifrada no se podrá recuperar.")
+            Section("Sobre la contraseña") {
+                Text("Guarda la contraseña en un lugar seguro. Si la olvidas, no podrás recuperar el contenido de la copia protegida.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }

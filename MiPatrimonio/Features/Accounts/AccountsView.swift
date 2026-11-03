@@ -389,6 +389,7 @@ struct AccountsView: View {
                     } label: {
                         accountRow(account)
                     }
+                    .listRowBackground(AppDesign.cardBackground)
                     .swipeActions(edge: .leading, allowsFullSwipe: false) {
                         Button {
                             updatingAccount = account
@@ -436,7 +437,7 @@ struct AccountsView: View {
     private func accountIdentity(_ account: FinancialAccount) -> some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: account.bankSystemImage)
-                .foregroundStyle(Color(hex: account.institution?.colorHex ?? "#1F6B7A"))
+                .foregroundStyle(AppDesign.institutionTint(account.institution?.colorHex ?? "#1F6B7A"))
                 .frame(width: 42, height: 42)
                 .background(Color.secondary.opacity(0.09), in: Circle())
 
@@ -444,19 +445,15 @@ struct AccountsView: View {
                 Text(account.bankDisplayName)
                     .font(.subheadline.weight(.semibold))
 
-                HStack(spacing: 6) {
-                    Text(account.bankDisplayName == account.name ? account.type.title : account.name)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                Text(account.bankDisplayName == account.name ? account.type.title : account.name)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
 
-                    if isStale(account) {
-                        StatusPill(
-                            text: "Sin actualizar",
-                            systemImage: "clock",
-                            tint: .orange
-                        )
-                    }
+                if isStale(account) {
+                    Label("Sin actualizar", systemImage: "clock")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(AppDesign.warning)
                 }
 
                 let linkedCardCount = activeCards.filter { $0.linkedAccount?.id == account.id }.count
@@ -480,7 +477,7 @@ struct AccountsView: View {
             PrivacyAmountText(
                 minorUnits: FinanceCalculator.balance(of: account, transactions: transactions, snapshots: snapshots),
                 currencyCode: account.currencyCode,
-                font: .subheadline,
+                font: .headline,
                 weight: .semibold
             )
             let reserved = FinanceCalculator.reservedAmount(for: account, funds: reservedFunds, transactions: transactions)
@@ -538,7 +535,7 @@ struct AccountsView: View {
     private func cardRow(_ card: PaymentCard) -> some View {
         HStack(spacing: 12) {
             Image(systemName: card.type.systemImage)
-                .foregroundStyle(Color(hex: card.institution?.colorHex ?? "#1F6B7A"))
+                .foregroundStyle(AppDesign.institutionTint(card.institution?.colorHex ?? "#1F6B7A"))
                 .frame(width: 42, height: 42)
                 .background(Color.secondary.opacity(0.09), in: Circle())
 

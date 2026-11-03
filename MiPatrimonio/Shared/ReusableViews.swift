@@ -12,7 +12,7 @@ enum AppDesign {
     static let itemSpacing: CGFloat = 12
 
     static var pageBackground: Color {
-        adaptiveColor(light: 0xF0F4F8, dark: 0x111D2B, elevated: 0x1A293A)
+        adaptiveColor(light: 0xF7F5F0, dark: 0x111D2B, elevated: 0x1A293A)
     }
 
     static var cardBackground: Color {
@@ -20,23 +20,50 @@ enum AppDesign {
     }
 
     static var tertiaryBackground: Color {
-        adaptiveColor(light: 0xE7EEF5, dark: 0x2B4056, elevated: 0x354D65)
+        adaptiveColor(light: 0xEEECE5, dark: 0x2B4056, elevated: 0x354D65)
     }
 
-    static var accent: Color { adaptiveColor(light: 0x176B87, dark: 0x80DBDE) }
+    static var accent: Color { adaptiveColor(light: 0x0F766E, dark: 0x68CFD0) }
     static var income: Color { adaptiveColor(light: 0x176746, dark: 0x91E8BC) }
     static var expense: Color { adaptiveColor(light: 0xA72C40, dark: 0xFFB0BA) }
     static var savings: Color { adaptiveColor(light: 0x275D9E, dark: 0xAFD0FF) }
     static var investment: Color { adaptiveColor(light: 0x714698, dark: 0xD7BDFF) }
     static var warning: Color { adaptiveColor(light: 0x865000, dark: 0xFFD08A) }
     // Keep filled actions dark enough for their white labels in both appearances.
-    static let actionFill = Color(hex: "#176B87")
+    static let actionFill = Color(hex: "#0F766E")
     static var cardOutline: Color {
         Color(uiColor: UIColor { traits in
             if traits.accessibilityContrast == .high { return .separator }
             return traits.userInterfaceStyle == .dark
                 ? UIColor(red: 0.40, green: 0.53, blue: 0.66, alpha: 0.45)
                 : UIColor(red: 0.65, green: 0.73, blue: 0.81, alpha: 0.45)
+        })
+    }
+
+    // Retain the institution's chosen color when readable; very dark brand
+    // colors need a semantic foreground in dark mode, and vice versa.
+    static func institutionTint(_ hex: String) -> Color {
+        let source = UIColor(Color(hex: hex))
+        return Color(uiColor: UIColor { traits in
+            let foreground = source.resolvedColor(with: traits)
+            let background = UIColor(cardBackground).resolvedColor(with: traits)
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
+            guard foreground.getRed(&r, green: &g, blue: &b, alpha: &a),
+                  background.getRed(&br, green: &bg, blue: &bb, alpha: &ba) else {
+                return UIColor.label.resolvedColor(with: traits)
+            }
+            func luminance(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> Double {
+                func linear(_ value: CGFloat) -> Double {
+                    let component = Double(value)
+                    return component <= 0.04045 ? component / 12.92 : pow((component + 0.055) / 1.055, 2.4)
+                }
+                return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
+            }
+            let f = luminance(r * a + br * (1 - a), g * a + bg * (1 - a), b * a + bb * (1 - a))
+            let backgroundLuminance = luminance(br, bg, bb)
+            let contrast = (max(f, backgroundLuminance) + 0.05) / (min(f, backgroundLuminance) + 0.05)
+            return contrast >= 3 ? foreground : UIColor.label.resolvedColor(with: traits)
         })
     }
 
@@ -77,7 +104,7 @@ struct BankAccountIdentity: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: account.bankSystemImage)
                 .font(.title3)
-                .foregroundStyle(Color(hex: account.institution?.colorHex ?? "#1F6B7A"))
+                .foregroundStyle(AppDesign.institutionTint(account.institution?.colorHex ?? "#1F6B7A"))
                 .frame(width: 44, height: 44)
                 .background(Color(hex: account.institution?.colorHex ?? "#1F6B7A").opacity(0.12), in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
             VStack(alignment: .leading, spacing: 4) {
@@ -109,6 +136,7 @@ struct PrivacyAmountText: View {
         Text(displayValue)
             .font(font)
             .fontWeight(weight)
+            .monospacedDigit()
             .contentTransition(.numericText())
             .accessibilityLabel(
                 hideAmounts
@@ -455,26 +483,59 @@ struct AdaptiveValueRow<LabelContent: View, ValueContent: View>: View {
     }
 
     var body: some View {
-        if dynamicTypeSize.isAccessibilitySize {
-            verticalContent
-        } else {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .top, spacing: 12) {
-                    label.fixedSize(horizontal: true, vertical: false)
-                    Spacer(minLength: 8)
-                    value.fixedSize(horizontal: true, vertical: false)
-                }
-                verticalContent
-            }
+        AdaptiveValueLayout(forceVertical: dynamicTypeSize.isAccessibilitySize) {
+            VStack(alignment: .leading, spacing: 0) { label }
+            VStack(alignment: .leading, spacing: 0) { value }
+        }
+    }
+}
+
+// Measure children with an unspecified height. List may propose a very tall cell;
+// that proposal must never become empty padding in a label/value row.
+private struct AdaptiveValueLayout: Layout {
+    let forceVertical: Bool
+    private let horizontalSpacing: CGFloat = 20
+    private let verticalSpacing: CGFloat = 8
+
+    private struct Measurement {
+        let width: CGFloat
+        let label: CGSize
+        let value: CGSize
+        let vertical: Bool
+        var hasValue: Bool { value.width > 0 && value.height > 0 }
+        var height: CGFloat {
+            vertical ? label.height + (hasValue ? 8 + value.height : 0) : max(label.height, value.height)
         }
     }
 
-    private var verticalContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            label
-            value
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private func measure(width proposedWidth: CGFloat?, subviews: Subviews) -> Measurement {
+        guard subviews.count == 2 else { return Measurement(width: 0, label: .zero, value: .zero, vertical: true) }
+        let idealLabel = subviews[0].sizeThatFits(.unspecified)
+        let idealValue = subviews[1].sizeThatFits(.unspecified)
+        let width = max(0, proposedWidth.flatMap { $0.isFinite ? $0 : nil }
+            ?? (idealLabel.width + (idealValue.width > 0 ? horizontalSpacing + idealValue.width : 0)))
+        let vertical = forceVertical || idealLabel.width + horizontalSpacing + idealValue.width > width
+        let value = subviews[1].sizeThatFits(ProposedViewSize(width: vertical ? width : idealValue.width, height: nil))
+        let label = subviews[0].sizeThatFits(ProposedViewSize(
+            width: vertical ? width : max(0, width - (value.width > 0 ? horizontalSpacing + value.width : 0)), height: nil))
+        return Measurement(width: width, label: label, value: value, vertical: vertical)
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = measure(width: proposal.width, subviews: subviews)
+        return CGSize(width: result.width, height: result.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let result = measure(width: bounds.width, subviews: subviews)
+        subviews[0].place(at: bounds.origin, anchor: .topLeading,
+            proposal: ProposedViewSize(width: result.label.width, height: nil))
+        let point = result.vertical
+            ? CGPoint(x: bounds.minX, y: bounds.minY + result.label.height + (result.hasValue ? verticalSpacing : 0))
+            : CGPoint(x: bounds.maxX - result.value.width, y: bounds.minY)
+        subviews[1].place(at: point, anchor: .topLeading,
+            proposal: ProposedViewSize(width: result.value.width, height: nil))
     }
 }
 

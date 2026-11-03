@@ -39,3 +39,47 @@ También se revisaron el [inicio de YNAB](https://support.ynab.com/spotlight-Bkd
 ## Artefactos locales de diseño
 
 La maqueta y sus imágenes están en `build/visual-refresh/`, excluido de Git. `index.html` permite alternar claro/oscuro; `oscuro.png`, `claro.png` y `estrecho.png` documentan la dirección visual. Son referencias ilustrativas, no resultados del simulador. El HTML usa iconos de texto de muestra; la app mantiene SF Symbols y controles nativos.
+
+## Evolución del 3 de noviembre de 2026 · 0.6.3
+
+### Decisión del usuario
+
+El usuario elige Grafito sereno como referencia principal tras comparar las cuatro propuestas de Stitch. Se mantienen Claro, Oscuro y Automático en Ajustes → Apariencia → Tema; no se reemplaza la elección guardada por una preferencia impuesta. Las capturas y documentos de estilo se conservan en `.stitch/`, con copia documental y visual en Obsidian.
+
+### Implementado en la carpeta
+
+- Inicio: bloques separados y reconocibles para Disponible y Reservado. El primero abre las cuentas y el segundo la gestión de reservas. Importes con cifras tabulares y título patrimonial que respeta el tamaño de texto del sistema. Acción Añadir movimiento en la barra superior, sin el hueco del botón flotante inferior de Inicio. Las cifras y las fórmulas son las existentes, sin datos de la maqueta ni nuevos cálculos de inversión.
+- Navegación: estilo nativo `sidebarAdaptable` desde iOS/iPadOS 18, con posibilidad de alternar barra y lateral en iPad y barra inferior en iPhone. Se conserva el estilo disponible en iOS 17. No se fuerzan anchos por modelo de dispositivo. [Referencia de Apple](https://developer.apple.com/documentation/swiftui/tabviewstyle/sidebaradaptable).
+- Paleta: base grafito y tarjetas azul grisáceo en oscuro, acento turquesa; en claro, base cálida y acento verde azulado. Los botones rellenos con texto blanco conservan un fondo más oscuro para legibilidad. Los iconos de entidades usan el color elegido cuando contrasta con la tarjeta; si no alcanza 3:1, se dibujan con el color semántico del sistema. El color guardado en la entidad no cambia.
+- Cuentas y Movimientos: filas principales sobre la superficie de tarjeta común. Los nombres de cuentas pueden ocupar varias líneas y «Sin actualizar» pasa a una línea propia, evitando recortes por la insignia.
+- Medición de filas: el componente compartido de etiqueta/valor sustituye `ViewThatFits` por un `Layout` que mide siempre los hijos sin altura propuesta. La altura de una fila depende del contenido, no de la altura que proponga List. Cuando no caben ambos bloques o se usa texto de accesibilidad, el importe/acción pasa debajo. Una acción vacía no reserva separación vertical. Se evita fijar alturas por dispositivo.
+- Revisión: con cero incidencias, la tarjeta muestra Todo revisado y su contexto, sin botón ni flecha que activen un filtro vacío. Con pendientes, abre el filtro correspondiente; si se resuelve la última incidencia estando dentro del filtro, se conserva Ver todos para salir. El contador sigue respetando búsqueda y filtros. Esta revisión se refiere a movimientos registrados; la conciliación bancaria pendiente de incorporación continúa en Mis bancos.
+
+### Verificación realizada y límites
+
+- 576 combinaciones de geometría del `AdaptiveValueLayout` real extraído del código: anchuras de 160 a 1194, alturas propuestas de 0 a 100.000, texto que envuelve, tamaños de accesibilidad, acción vacía, contención y ausencia de solapamientos. Una fila corta de cuenta conserva 66 puntos de altura aunque el contenedor proponga 10.000. Los subviews son simulados; no acreditan el renderizado del SDK de SwiftUI.
+- El check de revisión pasa localmente con modelos sin macros de SwiftData, incluidos cero pendientes, apertura de pendientes, salida con la última incidencia resuelta y conservación de reservas al corregir categorías. El workflow macOS mantiene la prueba sobre los modelos reales.
+- Análisis sintáctico Swift de los archivos modificados. Validación del proyecto Xcode, del workflow y de espacios en Git.
+- La prueba de geometría queda incluida en el workflow Comprobar datos y cálculos. No se han publicado cambios ni ejecutado las compilaciones iOS de 0.6.3 en este ordenador Windows.
+
+### Pendiente de UX
+
+Comprobar el IPA 0.6.3 en el dispositivo: altura de filas en Cuentas y Movimientos; cero pendientes sin navegación vacía; resolución de la última incidencia y salida; temas Claro/Oscuro/Automático; navegación lateral; ventanas estrechas, Split View y texto grande. Continuar el diseño de las demás pantallas con la referencia elegida. Esta es una primera adaptación de Inicio y componentes, no un traslado completo de todas las maquetas.
+
+### Pendiente después del UX: inversión y reinversión
+
+El usuario solicita revisar la representación de la cuenta de reinversión después de completar el UX. Se estudiará cómo distinguir efectivo de un bróker, posiciones o cuenta de valores, aportaciones, rendimientos y valoraciones, así como su inclusión en el patrimonio, para evitar duplicidades o conceptos confusos. No se han cambiado tipos de cuenta, saldos, valoraciones, reservas ni movimientos personales como parte de esta revisión visual. Antes de implementar ese modelo se concretará el comportamiento con el usuario.
+
+## Ajustes · 0.6.4
+
+La revisión de Ajustes mantiene la dirección elegida y reduce pantallas intermedias, separa la conexión personal del laboratorio y añade búsqueda con secciones desplegables. Incluye lo preparado en 0.6.3. [Mapa actualizado y validación pendiente](AJUSTES.md).
+
+## Corrección del check macOS · 3 de noviembre de 2026
+
+En el commit `c83c917` de la PR 23 fallan los jobs de cálculos de push y pull_request, ambos en Comprobar filas adaptables sin espacios vacíos. Los pasos de cálculos financieros y bandeja de revisión terminan correctamente; los otros diez checks, incluidas las compilaciones Debug y Release, figuran aprobados.
+
+Los dos registros muestran que el ejecutable de prueba no encuentra `CGRect.zero`, `CGSize.zero`, los límites de CGRect ni la igualdad de CGSize. La plantilla Swift de `Tests/check_adaptive_layout.py` importaba únicamente Foundation. Se añade `import CoreGraphics` condicionado a `canImport(CoreGraphics)` para cargar las extensiones del SDK Apple y conservar la ejecución de Foundation en Linux. No se modifica el layout de la app, los cálculos financieros ni las aserciones de la prueba.
+
+Verificación: las 576 combinaciones vuelven a pasar localmente en Linux y `git diff --check` no informa problemas. La corrección de importación debe publicarse y volver a ejecutarse en macOS para confirmar el resultado; todavía no existe un check remoto de esta corrección. Se mantiene la versión 0.6.4, porque el cambio solo corrige la prueba.
+
+Registros revisados: [pull_request](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41636047831/job/125917406014?pr=23) y [push](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41635998853/job/125917233069?pr=23).
