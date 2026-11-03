@@ -1,5 +1,7 @@
 # Conectar las cuentas propias · estado actual
 
+> Revisión 0.6.6 preparada: descargas, estado y esperas por banco para que un límite de Bankinter no descarte BBVA. Primera descarga con confirmación y transferencias propias incompletas diferidas. Se conserva la espera heredada de la versión anterior hasta su vencimiento. [Detalle y pruebas](INTEGRACION_PERSONAL.md#descargas-y-esperas-independientes-por-banco--066). Pendientes checks e instalación.
+
 > Estado del 3 de noviembre: BBVA ya está vinculada y autorizada. Se ha confirmado un límite de consultas del banco (429) tras asociarla. El servidor actualizado está desplegado; el cliente 0.6.5 está preparado y pendiente de checks e instalación. [Diagnóstico y corrección](INTEGRACION_PERSONAL.md#consultas-bancarias-y-límites--065). Los apartados siguientes conservan el historial del piloto inicial.
 
 El servidor personal está preparado y separado del sandbox. La aplicación de Enable Banking registrada es de producción y solo admite AIS (consulta); su firma y retorno se han comprobado. El propietario ha vinculado la cuenta de prueba en el panel y se ha verificado la aplicación activa, con servicio exclusivo AIS. En esta verificación solo se han consultado la configuración de la aplicación y el catálogo de bancos, sin leer saldos ni movimientos. Falta completar la conexión desde la app.

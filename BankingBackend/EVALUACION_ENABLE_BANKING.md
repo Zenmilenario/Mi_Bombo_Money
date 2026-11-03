@@ -59,3 +59,15 @@ Este es el objetivo propuesto, no el flujo personal real ya desplegado. Las clav
 5. Añadir actualización programada y seguimiento de errores. Mantener importación de archivos como alternativa para lo que las APIs no proporcionen.
 
 No se han consultado cuentas reales, leído claves privadas, cambiado permisos, activado una aplicación de producción ni desplegado código en esta evaluación.
+
+## Conceptos bancarios y marcadores /TXT/ — aclaración del 3 de noviembre
+
+**Estado: mejora acordada con el usuario el 3 de noviembre de 2026; pendiente de implementar.**
+
+El flujo es banco → Enable Banking → servidor personal → app. Enable Banking adapta las respuestas de bancos distintos a una estructura común; no aporta por defecto una capa propia de enriquecimiento o categorización. Si el banco entrega códigos de operación, comercio o finalidad, el proveedor puede trasladarlos en los campos correspondientes, según disponibilidad. Fuente: [base de conocimiento, apartado Data](https://enablebanking.com/knowledge-base).
+
+Los movimientos llegan por la API como JSON con campos separados para importe, moneda, fechas, sentido del apunte e identificadores, además del concepto. /TXT/ forma parte de un texto descriptivo recibido; no significa que el movimiento llegue como un archivo TXT. Referencia: [API de movimientos](https://enablebanking.com/docs/api/reference/#get-account-transactions).
+
+Comprobado en nuestro código: normalizeTransaction, en BankingBackend/src/provider.mjs, une las cadenas de remittance_information con espacios y limita el concepto a 500 caracteres. Si no hay concepto, utiliza el nombre del acreedor/deudor o un texto genérico. No añade marcadores /TXT/ ni los elimina. Por ello esos marcadores ya vienen en el texto entregado por Enable Banking. No se ha contrastado la respuesta original directa del banco ni confirmado el significado concreto de cada marcador; no se deben atribuir significados a D/H u otros prefijos sin verificarlo.
+
+Mejora propuesta, pendiente de implementar: separar el concepto bancario original de un título legible, limpiar únicamente patrones conocidos y conservar el original en el detalle. La presentación y la categoría no deben sustituir los identificadores bancarios usados para detectar duplicados. No se ha implementado esta limpieza ni se han modificado movimientos en esta aclaración. El campo actual de 500 caracteres no equivale a conservar la respuesta bancaria completa.

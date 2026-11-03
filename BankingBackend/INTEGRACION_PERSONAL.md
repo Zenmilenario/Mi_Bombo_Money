@@ -1,5 +1,47 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Descargas y esperas independientes por banco — 0.6.6
+
+Actualizado el 3 de noviembre de 2026. Preparado localmente; pendiente de checks macOS/iOS e instalación.
+
+### Problema confirmado en la prueba física
+
+La 0.6.5 mostraba un límite de consultas de Bankinter. Aunque BBVA estaba asociada, la app reunía todos los bancos en una descarga que fallaba completa si uno respondía con error. Además, se conservaba una espera global, que impedía solicitar BBVA por separado. Esto explica que no se incorporase la descarga conjunta; no demuestra que el cargo concreto esperado falte en la respuesta del proveedor. No hay evidencia de un bloqueo de acceso a la banca del usuario.
+
+### Implementado en 0.6.6, compilación 23
+
+- Descarga de todas las páginas de cada banco por separado. Un error de consulta de un banco se muestra en ese banco y no descarta las descargas completas de los demás.
+- Plazos de actualización y restricciones 429 guardados por banco y usuario. Reiniciar, comprobar el servidor o renovar una conexión no salta una restricción vigente. Las comprobaciones de sincronización cloud no generan nuevas consultas bancarias continuas.
+- Botón «Actualizar solo [banco]», estado de descarga y fecha del próximo intento por banco.
+- Acceso directo a «Revisar e incorporar la descarga recibida». La primera descarga sigue sin escribirse hasta confirmarla. Solicitar otro banco no borra una revisión pendiente; se puede descartar la descarga expresamente sin modificar la contabilidad guardada.
+- Los apuntes identificados como transferencias entre cuentas propias conocidas se incorporan juntos cuando ambas partes son compatibles. Si falta o es ambigua la otra parte, solo esos apuntes se difieren: no se convierten en gasto/ingreso ni bloquean las compras normales del banco disponible. Se muestra su número pendiente. Al recuperar las dos partes, se incorpora una sola transferencia y los gastos ya importados no se repiten.
+- Se conserva el saldo contable real entregado por el banco disponible; no se inventa un saldo excluyendo los apuntes diferidos. Los bancos que no hayan podido actualizarse conservan sus datos anteriores, por lo que el conjunto puede tener fechas de actualización distintas.
+
+### Espera heredada de la 0.6.5
+
+La versión anterior no guardaba a qué banco pertenecía su espera global. Al migrar se conserva esa restricción para los bancos conocidos hasta que venza, sin adivinar su procedencia ni borrarla para forzar consultas. Es una limitación transitoria: las nuevas esperas sí se registran por banco. No se ha modificado la espera real del dispositivo desde este ordenador.
+
+### Alcance y límites
+
+La selección de transferencias se apoya en la identidad de cuentas conocidas, referencia bancaria, importe, moneda y fecha. No se adivina una transferencia entre apuntes ambiguos. Los apuntes diferidos se vuelven a consultar en futuras descargas dentro del histórico disponible; esta revisión no añade una cola persistente de respuestas bancarias completas. Si la otra parte no llega o carece de referencias compatibles, seguirá requiriendo revisión. No se han cambiado modelos cloud ni aplicado migraciones ni modificado la contabilidad personal del usuario.
+
+El cliente continúa solicitando movimientos contabilizados (BOOK). Una operación pendiente en la banca puede no llegar aún a esta consulta. No se ha consultado el movimiento concreto del usuario para atribuirle ese estado.
+
+### Validación
+
+Comprobadas localmente tres suites Swift: política de conexión y espera por banco; planificación/descarga independiente y selección de transferencias; y ejecución del coordinador real con modelos y transporte de prueba. Se reproducen Bankinter limitado y BBVA disponible, el caso inverso, reinicio, espera persistente, migración conservadora, primera descarga sin confirmar, descarte y recuperación sin duplicados. Las pruebas usan únicamente datos sintéticos y no solicitan movimientos reales.
+
+Se ha ampliado el check de SwiftData para comprobar incorporación parcial de gastos, ausencia de ingresos ficticios, saldo tras recuperar ambos bancos e idempotencia; su ejecución real requiere macOS y está pendiente. El workflow incluye ahora el check del coordinador. Pasan la validación de YAML/rutas, el análisis sintáctico de Swift y la revisión de espacios de Git. La compilación nativa iOS y la validación visual del iPad quedan pendientes de publicar e instalar 0.6.6.
+
+### Cuenta auxiliar de inversión: decisión del propietario
+
+El propietario mantiene sin asociar por ahora una cuenta auxiliar de efectivo ligada a valores. Se registra para diseñar más adelante su visibilidad y tratamiento junto a la cartera, evitando duplicar patrimonio. Esta cuenta no se descarga mientras no esté asociada y no debe bloquear la incorporación de gastos ordinarios de las cuentas seleccionadas. La selección/ocultación explícita de cuentas auxiliares queda pendiente; no se ha asociado ninguna cuenta adicional.
+
+### Siguiente prueba física
+
+Publicar con GitHub Desktop, esperar los checks e instalar el IPA 0.6.6. Respetar la espera anterior si sigue vigente. Actualizar solo BBVA, revisar e incorporar la descarga y buscar el cargo esperado en la cuenta asociada. Comprobar que el estado de Bankinter sigue separado. Confirmar después la recuperación de Bankinter y la ausencia de duplicados. No borrar los datos ni volver a asociar las cuentas por un error 429.
+
+
 ## Consultas bancarias y límites — 0.6.5
 
 Actualizado el 3 de noviembre de 2026.

@@ -80,6 +80,39 @@ struct PersonalBankingImporterCheck {
         precondition(afterBulk.count == 3)
         let repeatedBulk = try PersonalBankingImporter.apply([proposalFeed], server: server, in: context, observedAt: observed)
         precondition(repeatedBulk.inserted == 0 && repeatedBulk.matched == 0 && repeatedBulk.skipped == 3)
+        // One bank's ordinary postings can be imported while an own transfer waits for its peer.
+        let partialContainer = try ModelContainer(for: schema, configurations: ModelConfiguration("CloudFinance", schema: schema, isStoredInMemoryOnly: true))
+        let partialContext = partialContainer.mainContext
+        let firstAccount = FinancialAccount(name: "Synthetic A", type: .checking, openingBalanceMinor: 10000, openingDate: day.addingTimeInterval(-86400))
+        let secondAccount = FinancialAccount(name: "Synthetic B", type: .checking, openingBalanceMinor: 5000, openingDate: day.addingTimeInterval(-86400))
+        partialContext.insert(firstAccount); partialContext.insert(secondAccount); try partialContext.save()
+        let a = ConnectedBankAccount(id: "independent-a", name: "Synthetic A", currency: "EUR", lastFour: "0000", ownershipKey: "own-a")
+        let b = ConnectedBankAccount(id: "independent-b", name: "Synthetic B", currency: "EUR", lastFour: "0000", ownershipKey: "own-b")
+        try PersonalBankingImporter.link(a, bank: "Bankinter", server: server, to: firstAccount, in: partialContext)
+        try PersonalBankingImporter.link(b, bank: "BBVA", server: server, to: secondAccount, in: partialContext)
+        let aFeed = BankingAccountFeed(connection: .init(id: UUID().uuidString, bank: "Bankinter", validUntil: "2099-01-01", accounts: [a]),
+            account: a, balances: [.init(amountMinor: 5000, currency: "EUR", type: "CLBD")], movements: [
+                .init(id: "out", bookingDate: "2026-10-15", signedAmountMinor: -5000, currency: "EUR", description: "Synthetic transfer", counterpartyKey: "own-b", transferKey: "pair")])
+        let bFeed = BankingAccountFeed(connection: .init(id: UUID().uuidString, bank: "BBVA", validUntil: "2099-01-01", accounts: [b]),
+            account: b, balances: [.init(amountMinor: 9250, currency: "EUR", type: "CLBD")], movements: [
+                .init(id: "in", bookingDate: "2026-10-15", signedAmountMinor: 5000, currency: "EUR", description: "Synthetic transfer", counterpartyKey: "own-a", transferKey: "pair"),
+                .init(id: "expense", bookingDate: "2026-10-15", signedAmountMinor: -750, currency: "EUR", description: "Synthetic purchase")])
+        let independent = try PersonalBankingDownloadSelection.prepare([bFeed], knownAccounts: [a, b])
+        let firstResult = try PersonalBankingImporter.apply(independent.feeds, server: server, in: partialContext, observedAt: observed)
+        let firstRows = try partialContext.fetch(FetchDescriptor<FinancialTransaction>())
+        precondition(firstResult.inserted == 1 && firstRows.count == 1 && firstRows[0].type == .expense)
+        precondition(FinanceCalculator.monthlySummary(for: observed, transactions: firstRows).incomeMinor == 0)
+        let complete = try PersonalBankingDownloadSelection.prepare([aFeed, bFeed], knownAccounts: [a, b])
+        let recovered = try PersonalBankingImporter.apply(complete.feeds, server: server, in: partialContext, observedAt: observed)
+        let recoveredRows = try partialContext.fetch(FetchDescriptor<FinancialTransaction>())
+        let recoveredSnapshots = try partialContext.fetch(FetchDescriptor<BalanceSnapshot>())
+        precondition(recovered.inserted == 1 && recoveredRows.count == 2 && recoveredRows.filter { $0.type == .transfer }.count == 1)
+        let recoveredSummary = FinanceCalculator.monthlySummary(for: observed, transactions: recoveredRows)
+        precondition(recoveredSummary.expenseMinor == 750 && recoveredSummary.incomeMinor == 0)
+        precondition(FinanceCalculator.balance(of: firstAccount, at: observed, transactions: recoveredRows, snapshots: recoveredSnapshots) == 5000)
+        precondition(FinanceCalculator.balance(of: secondAccount, at: observed, transactions: recoveredRows, snapshots: recoveredSnapshots) == 9250)
+        let repeatedRecovery = try PersonalBankingImporter.apply(complete.feeds, server: server, in: partialContext, observedAt: observed)
+        precondition(repeatedRecovery.inserted == 0 && repeatedRecovery.skipped == 2)
         // Live financial imports can never write to the separate sandbox workspace.
         let isolated = try ModelContainer(for: schema, configurations: ModelConfiguration("BankingTests", schema: schema, isStoredInMemoryOnly: true))
         do { _ = try PersonalBankingImporter.apply([feed], server: server, in: isolated.mainContext, observedAt: observed); preconditionFailure("Sandbox accepted real-account import") }

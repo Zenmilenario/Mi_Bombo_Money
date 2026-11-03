@@ -225,3 +225,9 @@ Búsqueda por nombre y tarea, acceso directo a Mis bancos y Mi nube y opciones s
 Corrección del error bancario 429: el botón de actualización identifica una consulta iniciada por el usuario y el servidor envía su contexto PSU validado. Las consultas automáticas mantienen sus límites. La app muestra el banco y la cuenta que fallan, respeta Retry-After con espera persistente y no deja una descarga anterior lista para incorporar tras un error.
 
 Servidor personal actualizado; cliente 0.6.5 (22) preparado localmente. Pasan 46 pruebas Node/workerd, las pruebas Swift de política y el empaquetado del servidor. Pendientes: checks de macOS/iOS e instalación para validar BBVA. [Detalle técnico y diagnóstico](BankingBackend/INTEGRACION_PERSONAL.md#consultas-bancarias-y-límites--065).
+
+## Bancos independientes · 0.6.6
+
+Las descargas y esperas se gestionan por banco: un error de Bankinter no descarta los movimientos completos de BBVA. Mis bancos muestra el resultado de cada entidad, permite actualizarla por separado y ofrece acceso directo a incorporar la primera descarga revisada. Las transferencias propias sin una pareja compatible quedan diferidas sin contarlas como gasto o ingreso; los demás movimientos pueden continuar.
+
+Preparado localmente: 0.6.6 (23). Pasan tres suites Swift de política, planificación y coordinación con datos sintéticos. Pendientes: persistencia SwiftData y compilación iOS/macOS en GitHub, instalación y prueba real. Se conserva la espera global heredada de 0.6.5 hasta su vencimiento. [Detalle y límites](BankingBackend/INTEGRACION_PERSONAL.md#descargas-y-esperas-independientes-por-banco--066).

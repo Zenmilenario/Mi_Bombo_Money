@@ -28,6 +28,11 @@ struct PersonalBankConnectionsView: View {
         banking.banks.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
     }
     var body: some View {
+        ScrollViewReader { scroll in
+            connectionsList(scroll: scroll)
+        }
+    }
+    private func connectionsList(scroll: ScrollViewProxy) -> some View {
         List {
             Section {
                 Label("Tus bancos, en tus finanzas", systemImage: "building.columns.circle.fill").font(.headline)
@@ -35,6 +40,13 @@ struct PersonalBankConnectionsView: View {
                     .foregroundStyle(.secondary)
                 Text(banking.message).font(.callout)
                 if let message = banking.errorMessage { Text(message).foregroundStyle(.red) }
+                if banking.pendingPlan != nil {
+                    Button("Revisar e incorporar la descarga recibida") {
+                        withAnimation { scroll.scrollTo("personal-bank-review", anchor: .top) }
+                    }
+                    Text("Los movimientos de la primera descarga aparecerán en Movimientos cuando confirmes su incorporación.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             Section("Servidor de conexión personal") {
                 Button("Comprobar conexión") { run { try await banking.configure(server: server, account: account) } }
@@ -47,12 +59,25 @@ struct PersonalBankConnectionsView: View {
                     Button { run { _ = await banking.synchronize(account: account, context: context, force: true); choices = [:] } } label: {
                         Label("Actualizar movimientos bancarios", systemImage: "arrow.clockwise")
                     }
-                    Text("Se comprueban automáticamente al abrir la app, como máximo cada seis horas mientras siga abierta. Si el banco requiere renovar el permiso, tendrás que autorizarlo de nuevo.")
+                    .disabled(banking.pendingPlan != nil)
+                    Text("Cada banco tiene su propio plazo de actualización. Si uno limita las consultas, los demás pueden seguir descargando. Si el banco requiere renovar el permiso, tendrás que autorizarlo de nuevo.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
             ForEach(banking.connections) { connection in
                 Section(connection.bank) {
+                    if let status = banking.bankStatus[connection.bank] {
+                        Text(status.summary).font(.callout)
+                        if let error = status.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
+                        if let retry = status.retryAt, retry > .now {
+                            Label("Próximo intento: \(retry.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        if status.deferredTransfers > 0 {
+                            Text("\(status.deferredTransfers) apuntes de transferencias propias pendientes de la otra cuenta. No se contabilizan como ingresos ni gastos. Se comprobarán de nuevo en próximas descargas.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
                     ForEach(connection.accounts) { remote in
                         let linked = linkedAccount(remote)
                         Button { selection = LinkingSelection(connection: connection, remote: remote) } label: {
@@ -66,11 +91,18 @@ struct PersonalBankConnectionsView: View {
                         }.disabled(linked != nil || remote.currency != "EUR")
                     }
                     Text("Permiso válido hasta \(connection.validUntil.prefix(10)).").font(.caption).foregroundStyle(.secondary)
+                    Button { run {
+                        _ = await banking.synchronize(account: account, context: context, force: true, onlyBank: connection.bank)
+                        choices = [:]
+                    } } label: {
+                        Label("Actualizar solo \(connection.bank)", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(banking.pendingPlan != nil)
                     Button("Desconectar \(connection.bank)", role: .destructive) { disconnecting = connection }
                 }
             }
             if let plan = banking.pendingPlan {
-                reviewSection(plan)
+                reviewSection(plan).id("personal-bank-review")
             }
             if !banking.banks.isEmpty {
                 Section("Conectar o renovar un banco") {
@@ -202,6 +234,9 @@ struct PersonalBankConnectionsView: View {
                 catch { self.error = error.localizedDescription }
             }
             .disabled((try? plan.resolutions(choices)) == nil)
+            Button("Descartar esta descarga sin incorporarla") {
+                banking.discardPending(); choices = [:]
+            }
         }
     }
     private func bankMovement(_ item: PersonalBankingPlan.Item) -> some View {
