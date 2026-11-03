@@ -157,10 +157,70 @@ class CloudStorageTests(unittest.TestCase):
         self.expect_sqlstate('23514',lambda:self.db.execute("UPDATE public.finance_workspaces SET kind='sandbox' WHERE id=%s",(WA,)))
         self.expect_sqlstate('23514',lambda:self.db.execute('UPDATE public.finance_accounts SET id=%s WHERE owner_id=%s',(uuid4(),A)))
 
-    def test_reserved_payment_requires_its_own_account(self):
+    def test_reserved_payment_requires_funding_at_its_account(self):
         account=self.insert('accounts',self.record('accounts',new=True))[0]
         row=self.record('transactions',new=True);row['source_account_id']=account
-        self.expect_sqlstate('23503',lambda:self.insert('transactions',row))
+        def invalid():
+            self.insert('transactions',row)
+            self.db.execute('SET CONSTRAINTS ALL IMMEDIATE')
+        self.expect_sqlstate('23514',invalid)
+
+    def reserved_transfer(self, destination, amount=2000, date='2026-01-02T12:00:00Z'):
+        row=self.record('transactions',new=True)
+        row.update(type='transfer',amount_minor=amount,reserved_amount_minor=amount,
+                   destination_account_id=destination,date=date)
+        return self.insert('transactions',row)[0]
+
+    def test_reserved_transfer_then_payment_and_prevent_removing_funding(self):
+        account=self.insert('accounts',self.record('accounts',new=True))[0]
+        transfer=self.reserved_transfer(account)
+        row=self.record('transactions',new=True)
+        row.update(source_account_id=account,amount_minor=2500,reserved_amount_minor=2000,date='2026-01-03T12:00:00Z')
+        payment=self.insert('transactions',row)[0]
+        self.db.execute('SET CONSTRAINTS ALL IMMEDIATE')
+        self.expect_sqlstate('23514',lambda:self.db.execute('UPDATE public.finance_transactions SET deleted_at=now() WHERE id=%s',(transfer,)))
+        self.expect_sqlstate('23514',lambda:self.db.execute('UPDATE public.finance_transactions SET reserved_amount_minor=1000 WHERE id=%s',(transfer,)))
+        self.db.execute('UPDATE public.finance_transactions SET deleted_at=now() WHERE id=%s',(payment,))
+        self.db.execute('UPDATE public.finance_transactions SET deleted_at=now() WHERE id=%s',(transfer,))
+
+    def test_reserved_transfer_does_not_consume_total_funding(self):
+        account=self.insert('accounts',self.record('accounts',new=True))[0]
+        self.reserved_transfer(account,4000)
+        row=self.record('transactions',new=True)
+        row.update(source_account_id=account,amount_minor=4000,reserved_amount_minor=4000,date='2026-01-03T12:00:00Z')
+        self.insert('transactions',row)
+        self.db.execute('SET CONSTRAINTS ALL IMMEDIATE')
+
+    def test_reserved_transfer_cannot_fund_earlier_payment(self):
+        account=self.insert('accounts',self.record('accounts',new=True))[0]
+        self.reserved_transfer(account)
+        row=self.record('transactions',new=True);row['source_account_id']=account;row['date']='2026-01-01T12:00:00Z'
+        def invalid():
+            self.insert('transactions',row)
+            self.db.execute('SET CONSTRAINTS ALL IMMEDIATE')
+        self.expect_sqlstate('23514',invalid)
+
+    def test_reserved_transfer_rejects_cross_currency_and_tenant(self):
+        account=self.record('accounts',new=True);account['currency_code']='USD'
+        account=self.insert('accounts',account)[0]
+        def invalid():
+            self.reserved_transfer(account)
+            self.db.execute('SET CONSTRAINTS ALL IMMEDIATE')
+        self.expect_sqlstate('23514',invalid)
+        self.expect_sqlstate('23503',lambda:self.reserved_transfer(self.ids[B]['accounts']))
+
+    def test_reserved_snapshot_is_validated_after_all_transfers_are_restored(self):
+        account=self.insert('accounts',self.record('accounts',new=True))[0]
+        before=self.snapshot()
+        payment=before['document']['transactions'][0].copy()
+        payment.update(id=str(uuid4()),sourceAccountID=str(account),amountMinor=2000,reservedAmountMinor=2000)
+        transfer=payment.copy()
+        transfer.update(id=str(uuid4()),typeRaw='transfer',sourceAccountID=self.ids[A]['accounts'],
+                        destinationAccountID=str(account))
+        before['document']['transactions']=[payment,transfer]
+        after=self.save_snapshot(before)
+        self.db.execute('SET CONSTRAINTS ALL IMMEDIATE')
+        self.assertEqual(len(after['document']['transactions']),2)
 
     def test_reserved_money_cannot_be_overspent_even_by_future_payments(self):
         row=self.record('transactions',new=True);row.update(amount_minor=6000,reserved_amount_minor=5000,date='2030-01-01T00:00:00Z')

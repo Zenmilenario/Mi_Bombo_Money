@@ -54,7 +54,7 @@ struct ReservedFundsView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(fund.name)
                                         .foregroundStyle(.primary)
-                                    Text(fund.account?.bankAndAccountDisplayName ?? "Cuenta eliminada")
+                                    Text(reserveLocation(fund))
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }
@@ -115,6 +115,13 @@ struct ReservedFundsView: View {
         } message: {
             Text(errorMessage ?? "Error desconocido")
         }
+    }
+
+    private func reserveLocation(_ fund: ReservedFund) -> String {
+        let locations = accounts.filter {
+            FinanceCalculator.locatedReservedAmount(for: fund, accountID: $0.id, transactions: transactions) > 0
+        }.map(\.bankAndAccountDisplayName)
+        return locations.isEmpty ? "Sin importe pendiente" : locations.joined(separator: " · ")
     }
 
     private func save() {
@@ -179,7 +186,7 @@ struct ReservedFundFormView: View {
                     TextField("Notas", text: $notes, axis: .vertical)
                         .lineLimit(2...5)
                 } footer: {
-                    Text("Este importe es lo que quieres mantener reservado ahora. Los pagos vinculados se descuentan automáticamente. Una reserva con pagos permanece asociada a su cuenta.")
+                    Text("Este importe es lo que quieres mantener reservado ahora. Los pagos vinculados se descuentan automáticamente. La cuenta inicial conserva el origen. Para mover parte de la reserva, selecciónala al registrar o editar una transferencia entre tus cuentas.")
                 }
 
                 if let errorMessage {
@@ -225,7 +232,7 @@ struct ReservedFundFormView: View {
         if let fund {
             let hasPayments = transactions.contains { $0.reservedFundID == fund.id }
             guard !hasPayments || fund.account?.id == account.id else {
-                errorMessage = "Esta reserva tiene pagos vinculados. Crea otra reserva para una cuenta diferente."
+                errorMessage = "La cuenta inicial no puede cambiar con movimientos vinculados. Mueve la reserva mediante una transferencia entre tus cuentas."
                 return
             }
             let spent = FinanceCalculator.spentReservedAmount(for: fund, transactions: transactions)
@@ -234,6 +241,9 @@ struct ReservedFundFormView: View {
                 transactions: transactions, at: .distantFuture) else {
                 errorMessage = "El importe no puede dejar sin cubrir los pagos futuros vinculados a la reserva."
                 return
+            }
+            guard FinanceCalculator.reserveHistoryIsValid(fund: fund, transactions: transactions, funding: total.partialValue) else {
+                errorMessage = "El importe dejaría sin cubrir pagos o traslados de esta reserva. Revisa los movimientos vinculados."; return
             }
             fund.name = cleanName
             fund.amountMinor = total.partialValue

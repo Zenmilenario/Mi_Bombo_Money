@@ -71,6 +71,7 @@ struct CloudProtocolCheck {
         let editWhileSending = try CloudDocument.merge(base:local,local:document(["accounts":[record(1,"Editada mientras sube"),record(2,"Otra")]]),remote:merged)
         try check(try CloudDocument.indexed(editWhileSending,entity:"accounts")[id(1)]?.object["name"] == .string("Editada mientras sube"))
         try checkGraphConflicts()
+        try checkReservedTransfers()
         #if canImport(CryptoKit)
         let flow = CloudPKCEFlow(isRecovery:true)
         precondition(flow.verifier.count == 43 && flow.challenge.count == 43 && !flow.isExpired)
@@ -153,10 +154,27 @@ struct CloudProtocolCheck {
         restarted.cancel(); await restarted.value
         precondition(probe.maximumRunning == 1,"Polling must not overlap its own requests")
     }
+    static func checkReservedTransfers() throws {
+        let origin = record(1,"Ahorro"), destination = record(2,"Cobros")
+        let fund = modified(record(3,"Formación"), ["accountID":.string(id(1)),"amountMinor":.integer(500)])
+        let transfer = modified(record(4,"Traslado"), ["sourceAccountID":.string(id(1)),"destinationAccountID":.string(id(2)),
+            "typeRaw":.string("transfer"),"date":.integer(0),"amountMinor":.integer(400),
+            "reservedFundID":.string(id(3)),"reservedAmountMinor":.integer(400)])
+        let payment = modified(record(5,"Pago"), ["sourceAccountID":.string(id(2)),"typeRaw":.string("expense"),
+            "date":.integer(1),"amountMinor":.integer(400),"reservedFundID":.string(id(3)),"reservedAmountMinor":.integer(400)])
+        let valid = document(["accounts":[origin,destination],"reservedFunds":[fund],"transactions":[payment,transfer]])
+        try check(try CloudDocument.integrityConflicts(valid).isEmpty)
+        let broken = document(["accounts":[origin,destination],"reservedFunds":[fund],"transactions":[payment]])
+        try check(!(try CloudDocument.integrityConflicts(broken)).isEmpty)
+        let base = document(["accounts":[origin,destination],"reservedFunds":[fund],"transactions":[transfer]])
+        let removed = document(["accounts":[origin,destination],"reservedFunds":[fund]])
+        expectConflict { try CloudDocument.merge(base:base,local:valid,remote:removed) }
+    }
+
     static func checkGraphConflicts() throws {
         let account=record(1,"Cuenta")
         let fund=modified(record(3,"Reserva"),["amountMinor":.integer(500),"accountID":.string(id(1))])
-        func payment(_ key:Int) -> CloudJSON { modified(record(key,"Pago"),["sourceAccountID":.string(id(1)),"reservedFundID":.string(id(3)),"reservedAmountMinor":.integer(400),"amountMinor":.integer(400)]) }
+        func payment(_ key:Int) -> CloudJSON { modified(record(key,"Pago"),["sourceAccountID":.string(id(1)),"reservedFundID":.string(id(3)),"reservedAmountMinor":.integer(400),"amountMinor":.integer(400),"typeRaw":.string("expense"),"date":.integer(0)]) }
         let base=document(["accounts":[account],"reservedFunds":[fund]])
         let local=document(["accounts":[account],"reservedFunds":[fund],"transactions":[payment(4)]])
         let remote=document(["accounts":[account],"reservedFunds":[fund],"transactions":[payment(5)]])

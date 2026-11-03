@@ -7,6 +7,7 @@ import SwiftData
 struct BackupRoundTripCheck {
     @MainActor
     static func main() throws {
+        try checkReservedTransfers()
         let source = try makeContainer()
         let destination = try makeContainer()
         let context = source.mainContext
@@ -203,6 +204,39 @@ struct BackupRoundTripCheck {
         } catch is BackupError { }
 
         print("Backup checks passed: complete round trip, repeated restore, invalid input, encryption/decryption, preservation and empty restore.")
+    }
+
+    @MainActor
+    private static func checkReservedTransfers() throws {
+        let source = try makeContainer()
+        let context = source.mainContext
+        let date = Date(timeIntervalSince1970: 1_750_000_000)
+        let origin = FinancialAccount(name: "Ahorro", type: .savings)
+        let destination = FinancialAccount(name: "Cobros", type: .checking)
+        let fund = ReservedFund(name: "Formación", amountMinor: 60_000, account: origin)
+        let transfer = FinancialTransaction(date: date, type: .transfer, amountMinor: 20_000,
+            descriptionText: "Traslado de reserva", reservedFundID: fund.id, reservedAmountMinor: 20_000,
+            sourceAccount: origin, destinationAccount: destination)
+        let payment = FinancialTransaction(date: date.addingTimeInterval(86_400), type: .expense, amountMinor: 25_000,
+            descriptionText: "Pago parcial con reserva", reservedFundID: fund.id, reservedAmountMinor: 20_000,
+            sourceAccount: destination)
+        context.insert(origin); context.insert(destination); context.insert(fund)
+        context.insert(transfer); context.insert(payment)
+        try context.save()
+        let encoded = try BackupService.encode(BackupService.capture(in: context))
+        let target = try makeContainer()
+        try BackupService.restore(BackupService.decode(encoded), in: target.mainContext)
+        let restored = try BackupService.capture(in: target.mainContext)
+        precondition(restored.transactions.count == 2 && restored.reservedFunds.count == 1)
+        precondition(restored.transactions.allSatisfy { $0.reservedFundID == fund.id && $0.reservedAmountMinor == 20_000 })
+        var object = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+        var rows = object["transactions"] as! [[String: Any]]
+        let index = rows.firstIndex { $0["typeRaw"] as? String == "transfer" }!
+        rows.remove(at: index); object["transactions"] = rows
+        do {
+            _ = try BackupService.decode(JSONSerialization.data(withJSONObject: object))
+            preconditionFailure("A backup must not accept a payment without its funding transfer")
+        } catch is BackupError { }
     }
 
     @MainActor

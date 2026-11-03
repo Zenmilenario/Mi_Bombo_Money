@@ -6,13 +6,15 @@ Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e 
 
 El proyecto de Supabase `mi-bombo-money-dev` ya dispone de un esquema PostgreSQL con permisos por usuario y pruebas de aislamiento. El código incorpora acceso cloud y sincronización con copia local separada por usuario; queda pendiente su validación completa en iOS y entre dispositivos. Se activa desde Ajustes → Activar mi nube. Instalación, estado verificado y pruebas reproducibles: [CloudBackend/README.md](CloudBackend/README.md).
 
-## Pagos con dinero reservado · 0.4.3
+## Dinero reservado entre cuentas · 0.6.8
 
-Al registrar o editar un gasto, elige **Origen del dinero → Pagar con → tu reserva**. Solo se ofrecen reservas de la cuenta seleccionada. Puedes pagar todo con la reserva o indicar una parte y completar el resto con dinero disponible. También puedes deslizar una reserva en **Dinero reservado → Pagar** para abrir el movimiento con la cuenta y la reserva seleccionadas.
+Una reserva puede repartirse entre tus cuentas de efectivo. Al registrar o editar una transferencia propia, elige la reserva en **Origen del dinero → Dinero que trasladas**. El importe reservado acompaña al dinero hasta la cuenta de destino; la transferencia no consume la reserva ni cuenta como gasto.
 
-El gasto reduce el saldo de la cuenta y el importe pendiente de la reserva; la parte pagada con reserva no vuelve a restarse del dinero disponible. Sigue siendo un gasto real en el resumen; la parte cubierta por la reserva queda automáticamente fuera del presupuesto mensual. Editar o eliminar el movimiento recalcula la reserva. Para corregir un gasto anterior, edítalo y selecciona su reserva: no se asignan pagos antiguos por su descripción ni se reducen reservas automáticamente sin un vínculo explícito.
+Al registrar o editar el cobro posterior, selecciona **Pagar con → tu reserva**. También aparecen las reservas originadas en otras cuentas. Si existe una única transferencia propia compatible en los 35 días anteriores, se prepara su vínculo y se muestra antes de guardar; no se añade otro movimiento. Si hay varias, se elige la transferencia en el mismo formulario. Sin una transferencia registrada que aporte dinero reservado, no se inventa saldo ni se atribuye el pago por su descripción.
 
-Las copias JSON v2 conservan esos vínculos y se siguen leyendo las copias v1. Se incorporan las mejoras del ZIP revisado (CSV, copias cifradas y acceso local por usuario) con correcciones de seguridad, icono y compatibilidad universal. Detalle de la revisión y comprobaciones: [Revisión del 28 de octubre](REVISION_2026_10_28.md).
+La parte cubierta reduce la reserva y el saldo real de la cuenta, mantiene el disponible libre y queda fuera del presupuesto mensual. El resto sí consume presupuesto y disponible. Editar un pago recalcula la asignación; borrar una transferencia necesaria para pagos posteriores se impide. Las copias JSON v2 conservan los traslados y los pagos, y se siguen leyendo copias anteriores.
+
+La migración cloud de esta función ya está aplicada en `mi-bombo-money-dev`; los cambios de la app están preparados localmente. **Pendiente:** push con GitHub Desktop, compilación iOS en Actions y prueba en el dispositivo. Detalle, ejemplo sintético y comprobaciones: [Reservas entre cuentas](RESERVAS.md). No hace falta borrar datos ni duplicar reservas.
 
 ## Integración bancaria de prueba 0.4.2
 
