@@ -1,9 +1,22 @@
 import { timingSafeEqual } from 'node:crypto';
 import { Buffer } from 'node:buffer';
+import { isIP } from 'node:net';
 
 const encoder = new TextEncoder();
 export class Fault extends Error {
   constructor(status, code) { super(code); this.status = status; this.code = code; }
+}
+export function psuHeaders(request) {
+  const manual = request.headers.get('X-Banking-User-Initiated');
+  if (manual === null) return {};
+  if (manual !== '1') throw new Fault(400, 'invalid_request');
+  // Cloudflare supplies the actual connecting address. Never use client-forwarded PSU/X-Forwarded-For headers.
+  const ip = request.headers.get('CF-Connecting-IP');
+  const agent = request.headers.get('User-Agent');
+  if (!ip || !isIP(ip) || !agent || agent.length > 512 || /[\x00-\x1f\x7f]/.test(agent)) {
+    throw new Fault(400, 'psu_context_unavailable');
+  }
+  return { 'Psu-Ip-Address': ip, 'Psu-User-Agent': agent };
 }
 export const now = () => Math.floor(Date.now() / 1000);
 export const randomID = () => crypto.randomUUID();
@@ -124,6 +137,6 @@ export function securityHeaders(extra = {}) {
     'X-Frame-Options': 'DENY', 'Permissions-Policy': 'camera=(), microphone=(), geolocation=()', ...extra
   };
 }
-export function json(value, status = 200) {
-  return new Response(JSON.stringify(value), { status, headers: securityHeaders({ 'Content-Type': 'application/json; charset=utf-8' }) });
+export function json(value, status = 200, headers = {}) {
+  return new Response(JSON.stringify(value), { status, headers: securityHeaders({ 'Content-Type': 'application/json; charset=utf-8', ...headers }) });
 }

@@ -15,6 +15,21 @@ struct BankingSecurityCheck {
         precondition(BankingConnectionPolicy.entryDestination(cloud: false, testWorkspace: false, testOnly: false) == .requiresPersonalWorkspace)
         checkAuthenticationLifecycle()
         checkSingleCompletion()
+        let bankFailure = BankingConnectionError.server("bank_unavailable").localizedDescription
+        precondition(!bankFailure.contains("pruebas"), "A real bank failure must not be described as a sandbox failure")
+        let scopedFailure = BankingConnectionError.accountQuery(bank: "BBVA", lastFour: "0000",
+            reason: .server("bank_psu_headers_required")).localizedDescription
+        precondition(scopedFailure.contains("BBVA · •••• 0000") && scopedFailure.contains("servidor"))
+        precondition(!scopedFailure.contains("banco de pruebas"))
+        for header in [nil, "invalid", "nan", "inf"] as [String?] {
+            precondition(BankingConnectionPolicy.bankRetryDelay(header) == 21600)
+        }
+        precondition(BankingConnectionPolicy.bankRetryDelay("0") == 60)
+        precondition(BankingConnectionPolicy.bankRetryDelay("3600") == 3600)
+        precondition(BankingConnectionPolicy.bankRetryDelay("999999999") == 604800)
+        let limited = BankingConnectionError.accountQuery(bank: "BBVA", lastFour: "0000",
+            reason: .bankRateLimited(retryAfter: 3600))
+        precondition(limited.retryDelay == 3600, "Adding account context must preserve the bank's cooldown")
         // Fictional credentials used only to validate destination policy; never used for a server.
         let token = String(repeating: "a", count: 64)
         let server = "https://bank-test.personal.workers.dev"

@@ -10,6 +10,10 @@ enum BankingConnectionPolicy {
     }
 
     static let personalServerHost = "mi-bombo-banking-personal.albertor7722.workers.dev"
+    static func bankRetryDelay(_ header: String?) -> TimeInterval {
+        guard let header, let seconds = Double(header), seconds.isFinite else { return 6 * 60 * 60 }
+        return max(60, min(7 * 24 * 60 * 60, seconds))
+    }
     static func acceptsAuthorizationURL(_ url: URL, server: URL, live: Bool = false) -> Bool {
         guard url.scheme == "https", url.user == nil, url.password == nil, url.port == nil else { return false }
         if live {
@@ -63,6 +67,17 @@ struct BankingServerConfiguration: Codable {
 enum BankingConnectionError: LocalizedError {
     case invalidConfiguration, missingConfiguration, invalidResponse, authorizationFailed, presentationUnavailable, cancelled
     case server(String)
+    indirect case accountQuery(bank: String, lastFour: String, reason: BankingConnectionError)
+    case bankRateLimited(retryAfter: TimeInterval)
+
+    var retryDelay: TimeInterval? {
+        switch self {
+        case .bankRateLimited(let seconds): seconds
+        case .accountQuery(_, _, let reason): reason.retryDelay
+        case .server("bank_rate_limited"): 6 * 60 * 60
+        default: nil
+        }
+    }
 
     var errorDescription: String? {
         switch self {
@@ -72,6 +87,10 @@ enum BankingConnectionError: LocalizedError {
         case .authorizationFailed: "No se ha podido completar la autorización. Inténtalo de nuevo."
         case .presentationUnavailable: "No se ha podido abrir la ventana de autorización. Mantén la app en primer plano y vuelve a intentarlo."
         case .cancelled: "Has cancelado la conexión."
+        case .accountQuery(let bank, let lastFour, let reason):
+            "\(bank) · •••• \(lastFour): \(reason.localizedDescription)"
+        case .bankRateLimited:
+            "El banco o el proveedor ha limitado las consultas. Se respetará el plazo de espera antes de volver a actualizar. No necesitas desconectar ni volver a asociar la cuenta."
         case .server(let code):
             switch code {
             case "unauthorized": "La clave de acceso no es válida o ha sido revocada."
@@ -86,7 +105,16 @@ enum BankingConnectionError: LocalizedError {
             case "live_banking_disabled", "sandbox_configuration_required": "Esta versión solo admite demostración y pruebas sandbox. Las cuentas reales están bloqueadas."
             case "not_configured", "invalid_signing_key": "Falta completar la configuración del servidor de prueba."
             case "connection_not_found": "La conexión ha caducado o ya se ha desconectado."
-            case "bank_unavailable": "El banco de pruebas no está disponible. Vuelve a intentarlo más tarde."
+            case "bank_unavailable": "El banco o el proveedor no ha podido completar la consulta. Vuelve a intentarlo más tarde."
+            case "bank_session_expired", "bank_action_required": "El banco requiere que renueves la autorización desde Conectar o renovar un banco. Tus movimientos guardados se conservan."
+            case "bank_rate_limited": "El banco o el proveedor ha limitado las consultas. Espera antes de volver a actualizar; no necesitas desconectar la cuenta."
+            case "bank_timeout": "El banco no ha respondido a tiempo. Vuelve a actualizar más tarde."
+            case "bank_psu_headers_required": "El banco exige información de la conexión del dispositivo que el servidor no ha enviado correctamente. Es necesario actualizar el servidor; no necesitas borrar ni volver a asociar la cuenta."
+            case "psu_context_unavailable": "No se ha podido identificar la conexión del dispositivo para esta consulta manual. Es necesario revisar el servidor."
+            case "bank_account_unavailable": "El banco no permite consultar esta cuenta con el permiso actual. Comprueba las cuentas autorizadas al renovar el banco."
+            case "bank_history_unavailable": "El banco ha rechazado el periodo de movimientos solicitado. Es necesario revisar la consulta del servidor."
+            case "bank_request_rejected": "El banco ha rechazado los parámetros de la consulta. Es necesario revisar el servidor de conexión."
+            case "provider_access_denied": "Enable Banking ha rechazado el acceso del servidor. Hay que revisar su configuración y permisos."
             default: "No se pudo completar la consulta. Comprueba la conexión y la configuración del servidor."
             }
         }

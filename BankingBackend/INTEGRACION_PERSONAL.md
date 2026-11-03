@@ -1,5 +1,36 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Consultas bancarias y límites — 0.6.5
+
+Actualizado el 3 de noviembre de 2026.
+
+### Diagnóstico confirmado
+
+Tras autorizar BBVA y asociar una de sus cuentas existentes, la app mostraba «El banco de pruebas no está disponible», junto a un mensaje anterior de primera descarga preparada. La asociación estaba guardada. Una repetición manual, observada mediante diagnóstico temporal filtrado, confirmó una respuesta del proveedor HTTP 429, `ASPSP_RATE_LIMIT_EXCEEDED`, en la consulta de movimientos. No se han copiado identificadores de cuentas, saldos, movimientos ni credenciales a esta documentación. La captura de diagnóstico temporal ha finalizado.
+
+La [FAQ de Enable Banking](https://enablebanking.com/docs/faq/#why-am-i-getting-429-response-code-are-there-rate-limits-for-the-api) distingue consultas iniciadas por la aplicación de consultas iniciadas por el usuario. Las segundas deben enviar el contexto PSU del usuario; las automáticas no deben simular presencia del usuario. Muchos bancos limitan las consultas automáticas a cuatro al día; no se afirma que sea la cuota exacta de esta cuenta. El proveedor recomienda esperar seis horas cuando se alcanza ese límite. La espera no garantiza una hora exacta de desbloqueo.
+
+### Implementado
+
+- El botón «Actualizar movimientos bancarios» identifica la descarga como una acción del usuario. Todas sus páginas conservan esa marca. Las consultas automáticas siguen sin ella.
+- El servidor obtiene la IP de la conexión desde la cabecera de Cloudflare y la identificación de la app desde User-Agent, valida ambos datos y los envía únicamente a las consultas de movimientos y saldos del proveedor. No confía en direcciones PSU ni X-Forwarded-For facilitadas por el cliente. No registra IP ni User-Agent.
+- Se distinguen límites, permiso caducado, acción del usuario requerida, fallo temporal, datos PSU ausentes, cuenta inaccesible, periodo rechazado y acceso del proveedor denegado. Las respuestas libres del banco no se muestran ni se registran.
+- El error de descarga incorpora banco y últimos cuatro dígitos en la app. Se elimina la referencia incorrecta a un banco de pruebas.
+- El servidor transmite Retry-After como segundos validados, o seis horas si no se proporciona un plazo válido. La app conserva la espera entre reinicios e impide que el botón de actualización la salte. Este bloqueo afecta a la descarga conjunta actual, no es todavía una planificación independiente por banco.
+- Una descarga nueva invalida el plan de revisión anterior. Si falla, no queda un plan antiguo listo para confirmar ni un mensaje anterior de descarga preparada. No se incorpora una descarga parcial.
+- Diagnóstico del servidor: únicamente categoría fija de operación, estado HTTP y código reconocido del proveedor. Sin URL, identificadores, cuerpos, excepciones, claves ni datos financieros. La configuración de observabilidad persistente sigue desactivada.
+
+### Despliegue y comprobaciones
+
+El servidor personal actualizado está desplegado. Se conservan la base de datos, secretos y conexiones; no hay migraciones. Comprobado después del despliegue: health responde 200 y el estado privado sin credenciales responde 401. Esto no verifica una descarga bancaria real correcta.
+
+Han pasado 23 pruebas Node y 23 de integración workerd/D1. Incluyen solicitudes manuales frente a automáticas, paginación con contexto, rechazo de IP/contexto inválido, ausencia de cabeceras PSU en configuración, protección de los datos del proveedor y propagación de Retry-After. También pasan las pruebas Swift de política de conexión, contexto del error y plazo de espera, el análisis sintáctico de los archivos Swift modificados, el empaquetado de Wrangler y la revisión de espacios de Git.
+
+### Pendiente
+
+La app 0.6.5, compilación 22, está preparada localmente. Falta que el propietario haga Commit/Push con GitHub Desktop, que pasen los checks macOS/iOS y que instale el nuevo IPA. Después hay que validar una actualización manual de BBVA y la incorporación revisada sin duplicados. No se ha confirmado aún una descarga real correcta tras esta corrección. No es necesario borrar datos ni repetir la asociación por el error 429.
+
+
 ## Estado del 3 de noviembre de 2026
 
 La versión 0.6.1 está instalada y el propietario confirma que Bankinter ya devuelve movimientos reales para revisar. La primera incorporación contable sigue pendiente. Los once checks del commit `a9e5e54` están aprobados, incluidas las compilaciones iOS. La mejora de conciliación 0.6.2 está preparada localmente; todavía no está publicada ni instalada.
