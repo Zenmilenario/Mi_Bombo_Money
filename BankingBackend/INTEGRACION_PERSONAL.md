@@ -1,8 +1,8 @@
-# Conexión bancaria personal · versión 0.6.1
+# Conexión bancaria personal · versión 0.6.2
 
-## Estado del 30 de octubre de 2026
+## Estado del 3 de noviembre de 2026
 
-Implementación preparada en la carpeta del proyecto. Primer piloto previsto: una cuenta personal de Bankinter. El propietario ha completado la vinculación de su cuenta de prueba en el panel de Enable Banking. Se ha verificado la activación de la aplicación sin consultar saldos ni movimientos; queda conectar desde el IPA y validar la primera importación.
+La versión 0.6.1 está instalada y el propietario confirma que Bankinter ya devuelve movimientos reales para revisar. La primera incorporación contable sigue pendiente. Los once checks del commit `a9e5e54` están aprobados, incluidas las compilaciones iOS. La mejora de conciliación 0.6.2 está preparada localmente; todavía no está publicada ni instalada.
 
 - Worker personal independiente desplegado en `https://mi-bombo-banking-personal.albertor7722.workers.dev` y D1 independiente con jurisdicción UE. El servidor sandbox anterior conserva su configuración y sus claves.
 - Aplicación PRODUCTION registrada por el propietario en Enable Banking. Su firma, entorno, servicio exclusivo AIS y retorno exacto se han verificado mediante la API. Tras la vinculación realizada por el propietario, se ha verificado mediante la API que figura ACTIVE, con servicio exclusivo AIS y retorno correcto. El catálogo para particulares en España incluye Bankinter.
@@ -18,9 +18,24 @@ La corrección admite exactamente los dos hosts oficiales de producción, `auth.
 
 La corrección del servidor ya está desplegada con la misma base y configuración de propietario. Se conservan los secretos existentes, sin regenerar claves, alterar consentimientos ni migrar datos. El cliente también necesita actualizarse a 0.6.1: instalar únicamente la corrección del servidor no basta para el IPA 0.6.0. Se añaden mensajes específicos para destino rechazado y respuesta del proveedor incompatible.
 
-Verificación local de esta revisión: 20 pruebas Node, 21 pruebas workerd/D1 y prueba Swift de la política de destinos y ciclo de autenticación, todas aprobadas. Se cubren el dominio real devuelto por producción, el nuevo dominio oficial, destinos parecidos, sandbox en modo real, HTTP, credenciales y puertos alternativos. La compilación nativa de 0.6.1 y la prueba física quedan pendientes de publicar los cambios y generar el nuevo IPA.
+Verificación local de esta revisión: 20 pruebas Node, 21 pruebas workerd/D1 y prueba Swift de la política de destinos y ciclo de autenticación, todas aprobadas. Se cubren el dominio real devuelto por producción, el nuevo dominio oficial, destinos parecidos, sandbox en modo real, HTTP, credenciales y puertos alternativos. La compilación nativa de 0.6.1 ya está aprobada en GitHub; el propietario confirma que la descarga real llega a la pantalla de revisión.
 
 Fuentes: [ejemplo oficial de Account Information](https://enablebanking.com/accounts-api/) y [migración de orígenes anunciada por Enable Banking](https://enablebanking.com/blog/2026/06/12/enable-banking-changelog-may-2026).
+
+## Conciliación asistida · 0.6.2
+
+Implementado en la carpeta del proyecto:
+
+- Se normalizan acentos, espacios y separadores del concepto y se retira el prefijo técnico inicial `/TXT/D|` o `/TXT/H|`. Las coincidencias automáticas siguen exigiendo cuenta, importe, tipo compatible, mismo día y concepto equivalente, con un único candidato y sin colisiones.
+- Los candidatos compatibles de los tres días próximos se ordenan por concepto relacionado y proximidad de fecha. Una coincidencia de texto destacada o un único registro de igual cuenta, importe y día produce una propuesta que requiere confirmación. Coincidir solo en importe en días diferentes no basta. No se interpreta una puntuación como probabilidad estadística.
+- La pantalla separa nuevos, reconocidos automáticamente, asociaciones preparadas por el usuario, propuestas por confirmar y dudas. Los ya importados cuentan las referencias bancarias reconocidas de consultas anteriores, no todos los registros manuales existentes.
+- Cada comparación muestra el concepto, fecha e importe del banco junto al registro local, su categoría, destino si es transferencia y aviso si usa dinero reservado. Las propuestas se pueden aceptar juntas; las decisiones individuales previas se conservan. Esta acción prepara elecciones: solo «Incorporar descarga revisada» escribe los datos.
+- Las decisiones preparadas se agrupan y pueden volver a revisarse. Se bloquea elegir un registro ya consumido por otra decisión; solo las dos partes complementarias de una transferencia propia pueden compartirlo. Las compras repetidas sin una coincidencia destacada siguen requiriendo decisión individual.
+- La asociación conserva el registro local y sus categorías, notas, fecha, reserva y relación periódica. No es necesario borrar datos ni restaurar una copia para utilizarla. No se han realizado escrituras en los datos personales del propietario durante este cambio.
+
+Verificado localmente: el ejecutable Swift de conciliación pasa con prefijos bancarios, propuestas por fecha/importe, conceptos relacionados, compras repetidas, conflictos, aislamiento por cuenta, decisiones individuales conservadas y una descarga sintética de 67 propuestas confirmables en conjunto. Se mantiene la cobertura de transferencias e importaciones repetidas. El análisis sintáctico de los archivos Swift modificados pasa.
+
+Pendiente: ejecutar en macOS los checks de SwiftData y las compilaciones iOS después de que el propietario publique la revisión. Se ha ampliado el check de persistencia existente para comprobar aceptación explícita, conservación de categorías y reservas y una segunda importación sin duplicados; no se puede ejecutar SwiftData en este ordenador Windows. Después se instalará el IPA 0.6.2 para probar la pantalla en el iPad y revisar la primera importación real. No se ha validado visualmente el nuevo SwiftUI en un simulador.
 
 ## Flujo implementado
 
@@ -80,7 +95,7 @@ Son controles implementados y comprobaciones concretas; no constituyen una garan
 - Bundle del Worker comprobado con despliegue en seco; servidor personal desplegado. Comprobaciones HTTPS reales: salud correcta, ausencia de credenciales y credenciales ficticias rechazadas, orígenes de navegador rechazados.
 - Firma de la aplicación Enable Banking real comprobada sin consultar ninguna cuenta. Estado actualizado tras la vinculación del propietario: PRODUCTION / AIS / ACTIVE. No se han consultado saldos ni movimientos en esta comprobación.
 
-Pendientes antes del piloto físico: instalar el nuevo IPA y completar la conexión de Bankinter desde la app, asociar la cuenta con su registro existente y revisar la primera descarga. La vinculación de cuentas propias en el panel ya está completada; no sustituye la autorización desde la app. Los once checks del commit `0722b8c` ya están aprobados. El [workflow número 22](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41055414514) ha terminado correctamente y ofrece `MiPatrimonio-0.6.0-22-unsigned.ipa` del mismo commit.  La prueba física verificará saldos, primera importación, reservas, transferencias e idempotencia de una segunda actualización.
+Pendiente del piloto físico: instalar el IPA 0.6.2 y revisar la primera descarga con la conciliación asistida. La 0.6.1 ya conecta y muestra datos de Bankinter, según la prueba del propietario. La vinculación de cuentas propias en el panel ya está completada; no sustituye la autorización desde la app. Los once checks del commit `0722b8c` ya están aprobados. El [workflow número 22](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41055414514) ha terminado correctamente y ofrece el IPA histórico `MiPatrimonio-0.6.0-22-unsigned.ipa` del mismo commit; ese artefacto no contiene las correcciones 0.6.1 ni 0.6.2.  La prueba física verificará saldos, primera importación, reservas, transferencias e idempotencia de una segunda actualización.
 
 ## Preparación reproducible
 

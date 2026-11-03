@@ -32,9 +32,52 @@ struct PersonalBankingPlanCheck {
         expectReview { _ = try similar.resolutions([:]) }
         let separateChoices = try similar.resolutions([similar.items[0].id: .new])
         precondition(separateChoices[similar.items[0].id] == .new)
+        precondition(similar.items[0].automaticMatch == nil && similar.items[0].suggestedMatch != nil,
+                     "A unique same-day amount is a proposal, never an automatic match")
+        let accepted = similar.acceptingSuggestions([:])
+        precondition(similar.unresolvedItems(accepted).isEmpty)
+        _ = try similar.resolutions(accepted)
+        precondition(similar.acceptingSuggestions(separateChoices) == separateChoices, "Bulk acceptance must preserve manual decisions")
+        let prefixed = try PersonalBankingPlan.build(feeds: [feed(rows: [row(text: "/TXT/D|  CÓMPRA * ")])], links: links, ledger: [local])
+        precondition(prefixed.items[0].automaticMatch == local.id, "Technical bank prefixes and punctuation must not force manual review")
+        precondition(repeated.items[0].suggestedMatch == nil && repeated.unresolvedItems([:]).count == 1,
+                     "Repeated identical local purchases remain ambiguous")
+        let nearby = BankingLedgerEntry(id: UUID(), date: day.addingTimeInterval(-86400), kind: "expense", amount: 1000,
+            source: daily, destination: nil, text: "Compra supermercado", externalID: nil)
+        let shifted = try PersonalBankingPlan.build(feeds: [feed(rows: [row(text: "/TXT/D|SUPERMERCADO CENTRAL")])], links: links, ledger: [nearby])
+        precondition(shifted.items[0].automaticMatch == nil && shifted.items[0].suggestedMatch == nearby.id)
+        expectReview { _ = try shifted.resolutions([:]) }
+        let unrelated = try PersonalBankingPlan.build(feeds: [feed(rows: [row(text: "Restaurante")])], links: links, ledger: [nearby])
+        precondition(unrelated.items[0].suggestedMatch == nil, "Amount alone on different days is not a proposal")
+        let cafe = entry(text: "Cafetería del parque")
+        let ranked = try PersonalBankingPlan.build(feeds: [feed(rows: [row(text: "/TXT/D|Cafeteria del parque")])], links: links,
+            ledger: [local, cafe])
+        precondition(ranked.items[0].automaticMatch == nil && ranked.items[0].suggestedMatch == cafe.id && ranked.items[0].candidates.first == cafe.id)
+        let wrongAccount = BankingLedgerEntry(id: UUID(), date: day, kind: "expense", amount: 1000,
+            source: savings, destination: nil, text: "Compra", externalID: nil)
+        let scoped = try PersonalBankingPlan.build(feeds: [feed()], links: links, ledger: [wrongAccount])
+        precondition(scoped.items[0].candidates.isEmpty && scoped.unresolvedItems([:]).isEmpty)
+        let bulkLedger = (1...67).map { index in
+            BankingLedgerEntry(id: UUID(), date: day, kind: "expense", amount: Int64(index * 100),
+                source: daily, destination: nil, text: "Mi anotación \(index)", externalID: nil)
+        }
+        let bulkRows = (1...67).map { row("batch-\($0)", amount: -Int64($0 * 100), text: "Concepto bancario \($0)") }
+        let bulk = try PersonalBankingPlan.build(feeds: [feed(rows: bulkRows)], links: links, ledger: bulkLedger)
+        precondition(bulk.unresolvedItems([:]).count == 67 && bulk.items.allSatisfy { $0.automaticMatch == nil && $0.suggestedMatch != nil })
+        let bulkDecisions = bulk.acceptingSuggestions([:])
+        precondition(bulkDecisions.count == 67 && bulk.unresolvedItems(bulkDecisions).isEmpty)
+        let bulkResolved = try bulk.resolutions(bulkDecisions)
+        precondition(bulkResolved.values.allSatisfy { if case .match = $0 { return true }; return false })
+        let noContent = try PersonalBankingPlan.build(feeds: [feed(rows: [row(text: "/TXT/D|***")])], links: links, ledger: [entry(text: "---")])
+        precondition(noContent.items[0].automaticMatch == nil, "Empty cleaned text is not a safe automatic match")
         let competing = try PersonalBankingPlan.build(feeds: [feed(rows: [row("a"), row("b")])], links: links, ledger: [local])
         precondition(competing.items.allSatisfy { $0.automaticMatch == nil })
         expectReview { _ = try competing.resolutions(Dictionary(uniqueKeysWithValues: competing.items.map { ($0.id, .match(local.id)) })) }
+        let competingSuggestions = try PersonalBankingPlan.build(feeds: [feed(rows: [row("a"), row("b")])], links: links, ledger: [entry(text: "Otro concepto")])
+        precondition(competingSuggestions.items.allSatisfy { $0.suggestedMatch == nil }, "Two bank purchases cannot propose consuming one record")
+        let prepared = [competing.items[0].id: PersonalBankingPlan.Choice.match(local.id)]
+        precondition(!competing.canMatch(competing.items[1], to: local.id, choices: prepared))
+        precondition(competing.canMatch(competing.items[0], to: local.id, choices: prepared))
         let imported = entry(external: first.items[0].id)
         let renewed = try PersonalBankingPlan.build(feeds: [feed()], links: links, ledger: [imported])
         precondition(renewed.items.isEmpty && renewed.alreadyImported == 1, "Renewal does not depend on consent ID")
@@ -71,7 +114,7 @@ struct PersonalBankingPlanCheck {
         catch PersonalBankingError.invalidData { }
         do { _ = try PersonalBankingPlan.build(feeds: [feed()], links: [:], ledger: []); preconditionFailure("Unlinked account accepted") }
         catch PersonalBankingError.accountNotLinked { }
-        print("Personal banking plan passed: reconciliation, ambiguous purchases, renewal, account scoping, own transfers, incomplete data and stable IDs.")
+        print("Personal banking plan passed: technical prefixes, explicit bulk proposals, repeated purchases, candidate conflicts, renewal, account scoping, transfers and stable IDs.")
     }
     static func expectReview(_ body: () throws -> Void) {
         do { try body(); preconditionFailure("Review was bypassed") }

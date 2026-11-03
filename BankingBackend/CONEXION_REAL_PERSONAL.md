@@ -13,3 +13,7 @@ No regeneres las claves del sandbox ni del servidor personal para actualizar el 
 ## Actualización necesaria: 0.6.1
 
 Se corrigió la validación del dominio real que devuelve Bankinter a través de Enable Banking. El servidor está actualizado; el cliente 0.6.0 también debe sustituirse por 0.6.1 tras publicar y validar esta revisión. No hace falta volver a vincular la cuenta en el panel ni cambiar las claves. [Detalle y pruebas](INTEGRACION_PERSONAL.md#corrección-de-autorización--061).
+
+## Mejora de conciliación · 0.6.2
+
+El propietario confirma que la 0.6.1 descarga movimientos reales de Bankinter. La 0.6.2, preparada localmente y pendiente de checks macOS e instalación, distingue movimientos nuevos, reconocidos, propuestas y dudas; compara el registro del banco con el manual y permite confirmar propuestas conjuntamente sin borrar los datos existentes. [Implementación, pruebas y pendientes](INTEGRACION_PERSONAL.md#conciliación-asistida--062).

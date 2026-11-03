@@ -38,6 +38,8 @@ struct PersonalBankingPlan {
         var candidates: [UUID] = []
         var transferCandidates: Set<UUID> = []
         var automaticMatch: UUID?
+        var suggestedMatch: UUID?
+        var suggestionReason: String?
     }
     struct Balance { let account: UUID; let amount: Int64 }
     let items: [Item]
@@ -143,17 +145,47 @@ struct PersonalBankingPlan {
             let transfers = ledger.filter { $0.kind == "transfer" && compatible($0, with: item)
                 && abs($0.date.timeIntervalSince(item.date)) <= 3 * 86400 }
             candidates.append(contentsOf: transfers.filter { transfer in !candidates.contains { $0.id == transfer.id } })
+            // Keep the best textual match first, with stable ordering for equal scores.
+            candidates.sort {
+                let left = Self.conceptScore($0.text, item.text), right = Self.conceptScore($1.text, item.text)
+                if left != right { return left > right }
+                let ld = abs($0.date.timeIntervalSince(item.date)), rd = abs($1.date.timeIntervalSince(item.date))
+                return ld == rd ? $0.id.uuidString < $1.id.uuidString : ld < rd
+            }
             items[i].candidates = candidates.map(\.id)
             items[i].transferCandidates = Set(transfers.map(\.id))
-            let exact = candidates.filter { formatter.string(from: $0.date) == formatter.string(from: item.date) && normalized($0.text) == normalized(item.text) }
+            let exact = candidates.filter { formatter.string(from: $0.date) == formatter.string(from: item.date)
+                && !normalized(item.text).isEmpty && normalized($0.text) == normalized(item.text) }
             // Ambiguous repeated purchases and two bank rows competing for one local row require review.
             if candidates.count == 1, exact.count == 1 { items[i].automaticMatch = exact[0].id }
+            if items[i].automaticMatch == nil, let best = candidates.first {
+                let score = Self.conceptScore(best.text, item.text)
+                let distinctConcept = score > 0 && (candidates.count == 1 || score > Self.conceptScore(candidates[1].text, item.text))
+                let sameDay = formatter.string(from: best.date) == formatter.string(from: item.date)
+                if distinctConcept || (candidates.count == 1 && sameDay) {
+                    items[i].suggestedMatch = best.id
+                    items[i].suggestionReason = distinctConcept
+                        ? "Misma cuenta e importe, fecha cercana y concepto relacionado."
+                        : "Único registro de la misma cuenta, importe y día. El concepto es distinto: compruébalo."
+                }
+            }
         }
         let proposedItems = items
         for i in items.indices {
             if let proposed = items[i].automaticMatch {
                 let competing = proposedItems.filter { $0.automaticMatch == proposed }
                 if competing.count > 1 && !canShareTransfer(competing, id: proposed) { items[i].automaticMatch = nil }
+            }
+        }
+        // Never propose two purchases against one local record, or consume a record
+        // already recognized automatically. Complementary legs of a transfer can share it.
+        let suggestions = items
+        for i in items.indices {
+            if let proposed = items[i].suggestedMatch {
+                let competing = suggestions.filter { ($0.automaticMatch ?? $0.suggestedMatch) == proposed }
+                if competing.count > 1 && !canShareTransfer(competing, id: proposed) {
+                    items[i].suggestedMatch = nil; items[i].suggestionReason = nil
+                }
             }
         }
         return Self(items: items.sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }, balances: balances, alreadyImported: skipped)
@@ -171,6 +203,24 @@ struct PersonalBankingPlan {
                 assigned[id, default: []].append(item)
             }
             result[item.id] = choice
+        }
+        return result
+    }
+    func unresolvedItems(_ choices: [String: Choice]) -> [Item] {
+        items.filter { !$0.candidates.isEmpty && $0.automaticMatch == nil && choices[$0.id] == nil }
+    }
+    func canMatch(_ item: Item, to id: UUID, choices: [String: Choice]) -> Bool {
+        guard item.candidates.contains(id) else { return false }
+        let assigned = items.filter { other in
+            other.id != item.id && (choices[other.id] ?? other.automaticMatch.map { Choice.match($0) }) == .match(id)
+        }
+        return assigned.isEmpty || Self.canShareTransfer(assigned + [item], id: id)
+    }
+    /// Only prepares explicit choices; it neither writes data nor bypasses final review.
+    func acceptingSuggestions(_ choices: [String: Choice]) -> [String: Choice] {
+        var result = choices
+        for item in unresolvedItems(choices) {
+            if let id = item.suggestedMatch, canMatch(item, to: id, choices: result) { result[item.id] = .match(id) }
         }
         return result
     }
@@ -201,8 +251,24 @@ struct PersonalBankingPlan {
             && Set(items.map(\.kind)) == Set(["expense", "income"]) && items[0].source != items[1].source
     }
     private static func normalized(_ text: String) -> String {
-        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "es_ES"))
-            .split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        let folded = text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "es_ES"))
+        // Strip only the known technical prefix, not meaningful purchase or transfer text.
+        let cleaned = folded.replacingOccurrences(of: #"^(?:\s*/txt/[a-z]\|)+"#, with: "", options: .regularExpression)
+        return cleaned.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).joined(separator: " ")
+    }
+    private static func conceptScore(_ lhs: String, _ rhs: String) -> Int {
+        let left = normalized(lhs), right = normalized(rhs)
+        if !left.isEmpty && left == right { return 3 }
+        let ignored: Set<String> = ["pago", "compra", "tarjeta", "transferencia", "transfer", "recibo", "cargo", "abono", "bizum", "paypal", "para", "desde", "cuenta"]
+        func tokens(_ value: String) -> Set<String> {
+            Set(value.split(separator: " ").map(String.init).filter {
+                $0.count >= 3 && $0.contains(where: \.isLetter) && !ignored.contains($0)
+            })
+        }
+        let a = tokens(left), b = tokens(right), common = a.intersection(b)
+        if common.count >= 2 { return 2 }
+        if common.contains(where: { $0.count >= 5 }) { return 1 }
+        return 0
     }
     private static func absSafe(_ amount: Int64, limit: Int64) -> Bool { amount >= -limit && amount <= limit }
 }

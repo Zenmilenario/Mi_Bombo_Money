@@ -25,7 +25,7 @@ struct PersonalBankingImporterCheck {
         try PersonalBankingImporter.link(remote, bank: "Bankinter", server: server, to: local, in: context)
         let feed = BankingAccountFeed(connection: .init(id: UUID().uuidString, bank: "Bankinter", validUntil: "2026-11-01", accounts: [remote]),
             account: remote, balances: [.init(amountMinor: 9000, currency: "EUR", type: "CLBD")], movements: [
-                .init(id: "bank-payment", bookingDate: "2026-10-15", signedAmountMinor: -1000, currency: "EUR", description: "Universidad")])
+                .init(id: "bank-payment", bookingDate: "2026-10-15", signedAmountMinor: -1000, currency: "EUR", description: "/TXT/D|Universidad")])
         let result = try PersonalBankingImporter.apply([feed], server: server, in: context, observedAt: observed)
         precondition(result.inserted == 0 && result.matched == 1)
         precondition(paid.externalID == "csv-original" && paid.bankEntryKey != nil)
@@ -59,6 +59,27 @@ struct PersonalBankingImporterCheck {
         let month = FinanceCalculator.monthlySummary(for: observed, transactions: afterTransfer)
         precondition(afterTransfer.count == 2 && month.expenseMinor == 1000 && month.budgetExpenseMinor == 0,
                      "A Bankinter debit already recorded as an investment transfer must not become a second expense")
+        // A different description becomes an explicit proposal, preserving the full manual record on acceptance.
+        let extra = FinancialTransaction(date: day, type: .expense, amountMinor: 750, descriptionText: "Material para estudiar",
+            notes: "Mi nota", reservedFundID: fund.id, reservedAmountMinor: 750, sourceAccount: local, category: category)
+        context.insert(extra); try context.save()
+        let proposalFeed = BankingAccountFeed(connection: feed.connection, account: remote,
+            balances: [.init(amountMinor: 6250, currency: "EUR", type: "CLBD")], movements: transferFeed.movements + [
+                .init(id: "other-description", bookingDate: "2026-10-15", signedAmountMinor: -750, currency: "EUR", description: "/TXT/D|Academia cuota")])
+        let proposalPlan = try PersonalBankingImporter.plan([proposalFeed], server: server, in: context)
+        precondition(proposalPlan.items.count == 1 && proposalPlan.items[0].suggestedMatch == extra.id)
+        do { _ = try PersonalBankingImporter.apply([proposalFeed], server: server, in: context, observedAt: observed); preconditionFailure("Unconfirmed proposal was applied") }
+        catch PersonalBankingError.needsReview { }
+        precondition(extra.bankEntryKey == nil)
+        let confirmed = try PersonalBankingImporter.apply([proposalFeed], server: server,
+            choices: proposalPlan.acceptingSuggestions([:]), in: context, observedAt: observed)
+        precondition(confirmed.inserted == 0 && confirmed.matched == 1)
+        precondition(extra.bankEntryKey != nil && extra.notes == "Mi nota" && extra.descriptionText == "Material para estudiar")
+        precondition(extra.category?.id == category.id && extra.reservedFundID == fund.id && extra.reservedAmountMinor == 750)
+        let afterBulk = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        precondition(afterBulk.count == 3)
+        let repeatedBulk = try PersonalBankingImporter.apply([proposalFeed], server: server, in: context, observedAt: observed)
+        precondition(repeatedBulk.inserted == 0 && repeatedBulk.matched == 0 && repeatedBulk.skipped == 3)
         // Live financial imports can never write to the separate sandbox workspace.
         let isolated = try ModelContainer(for: schema, configurations: ModelConfiguration("BankingTests", schema: schema, isStoredInMemoryOnly: true))
         do { _ = try PersonalBankingImporter.apply([feed], server: server, in: isolated.mainContext, observedAt: observed); preconditionFailure("Sandbox accepted real-account import") }

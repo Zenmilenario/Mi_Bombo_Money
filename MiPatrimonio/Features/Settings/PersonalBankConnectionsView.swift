@@ -15,6 +15,7 @@ struct PersonalBankConnectionsView: View {
     @State private var selection: LinkingSelection?
     @State private var disconnecting: ConnectedBankSession?
     @State private var choices: [String: PersonalBankingPlan.Choice] = [:]
+    @State private var showSuggestions = true
     @State private var browser = BankingBrowserAuthorization()
     @State private var operation: Task<Void, Never>?
 
@@ -147,48 +148,134 @@ struct PersonalBankConnectionsView: View {
         } message: { Text(error ?? "") }
     }
     @ViewBuilder private func reviewSection(_ plan: PersonalBankingPlan) -> some View {
-        Section("Coincidencias por revisar") {
-            Text("\(plan.items.count) movimientos pendientes · \(plan.alreadyImported) ya incorporados.")
-            DisclosureGroup("Ver movimientos de esta consulta") {
-                ForEach(plan.items) { item in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.text)
-                        HStack {
-                            Text(item.date, style: .date).font(.caption)
-                            Spacer()
-                            PrivacyAmountText(minorUnits: item.kind == "expense" ? -item.amount : item.amount, currencyCode: "EUR", signed: true)
-                        }
-                        if item.automaticMatch != nil { Text("Coincide con un movimiento existente").font(.caption).foregroundStyle(.secondary) }
+        let unresolved = plan.unresolvedItems(choices)
+        let suggested = unresolved.filter { item in
+            item.suggestedMatch.map { plan.canMatch(item, to: $0, choices: choices) } == true
+        }
+        let manual = unresolved.filter { item in !suggested.contains { $0.id == item.id } }
+        Section("Revisar descarga bancaria") {
+            Text("\(plan.items.count) movimientos recibidos. Todavía no se han guardado los cambios de esta consulta.")
+                .font(.callout)
+            LabeledContent("Nuevos", value: "\(plan.items.filter { choices[$0.id] == .new || ($0.candidates.isEmpty && choices[$0.id] == nil) }.count)")
+            LabeledContent("Reconocidos automáticamente", value: "\(plan.items.filter { $0.automaticMatch != nil }.count)")
+            LabeledContent("Asociaciones preparadas por ti", value: "\(choices.values.filter { if case .match = $0 { return true }; return false }.count)")
+            LabeledContent("Propuestas por confirmar", value: "\(suggested.count)")
+            LabeledContent("Dudas por resolver", value: "\(manual.count)")
+            if plan.alreadyImported > 0 {
+                LabeledContent("Ya importados en consultas anteriores", value: "\(plan.alreadyImported)")
+            }
+            Text("Asociar conserva tu movimiento, su categoría, reserva y relación con cargos periódicos. No lo reemplaza ni lo duplica.")
+                .font(.caption).foregroundStyle(.secondary)
+            if !suggested.isEmpty {
+                DisclosureGroup("Comparar \(suggested.count) coincidencias propuestas", isExpanded: $showSuggestions) {
+                    Text("Compara los registros antes de aceptar. Las propuestas no se aplican automáticamente.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Aceptar las \(suggested.count) propuestas mostradas") {
+                        choices = plan.acceptingSuggestions(choices)
                     }
+                    ForEach(suggested) { item in comparisonRow(item, plan: plan) }
                 }
             }
-            Text("No se incorporará esta consulta hasta resolver las coincidencias. Si ya registraste un pago, selecciónalo: conservaremos su categoría, reserva y relación con cargos periódicos.")
-                .font(.caption)
-            ForEach(plan.items.filter { !$0.candidates.isEmpty && $0.automaticMatch == nil }) { item in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(item.text).font(.headline)
-                    HStack {
-                        Text(item.date, style: .date).font(.caption)
-                        PrivacyAmountText(minorUnits: item.amount, currencyCode: "EUR")
-                    }
-                    Menu {
-                        Button("Es otro movimiento: añadirlo") { choices[item.id] = .new }
-                        ForEach(transactions.filter { item.candidates.contains($0.id) }) { candidate in
-                            Button("\(candidate.type.title) · \(candidate.descriptionText) · \(candidate.date.formatted(date: .abbreviated, time: .omitted))") {
-                                choices[item.id] = .match(candidate.id)
-                            }
+            ForEach(manual) { item in comparisonRow(item, plan: plan) }
+            DisclosureGroup("Ver nuevos y decisiones preparadas") {
+                ForEach(plan.items.filter { item in !unresolved.contains { $0.id == item.id } }) { item in
+                    VStack(alignment: .leading, spacing: 8) {
+                        bankMovement(item)
+                        if let decision = choices[item.id] ?? item.automaticMatch.map({ .match($0) }),
+                           case .match(let id) = decision, let existing = transactions.first(where: { $0.id == id }) {
+                            Text(item.automaticMatch == nil ? "Asociación preparada por ti" : "Coincidencia automática de cuenta, importe, día y concepto")
+                                .font(.caption).foregroundStyle(.secondary)
+                            existingMovement(existing)
+                        } else { Text("Se añadirá como nuevo").font(.caption).foregroundStyle(.secondary) }
+                        if choices[item.id] != nil {
+                            Button("Revisar decisión") { choices.removeValue(forKey: item.id) }
                         }
-                    } label: {
-                        Label(choices[item.id] == nil ? "Elegir qué hacer" : "Decisión preparada", systemImage: choices[item.id] == nil ? "questionmark.circle" : "checkmark.circle")
-                    }
-                }.padding(.vertical, 4)
+                    }.padding(.vertical, 8)
+                }
             }
-            Button("Incorporar movimientos revisados") {
+            if !unresolved.isEmpty {
+                Text("Quedan \(unresolved.count) decisiones. Las coincidencias reconocidas y los movimientos nuevos ya están preparados.")
+                    .font(.caption)
+            }
+            Button("Incorporar descarga revisada") {
                 do { try banking.confirm(choices: choices, account: account, context: context); choices = [:] }
                 catch { self.error = error.localizedDescription }
             }
             .disabled((try? plan.resolutions(choices)) == nil)
         }
+    }
+    private func bankMovement(_ item: PersonalBankingPlan.Item) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Del banco · \(item.kind == "transfer" ? "Transferencia" : item.kind == "expense" ? "Gasto" : "Ingreso")", systemImage: "building.columns")
+                .font(.caption).foregroundStyle(.secondary)
+            Text(item.text).font(.headline).fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Text(item.date, style: .date)
+                Spacer()
+                PrivacyAmountText(minorUnits: item.kind == "expense" ? -item.amount : item.amount, currencyCode: "EUR", signed: true)
+            }.font(.subheadline)
+            if let source = accounts.first(where: { $0.id == item.source }) {
+                Text(source.bankAndAccountDisplayName).font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+    private func existingMovement(_ candidate: FinancialTransaction) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(candidate.descriptionText).font(.subheadline.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Text(candidate.date, style: .date)
+                Spacer()
+                PrivacyAmountText(minorUnits: candidate.type == .expense || candidate.type == .fee ? -candidate.amountMinor : candidate.amountMinor,
+                                  currencyCode: "EUR", signed: true)
+            }.font(.caption)
+            Text(candidate.type.title + (candidate.category.map { " · " + $0.name } ?? ""))
+                .font(.caption).foregroundStyle(.secondary)
+            if candidate.type == .transfer, let destination = candidate.destinationAccount {
+                Label("Destino: \(destination.bankAndAccountDisplayName)", systemImage: "arrow.left.arrow.right")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if (candidate.reservedAmountMinor ?? 0) > 0 {
+                Label("Pago con dinero reservado · se conserva", systemImage: "lock.shield")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+    private func comparisonRow(_ item: PersonalBankingPlan.Item, plan: PersonalBankingPlan) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            bankMovement(item)
+            if let reason = item.suggestionReason, item.suggestedMatch != nil {
+                Label(reason, systemImage: "sparkle").font(.caption).foregroundStyle(.secondary)
+            }
+            Text("¿Ya lo habías registrado?").font(.subheadline.weight(.semibold))
+            ForEach(item.candidates, id: \.self) { id in
+                if let candidate = transactions.first(where: { $0.id == id }) {
+                    Button { choices[item.id] = .match(id) } label: {
+                        HStack(alignment: .top, spacing: 12) {
+                            Image(systemName: "link")
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(item.suggestedMatch == id ? "Propuesta · asociar con este registro" : "Asociar con este registro")
+                                    .font(.caption.weight(.semibold)).foregroundStyle(.tint)
+                                existingMovement(candidate)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.quaternary, in: RoundedRectangle(cornerRadius: 12))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!plan.canMatch(item, to: id, choices: choices))
+                    if !plan.canMatch(item, to: id, choices: choices) {
+                        Text("Este registro ya está asociado a otro movimiento de la descarga.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            Button { choices[item.id] = .new } label: {
+                Label("Es otro movimiento: añadir como nuevo", systemImage: "plus.circle")
+            }.buttonStyle(.borderless)
+        }.padding(.vertical, 10)
     }
     private func linkedAccount(_ remote: ConnectedBankAccount) -> FinancialAccount? {
         guard let server = URL(string: server) else { return nil }

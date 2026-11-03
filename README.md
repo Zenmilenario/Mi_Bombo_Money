@@ -208,6 +208,6 @@ El repositorio dispone de dos procesos adicionales:
 
 Desde GitHub entra en **Actions**, selecciona el workflow correspondiente y pulsa **Run workflow**. Consulta `DISTRIBUCION_IPA.md` para la configuración completa y las medidas de seguridad.
 
-## Enable Banking personal · 0.6.0
+## Enable Banking personal · 0.6.2
 
-Conexión personal separada del sandbox, autenticada con Supabase, con selección de bancos del proveedor y vinculación con cuentas existentes. La importación concilia pagos ya registrados y conserva reservas; la primera descarga requiere revisión. [Estado, seguridad, pruebas y piloto Bankinter pendiente](BankingBackend/INTEGRACION_PERSONAL.md).
+Conexión personal separada del sandbox, autenticada con Supabase, con selección de bancos del proveedor y vinculación con cuentas existentes. La importación concilia pagos ya registrados y conserva reservas; la primera descarga requiere revisión. La revisión 0.6.2 añade comparación con registros existentes, propuestas confirmables en conjunto y contadores de nuevos, reconocidos y dudas. Está preparada localmente; quedan los checks macOS y la instalación. [Estado, seguridad, pruebas y piloto Bankinter](BankingBackend/INTEGRACION_PERSONAL.md).
