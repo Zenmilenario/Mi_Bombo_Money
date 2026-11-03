@@ -1,5 +1,13 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Consulta BBVA pendiente tras probar 0.6.8 — 3 de noviembre de 2026
+
+El usuario comunica el aviso de que el banco o proveedor no ha podido completar la consulta al actualizar BBVA. Revisión rápida, sin pedir nuevos movimientos: `/health` respondió 200 y estado saludable; `/v1/status` sin autenticación respondió 401, como corresponde. El despliegue personal activo sigue siendo `937c0048-3e11-48f9-956f-7385a1771c99`. Pasaron las dos pruebas específicas de clasificación segura de errores del proveedor y de errores de saldos.
+
+Ese texto corresponde a `bank_unavailable`, que el backend produce al recibir una respuesta fallida de Enable Banking con `ASPSP_ERROR` o un código no reconocido. Apunta a un fallo en la respuesta externa, pero no permite atribuir la causa definitiva al banco/proveedor ni descartar un rechazo por alguna característica de la petición. No se capturó el código exacto del intento comunicado. El servidor no presenta una caída en esta comprobación; la incorporación bancaria real continúa pendiente. No se modificaron despliegues, credenciales, conexiones ni datos.
+
+Por indicación del usuario, aparcar esta prueba si la revisión rápida no revela un fallo propio. Para retomarla, capturar una única consulta manual con diagnóstico filtrado y respetar cualquier espera comunicada.
+
 ## Preparar y mostrar la descarga al conectar — 0.6.7
 
 Actualizado el 3 de noviembre de 2026. Cliente 0.6.7 (24) preparado localmente; pendiente de checks iOS y prueba física.

@@ -11,6 +11,7 @@ private enum AccountCollection: String, CaseIterable, Identifiable {
 
 private enum AccountManagementTool: String, Identifiable {
     case balances
+    case investments
     case reserves
     case recurring
     var id: String { rawValue }
@@ -183,6 +184,8 @@ struct AccountsView: View {
                         switch tool {
                         case .balances:
                             balanceAccountSelector
+                        case .investments:
+                            InvestmentWorkspaceView()
                         case .reserves:
                             ReservedFundsView()
                         case .recurring:
@@ -287,7 +290,7 @@ struct AccountsView: View {
                     }
                     .buttonStyle(.plain)
                 }
-                AdaptiveCardGrid(minimumColumnWidth: 240, maximumColumns: 3, spacing: 12) {
+                AdaptiveCardGrid(minimumColumnWidth: 240, maximumColumns: 2, spacing: 12) {
                     Button {
                         managementTool = .balances
                     } label: {
@@ -305,6 +308,12 @@ struct AccountsView: View {
                         managementTool = .recurring
                     } label: {
                         managementShortcut("Aportaciones y cargos periódicos", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(.borderless)
+                    Button {
+                        managementTool = .investments
+                    } label: {
+                        managementShortcut("Efectivo e inversiones", systemImage: "chart.line.uptrend.xyaxis")
                     }
                     .buttonStyle(.borderless)
                 }
@@ -1067,18 +1076,20 @@ private struct AccountDetailView: View {
                 LabeledContent("Saldo inicial") {
                     PrivacyAmountText(minorUnits: account.openingBalanceMinor, currencyCode: account.currencyCode)
                 }
-                LabeledContent("TAE / interés") {
-                    Text(account.annualInterestRate, format: .percent.precision(.fractionLength(2)))
-                }
-                LabeledContent("Interés anual estimado") {
-                    PrivacyAmountText(
-                        minorUnits: FinanceCalculator.estimatedAnnualInterestMinor(
-                            account: account,
-                            transactions: transactions,
-                            snapshots: snapshots
-                        ),
-                        currencyCode: account.currencyCode
-                    )
+                if account.type != .investment {
+                    LabeledContent("TAE / interés") {
+                        Text(account.annualInterestRate, format: .percent.precision(.fractionLength(2)))
+                    }
+                    LabeledContent("Interés anual estimado") {
+                        PrivacyAmountText(
+                            minorUnits: FinanceCalculator.estimatedAnnualInterestMinor(
+                                account: account,
+                                transactions: transactions,
+                                snapshots: snapshots
+                            ),
+                            currencyCode: account.currencyCode
+                        )
+                    }
                 }
                 LabeledContent("Objetivo") {
                     PrivacyAmountText(minorUnits: account.targetBalanceMinor, currencyCode: account.currencyCode)
@@ -1210,11 +1221,11 @@ struct AccountFormView: View {
     @State private var notes: String
     @State private var errorMessage: String?
 
-    init(account: FinancialAccount? = nil) {
+    init(account: FinancialAccount? = nil, preferredType: AccountType = .checking) {
         self.account = account
         _name = State(initialValue: account?.name ?? "")
         _institutionID = State(initialValue: account?.institution?.id)
-        _type = State(initialValue: account?.type ?? .checking)
+        _type = State(initialValue: account?.type ?? preferredType)
         _openingBalanceText = State(initialValue: account.map {
             String(format: "%.2f", Double($0.openingBalanceMinor) / 100)
         } ?? "")
@@ -1246,11 +1257,13 @@ struct AccountFormView: View {
                 }
 
                 Section {
-                    TextField("Saldo inicial", text: $openingBalanceText)
+                    TextField(type == .investment ? "Valor inicial de la cartera" : "Saldo inicial", text: $openingBalanceText)
                         .keyboardType(.numbersAndPunctuation)
                     DatePicker("Fecha del saldo inicial", selection: $openingDate, displayedComponents: .date)
-                    TextField("TAE / interés anual (%)", text: $rateText)
-                        .keyboardType(.decimalPad)
+                    if type != .investment {
+                        TextField("TAE / interés anual (%)", text: $rateText)
+                            .keyboardType(.decimalPad)
+                    }
                     TextField("Objetivo de saldo", text: $targetText)
                         .keyboardType(.decimalPad)
                     if type == .creditCard {
@@ -1258,9 +1271,11 @@ struct AccountFormView: View {
                             .keyboardType(.decimalPad)
                     }
                 } header: {
-                    Text("Saldo y rentabilidad")
+                    Text(type == .investment ? "Valor de la cartera" : "Saldo y rentabilidad")
                 } footer: {
-                    if type == .creditCard {
+                    if type == .investment {
+                        Text("Introduce solo el valor invertido. El efectivo se registra en su propia cuenta. Las aportaciones y retiradas son transferencias; una valoración posterior sustituye el valor anterior.")
+                    } else if type == .creditCard {
                         Text("En tarjetas, guarda la deuda como saldo negativo. Un pago desde otra cuenta se registra como transferencia hacia la tarjeta.")
                     }
                 }
@@ -1338,6 +1353,163 @@ struct AccountFormView: View {
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct InvestmentTransferDraft: Identifiable {
+    let id = UUID()
+    let source: FinancialAccount
+    let destination: FinancialAccount
+    let description: String
+}
+
+private struct InvestmentWorkspaceView: View {
+    @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
+    @Query private var transactions: [FinancialTransaction]
+    @Query private var snapshots: [BalanceSnapshot]
+    @Query private var funds: [ReservedFund]
+    @State private var editingAccount: FinancialAccount?
+    @State private var updatingPortfolio: FinancialAccount?
+    @State private var transferDraft: InvestmentTransferDraft?
+    @State private var showingAdd = false
+
+    private var portfolios: [FinancialAccount] {
+        accounts.filter { !$0.isArchived && $0.type == .investment }
+    }
+
+    // A shared institution identifies related cash accounts; unnamed institutions
+    // never imply that unrelated accounts belong to the same broker.
+    private func cashAccounts(for portfolio: FinancialAccount) -> [FinancialAccount] {
+        guard let institutionID = portfolio.institution?.id else { return [] }
+        return accounts.filter {
+            !$0.isArchived && !$0.type.isLiability && $0.type != .investment
+                && $0.institution?.id == institutionID && $0.currencyCode == portfolio.currencyCode
+        }
+    }
+
+    private func balance(_ account: FinancialAccount) -> Int64 {
+        FinanceCalculator.balance(of: account, transactions: transactions, snapshots: snapshots)
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Text("El efectivo es el dinero de tu cuenta; la cartera representa lo que tienes invertido. Una aportación mueve dinero entre ambos y conserva su carácter de transferencia.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            if portfolios.isEmpty {
+                Section {
+                    ContentUnavailableView("Sin cartera de inversión", systemImage: "chart.line.uptrend.xyaxis",
+                        description: Text("Añade una cuenta de tipo Inversión para registrar su valor por separado del efectivo."))
+                    Button("Añadir cartera") { showingAdd = true }
+                }
+            }
+            ForEach(portfolios) { portfolio in
+                portfolioSection(portfolio)
+            }
+        }
+        .navigationTitle("Efectivo e inversiones")
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(AppDesign.pageBackground)
+        .sheet(item: $editingAccount) { AccountFormView(account: $0) }
+        .sheet(item: $updatingPortfolio) { portfolio in
+            BalanceSnapshotFormView(account: portfolio, currentBalance: balance(portfolio))
+        }
+        .sheet(item: $transferDraft) { draft in
+            TransactionFormView(preferredType: .transfer, preferredSource: draft.source,
+                preferredDestination: draft.destination, preferredDescription: draft.description)
+        }
+        .sheet(isPresented: $showingAdd) { AccountFormView(preferredType: .investment) }
+    }
+
+    @ViewBuilder
+    private func portfolioSection(_ portfolio: FinancialAccount) -> some View {
+        Section {
+            NavigationLink {
+                AccountDetailView(account: portfolio)
+            } label: {
+                AdaptiveValueRow {
+                    Label("Valor de la cartera", systemImage: "chart.pie.fill")
+                } value: {
+                    PrivacyAmountText(minorUnits: balance(portfolio), currencyCode: portfolio.currencyCode)
+                }
+            }
+            Text(portfolio.name).font(.caption).foregroundStyle(.secondary)
+            if !portfolio.includeInNetWorth {
+                Label("Esta cartera está fuera del patrimonio", systemImage: "exclamationmark.circle")
+                    .font(.subheadline).foregroundStyle(AppDesign.warning)
+                Button("Revisar inclusión en el patrimonio") { editingAccount = portfolio }
+            }
+            let cash = cashAccounts(for: portfolio)
+            ForEach(cash) { account in
+                NavigationLink {
+                    AccountDetailView(account: account)
+                } label: {
+                    AdaptiveValueRow {
+                        Label("Efectivo · \(account.name)", systemImage: "banknote")
+                    } value: {
+                        PrivacyAmountText(minorUnits: balance(account), currencyCode: account.currencyCode)
+                    }
+                }
+                let reserved = FinanceCalculator.reservedAmount(for: account, funds: funds, transactions: transactions)
+                if account.includeInNetWorth && reserved > 0 {
+                    LabeledContent("Efectivo disponible para usar") {
+                        PrivacyAmountText(minorUnits: balance(account) - FinanceCalculator.reservedAmount(
+                            for: account, funds: funds, transactions: transactions), currencyCode: account.currencyCode)
+                    }
+                } else if !account.includeInNetWorth {
+                    Label("Este efectivo está fuera del patrimonio", systemImage: "info.circle")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if cash.isEmpty {
+                Text("Para mostrar el efectivo relacionado, asigna la misma entidad a la cartera y a su cuenta de efectivo. Las transferencias también pueden hacerse desde otra entidad en Movimientos.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button("Editar datos de la cartera") { editingAccount = portfolio }
+            } else {
+                transferActions(portfolio, cash: cash)
+            }
+            let flows = FinanceCalculator.investmentFlows(for: portfolio, month: .now, transactions: transactions)
+            LabeledContent("Aportado este mes") {
+                PrivacyAmountText(minorUnits: flows.contributedMinor, currencyCode: portfolio.currencyCode)
+            }
+            LabeledContent("Retirado este mes") {
+                PrivacyAmountText(minorUnits: flows.withdrawnMinor, currencyCode: portfolio.currencyCode)
+            }
+            Button("Actualizar valor de la cartera") { updatingPortfolio = portfolio }
+        } header: {
+            Text(portfolio.bankAndAccountDisplayName)
+        } footer: {
+            Text("El valor se basa en el saldo inicial, tus valoraciones y los movimientos posteriores. Las aportaciones y retiradas no son ingresos ni gastos. Los intereses o dividendos cobrados se registran como ingresos en efectivo; reinvertirlos se registra como transferencia a la cartera.")
+        }
+    }
+
+    @ViewBuilder
+    private func transferActions(_ portfolio: FinancialAccount, cash: [FinancialAccount]) -> some View {
+        if let account = cash.first, cash.count == 1 {
+            Button("Registrar aportación o reinversión") {
+                transferDraft = InvestmentTransferDraft(source: account, destination: portfolio, description: "Aportación a inversión")
+            }
+            Button("Retirar a efectivo") {
+                transferDraft = InvestmentTransferDraft(source: portfolio, destination: account, description: "Retirada de inversión")
+            }
+        } else {
+            Menu("Registrar aportación o reinversión") {
+                ForEach(cash) { account in
+                    Button("Desde \(account.name)") {
+                        transferDraft = InvestmentTransferDraft(source: account, destination: portfolio, description: "Aportación a inversión")
+                    }
+                }
+            }
+            Menu("Retirar a efectivo") {
+                ForEach(cash) { account in
+                    Button("A \(account.name)") {
+                        transferDraft = InvestmentTransferDraft(source: portfolio, destination: account, description: "Retirada de inversión")
+                    }
+                }
+            }
         }
     }
 }

@@ -279,6 +279,33 @@ enum FinanceCalculator {
             }
     }
 
+    struct InvestmentFlows {
+        var contributedMinor: Int64 = 0
+        var withdrawnMinor: Int64 = 0
+        var netMinor: Int64 { contributedMinor - withdrawnMinor }
+    }
+
+    static func investmentFlows(for account: FinancialAccount, month: Date,
+                                transactions: [FinancialTransaction], at date: Date = .now,
+                                calendar: Calendar = .autoupdatingCurrent) -> InvestmentFlows {
+        guard account.type == .investment else { return InvestmentFlows() }
+        let start = month.startOfMonth(calendar: calendar)
+        let end = calendar.date(byAdding: .month, value: 1, to: start) ?? start
+        var result = InvestmentFlows()
+        for transaction in transactions where transaction.type == .transfer
+            && transaction.date >= start && transaction.date < end && transaction.date <= date {
+            if transaction.destinationAccount?.id == account.id,
+               let source = transaction.sourceAccount, source.type != .investment {
+                result.contributedMinor += Swift.abs(transaction.amountMinor)
+            }
+            if transaction.sourceAccount?.id == account.id,
+               let destination = transaction.destinationAccount, destination.type != .investment {
+                result.withdrawnMinor += Swift.abs(transaction.amountMinor)
+            }
+        }
+        return result
+    }
+
     static func monthlySummary(
         for month: Date,
         transactions: [FinancialTransaction],
