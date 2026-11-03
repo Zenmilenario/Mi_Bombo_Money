@@ -219,3 +219,9 @@ Primera adaptación a la referencia oscura elegida en Stitch, conservando los mo
 ## Ajustes simplificados · 0.6.4
 
 Búsqueda por nombre y tarea, acceso directo a Mis bancos y Mi nube y opciones secundarias desplegables en la misma pantalla. Laboratorio, resumen de datos y eliminación confirmada quedan en Avanzado. Se retiran la opción de Excel sin implementar y textos bancarios obsoletos. Las funciones financieras, copias y autenticación se conservan. [Mapa de navegación, comprobaciones y pendientes](AJUSTES.md).
+
+## Consultas bancarias manuales y límites · 0.6.5
+
+Corrección del error bancario 429: el botón de actualización identifica una consulta iniciada por el usuario y el servidor envía su contexto PSU validado. Las consultas automáticas mantienen sus límites. La app muestra el banco y la cuenta que fallan, respeta Retry-After con espera persistente y no deja una descarga anterior lista para incorporar tras un error.
+
+Servidor personal actualizado; cliente 0.6.5 (22) preparado localmente. Pasan 46 pruebas Node/workerd, las pruebas Swift de política y el empaquetado del servidor. Pendientes: checks de macOS/iOS e instalación para validar BBVA. [Detalle técnico y diagnóstico](BankingBackend/INTEGRACION_PERSONAL.md#consultas-bancarias-y-límites--065).

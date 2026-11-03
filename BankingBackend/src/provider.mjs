@@ -5,6 +5,43 @@ import { SCENARIO_ID, scenarioRole } from './sandbox-scenario.mjs';
 const API = 'https://api.enablebanking.com';
 const BANKS = ['Bankinter', 'BBVA', 'Trade Republic'];
 let cachedJWT;
+// Never forward the provider's free-text message/detail: these may contain account data.
+const providerErrors = new Map([
+  ['EXPIRED_SESSION', 'bank_session_expired'], ['REVOKED_SESSION', 'bank_session_expired'],
+  ['CLOSED_SESSION', 'bank_session_expired'], ['SESSION_DOES_NOT_EXIST', 'bank_session_expired'],
+  ['ASPSP_PSU_ACTION_REQUIRED', 'bank_action_required'],
+  ['ASPSP_RATE_LIMIT_EXCEEDED', 'bank_rate_limited'], ['ASPSP_TIMEOUT', 'bank_timeout'],
+  ['PSU_HEADER_NOT_PROVIDED', 'bank_psu_headers_required'], ['PSU_HEADER_INVALID', 'bank_psu_headers_required'],
+  ['ASPSP_ACCOUNT_NOT_ACCESSIBLE', 'bank_account_unavailable'], ['ACCOUNT_DOES_NOT_EXIST', 'bank_account_unavailable'],
+  ['WRONG_TRANSACTIONS_PERIOD', 'bank_history_unavailable'],
+  ['WRONG_REQUEST_PARAMETERS', 'bank_request_rejected'], ['WRONG_CONTINUATION_KEY', 'bank_request_rejected'],
+  ['ACCESS_DENIED', 'provider_access_denied'], ['UNAUTHORIZED_ACCESS', 'provider_access_denied'],
+  ['UNAUTHORIZED_IP', 'provider_access_denied'], ['AUTHORIZATION_NOT_PROVIDED', 'provider_access_denied'],
+  ['ASPSP_ERROR', 'bank_unavailable']
+]);
+
+async function providerFailure(response, path) {
+  let providerCode = 'UNKNOWN';
+  try {
+    const body = JSON.parse(new TextDecoder().decode(await limitedBytes(response, 16_384)));
+    if (providerErrors.has(body?.error)) providerCode = body.error;
+  } catch { await response.body?.cancel().catch(() => {}); }
+  const operation = /\/transactions(?:\?|$)/.test(path) ? 'transactions'
+    : /\/balances$/.test(path) ? 'balances' : path === '/application' ? 'application'
+    : path.startsWith('/aspsps?') ? 'catalogue' : path === '/auth' ? 'authorization' : 'session';
+  // Fixed categories only, with no URL, bank/account/session ID, body or exception.
+  console.warn(JSON.stringify({ event: 'banking_provider_failure', operation,
+    status: response.status, code: providerCode }));
+  const code = response.status === 429 ? 'bank_rate_limited' : providerErrors.get(providerCode) ?? 'bank_unavailable';
+  const failure = new Fault(code === 'bank_rate_limited' ? 429 : 502, code);
+  if (code === 'bank_rate_limited') {
+    const retry = response.headers.get('Retry-After');
+    const seconds = /^\d{1,8}$/.test(retry ?? '') ? Number(retry)
+      : retry ? Math.ceil((Date.parse(retry) - Date.now()) / 1000) : NaN;
+    failure.retryAfter = Number.isFinite(seconds) ? Math.max(60, Math.min(604800, seconds)) : 21600;
+  }
+  return failure;
+}
 export function demoBanks() { return BANKS.map(name => ({ name, country: 'ES', beta: name === 'Trade Republic', maximumConsentValidity: 86400 })); }
 export function acceptsBankName(name, env) {
   return mode(env) === 'demo' ? BANKS.includes(name)
@@ -36,11 +73,11 @@ async function api(path, env, options = {}, transport = fetch) {
   if (!path.startsWith('/') || path.startsWith('//')) throw new Fault(500, 'invalid_route');
   const response = await transport(`${API}${path}`, {
     ...options, redirect: 'manual', signal: AbortSignal.timeout(20_000),
-    headers: { 'Authorization': `Bearer ${await providerJWT(env)}`, 'Accept': 'application/json',
+    headers: { ...options.headers, 'Authorization': `Bearer ${await providerJWT(env)}`, 'Accept': 'application/json',
       ...(options.body ? { 'Content-Type': 'application/json' } : {}) }
   });
   if (options.method === 'DELETE' && [404, 410].includes(response.status)) { await response.body?.cancel(); return {}; }
-  if (!response.ok) { await response.body?.cancel(); throw new Fault(response.status === 429 ? 429 : 502, 'bank_unavailable'); }
+  if (!response.ok) throw await providerFailure(response, path);
   if (options.method === 'DELETE') { await response.body?.cancel(); return {}; }
   const bytes = await limitedBytes(response, 2_000_000);
   try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new Fault(502, 'invalid_provider_data'); }
@@ -150,7 +187,7 @@ export async function normalizeTransaction(t, account, env) {
       : await sha256(otherIBAN.replace(/\s/g, '').toUpperCase())) : undefined,
     transferKey: typeof pairReference === 'string' && pairReference && pairReference !== 'NOTPROVIDED' ? await sha256(pairReference) : undefined };
 }
-export async function accountData(conn, account, from, to, continuation, env) {
+export async function accountData(conn, account, from, to, continuation, env, transport = fetch, psu = {}) {
   if (mode(env) === 'demo') {
     // Fixtures belong to the connection's creation day, not to the query's end
     // date. Changing the date range must never invent another salary/purchase.
@@ -163,14 +200,14 @@ export async function accountData(conn, account, from, to, continuation, env) {
       ].filter(row => row.bookingDate >= from && row.bookingDate <= to), continuation: null
     };
   }
-  await verifySandbox(env);
+  await verifySandbox(env, transport);
   const path = `/accounts/${encodeURIComponent(account.uid)}`;
   const query = new URLSearchParams({ date_from: from, date_to: to, transaction_status: 'BOOK' });
   if (continuation) query.set('continuation_key', continuation);
-  const transactionResponse = await api(`${path}/transactions?${query}`, env);
+  const transactionResponse = await api(`${path}/transactions?${query}`, env, { headers: psu }, transport);
   if (!Array.isArray(transactionResponse.transactions)) throw new Fault(502, 'invalid_provider_data');
   const transactions = (await Promise.all(transactionResponse.transactions.map(t => normalizeTransaction(t, account, env)))).filter(Boolean);
-  const balanceResponse = continuation ? { balances: [] } : await api(`${path}/balances`, env);
+  const balanceResponse = continuation ? { balances: [] } : await api(`${path}/balances`, env, { headers: psu }, transport);
   if (!Array.isArray(balanceResponse.balances)) throw new Fault(502, 'invalid_provider_data');
   const balances = balanceResponse.balances.filter(b => b.balance_amount?.currency === account.currency)
     .map(b => ({ amountMinor: amountMinor(b.balance_amount.amount), currency: b.balance_amount.currency, type: b.balance_type }));

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { authenticate, mode, accountIdentity, seal, unseal } from '../src/security.mjs';
-import { banks, exchange, verifySandbox } from '../src/provider.mjs';
+import { banks, exchange, verifySandbox, accountData } from '../src/provider.mjs';
 import { personalConfiguration } from '../tools/setup-personal.mjs';
 
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 4096 });
@@ -85,4 +85,62 @@ test('renewed consent preserves account and transaction namespace without exposi
   assert.equal(first.accounts[0].ownershipKey, renewed.accounts[0].ownershipKey);
   assert.ok(!first.accounts[0].name.includes('ES76'));
   assert.notEqual(await accountIdentity('ES7620770024003102575766', env), await accountIdentity('ES7620770024003102575766', { ...env, ACCOUNT_IDENTITY_KEY: randomBytes(32).toString('base64') }));
+});
+
+test('provider failures distinguish actionable causes without exposing provider bodies or identifiers', async t => {
+  const logs = [];
+  t.mock.method(console, 'warn', value => logs.push(JSON.parse(value)));
+  const cases = [
+    ['EXPIRED_SESSION', 'bank_session_expired'], ['REVOKED_SESSION', 'bank_session_expired'],
+    ['ASPSP_PSU_ACTION_REQUIRED', 'bank_action_required'], ['ASPSP_TIMEOUT', 'bank_timeout'],
+    ['ASPSP_RATE_LIMIT_EXCEEDED', 'bank_rate_limited'], ['PSU_HEADER_NOT_PROVIDED', 'bank_psu_headers_required'],
+    ['PSU_HEADER_INVALID', 'bank_psu_headers_required'], ['ASPSP_ACCOUNT_NOT_ACCESSIBLE', 'bank_account_unavailable'],
+    ['WRONG_TRANSACTIONS_PERIOD', 'bank_history_unavailable'], ['WRONG_CONTINUATION_KEY', 'bank_request_rejected'],
+    ['ACCESS_DENIED', 'provider_access_denied'], ['ASPSP_ERROR', 'bank_unavailable'],
+    ['private-unrecognized-code', 'bank_unavailable']
+  ];
+  const remote = { id: 'private-stable-account', uid: 'private-provider-uid', currency: 'EUR' };
+  for (const [error, expected] of cases) {
+    await assert.rejects(accountData({}, remote, '2026-09-01', '2026-11-03', null, env,
+      async url => url.endsWith('/application') ? Response.json(application)
+        : Response.json({ error, message: 'private-bank-message', detail: { iban: 'private-iban', token: 'private-token' } }, { status: 400 })),
+    { code: expected, status: expected === 'bank_rate_limited' ? 429 : 502 });
+    assert.deepEqual(logs.at(-1), { event: 'banking_provider_failure', operation: 'transactions', status: 400,
+      code: error === 'private-unrecognized-code' ? 'UNKNOWN' : error });
+  }
+  assert.ok(!JSON.stringify(logs).includes('private-'));
+});
+
+test('provider cooldown honours numeric and date Retry-After, with a six-hour fallback', async t => {
+  t.mock.method(console, 'warn', () => {});
+  const now = Date.now();
+  for (const [header, minimum, maximum] of [[null, 21600, 21600], ['900', 900, 900],
+    ['bad-private-value', 21600, 21600], ['0', 60, 60], ['99999999', 604800, 604800],
+    [new Date(now + 3600000).toUTCString(), 3590, 3600]]) {
+    await assert.rejects(verifySandbox(env, async () => Response.json({ error: 'ASPSP_RATE_LIMIT_EXCEEDED' },
+      { status: 429, headers: header ? { 'Retry-After': header } : {} })), error => {
+      assert.equal(error.code, 'bank_rate_limited');
+      assert.ok(error.retryAfter >= minimum && error.retryAfter <= maximum);
+      return true;
+    });
+  }
+});
+
+test('balance failures, throttling and malformed error bodies stay bounded and retain only fixed diagnostics', async t => {
+  const logs = [];
+  t.mock.method(console, 'warn', value => logs.push(JSON.parse(value)));
+  const remote = { id: 'private-account', uid: 'private-uid', currency: 'EUR' };
+  for (const [body, status, expected, safeCode] of [
+    [JSON.stringify({ error: 'ASPSP_RATE_LIMIT_EXCEEDED' }), 429, 'bank_rate_limited', 'ASPSP_RATE_LIMIT_EXCEEDED'],
+    ['not-json-private', 503, 'bank_unavailable', 'UNKNOWN'],
+    [JSON.stringify({ error: 'ASPSP_ERROR', detail: 'private'.repeat(5000) }), 502, 'bank_unavailable', 'UNKNOWN']
+  ]) {
+    await assert.rejects(accountData({}, remote, '2026-09-01', '2026-11-03', null, env, async url => {
+      if (url.endsWith('/application')) return Response.json(application);
+      if (url.includes('/transactions?')) return Response.json({ transactions: [] });
+      return new Response(body, { status });
+    }), { code: expected, status: status === 429 ? 429 : 502 });
+    assert.deepEqual(logs.at(-1), { event: 'banking_provider_failure', operation: 'balances', status, code: safeCode });
+  }
+  assert.ok(!JSON.stringify(logs).includes('private'));
 });

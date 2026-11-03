@@ -81,7 +81,7 @@ final class BankingConnectionClient {
         let value: Payload = try await get("/v1/connections")
         return value.connections
     }
-    func feeds(_ connections: [ConnectedBankSession], asOf: Date) async throws -> [BankingAccountFeed] {
+    func feeds(_ connections: [ConnectedBankSession], asOf: Date, userInitiated: Bool = false) async throws -> [BankingAccountFeed] {
         var result: [BankingAccountFeed] = []
         for connection in connections {
             for account in connection.accounts {
@@ -89,7 +89,8 @@ final class BankingConnectionClient {
                 var cursor: String?; var visited = Set<String>(); var complete = false
                 for page in 0..<50 {
                     try Task.checkCancellation()
-                    let data = try await preview(connection: connection, account: account, continuation: cursor, asOf: asOf)
+                    let data = try await preview(connection: connection, account: account, continuation: cursor, asOf: asOf,
+                                                 userInitiated: userInitiated)
                     if page == 0 { balances = data.balances }
                     rows.append(contentsOf: data.transactions)
                     guard rows.count <= 20_000 else { throw BankingWorkspaceError.incompleteHistory }
@@ -118,7 +119,8 @@ final class BankingConnectionClient {
         let response = try await responseData(request)
         guard response.1.statusCode == 204 else { throw BankingConnectionError.invalidResponse }
     }
-    func preview(connection: ConnectedBankSession, account: ConnectedBankAccount, continuation: String? = nil, asOf: Date = .now) async throws -> BankingPreview {
+    func preview(connection: ConnectedBankSession, account: ConnectedBankAccount, continuation: String? = nil,
+                 asOf: Date = .now, userInitiated: Bool = false) async throws -> BankingPreview {
         guard UUID(uuidString: connection.id) != nil,
               account.id.range(of: #"^[A-Za-z0-9_-]{1,128}$"#, options: .regularExpression) != nil else { throw BankingConnectionError.invalidResponse }
         let formatter = ISO8601DateFormatter()
@@ -127,13 +129,24 @@ final class BankingConnectionClient {
         let from = to.addingTimeInterval(-89 * 86_400)
         var query = [URLQueryItem(name: "from", value: formatter.string(from: from)), URLQueryItem(name: "to", value: formatter.string(from: to))]
         if let continuation { query.append(URLQueryItem(name: "continuation", value: continuation)) }
-        return try await get("/v1/connections/\(connection.id)/accounts/\(account.id)", query: query)
+        do {
+            return try await get("/v1/connections/\(connection.id)/accounts/\(account.id)", query: query,
+                                 userInitiated: userInitiated)
+        } catch let error as BankingConnectionError {
+            throw BankingConnectionError.accountQuery(bank: connection.bank, lastFour: account.lastFour,
+                                                       reason: error)
+        }
     }
-    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
-        try await send(path, method: "GET", query: query)
+    private func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], userInitiated: Bool = false) async throws -> T {
+        try await send(path, method: "GET", query: query, userInitiated: userInitiated)
     }
-    private func send<T: Decodable>(_ path: String, method: String, body: [String: String]? = nil, query: [URLQueryItem] = []) async throws -> T {
+    private func send<T: Decodable>(_ path: String, method: String, body: [String: String]? = nil,
+                                   query: [URLQueryItem] = [], userInitiated: Bool = false) async throws -> T {
         var request = try request(path: path, method: method, query: query)
+        if userInitiated {
+            request.setValue("1", forHTTPHeaderField: "X-Banking-User-Initiated")
+            request.setValue("MiBomboMoney-iOS", forHTTPHeaderField: "User-Agent")
+        }
         if let body {
             request.httpBody = try JSONEncoder().encode(body)
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -167,6 +180,10 @@ final class BankingConnectionClient {
         guard (200..<300).contains(http.statusCode) else {
             struct Failure: Decodable { let error: String }
             let code = (try? JSONDecoder().decode(Failure.self, from: data))?.error ?? "unknown"
+            if code == "bank_rate_limited" {
+                throw BankingConnectionError.bankRateLimited(retryAfter:
+                    BankingConnectionPolicy.bankRetryDelay(http.value(forHTTPHeaderField: "Retry-After")))
+            }
             throw BankingConnectionError.server(code)
         }
         return (data, http)

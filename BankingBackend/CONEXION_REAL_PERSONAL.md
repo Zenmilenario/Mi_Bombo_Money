@@ -1,5 +1,7 @@
 # Conectar las cuentas propias · estado actual
 
+> Estado del 3 de noviembre: BBVA ya está vinculada y autorizada. Se ha confirmado un límite de consultas del banco (429) tras asociarla. El servidor actualizado está desplegado; el cliente 0.6.5 está preparado y pendiente de checks e instalación. [Diagnóstico y corrección](INTEGRACION_PERSONAL.md#consultas-bancarias-y-límites--065). Los apartados siguientes conservan el historial del piloto inicial.
+
 El servidor personal está preparado y separado del sandbox. La aplicación de Enable Banking registrada es de producción y solo admite AIS (consulta); su firma y retorno se han comprobado. El propietario ha vinculado la cuenta de prueba en el panel y se ha verificado la aplicación activa, con servicio exclusivo AIS. En esta verificación solo se han consultado la configuración de la aplicación y el catálogo de bancos, sin leer saldos ni movimientos. Falta completar la conexión desde la app.
 
 El primer piloto será con una cuenta personal de Bankinter, después de instalar el IPA 0.6.0. Los once checks del commit `0722b8c` están aprobados, incluidas las compilaciones iOS y las pruebas SwiftData. El sandbox solo admite cuentas ficticias: los datos reales requieren producción restringida a cuentas propias.

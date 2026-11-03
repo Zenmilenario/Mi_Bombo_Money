@@ -48,9 +48,16 @@ final class PersonalBankingCoordinator: ObservableObject {
                      mayApply: @MainActor () -> Bool = { true }) async -> Bool {
         guard !busy, let user = account.session?.user.id, !savedServer(owner: user).isEmpty else { return false }
         let persistedNext = UserDefaults.standard.object(forKey: key(user) + "-next") as? Date ?? .distantPast
+        if let blockedUntil = UserDefaults.standard.object(forKey: key(user) + "-blocked-until") as? Date, Date.now < blockedUntil {
+            message = "El banco ha limitado las consultas. Próximo intento a partir de \(blockedUntil.formatted(date: .abbreviated, time: .shortened))."
+            return false
+        }
         if !force && (Date.now < max(nextAttempt, persistedNext) || pendingPlan != nil) { return false }
         guard !context.hasChanges else { return false }
         busy = true; errorMessage = nil; owner = user
+        // A failed replacement download must never leave an older plan ready to confirm.
+        pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; observedAt = nil
+        message = "Consultando saldos y movimientos bancarios…"
         defer { busy = false }
         // Retrying every 15 seconds would turn cloud polling into banking polling.
         nextAttempt = .now.addingTimeInterval(15 * 60)
@@ -77,7 +84,7 @@ final class PersonalBankingCoordinator: ObservableObject {
                 return false
             }
             let date = Date.now
-            let feeds = try await client.feeds(selected, asOf: date)
+            let feeds = try await client.feeds(selected, asOf: date, userInitiated: force)
             let selectedIDs = Set(selected.flatMap(\.accounts).map(\.id))
             let notLinked = Set(available.flatMap(\.accounts).filter { !selectedIDs.contains($0.id) }.compactMap(\.ownershipKey))
             if feeds.contains(where: { feed in feed.movements.contains { $0.counterpartyKey.map { notLinked.contains($0) } == true } }) {
@@ -110,9 +117,18 @@ final class PersonalBankingCoordinator: ObservableObject {
             nextAttempt = date.addingTimeInterval(6 * 60 * 60)
             UserDefaults.standard.set(nextAttempt, forKey: key(user) + "-next")
             return true
-        } catch is CancellationError { }
-        catch let error as URLError where error.code == .cancelled { }
-        catch { errorMessage = error.localizedDescription }
+        } catch is CancellationError { message = "Consulta cancelada. Tus datos guardados se conservan." }
+        catch let error as URLError where error.code == .cancelled { message = "Consulta cancelada. Tus datos guardados se conservan." }
+        catch {
+            message = "No se ha incorporado esta descarga. Tus datos guardados se conservan."
+            errorMessage = error.localizedDescription
+            if let delay = (error as? BankingConnectionError)?.retryDelay {
+                nextAttempt = .now.addingTimeInterval(delay)
+                UserDefaults.standard.set(nextAttempt, forKey: key(user) + "-next")
+                UserDefaults.standard.set(nextAttempt, forKey: key(user) + "-blocked-until")
+                message += " Próximo intento a partir de \(nextAttempt.formatted(date: .abbreviated, time: .shortened))."
+            }
+        }
         return false
     }
     func confirm(choices: [String: PersonalBankingPlan.Choice], account: CloudAccountManager, context: ModelContext) throws {
@@ -128,7 +144,9 @@ final class PersonalBankingCoordinator: ObservableObject {
         errorMessage = nil
     }
     func disconnected() {
-        pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; nextAttempt = .distantPast
+        pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; observedAt = nil; nextAttempt = .distantPast
+        errorMessage = nil
+        message = "Las conexiones han cambiado. Actualiza los movimientos para preparar la descarga."
         if let owner { UserDefaults.standard.removeObject(forKey: key(owner) + "-next") }
     }
 }

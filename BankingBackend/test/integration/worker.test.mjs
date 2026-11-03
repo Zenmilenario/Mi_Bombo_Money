@@ -207,7 +207,7 @@ async function sandboxFixture(environment = 'SANDBOX', options = {}) {
   await mf.dispose();
   const appID = crypto.randomUUID(); const accountID = crypto.randomUUID(); const sessionID = crypto.randomUUID();
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 4096 });
-  const calls = [];
+  const calls = [], psuCalls = [];
   const owner = crypto.randomUUID();
   const production = options.production === true;
   await boot({ PROVIDER_MODE: production ? 'production' : 'sandbox', ENABLE_APP_ID: appID,
@@ -224,6 +224,8 @@ async function sandboxFixture(environment = 'SANDBOX', options = {}) {
     assert.equal(url.origin, 'https://api.enablebanking.com');
     assert.notEqual(request.headers.get('Authorization'), 'Bearer fixture.payload.signature');
     assert.match(request.headers.get('Authorization'), /^Bearer [^.]+\.[^.]+\.[^.]+$/);
+    psuCalls.push({ operation: url.pathname.split('/').at(-1), ip: request.headers.get('Psu-Ip-Address'),
+      agent: request.headers.get('Psu-User-Agent') });
     if (url.pathname === '/application') {
       if (options.redirectApplication) return new Response(null, { status: 302, headers: { Location: 'https://evil.test/collect' } });
       return Response.json({ environment, kid: appID, active: true, services: ['AIS'], redirect_urls: [`${host}/v1/callback`] });
@@ -250,6 +252,9 @@ async function sandboxFixture(environment = 'SANDBOX', options = {}) {
         continuation_key: offset + 10 < data.transactions.length ? String(offset + 10) : null });
     }
     if (url.pathname.endsWith('/balances')) return Response.json({ balances: [{ balance_amount: { amount: '10.00', currency: 'EUR' }, balance_type: 'CLBD' }] });
+    if (url.pathname.endsWith('/transactions') && options.rateLimited) return Response.json(
+      { error: 'ASPSP_RATE_LIMIT_EXCEEDED', detail: 'private-provider-detail' },
+      { status: 429, headers: { 'Retry-After': '900' } });
     if (url.pathname.endsWith('/transactions')) return Response.json({ transactions: [{ status: 'BOOK', entry_reference: 'fixture-reference',
       transaction_amount: { amount: '10.00', currency: 'EUR' }, credit_debit_indicator: 'DBIT',
       booking_date: new Date().toISOString().slice(0, 10), remittance_information: ['Fictitious purchase'] }],
@@ -258,8 +263,46 @@ async function sandboxFixture(environment = 'SANDBOX', options = {}) {
     throw new Error('Unexpected provider endpoint');
   });
   if (production) token = 'fixture.payload.signature';
-  return { calls, sessionID, accountID };
+  return { calls, psuCalls, sessionID, accountID };
 }
+
+test('manual reads carry trusted PSU context on every account page; scheduled reads and configuration calls never do', async () => {
+  const fixture = await sandboxFixture();
+  const flow = await start();
+  const state = new URL(flow.authorizationURL).searchParams.get('state');
+  await mf.dispatchFetch(`${host}/v1/callback?state=${state}&code=fictitious-code`, { redirect: 'manual' });
+  const first = (await (await call('/v1/connections')).json()).connections[0];
+  const today = new Date().toISOString().slice(0, 10);
+  const query = `/v1/connections/${first.id}/accounts/${first.accounts[0].id}?from=${today}&to=${today}`;
+  assert.equal((await call(query)).status, 200);
+  assert.ok(fixture.psuCalls.every(row => row.ip === null && row.agent === null));
+  fixture.psuCalls.length = 0;
+  const headers = { 'X-Banking-User-Initiated': '1', 'CF-Connecting-IP': '192.0.2.5',
+    'User-Agent': 'Synthetic-device', 'Psu-Ip-Address': '203.0.113.7', 'X-Forwarded-For': '203.0.113.8' };
+  assert.equal((await call(query, { headers })).status, 200);
+  assert.equal((await call(query + '&continuation=next-page', { headers })).status, 200);
+  for (const row of fixture.psuCalls) {
+    if (['transactions', 'balances'].includes(row.operation)) {
+      assert.equal(row.ip, '192.0.2.5'); assert.equal(row.agent, 'Synthetic-device');
+    } else { assert.equal(row.ip, null); assert.equal(row.agent, null); }
+  }
+  assert.equal((await call(query, { headers: { ...headers, 'CF-Connecting-IP': 'invalid' } })).status, 400);
+  assert.equal((await call(query, { headers: { ...headers, 'X-Banking-User-Initiated': 'true' } })).status, 400);
+});
+
+test('bank rate limits return a safe actionable error and cooldown without exposing provider details', async () => {
+  await sandboxFixture('SANDBOX', { rateLimited: true });
+  const flow = await start();
+  const state = new URL(flow.authorizationURL).searchParams.get('state');
+  await mf.dispatchFetch(`${host}/v1/callback?state=${state}&code=fictitious-code`, { redirect: 'manual' });
+  const first = (await (await call('/v1/connections')).json()).connections[0];
+  const today = new Date().toISOString().slice(0, 10);
+  const response = await call(`/v1/connections/${first.id}/accounts/${first.accounts[0].id}?from=${today}&to=${today}`);
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get('Retry-After'), '900');
+  assert.deepEqual(await response.json(), { error: 'bank_rate_limited' });
+  assert.equal((await db.prepare('SELECT COUNT(*) AS n FROM connections').first()).n, 1);
+});
 
 test('sandbox uses signed provider requests, single-use code exchange, sanitized output and bounded pagination', async () => {
   const fixture = await sandboxFixture();
