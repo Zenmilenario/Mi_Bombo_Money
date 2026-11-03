@@ -173,10 +173,6 @@ enum CloudDocument {
             let fields = record.object
             if let fund = fields["reservedFundID"]?.string?.lowercased(), case .integer(let amount) = fields["reservedAmountMinor"] {
                 allocations[fund, default: []].append((id,amount))
-                let fundAccount = maps["reservedFunds"]?[fund]?.object["accountID"]?.string?.lowercased()
-                if fundAccount != fields["sourceAccountID"]?.string?.lowercased() {
-                    problems.insert("transactions:\(id)"); problems.insert("reservedFunds:\(fund)")
-                }
             }
             if let external = fields["externalID"]?.string, let account = fields["sourceAccountID"]?.string?.lowercased() {
                 uniqueGroups["external:\(account):\(external)",default:[]].append("transactions:\(id)")
@@ -187,18 +183,27 @@ enum CloudDocument {
             }
         }
         for (fund, records) in allocations {
-            let limit = maps["reservedFunds"]?[fund]?.object["amountMinor"]
-            var total: Int64 = 0
-            var overflow = false
-            for (_, amount) in records {
-                let next = total.addingReportingOverflow(amount)
-                overflow = overflow || next.overflow
-                total = next.partialValue
+            let fields = maps["reservedFunds"]?[fund]?.object ?? [:]
+            var entries: [ReservedLedgerEntry] = []
+            for (id, amount) in records {
+                let transaction = maps["transactions"]?[id]?.object ?? [:]
+                guard let uuid = UUID(uuidString: id), let source = transaction["sourceAccountID"]?.string.flatMap(UUID.init(uuidString:)),
+                      let timestamp = transaction["date"]?.double, timestamp.isFinite,
+                      let kind = transaction["typeRaw"]?.string, ["expense", "fee", "transfer"].contains(kind),
+                      case .integer(let total) = transaction["amountMinor"], amount > 0, amount <= total else {
+                    problems.insert("reservedFunds:\(fund)"); problems.insert("transactions:\(id)"); continue
+                }
+                let destination = kind == "transfer" ? transaction["destinationAccountID"]?.string.flatMap(UUID.init(uuidString:)) : nil
+                if kind == "transfer" && destination == nil { problems.insert("reservedFunds:\(fund)") }
+                entries.append(ReservedLedgerEntry(id: uuid, date: Date(timeIntervalSinceReferenceDate: timestamp),
+                    source: source, destination: destination, amount: amount))
             }
-            if case .integer(let maximum) = limit, overflow || total > maximum {
-                problems.insert("reservedFunds:\(fund)")
-                for (id, _) in records { problems.insert("transactions:\(id)") }
-            }
+            let origin = fields["accountID"]?.string.flatMap(UUID.init(uuidString:))
+            if let origin, case .integer(let maximum) = fields["amountMinor"],
+               ReservedLedger.balances(origin: origin, funding: maximum, entries: entries) != nil,
+               !problems.contains("reservedFunds:\(fund)") { continue }
+            problems.insert("reservedFunds:\(fund)")
+            for (id, _) in records { problems.insert("transactions:\(id)") }
         }
         for (id, record) in maps["budgets"] ?? [:] {
             let fields = canonical(record)?.object ?? [:]

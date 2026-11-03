@@ -10,6 +10,7 @@ struct FinancialLogicCheck {
     static func main() throws {
         checkBalancesAndHistory()
         checkReservedPayments()
+        checkReservedTransfers()
         checkReservedBudgets()
         checkBudgetRemainders()
         checkReviewedAlerts()
@@ -81,6 +82,63 @@ struct FinancialLogicCheck {
         payment.date = date(1, 5); payment.reservedFundID = nil; payment.reservedAmountMinor = nil
         precondition(FinanceCalculator.spendableCash(accounts: [account], funds: [fund], transactions: [payment]) == 10_000,
             "Ordinary expenses must keep reducing free cash")
+    }
+
+    private static func checkReservedTransfers() {
+        let origin = FinancialAccount(name: "Ahorro", type: .savings, openingBalanceMinor: 100_000, openingDate: date(1))
+        let destination = FinancialAccount(name: "Cobros", type: .checking, openingBalanceMinor: 10_000, openingDate: date(1))
+        let third = FinancialAccount(name: "Otra", type: .checking, openingDate: date(1))
+        let fund = ReservedFund(name: "Formación", amountMinor: 60_000, account: origin)
+        let move = FinancialTransaction(date: date(1, 4), type: .transfer, amountMinor: 20_000,
+            descriptionText: "Traspaso", reservedFundID: fund.id, reservedAmountMinor: 20_000,
+            sourceAccount: origin, destinationAccount: destination)
+        let payment = FinancialTransaction(date: date(1, 5), type: .expense, amountMinor: 20_000,
+            descriptionText: "Escuela", reservedFundID: fund.id, reservedAmountMinor: 20_000, sourceAccount: destination)
+        let entries = [payment, move] // Query ordering must not affect the calculation.
+        precondition(FinanceCalculator.reserveHistoryIsValid(fund: fund, transactions: entries))
+        precondition(FinanceCalculator.locatedReservedAmount(for: fund, accountID: origin.id, transactions: [move]) == 40_000)
+        precondition(FinanceCalculator.locatedReservedAmount(for: fund, accountID: destination.id, transactions: [move]) == 20_000)
+        precondition(FinanceCalculator.remainingReservedAmount(for: fund, transactions: [move]) == 60_000)
+        precondition(FinanceCalculator.remainingReservedAmount(for: fund, transactions: entries) == 40_000)
+        precondition(FinanceCalculator.spendableCash(accounts: [origin, destination], funds: [fund], transactions: entries) == 50_000,
+            "Relocating then spending a reserve leaves free cash unchanged")
+        precondition(FinanceCalculator.monthlySummary(for: date(1), transactions: entries).budgetExpenseMinor == 0)
+        precondition(FinanceCalculator.monthlySummary(for: date(1), transactions: entries).expenseMinor == 20_000)
+        precondition(!FinanceCalculator.reserveHistoryIsValid(fund: fund, transactions: [payment]))
+        precondition(!FinanceCalculator.reserveHistoryIsValid(fund: fund, transactions: entries, excluding: move.id),
+            "Deleting the funding transfer must be rejected")
+        precondition(!FinanceCalculator.reserveHistoryIsValid(fund: fund, transactions: entries, funding: 10_000))
+        payment.amountMinor = 25_000
+        precondition(FinanceCalculator.budgetExpenseAmount(for: payment) == 5_000)
+        precondition(FinanceCalculator.spendableCash(accounts: [origin, destination], funds: [fund], transactions: entries) == 45_000)
+        payment.date = date(1, 3)
+        precondition(!FinanceCalculator.reserveHistoryIsValid(fund: fund, transactions: entries), "Later transfers cannot fund earlier payments")
+        payment.date = date(1, 5)
+        move.reservedFundID = nil; move.reservedAmountMinor = nil
+        let plan = FinanceCalculator.reservedPaymentPlan(fund: fund, account: destination, date: payment.date,
+            requested: 20_000, transactions: entries, excluding: payment.id)
+        precondition(plan.amount == 20_000 && plan.transfer?.id == move.id && plan.transferredAmount == 20_000)
+        precondition(move.reservedFundID == nil, "Preparing a plan must not mutate existing movements")
+        let ambiguous = FinancialTransaction(date: date(1, 4), type: .transfer, amountMinor: 20_000,
+            descriptionText: "Otro traspaso", sourceAccount: origin, destinationAccount: destination)
+        precondition(FinanceCalculator.reservedPaymentPlan(fund: fund, account: destination, date: payment.date,
+            requested: 20_000, transactions: [move, ambiguous]).transfer == nil, "Ambiguous transfers require an explicit choice")
+        let chosen = FinanceCalculator.reservedPaymentPlan(fund: fund, account: destination, date: payment.date,
+            requested: 20_000, transactions: [move, ambiguous], preferredTransferID: ambiguous.id)
+        precondition(chosen.transfer?.id == ambiguous.id && chosen.candidateTransfers.count == 2)
+        let hop = FinancialTransaction(date: move.date, type: .transfer, amountMinor: 20_000, descriptionText: "Segundo tramo",
+            reservedFundID: fund.id, reservedAmountMinor: 20_000, sourceAccount: destination, destinationAccount: third)
+        move.reservedFundID = fund.id; move.reservedAmountMinor = 20_000
+        precondition(FinanceCalculator.reserveHistoryIsValid(fund: fund, transactions: [hop, move]), "Same-instant transfer chains must retain provenance")
+        precondition(!FinanceCalculator.reserveHistoryIsValid(fund: fund, transactions: [hop]), "An unfunded transfer cannot invent money")
+        move.date = .now.addingTimeInterval(86_400)
+        precondition(FinanceCalculator.locatedReservedAmount(for: fund, accountID: destination.id, transactions: [move]) == 0,
+            "A future transfer must not relocate the reserve today")
+        precondition(FinanceCalculator.reservedPaymentError(fund: fund, amountMinor: 20_000, transactionAmountMinor: 20_000,
+            type: .expense, account: origin, transactions: [move], date: move.date.addingTimeInterval(-1)) == nil)
+        precondition(FinanceCalculator.reservedPaymentError(fund: fund, amountMinor: 50_000, transactionAmountMinor: 50_000,
+            type: .expense, account: origin, transactions: [move], date: move.date.addingTimeInterval(-1)) != nil,
+            "Future transfers also commit reserved money")
     }
 
     private static func checkReservedBudgets() {

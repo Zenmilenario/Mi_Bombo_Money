@@ -39,7 +39,11 @@ Los importes usan `bigint` en céntimos. `amount_minor` de una reserva es la fin
 
 El vínculo del movimiento guarda qué parte fue cubierta por la reserva. Solo esa parte se excluye del presupuesto mensual. El gasto real, el saldo de la cuenta y el patrimonio reflejan el importe completo.
 
-Una clave foránea exige que la reserva pertenezca a la cuenta de origen. Las asignaciones se comprueban con bloqueos de fila en orden estable: dos dispositivos no pueden comprometer simultáneamente más dinero que el financiado. Los pagos futuros también comprometen reserva. Editar, marcar como eliminado o restaurar un pago libera o vuelve a comprometer su asignación.
+La migración `20261103000100_reserved_fund_transfers.sql`, aplicada en `mi-bombo-money-dev` el 3 de noviembre de 2026, permite que una transferencia propia lleve una parte de la reserva a su cuenta de destino. Conserva las claves foráneas por propietario y espacio. Una reserva mantiene su cuenta inicial como origen y sus asignaciones por cuenta se reconstruyen a partir del historial.
+
+Las transferencias no consumen la financiación total; solo la trasladan. Los gastos y comisiones sí la consumen. La comprobación inmediata conserva los bloqueos y el límite total, incluidos los pagos futuros. Nuevos triggers diferibles comprueban el historial final por cuenta y fecha, de modo que la restauración atómica no dependa del orden del JSON. Impiden gastar antes de recibir la reserva, borrar o reducir una transferencia necesaria, gastar dos veces y trasladar reservas entre monedas diferentes. Las 14 tablas conservan RLS habilitado y forzado. El contrato RPC y las columnas de copia no cambian.
+
+La app 0.6.8 incorpora la misma validación en cálculos, copias y combinación de conflictos cloud. Hay que actualizar todos los dispositivos antes de usar traslados con reserva: clientes anteriores rechazan esa relación al validar. El despliegue SQL está comprobado; la compilación iOS de 0.6.8 y su prueba física siguen pendientes. Véase [Reservas entre cuentas](../RESERVAS.md).
 
 ## Pruebas reproducibles
 
@@ -52,7 +56,7 @@ python supabase/tests/test_finance.py
 
 `CLOUD_TEST_ADMIN_DSN` indica la conexión administrativa local. El valor por defecto es `dbname=postgres user=postgres`, apropiado al ejecutar como usuario postgres en Linux. El script rechaza hosts remotos, crea una base temporal de nombre aleatorio y elimina exclusivamente esa base al terminar.
 
-Las 22 pruebas incluyen los permisos de todas las tablas, suplantación de propietario, relaciones cruzadas, marcas de eliminación, revisiones obsoletas, datos inválidos, deduplicación y dos pagos realmente concurrentes sobre la misma reserva, ida y vuelta de los 13 modelos, escritura atómica, historial sin regla activa y control de revisiones del protocolo. Se ejecutaron correctamente en PostgreSQL 18 local. GitHub Actions las ejecuta sobre PostgreSQL 17, sin claves cloud ni datos personales.
+Las 28 pruebas incluyen los permisos de todas las tablas, suplantación de propietario, relaciones cruzadas, marcas de eliminación, revisiones obsoletas, datos inválidos, deduplicación y dos pagos realmente concurrentes sobre la misma reserva, ida y vuelta de los 13 modelos, escritura atómica, historial sin regla activa y control de revisiones del protocolo. Se ejecutaron correctamente en PostgreSQL 18 local. GitHub Actions las ejecuta sobre PostgreSQL 17, sin claves cloud ni datos personales.
 
 `bootstrap_local.sql` simula únicamente `auth.users`, `auth.uid()` y los roles en esa base temporal. **Nunca se aplica al proyecto remoto.** Las pruebas locales no verifican emisión/validación de JWT, correo, recuperación de contraseña ni el SDK de iOS. La prueba remota verifica el contexto de identidad y RLS reales, pero tampoco es un inicio de sesión extremo a extremo.
 

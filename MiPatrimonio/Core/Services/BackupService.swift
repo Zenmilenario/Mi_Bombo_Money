@@ -150,7 +150,7 @@ struct FinanceBackup: Codable {
             }
             try linked(rule.categoryID, to: categoryIDs, label: "categoría de una regla")
         }
-        var reservedSpending: [UUID: Int64] = [:]
+        var reservedEntries: [UUID: [ReservedLedgerEntry]] = [:]
         for transaction in transactions {
             guard TransactionType(rawValue: transaction.typeRaw) != nil,
                   DuplicateState(rawValue: transaction.duplicateStateRaw) != nil,
@@ -164,17 +164,31 @@ struct FinanceBackup: Codable {
             if let id = transaction.reservedFundID {
                 guard let fund = reservedFunds.first(where: { $0.id == id }),
                       let amount = transaction.reservedAmountMinor, amount > 0, amount <= transaction.amountMinor,
-                      TransactionType(rawValue: transaction.typeRaw)?.countsAsExpense == true,
-                      fund.accountID != nil, fund.accountID == transaction.sourceAccountID else {
+                      let source = transaction.sourceAccountID, fund.accountID != nil,
+                      let type = TransactionType(rawValue: transaction.typeRaw),
+                      type.countsAsExpense || type == .transfer else {
                     throw BackupError.invalidFile("pago con reserva o cuenta asociada inválidos.")
                 }
-                let total = (reservedSpending[id] ?? 0).addingReportingOverflow(amount)
-                guard !total.overflow, total.partialValue <= fund.amountMinor else {
-                    throw BackupError.invalidFile("los pagos superan el dinero asignado a una reserva.")
+                if type == .transfer {
+                    guard let destination = transaction.destinationAccountID, destination != source,
+                          let from = accounts.first(where: { $0.id == source }),
+                          let to = accounts.first(where: { $0.id == destination }),
+                          from.currencyCode == to.currencyCode else {
+                        throw BackupError.invalidFile("traslado de reserva entre cuentas inválido.")
+                    }
                 }
-                reservedSpending[id] = total.partialValue
+                reservedEntries[id, default: []].append(ReservedLedgerEntry(id: transaction.id,
+                    date: transaction.date, source: source,
+                    destination: type == .transfer ? transaction.destinationAccountID : nil, amount: amount))
             } else if transaction.reservedAmountMinor != nil {
                 throw BackupError.invalidFile("importe reservado sin su reserva asociada.")
+            }
+        }
+        for fund in reservedFunds {
+            guard let origin = fund.accountID else { continue }
+            guard ReservedLedger.balances(origin: origin, funding: fund.amountMinor,
+                                         entries: reservedEntries[fund.id] ?? []) != nil else {
+                throw BackupError.invalidFile("los pagos o traslados superan el dinero reservado en su cuenta y fecha.")
             }
         }
         for budget in budgets {

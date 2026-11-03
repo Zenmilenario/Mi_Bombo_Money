@@ -505,13 +505,22 @@ struct TransactionsView: View {
     }
 
     private func delete(_ transaction: FinancialTransaction) {
-        modelContext.delete(transaction)
         do {
+            if let fundID = transaction.reservedFundID {
+                let funds = try modelContext.fetch(FetchDescriptor<ReservedFund>())
+                guard let fund = funds.first(where: { $0.id == fundID }),
+                      FinanceCalculator.reserveHistoryIsValid(fund: fund, transactions: transactions, excluding: transaction.id) else {
+                    deletionError = "Esta transferencia sostiene pagos con reserva. Desvincula o corrige primero esos pagos."; return
+                }
+            }
+            modelContext.delete(transaction)
             try modelContext.save()
         } catch {
+            modelContext.rollback()
             deletionError = error.localizedDescription
         }
     }
+
 }
 
 private struct TransactionPeriodSummaryCard: View {
@@ -923,7 +932,7 @@ private struct TransactionDetailView: View {
 
                     if let fundID = transaction.reservedFundID {
                         Divider().padding(.leading, 38)
-                        detailRow(title: "Pagado con reserva",
+                        detailRow(title: transaction.type == .transfer ? "Reserva trasladada" : "Pagado con reserva",
                             value: reservedFunds.first(where: { $0.id == fundID })?.name ?? "Reserva eliminada",
                             systemImage: "lock.open")
                         detailRow(title: "Importe de la reserva", value: hideAmounts ? "••••••" : MoneyFormatter.string(
@@ -1267,6 +1276,7 @@ struct TransactionFormView: View {
     @State private var reservedFundID: UUID?
     @State private var reservedAmountText: String
     @State private var reservedAmountIsCustom = false
+    @State private var reservedTransferID: UUID?
     @State private var isReconciled: Bool
     @State private var rememberCategoryRule = false
     @State private var rulePhrase = ""
@@ -1297,10 +1307,25 @@ struct TransactionFormView: View {
         accounts.filter { !$0.isArchived }
     }
 
+    private func paymentPlan(for fund: ReservedFund, requested: Int64? = nil) -> FinanceCalculator.ReservedPaymentPlan? {
+        guard type.countsAsExpense, let account = activeAccounts.first(where: { $0.id == sourceAccountID }) else { return nil }
+        return FinanceCalculator.reservedPaymentPlan(fund: fund, account: account, date: date,
+            requested: requested ?? Swift.abs(MoneyParser.minorUnits(from: amountText) ?? 0),
+            transactions: existingTransactions, excluding: transaction?.id, preferredTransferID: reservedTransferID)
+    }
+
     private var eligibleReservedFunds: [ReservedFund] {
-        reservedFunds.filter { fund in
-            fund.account?.id == sourceAccountID && (fund.id == reservedFundID || FinanceCalculator.remainingReservedAmount(
-                for: fund, transactions: existingTransactions, at: .distantFuture, excluding: transaction?.id) > 0)
+        guard let source = activeAccounts.first(where: { $0.id == sourceAccountID }),
+              source.includeInNetWorth, !source.type.isLiability, source.type != .investment else { return [] }
+        return reservedFunds.filter { fund in
+            if fund.id == reservedFundID { return true }
+            let available = FinanceCalculator.availableReserve(fund: fund, accountID: source.id,
+                date: date, destinationID: type == .transfer ? destinationAccountID : nil,
+                transactions: existingTransactions, excluding: transaction?.id)
+            if available > 0 { return true }
+            return type.countsAsExpense && fund.account?.currencyCode == source.currencyCode
+                && FinanceCalculator.remainingReservedAmount(for: fund, transactions: existingTransactions,
+                    at: .distantFuture, excluding: transaction?.id) > 0
         }
     }
 
@@ -1326,13 +1351,14 @@ struct TransactionFormView: View {
             Form {
                 Section("Movimiento") {
                     DatePicker("Fecha", selection: $date, displayedComponents: [.date])
+                        .onChange(of: date) { _, _ in updateSuggestedReservedAmount() }
                     Picker("Tipo", selection: $type) {
                         ForEach(TransactionType.allCases) { type in
                             Label(type.title, systemImage: type.systemImage).tag(type)
                         }
                     }
                     .onChange(of: type) { _, newType in
-                        if !newType.countsAsExpense { reservedFundID = nil; reservedAmountText = "" }
+                        if !newType.countsAsExpense && newType != .transfer { reservedFundID = nil; reservedAmountText = "" }
                         categoryChosenManually = false
                         if newType == .transfer {
                             applySuggestedCategory()
@@ -1361,9 +1387,10 @@ struct TransactionFormView: View {
                     }
 
                     .onChange(of: sourceAccountID) { _, newID in
-                        if let fundID = reservedFundID, reservedFunds.first(where: { $0.id == fundID })?.account?.id != newID {
+                        if let fundID = reservedFundID, !eligibleReservedFunds.contains(where: { $0.id == fundID }) {
                             reservedFundID = nil; reservedAmountText = ""
                         }
+                        updateSuggestedReservedAmount()
                     }
 
                     if type == .transfer {
@@ -1394,48 +1421,7 @@ struct TransactionFormView: View {
                     }
                 }
 
-                if type.countsAsExpense && (!eligibleReservedFunds.isEmpty || reservedFundID != nil) {
-                    Section {
-                        Picker("Pagar con", selection: $reservedFundID) {
-                            Text("Dinero disponible").tag(nil as UUID?)
-                            ForEach(eligibleReservedFunds) { fund in
-                                Text(fund.name).tag(Optional(fund.id))
-                            }
-                        }
-                        .onChange(of: reservedFundID) { _, _ in
-                            reservedAmountIsCustom = false
-                            updateSuggestedReservedAmount()
-                        }
-                        if let fund = reservedFunds.first(where: { $0.id == reservedFundID }) {
-                            LabeledContent("Disponible en la reserva") {
-                                PrivacyAmountText(minorUnits: FinanceCalculator.remainingReservedAmount(
-                                    for: fund, transactions: existingTransactions, at: .distantFuture, excluding: transaction?.id))
-                            }
-                            if reservedAmountIsCustom {
-                                TextField("Importe tomado de la reserva", text: $reservedAmountText)
-                                    .keyboardType(.decimalPad)
-                                Button("Usar importe automático") {
-                                    reservedAmountIsCustom = false
-                                    updateSuggestedReservedAmount()
-                                }
-                            } else {
-                                LabeledContent("Se toma de la reserva") {
-                                    PrivacyAmountText(minorUnits: MoneyParser.minorUnits(from: reservedAmountText) ?? 0)
-                                }
-                                Button("Ajustar importe") { reservedAmountIsCustom = true }
-                            }
-                            LabeledContent("Del presupuesto mensual") {
-                                PrivacyAmountText(minorUnits: Swift.max(0,
-                                    Swift.abs(MoneyParser.minorUnits(from: amountText) ?? 0)
-                                        - Swift.max(0, MoneyParser.minorUnits(from: reservedAmountText) ?? 0)))
-                            }
-                        }
-                    } header: {
-                        Label("Origen del dinero", systemImage: "lock.open")
-                    } footer: {
-                        Text("Se usa automáticamente el importe disponible en la reserva, hasta cubrir el pago. Esa parte queda fuera del presupuesto mensual. Solo el resto consume presupuesto y dinero disponible.")
-                    }
-                }
+                reservedFundingSection
 
                 Section("Detalle") {
                     TextField("Notas", text: $notes, axis: .vertical)
@@ -1462,6 +1448,7 @@ struct TransactionFormView: View {
                     }
                 }
             }
+            .onChange(of: destinationAccountID) { _, _ in updateSuggestedReservedAmount() }
             .navigationTitle(transaction == nil ? "Nuevo movimiento" : "Editar movimiento")
             .navigationBarTitleDisplayMode(.inline)
             .alert("Revisa el movimiento", isPresented: Binding(
@@ -1502,15 +1489,88 @@ struct TransactionFormView: View {
         }
     }
 
+    @ViewBuilder
+    private var reservedFundingSection: some View {
+        if (type.countsAsExpense || type == .transfer) && (!eligibleReservedFunds.isEmpty || reservedFundID != nil) {
+            Section {
+                Picker(type == .transfer ? "Dinero que trasladas" : "Pagar con", selection: $reservedFundID) {
+                    Text("Dinero disponible").tag(nil as UUID?)
+                    ForEach(eligibleReservedFunds) { fund in
+                        Text(fund.name).tag(Optional(fund.id))
+                    }
+                }
+                .onChange(of: reservedFundID) { _, _ in
+                    reservedAmountIsCustom = false
+                    reservedTransferID = nil
+                    updateSuggestedReservedAmount()
+                }
+                if let fund = reservedFunds.first(where: { $0.id == reservedFundID }) {
+                    LabeledContent("Total sin comprometer") {
+                        PrivacyAmountText(minorUnits: FinanceCalculator.remainingReservedAmount(
+                            for: fund, transactions: existingTransactions, at: .distantFuture, excluding: transaction?.id))
+                    }
+                    if let plan = paymentPlan(for: fund), plan.candidateTransfers.count > 1 {
+                        Picker("Transferencia de esta reserva", selection: $reservedTransferID) {
+                            Text("Elige la transferencia").tag(nil as UUID?)
+                            ForEach(plan.candidateTransfers) { transfer in
+                                Text("\(transfer.date.formatted(date: .abbreviated, time: .omitted)) · \(transfer.descriptionText) · \(MoneyFormatter.string(minorUnits: transfer.amountMinor))")
+                                    .tag(Optional(transfer.id))
+                            }
+                        }
+                        .onChange(of: reservedTransferID) { _, _ in updateSuggestedReservedAmount() }
+                    }
+                    if type.countsAsExpense, (paymentPlan(for: fund)?.amount ?? 0) == 0,
+                       (MoneyParser.minorUnits(from: amountText) ?? 0) != 0 {
+                        Text("Esta reserva aún no tiene dinero disponible en la cuenta elegida. Selecciona aquí una transferencia compatible o edita la transferencia con la que llevaste el dinero y elige la reserva en «Dinero que trasladas».")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if reservedAmountIsCustom {
+                        TextField("Importe tomado de la reserva", text: $reservedAmountText)
+                            .keyboardType(.decimalPad)
+                        Button("Usar importe automático") {
+                            reservedAmountIsCustom = false
+                            updateSuggestedReservedAmount()
+                        }
+                    } else {
+                        LabeledContent("Se toma de la reserva") {
+                            PrivacyAmountText(minorUnits: MoneyParser.minorUnits(from: reservedAmountText) ?? 0)
+                        }
+                        Button("Ajustar importe") { reservedAmountIsCustom = true }
+                    }
+                    if let plan = paymentPlan(for: fund, requested: MoneyParser.minorUnits(from: reservedAmountText)),
+                       let transfer = plan.transfer {
+                        Label("Al guardar se vincularán \(MoneyFormatter.string(minorUnits: plan.transferredAmount)) de la transferencia «\(transfer.descriptionText)» a esta reserva. No se creará otro movimiento.",
+                              systemImage: "arrow.left.arrow.right")
+                            .font(.footnote)
+                    }
+                    if type.countsAsExpense {
+                        LabeledContent("Del presupuesto mensual") {
+                            PrivacyAmountText(minorUnits: Swift.max(0,
+                                Swift.abs(MoneyParser.minorUnits(from: amountText) ?? 0)
+                                    - Swift.max(0, MoneyParser.minorUnits(from: reservedAmountText) ?? 0)))
+                        }
+                    }
+                }
+            } header: {
+                Label("Origen del dinero", systemImage: "lock.open")
+            } footer: {
+                Text(type == .transfer ? "La reserva acompaña al dinero hasta la cuenta de destino. No se consume ni cuenta como gasto." : "La parte cubierta por la reserva queda fuera del presupuesto mensual. Si hay una única transferencia compatible en los últimos 35 días, se vincula al guardar. Si hay varias, elige aquí la que corresponde al pago. También puedes vincular la reserva al editar una transferencia en «Dinero que trasladas».")
+            }
+        }
+    }
+
     private func updateSuggestedReservedAmount() {
         guard !reservedAmountIsCustom else { return }
         guard let fund = reservedFunds.first(where: { $0.id == reservedFundID }) else {
             reservedAmountText = ""
             return
         }
-        let amount = FinanceCalculator.suggestedReservedPaymentAmount(for: fund,
-            transactionAmountMinor: Swift.abs(MoneyParser.minorUnits(from: amountText) ?? 0),
-            transactions: existingTransactions, excluding: transaction?.id)
+        let requested = Swift.abs(MoneyParser.minorUnits(from: amountText) ?? 0)
+        let amount: Int64
+        if type == .transfer, let sourceAccountID {
+            amount = Swift.min(requested, FinanceCalculator.availableReserve(fund: fund, accountID: sourceAccountID,
+                date: date, destinationID: destinationAccountID, transactions: existingTransactions, excluding: transaction?.id))
+        } else { amount = paymentPlan(for: fund)?.amount ?? 0 }
         reservedAmountText = String(format: "%.2f", Double(amount) / 100)
     }
 
@@ -1579,17 +1639,43 @@ struct TransactionFormView: View {
         updateSuggestedReservedAmount()
         let fundingFund = reservedFunds.first { $0.id == reservedFundID }
         var fundingAmount: Int64?
+        var transferToLink: FinancialTransaction?
+        var transferFunding: Int64 = 0
         if reservedFundID != nil {
             guard let fund = fundingFund, let amount = MoneyParser.minorUnits(from: reservedAmountText) else {
                 validationMessage = "Selecciona una reserva e indica qué parte del pago sale de ella."
                 return
             }
-            if let error = FinanceCalculator.reservedPaymentError(fund: fund, amountMinor: amount,
+            let plan = paymentPlan(for: fund, requested: amount)
+            transferToLink = plan?.transfer
+            transferFunding = plan?.transferredAmount ?? 0
+            if transferToLink == nil, let error = FinanceCalculator.reservedPaymentError(fund: fund, amountMinor: amount,
                 transactionAmountMinor: Swift.abs(amountMinor), type: type, account: sourceAccount,
-                transactions: existingTransactions, excluding: transaction?.id) {
+                transactions: existingTransactions, excluding: transaction?.id, date: date, destination: destinationAccount) {
                 validationMessage = error; return
             }
+            guard amount > 0, amount <= Swift.abs(amountMinor) else {
+                validationMessage = "El importe reservado debe ser mayor que cero y no superar el movimiento."; return
+            }
             fundingAmount = amount
+        }
+
+        // Validate both the old and new funds before changing any managed object.
+        // Removing/editing a transfer must not strand payments already funded at its destination.
+        for fund in reservedFunds where fund.id == fundingFund?.id || fund.id == transaction?.reservedFundID {
+            var entries: [ReservedLedgerEntry] = []
+            if fund.id == fundingFund?.id, let fundingAmount {
+                entries.append(ReservedLedgerEntry(id: transaction?.id ?? UUID(), date: date,
+                    source: sourceAccount.id, destination: type == .transfer ? destinationAccount?.id : nil, amount: fundingAmount))
+                if let transfer = transferToLink, let source = transfer.sourceAccount?.id {
+                    entries.append(ReservedLedgerEntry(id: transfer.id, date: transfer.date, source: source,
+                        destination: sourceAccount.id, amount: transferFunding))
+                }
+            }
+            guard FinanceCalculator.reserveHistoryIsValid(fund: fund, transactions: existingTransactions,
+                excluding: transaction?.id, adding: entries) else {
+                validationMessage = "Este cambio dejaría pagos o transferencias sin dinero reservado en su cuenta. Revisa primero los movimientos vinculados."; return
+            }
         }
 
         let fingerprint = DuplicateDetectionService.fingerprint(
@@ -1610,6 +1696,12 @@ struct TransactionFormView: View {
             existing: existingTransactions,
             excluding: transaction?.id
         )
+
+        if let transfer = transferToLink, let fund = fundingFund {
+            transfer.reservedFundID = fund.id
+            transfer.reservedAmountMinor = transferFunding
+            transfer.updatedAt = .now
+        }
 
         if let transaction {
             let previousFingerprint = DuplicateDetectionService.fingerprint(

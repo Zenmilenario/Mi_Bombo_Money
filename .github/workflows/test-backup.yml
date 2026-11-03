@@ -24,6 +24,7 @@ jobs:
             -target "$(uname -m)-apple-macosx14.0" \
             -parse-as-library \
             MiPatrimonio/Core/Models/Models.swift \
+            MiPatrimonio/Core/Services/ReservedLedger.swift \
             MiPatrimonio/Core/Services/BackupService.swift \
             MiPatrimonio/Core/Security/PasswordKeyDerivation.swift \
             MiPatrimonio/Core/Services/CategoryRuleService.swift \
@@ -49,6 +50,7 @@ jobs:
             -target "$(uname -m)-apple-macosx14.0" \
             -parse-as-library \
             MiPatrimonio/Core/Models/Models.swift \
+            MiPatrimonio/Core/Services/ReservedLedger.swift \
             MiPatrimonio/Shared/Formatting.swift \
             MiPatrimonio/Core/Services/FinanceCalculator.swift \
             MiPatrimonio/Core/Services/DashboardAlertReviewState.swift \
@@ -67,6 +69,7 @@ jobs:
           set -euo pipefail
           xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
             MiPatrimonio/Core/Models/Models.swift \
+            MiPatrimonio/Core/Services/ReservedLedger.swift \
             MiPatrimonio/Core/Services/TransactionReviewService.swift \
             MiPatrimonio/Core/Services/DuplicateDetectionService.swift \
             Tests/TransactionReviewCheck.swift -o build/finance-check/TransactionReviewCheck

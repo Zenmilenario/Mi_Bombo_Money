@@ -47,6 +47,7 @@ jobs:
           mkdir -p build/cloud-check
           xcrun swiftc -swift-version 5 -parse-as-library \
             MiPatrimonio/Core/Cloud/CloudDocument.swift \
+            MiPatrimonio/Core/Services/ReservedLedger.swift \
             MiPatrimonio/Core/Cloud/CloudClient.swift \
             MiPatrimonio/Core/Cloud/CloudPKCEFlow.swift \
             MiPatrimonio/Core/Cloud/CloudAutomaticSync.swift \
@@ -56,6 +57,7 @@ jobs:
         run: |
           xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
             MiPatrimonio/Core/Models/Models.swift \
+            MiPatrimonio/Core/Services/ReservedLedger.swift \
             MiPatrimonio/Shared/Formatting.swift \
             MiPatrimonio/Core/Services/BackupService.swift \
             MiPatrimonio/Core/Security/PasswordKeyDerivation.swift \

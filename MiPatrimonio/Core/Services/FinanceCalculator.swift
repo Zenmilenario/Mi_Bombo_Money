@@ -78,7 +78,7 @@ enum FinanceCalculator {
                                     at date: Date = .now, excluding transactionID: UUID? = nil) -> Int64 {
         transactions.filter {
             $0.id != transactionID && $0.reservedFundID == fund.id && $0.type.countsAsExpense
-                && $0.sourceAccount?.id == fund.account?.id && $0.date <= date
+                && $0.date <= date
         }.reduce(Int64.zero) { total, transaction in
             let amount = reservedExpenseAmount(for: transaction)
             let sum = total.addingReportingOverflow(amount)
@@ -92,29 +92,119 @@ enum FinanceCalculator {
             at: date, excluding: transactionID))
     }
 
+    static func reserveEntries(for fund: ReservedFund, transactions: [FinancialTransaction],
+                               excluding transactionID: UUID? = nil) -> [ReservedLedgerEntry] {
+        transactions.compactMap { transaction in
+            guard transaction.id != transactionID, transaction.reservedFundID == fund.id,
+                  transaction.type.countsAsExpense || transaction.type == .transfer,
+                  let source = transaction.sourceAccount?.id, let amount = transaction.reservedAmountMinor else { return nil }
+            return ReservedLedgerEntry(id: transaction.id, date: transaction.date, source: source,
+                destination: transaction.type == .transfer ? transaction.destinationAccount?.id : nil, amount: amount)
+        }
+    }
+
+    static func reserveHistoryIsValid(fund: ReservedFund, transactions: [FinancialTransaction],
+                                      excluding transactionID: UUID? = nil,
+                                      adding entries: [ReservedLedgerEntry] = [], funding: Int64? = nil) -> Bool {
+        guard let origin = fund.account?.id else { return false }
+        return ReservedLedger.balances(origin: origin, funding: funding ?? fund.amountMinor,
+            entries: reserveEntries(for: fund, transactions: transactions, excluding: transactionID) + entries) != nil
+    }
+
+    static func locatedReservedAmount(for fund: ReservedFund, accountID: UUID,
+                                      transactions: [FinancialTransaction], at date: Date = .now,
+                                      excluding transactionID: UUID? = nil) -> Int64 {
+        guard let origin = fund.account?.id else { return 0 }
+        return ReservedLedger.balances(origin: origin, funding: fund.amountMinor,
+            entries: reserveEntries(for: fund, transactions: transactions, excluding: transactionID), through: date)?[accountID] ?? 0
+    }
+
+    // Maximum new allocation that leaves every later reserved payment/transfer covered.
+    static func availableReserve(fund: ReservedFund, accountID: UUID, date: Date,
+                                 destinationID: UUID? = nil, transactions: [FinancialTransaction],
+                                 excluding transactionID: UUID? = nil) -> Int64 {
+        var low: Int64 = 0
+        var high = remainingReservedAmount(for: fund, transactions: transactions,
+            at: .distantFuture, excluding: transactionID)
+        while low < high {
+            let middle = low + (high - low) / 2 + 1
+            let entry = ReservedLedgerEntry(id: UUID(), date: date, source: accountID,
+                                            destination: destinationID, amount: middle)
+            if reserveHistoryIsValid(fund: fund, transactions: transactions, excluding: transactionID, adding: [entry]) {
+                low = middle
+            } else { high = middle - 1 }
+        }
+        return low
+    }
+
+    struct ReservedPaymentPlan {
+        let amount: Int64
+        let transfer: FinancialTransaction?
+        let transferredAmount: Int64
+        var candidateTransfers: [FinancialTransaction] = []
+    }
+
+    static func reservedPaymentPlan(fund: ReservedFund, account: FinancialAccount, date: Date,
+                                    requested: Int64, transactions: [FinancialTransaction],
+                                    excluding transactionID: UUID? = nil, preferredTransferID: UUID? = nil) -> ReservedPaymentPlan {
+        let desired = Swift.min(Swift.max(0, requested), remainingReservedAmount(for: fund,
+            transactions: transactions, at: .distantFuture, excluding: transactionID))
+        let direct = Swift.min(desired, availableReserve(fund: fund, accountID: account.id,
+            date: date, transactions: transactions, excluding: transactionID))
+        guard desired > direct else { return ReservedPaymentPlan(amount: direct, transfer: nil, transferredAmount: 0) }
+        let needed = desired - direct
+        let candidates = transactions.filter { transfer in
+            guard transfer.id != transactionID, transfer.type == .transfer,
+                  transfer.reservedFundID == nil, transfer.reservedAmountMinor == nil,
+                  transfer.destinationAccount?.id == account.id,
+                  let source = transfer.sourceAccount, source.id != account.id,
+                  source.currencyCode == account.currencyCode,
+                  source.includeInNetWorth, !source.isArchived, !source.type.isLiability, source.type != .investment,
+                  transfer.date <= date, transfer.date >= date.addingTimeInterval(-35 * 86_400),
+                  transfer.amountMinor >= needed else { return false }
+            let move = ReservedLedgerEntry(id: transfer.id, date: transfer.date, source: source.id,
+                                           destination: account.id, amount: needed)
+            let payment = ReservedLedgerEntry(id: UUID(), date: date, source: account.id,
+                                              destination: nil, amount: desired)
+            return reserveHistoryIsValid(fund: fund, transactions: transactions, excluding: transactionID, adding: [move, payment])
+        }
+        let chosen = preferredTransferID.flatMap { id in candidates.first { $0.id == id } }
+            ?? (candidates.count == 1 ? candidates.first : nil)
+        guard let chosen else {
+            return ReservedPaymentPlan(amount: direct, transfer: nil, transferredAmount: 0, candidateTransfers: candidates)
+        }
+        return ReservedPaymentPlan(amount: desired, transfer: chosen, transferredAmount: needed, candidateTransfers: candidates)
+    }
+
     static func reservedPaymentError(fund: ReservedFund, amountMinor: Int64, transactionAmountMinor: Int64,
                                      type: TransactionType, account: FinancialAccount,
-                                     transactions: [FinancialTransaction], excluding transactionID: UUID? = nil) -> String? {
-        guard type.countsAsExpense, fund.account?.id == account.id,
+                                     transactions: [FinancialTransaction], excluding transactionID: UUID? = nil,
+                                     date: Date = .now, destination: FinancialAccount? = nil) -> String? {
+        guard type.countsAsExpense || type == .transfer,
               account.includeInNetWorth, !account.isArchived, !account.type.isLiability, account.type != .investment else {
-            return "La reserva debe pertenecer a la cuenta desde la que pagas un gasto o comisión."
+            return "Selecciona una cuenta de efectivo para pagar o trasladar una reserva."
+        }
+        if type == .transfer {
+            guard let destination, destination.id != account.id,
+                  destination.currencyCode == account.currencyCode, destination.includeInNetWorth,
+                  !destination.isArchived, !destination.type.isLiability, destination.type != .investment else {
+                return "La reserva solo puede trasladarse entre cuentas de efectivo de la misma moneda."
+            }
         }
         guard amountMinor > 0, amountMinor <= transactionAmountMinor else {
-            return "El importe de la reserva debe ser mayor que cero y no superar el pago."
+            return "El importe de la reserva debe ser mayor que cero y no superar el movimiento."
         }
-        // Future dated payments also commit funds; editing releases the old allocation.
-        let available = remainingReservedAmount(for: fund, transactions: transactions, at: .distantFuture, excluding: transactionID)
-        guard amountMinor <= available else {
-            return "La reserva no tiene suficiente dinero sin comprometer. Disponible: \(MoneyFormatter.string(minorUnits: available)). Reduce el importe tomado de la reserva o amplíala."
+        let entry = ReservedLedgerEntry(id: transactionID ?? UUID(), date: date, source: account.id,
+            destination: type == .transfer ? destination?.id : nil, amount: amountMinor)
+        guard reserveHistoryIsValid(fund: fund, transactions: transactions, excluding: transactionID, adding: [entry]) else {
+            return "No hay suficiente dinero de esta reserva en la cuenta y fecha elegidas. Vincula la reserva a la transferencia que llevó el dinero a esta cuenta, o revisa sus pagos posteriores."
         }
         return nil
     }
 
     static func reservedAmount(for account: FinancialAccount, funds: [ReservedFund],
                                transactions: [FinancialTransaction] = []) -> Int64 {
-        funds
-            .filter { $0.account?.id == account.id }
-            .reduce(Int64.zero) { $0 + remainingReservedAmount(for: $1, transactions: transactions) }
+        funds.reduce(Int64.zero) { $0 + locatedReservedAmount(for: $1, accountID: account.id, transactions: transactions) }
     }
 
     static func spendableCash(
