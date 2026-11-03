@@ -231,3 +231,9 @@ Servidor personal actualizado; cliente 0.6.5 (22) preparado localmente. Pasan 46
 Las descargas y esperas se gestionan por banco: un error de Bankinter no descarta los movimientos completos de BBVA. Mis bancos muestra el resultado de cada entidad, permite actualizarla por separado y ofrece acceso directo a incorporar la primera descarga revisada. Las transferencias propias sin una pareja compatible quedan diferidas sin contarlas como gasto o ingreso; los demás movimientos pueden continuar.
 
 Preparado localmente: 0.6.6 (23). Pasan tres suites Swift de política, planificación y coordinación con datos sintéticos. Pendientes: persistencia SwiftData y compilación iOS/macOS en GitHub, instalación y prueba real. Se conserva la espera global heredada de 0.6.5 hasta su vencimiento. [Detalle y límites](BankingBackend/INTEGRACION_PERSONAL.md#descargas-y-esperas-independientes-por-banco--066).
+
+## Descarga después de conectar · 0.6.7
+
+Autorizar o asociar una cuenta solicita directamente la descarga de ese banco. Se separan el catálogo y las conexiones existentes, las esperas manuales y automáticas, y la descarga y su incorporación contable. Los movimientos recibidos se muestran en la revisión; la primera incorporación requiere confirmación. La cuenta auxiliar no asociada sigue excluida.
+
+Cliente 0.6.7 (24) preparado. Pasan tres suites Swift locales, análisis sintáctico y revisión de espacios. Pendientes: checks de iOS/macOS e instalación para verificar la descarga real. Los recuentos remotos confirman registros conservados; no se han alterado datos ni saldos para esta comprobación. [Detalle](BankingBackend/INTEGRACION_PERSONAL.md#preparar-y-mostrar-la-descarga-al-conectar--067).
