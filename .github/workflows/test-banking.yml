@@ -39,6 +39,16 @@ jobs:
             MiPatrimonio/Core/Services/PersonalBankingImporter.swift \
             Tests/PersonalBankingImporterCheck.swift -o build/personal-banking/importer-check
           build/personal-banking/importer-check
+      - name: Comprobar fallos y esperas independientes por banco
+        run: |
+          set -euo pipefail
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
+            MiPatrimonio/Core/Services/BankingConnectionModels.swift \
+            MiPatrimonio/Core/Services/BankingConnectionPolicy.swift \
+            MiPatrimonio/Core/Services/PersonalBankingPlan.swift \
+            MiPatrimonio/Core/Services/PersonalBankingCoordinator.swift \
+            Tests/PersonalBankingCoordinatorCheck.swift -o build/personal-banking/coordinator-check
+          build/personal-banking/coordinator-check
 
   client-policy:
     name: Destinos y retorno de autorización iOS

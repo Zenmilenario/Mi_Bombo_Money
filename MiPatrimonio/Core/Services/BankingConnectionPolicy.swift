@@ -1,5 +1,29 @@
 import Foundation
 
+struct BankingBankSchedule: Codable, Equatable {
+    var nextAttempt: Date = .distantPast
+    var blockedUntil: Date?
+
+    func allows(force: Bool, at date: Date) -> Bool {
+        if let blockedUntil, date < blockedUntil { return false }
+        return force || date >= nextAttempt
+    }
+    var automaticDate: Date { max(nextAttempt, blockedUntil ?? .distantPast) }
+    mutating func started(at date: Date) { nextAttempt = date.addingTimeInterval(15 * 60) }
+    mutating func downloaded(at date: Date) { nextAttempt = date.addingTimeInterval(6 * 60 * 60); blockedUntil = nil }
+    mutating func failed(at date: Date, retryAfter: TimeInterval?) {
+        nextAttempt = date.addingTimeInterval(retryAfter ?? 15 * 60)
+        blockedUntil = retryAfter.map { date.addingTimeInterval($0) }
+    }
+}
+
+struct BankingBankSyncStatus {
+    var summary: String
+    var errorMessage: String?
+    var retryAt: Date?
+    var deferredTransfers = 0
+}
+
 enum BankingConnectionPolicy {
     enum EntryDestination: Equatable { case personal, sandbox, requiresPersonalWorkspace }
 

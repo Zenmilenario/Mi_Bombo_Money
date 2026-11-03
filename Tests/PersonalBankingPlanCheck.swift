@@ -7,15 +7,15 @@ struct PersonalBankingPlanCheck {
     static func row(_ id: String = "expense", amount: Int64 = -1000, text: String = "Compra", other: String? = nil, reference: String? = nil) -> BankingPreview.Movement {
         .init(id: id, bookingDate: "2026-10-15", signedAmountMinor: amount, currency: "EUR", description: text, counterpartyKey: other, transferKey: reference)
     }
-    static func feed(_ id: String = "daily", own: String = "own-daily", rows: [BankingPreview.Movement]? = nil) -> BankingAccountFeed {
+    static func feed(_ id: String = "daily", own: String = "own-daily", rows: [BankingPreview.Movement]? = nil, bank: String = "Bankinter") -> BankingAccountFeed {
         let account = ConnectedBankAccount(id: id, name: "Cuenta ficticia", currency: "EUR", lastFour: "1234", ownershipKey: own)
-        return .init(connection: .init(id: UUID().uuidString, bank: "Bankinter", validUntil: "2026-11-01", accounts: [account]),
+        return .init(connection: .init(id: UUID().uuidString, bank: bank, validUntil: "2026-11-01", accounts: [account]),
             account: account, balances: [.init(amountMinor: 9000, currency: "EUR", type: "CLBD")], movements: rows ?? [row()])
     }
     static func entry(id: UUID = UUID(), text: String = "Compra", external: String? = nil) -> BankingLedgerEntry {
         .init(id: id, date: day, kind: "expense", amount: 1000, source: daily, destination: nil, text: text, externalID: external)
     }
-    static func main() throws {
+    @MainActor static func main() async throws {
         let links = ["daily": daily, "savings": savings]
         let first = try PersonalBankingPlan.build(feeds: [feed()], links: links, ledger: [])
         precondition(first.items.count == 1 && first.balances[0].amount == 9000)
@@ -114,7 +114,67 @@ struct PersonalBankingPlanCheck {
         catch PersonalBankingError.invalidData { }
         do { _ = try PersonalBankingPlan.build(feeds: [feed()], links: [:], ledger: []); preconditionFailure("Unlinked account accepted") }
         catch PersonalBankingError.accountNotLinked { }
+        try await checkIndependentDownloads()
         print("Personal banking plan passed: technical prefixes, explicit bulk proposals, repeated purchases, candidate conflicts, renewal, account scoping, transfers and stable IDs.")
+    }
+    @MainActor private static func checkIndependentDownloads() async throws {
+        enum FixtureFailure: Error { case unavailable }
+        let bbva = feed("savings", own: "own-savings", rows: [row("bbva-charge", amount: -750)], bank: "BBVA")
+        let bankinter = feed()
+        var attempted: [String] = []
+        let outcomes = try await PersonalBankingDownloadBatch.load([bankinter.connection, bbva.connection]) { group in
+            attempted.append(group[0].bank)
+            if group[0].bank == "Bankinter" { throw FixtureFailure.unavailable }
+            return [bbva]
+        }
+        precondition(Set(attempted) == ["BBVA", "Bankinter"] && outcomes.count == 2)
+        var good: [BankingAccountFeed] = []
+        var failed: [String] = []
+        for outcome in outcomes {
+            switch outcome {
+            case .downloaded(_, let feeds): good += feeds
+            case .failed(let bank, _): failed.append(bank)
+            }
+        }
+        let known = [bbva.account, bankinter.account]
+        let independent = try PersonalBankingDownloadSelection.prepare(good, knownAccounts: known)
+        let plan = try PersonalBankingPlan.build(feeds: independent.feeds, links: ["daily": daily, "savings": savings], ledger: [])
+        precondition(failed == ["Bankinter"] && plan.items.count == 1 && plan.items[0].source == savings)
+        precondition(plan.items[0].amount == 750, "A failed bank must not discard an unrelated bank charge")
+
+        let incoming = feed("savings", own: "own-savings", rows: [row("own-in", amount: 5000, other: "own-daily", reference: "pair"), row("bbva-charge", amount: -750)], bank: "BBVA")
+        let partial = try PersonalBankingDownloadSelection.prepare([incoming], knownAccounts: known)
+        precondition(partial.deferredByBank["BBVA"] == 1 && partial.feeds[0].movements.count == 1)
+        let partialPlan = try PersonalBankingPlan.build(feeds: partial.feeds, links: ["savings": savings], ledger: [])
+        precondition(partialPlan.items.count == 1 && partialPlan.items[0].kind == "expense")
+        precondition(partialPlan.balances.count == 1, "Keep the bank's actual booked balance; never invent a balance excluding transfers")
+
+        let outgoing = feed(rows: [row("own-out", amount: -5000, other: "own-savings", reference: "pair")])
+        let complete = try PersonalBankingDownloadSelection.prepare([incoming, outgoing], knownAccounts: known)
+        let completePlan = try PersonalBankingPlan.build(feeds: complete.feeds, links: ["daily": daily, "savings": savings], ledger: [])
+        precondition(complete.deferredByBank.isEmpty && completePlan.items.filter { $0.kind == "transfer" }.count == 1)
+        let existingCharge = BankingLedgerEntry(id: UUID(), date: day, kind: "expense", amount: 750,
+            source: savings, destination: nil, text: "Compra", externalID: partialPlan.items[0].id)
+        let restored = try PersonalBankingPlan.build(feeds: complete.feeds, links: ["daily": daily, "savings": savings], ledger: [existingCharge])
+        precondition(restored.alreadyImported == 1 && restored.items.count == 1 && restored.items[0].kind == "transfer")
+
+        let ambiguous = feed(rows: outgoing.movements + outgoing.movements)
+        let deferred = try PersonalBankingDownloadSelection.prepare([incoming, ambiguous], knownAccounts: known)
+        precondition(deferred.feeds.allSatisfy { $0.movements.allSatisfy { $0.counterpartyKey == nil } },
+            "Ambiguous transfers must defer both sides without blocking independent purchases")
+        let unknown = feed("savings", own: "own-savings", rows: [row(other: "unknown-party")], bank: "BBVA")
+        let ordinary = try PersonalBankingDownloadSelection.prepare([unknown], knownAccounts: known)
+        precondition(ordinary.deferredByBank.isEmpty)
+
+        do {
+            _ = try await PersonalBankingDownloadBatch.load([bankinter.connection, bbva.connection]) { _ in throw CancellationError() }
+            preconditionFailure("Cancellation must not become a partial successful download")
+        } catch is CancellationError { }
+        let reversed = try await PersonalBankingDownloadBatch.load([bankinter.connection, bbva.connection]) { group in
+            if group[0].bank == "BBVA" { throw FixtureFailure.unavailable }
+            return [bankinter]
+        }
+        precondition(reversed.contains { if case .downloaded("Bankinter", _) = $0 { return true }; return false })
     }
     static func expectReview(_ body: () throws -> Void) {
         do { try body(); preconditionFailure("Review was bypassed") }

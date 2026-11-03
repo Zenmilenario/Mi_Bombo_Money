@@ -30,6 +30,19 @@ struct BankingSecurityCheck {
         let limited = BankingConnectionError.accountQuery(bank: "BBVA", lastFour: "0000",
             reason: .bankRateLimited(retryAfter: 3600))
         precondition(limited.retryDelay == 3600, "Adding account context must preserve the bank's cooldown")
+        let checkDate = Date(timeIntervalSince1970: 1_700_000_000)
+        var bankinterSchedule = BankingBankSchedule()
+        bankinterSchedule.failed(at: checkDate, retryAfter: 21600)
+        var bbvaSchedule = BankingBankSchedule()
+        precondition(!bankinterSchedule.allows(force: true, at: checkDate.addingTimeInterval(60)))
+        precondition(bbvaSchedule.allows(force: true, at: checkDate), "A Bankinter limit must not block BBVA")
+        bbvaSchedule.downloaded(at: checkDate)
+        precondition(!bbvaSchedule.allows(force: false, at: checkDate.addingTimeInterval(60)))
+        precondition(bbvaSchedule.allows(force: true, at: checkDate.addingTimeInterval(60)), "A normal automatic interval is not a bank-imposed restriction")
+        let restored = try JSONDecoder().decode([String: BankingBankSchedule].self,
+            from: JSONEncoder().encode(["Bankinter": bankinterSchedule, "BBVA": bbvaSchedule]))
+        precondition(restored["Bankinter"] == bankinterSchedule && restored["BBVA"] == bbvaSchedule)
+        precondition(bankinterSchedule.allows(force: false, at: checkDate.addingTimeInterval(21600)))
         // Fictional credentials used only to validate destination policy; never used for a server.
         let token = String(repeating: "a", count: 64)
         let server = "https://bank-test.personal.workers.dev"

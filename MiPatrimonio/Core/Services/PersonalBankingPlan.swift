@@ -1,5 +1,67 @@
 import Foundation
 
+/// An unavailable bank must not discard another bank's complete download.
+enum PersonalBankingDownloadBatch {
+    enum Outcome {
+        case downloaded(bank: String, feeds: [BankingAccountFeed])
+        case failed(bank: String, error: Error)
+    }
+    @MainActor static func load(_ connections: [ConnectedBankSession],
+                               fetch: ([ConnectedBankSession]) async throws -> [BankingAccountFeed]) async throws -> [Outcome] {
+        let groups = Dictionary(grouping: connections, by: \.bank)
+        var outcomes: [Outcome] = []
+        for bank in groups.keys.sorted() {
+            try Task.checkCancellation()
+            do { outcomes.append(.downloaded(bank: bank, feeds: try await fetch(groups[bank]!))) }
+            catch is CancellationError { throw CancellationError() }
+            catch let error as URLError where error.code == .cancelled { throw error }
+            catch { outcomes.append(.failed(bank: bank, error: error)) }
+        }
+        return outcomes
+    }
+}
+
+/// Keep unpaired own transfers out of expenses/income while importing independent postings.
+struct PersonalBankingDownloadSelection {
+    let feeds: [BankingAccountFeed]
+    let deferredByBank: [String: Int]
+
+    static func prepare(_ feeds: [BankingAccountFeed], knownAccounts: [ConnectedBankAccount]) throws -> Self {
+        var identities: [String: String] = [:]
+        for remote in knownAccounts {
+            if let own = remote.ownershipKey {
+                if let previous = identities[own], previous != remote.id { throw PersonalBankingError.invalidData }
+                identities[own] = remote.id
+            }
+        }
+        var deferred: [String: Int] = [:]
+        let selected = feeds.map { feed in
+            let rows = feed.movements.filter { row in
+                guard let otherKey = row.counterpartyKey, let other = identities[otherKey], other != feed.account.id else { return true }
+                let own = feed.account.ownershipKey
+                let matches = feeds.filter { $0.account.id == other }.flatMap(\.movements).filter {
+                    own != nil && $0.counterpartyKey == own && row.transferKey != nil && $0.transferKey == row.transferKey
+                        && $0.bookingDate == row.bookingDate && $0.signedAmountMinor != Int64.min
+                        && row.signedAmountMinor == -$0.signedAmountMinor && $0.currency == row.currency
+                }
+                if matches.count == 1 {
+                    let peer = matches[0]
+                    let reverse = feed.movements.filter {
+                        $0.counterpartyKey == otherKey && $0.transferKey == peer.transferKey
+                            && $0.bookingDate == peer.bookingDate && peer.signedAmountMinor != Int64.min
+                            && $0.signedAmountMinor == -peer.signedAmountMinor && $0.currency == peer.currency
+                    }
+                    if reverse.count == 1 { return true }
+                }
+                deferred[feed.connection.bank, default: 0] += 1
+                return false
+            }
+            return BankingAccountFeed(connection: feed.connection, account: feed.account, balances: feed.balances, movements: rows)
+        }
+        return Self(feeds: selected, deferredByBank: deferred)
+    }
+}
+
 enum PersonalBankingError: LocalizedError {
     case invalidData, accountNotLinked, needsReview, changed, incompleteTransfer, wrongWorkspace
     var errorDescription: String? {
