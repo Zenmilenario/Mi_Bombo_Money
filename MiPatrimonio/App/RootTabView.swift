@@ -33,11 +33,11 @@ struct RootTabView: View {
                 },
                 onOpenSettings: {
                     selectedTab = .settings
+                },
+                onAddMovement: {
+                    showingQuickAdd = true
                 }
             )
-            .safeAreaInset(edge: .bottom, alignment: .trailing, spacing: 0) {
-                quickAddButton
-            }
             .tag(AppTab.home)
             .tabItem {
                 Label("Inicio", systemImage: "house")
@@ -82,7 +82,7 @@ struct RootTabView: View {
                     )
                 }
         }
-
+        .modifier(AdaptiveTabNavigationStyle())
         .accentColor(AppDesign.accent)
         .animation(
             .easeInOut(duration: 0.18),
@@ -115,7 +115,7 @@ struct RootTabView: View {
                     .font(.title2.bold())
                     .foregroundStyle(.white)
                     .frame(width: 56, height: 56)
-                    .background(.tint, in: Circle())
+                    .background(AppDesign.actionFill, in: Circle())
                     .shadow(
                         color: .black.opacity(0.18),
                         radius: 9,
@@ -136,6 +136,16 @@ struct RootTabView: View {
             try RecurringMovementService.postDueMovements(in: modelContext)
         } catch {
             recurrenceError = error.localizedDescription
+        }
+    }
+}
+
+private struct AdaptiveTabNavigationStyle: ViewModifier {
+    @ViewBuilder func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content.tabViewStyle(.sidebarAdaptable)
+        } else {
+            content
         }
     }
 }

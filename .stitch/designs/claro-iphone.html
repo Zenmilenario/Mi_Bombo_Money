@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+
+<html class="h-full bg-surface-base" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" name="viewport"/>
+<title>Mi Bombo Money - Inicio</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-background": "#181c1c",
+            "expense-fg": "#B42318",
+            "on-surface": "#181c1c",
+            "tertiary-fixed-dim": "#ffb598",
+            "savings-fg": "#175CD3",
+            "inverse-surface": "#2d3130",
+            "primary": "#005c55",
+            "outline-variant": "#bdc9c6",
+            "error-container": "#ffdad6",
+            "tertiary": "#7f4025",
+            "on-primary-fixed-variant": "#00504a",
+            "secondary-container": "#cce5e2",
+            "surface-container": "#ebefed",
+            "surface-tint": "#006a63",
+            "on-primary": "#ffffff",
+            "border-color": "#D7DFDA",
+            "inverse-on-surface": "#eef1f0",
+            "warning-fg": "#92400E",
+            "surface-dim": "#d7dbd9",
+            "surface-container-high": "#e5e9e7",
+            "background": "#f7faf8",
+            "surface-container-low": "#f1f4f3",
+            "on-surface-variant": "#3e4947",
+            "expense-bg": "#FEE4E2",
+            "surface": "#f7faf8",
+            "on-tertiary-container": "#ffe5db",
+            "on-secondary-fixed-variant": "#354b4a",
+            "on-tertiary": "#ffffff",
+            "tertiary-container": "#9c573a",
+            "primary-fixed": "#9cf2e8",
+            "surface-bright": "#f7faf8",
+            "outline": "#6e7977",
+            "surface-container-highest": "#e0e3e1",
+            "error": "#ba1a1a",
+            "text-secondary": "#536661",
+            "secondary": "#4c6361",
+            "surface-secondary": "#EEECE5",
+            "on-error-container": "#93000a",
+            "on-primary-fixed": "#00201d",
+            "on-primary-container": "#a3faef",
+            "tertiary-fixed": "#ffdbce",
+            "on-tertiary-fixed": "#370e00",
+            "on-secondary-container": "#506765",
+            "surface-base": "#F7F5F0",
+            "secondary-fixed": "#cfe7e5",
+            "primary-fixed-dim": "#80d5cb",
+            "on-secondary-fixed": "#081f1e",
+            "income-bg": "#DCFCE7",
+            "inverse-primary": "#80d5cb",
+            "on-tertiary-fixed-variant": "#72361b",
+            "investment-fg": "#6941C6",
+            "surface-variant": "#e0e3e1",
+            "text-primary": "#172D2C",
+            "surface-card": "#FFFFFF",
+            "investment-bg": "#F1EBFF",
+            "on-error": "#ffffff",
+            "income-fg": "#166534",
+            "surface-container-lowest": "#ffffff",
+            "secondary-fixed-dim": "#b3cbc9",
+            "on-secondary": "#ffffff",
+            "primary-container": "#0f766e",
+            "warning-bg": "#FEF3C7",
+            "savings-bg": "#E8F0FF"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "space-lg": "16px",
+            "space-xl": "24px",
+            "space-xs": "4px",
+            "space-md": "12px",
+            "margin": "16px",
+            "space-sm": "8px",
+            "gutter": "16px",
+            "space-2xl": "32px"
+          },
+          "fontFamily": {
+            "tabular-figures": ["Inter"],
+            "headline-lg": ["Inter"],
+            "section-title": ["Inter"],
+            "headline-md": ["Inter"],
+            "label": ["Inter"],
+            "body": ["Inter"]
+          },
+          "fontSize": {
+            "tabular-figures": ["16px", { "lineHeight": "24px", "fontWeight": "500" }],
+            "headline-lg": ["36px", { "lineHeight": "42px", "fontWeight": "700" }],
+            "section-title": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "headline-md": ["28px", { "lineHeight": "34px", "fontWeight": "650" }],
+            "label": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+            "body": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .tabular-nums {
+      font-variant-numeric: tabular-nums;
+    }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      line-height: 1;
+    }
+    .material-symbols-outlined[data-weight="fill"] {
+      font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+    body {
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior-y: none;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-surface-base text-text-primary antialiased min-h-screen flex justify-center">
+<div class="w-full max-w-lg bg-surface-base min-h-screen flex flex-col relative pb-28">
+<!-- 1. STATUS BAR & HEADER -->
+<header class="sticky top-0 z-40 bg-surface-base/95 backdrop-blur-md pt-2 px-space-lg">
+<!-- iOS Native Status Bar Mockup -->
+<div class="flex justify-between items-center h-5 text-text-primary mb-2 select-none">
+<span class="font-label text-label font-semibold text-xs tracking-tight">9:41</span>
+<div class="flex items-center space-x-1.5 text-text-primary">
+<span class="material-symbols-outlined text-[14px]">signal_cellular_4_bar</span>
+<span class="material-symbols-outlined text-[14px]">wifi</span>
+<span class="material-symbols-outlined text-[18px]">battery_full</span>
+</div>
+</div>
+<!-- Compact Greeting & Utility Controls -->
+<div class="flex items-center justify-between py-2 min-h-[48px]">
+<div>
+<h1 class="font-section-title text-section-title text-text-primary font-bold tracking-tight">Buenos días</h1>
+<p class="font-label text-label text-text-secondary text-xs">Todo en orden hoy</p>
+</div>
+<div class="flex items-center gap-2">
+<!-- Cloud Sync Pill -->
+<div class="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-surface-card border border-border-color rounded-full shadow-sm text-text-secondary">
+<span class="material-symbols-outlined text-primary text-[17px]" data-weight="fill">cloud_done</span>
+<span class="font-label text-label text-xs font-medium text-text-primary">Al día</span>
+</div>
+<!-- Toggle Visibility button (Min 44pt touch area) -->
+<button aria-label="Ocultar o mostrar importes" class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl bg-surface-card border border-border-color text-text-secondary hover:text-text-primary active:scale-95 transition-all" id="toggle-privacy-btn">
+<span class="material-symbols-outlined text-[20px]" id="eye-icon">visibility</span>
+</button>
+</div>
+</div>
+<div class="pb-2.5 pt-1"><button class="w-full bg-primary-container hover:bg-primary active:scale-[0.99] text-on-primary font-label text-sm font-semibold rounded-xl min-h-[44px] py-2 px-3 shadow-sm flex items-center justify-center gap-1.5 transition-all"><span class="material-symbols-outlined text-[19px]">add</span><span>Añadir movimiento</span></button></div></header>
+<!-- MAIN SCROLL CONTENT -->
+<main class="flex-1 px-space-lg pt-3 space-y-3">
+<!-- 2. TARJETA PATRIMONIAL RECONOCIBLE -->
+<section class="bg-surface-card border border-border-color rounded-xl p-space-lg shadow-sm"><div class="flex items-center justify-between mb-1"><span class="font-label text-label text-text-secondary text-xs uppercase tracking-wider">Patrimonio total</span></div><div class="mb-3"><div class="font-headline-lg text-headline-lg font-bold text-text-primary tabular-nums tracking-tight balance-value">12.500,00 €</div></div><div class="flex items-center justify-between py-2 border-t border-border-color text-xs"><span class="font-label text-label text-text-secondary flex items-center gap-1"><span class="material-symbols-outlined text-[15px] text-text-secondary">payments</span>Efectivo <strong class="font-tabular-figures font-semibold text-text-primary tabular-nums balance-value ml-0.5">7.500,00 €</strong></span><span class="text-border-color">·</span><span class="font-label text-label text-text-secondary flex items-center gap-1"><span class="material-symbols-outlined text-[15px] text-investment-fg">trending_up</span>Inversión <strong class="font-tabular-figures font-semibold text-text-primary tabular-nums balance-value ml-0.5">5.000,00 €</strong></span></div><div class="grid grid-cols-2 gap-2.5 pt-2.5 border-t border-border-color"><div class="bg-income-bg/40 border border-income-fg/20 rounded-xl p-2.5"><div class="flex items-center justify-between mb-0.5"><span class="font-label text-label text-income-fg text-xs font-semibold">Disponible</span><span class="material-symbols-outlined text-income-fg text-[14px]">check_circle</span></div><p class="font-tabular-figures text-tabular-figures font-bold text-income-fg text-base tabular-nums balance-value">3.400,00 €</p><p class="font-label text-label text-[11px] text-text-secondary leading-tight mt-0.5">Para consumo libre</p></div><div class="bg-surface-base border border-border-color rounded-xl p-2.5"><div class="flex items-center justify-between mb-0.5"><span class="font-label text-label text-text-secondary text-xs font-medium">Reservado</span><span class="material-symbols-outlined text-text-secondary text-[14px]">lock</span></div><p class="font-tabular-figures text-tabular-figures font-semibold text-text-primary text-sm tabular-nums balance-value">4.100,00 €</p><p class="font-label text-label text-[11px] text-text-secondary leading-tight mt-0.5">Fondos y metas futuras</p></div></div><div class="mt-3 pt-1 text-right"><button class="inline-flex items-center gap-1 text-primary hover:text-text-primary font-label text-xs font-medium min-h-[36px]">Ver detalle patrimonial <span class="material-symbols-outlined text-[16px]">chevron_right</span></button></div></section>
+<!-- 3. RESUMEN MENSUAL «OCTUBRE DE 2026» -->
+<section class="bg-surface-card border border-border-color rounded-xl p-space-lg shadow-sm">
+<!-- Navegador de Mes Interactivo -->
+<div class="flex items-center justify-between mb-3.5">
+<button aria-label="Mes anterior" class="min-w-[44px] min-h-[44px] flex items-center justify-center text-text-secondary hover:text-text-primary active:bg-surface-secondary rounded-xl">
+<span class="material-symbols-outlined text-[20px]">chevron_left</span>
+</button>
+<div class="flex items-center gap-1.5 font-section-title text-section-title text-text-primary font-bold">
+<span class="material-symbols-outlined text-primary text-[19px]">calendar_month</span>
+            Octubre de 2026
+          </div>
+<button aria-label="Mes siguiente" class="min-w-[44px] min-h-[44px] flex items-center justify-center text-text-secondary hover:text-text-primary active:bg-surface-secondary rounded-xl">
+<span class="material-symbols-outlined text-[20px]">chevron_right</span>
+</button>
+</div>
+<!-- Rejilla 2x2 Equilibrada -->
+<div class="grid grid-cols-2 gap-2.5">
+<!-- Ingresos -->
+<div class="bg-income-bg/40 border border-income-fg/15 rounded-xl p-3 flex flex-col justify-between min-h-[82px]">
+<div class="flex items-center justify-between">
+<span class="font-label text-label text-income-fg text-xs font-medium">Ingresos</span>
+<div class="w-6 h-6 rounded-full bg-income-bg flex items-center justify-center">
+<span class="material-symbols-outlined text-income-fg text-[14px]">trending_up</span>
+</div>
+</div>
+<div class="font-tabular-figures text-tabular-figures font-bold text-income-fg text-base tabular-nums balance-value">
+              +2.400,00 €
+            </div>
+</div>
+<!-- Gastos Totales -->
+<div class="bg-expense-bg/40 border border-expense-fg/15 rounded-xl p-3 flex flex-col justify-between min-h-[82px]">
+<div class="flex items-center justify-between">
+<span class="font-label text-label text-expense-fg text-xs font-medium">Gastos totales</span>
+<div class="w-6 h-6 rounded-full bg-expense-bg flex items-center justify-center">
+<span class="material-symbols-outlined text-expense-fg text-[14px]">trending_down</span>
+</div>
+</div>
+<div class="font-tabular-figures text-tabular-figures font-bold text-expense-fg text-base tabular-nums balance-value">
+              -1.500,00 €
+            </div>
+</div>
+<!-- Ahorro Neto -->
+<div class="bg-savings-bg/50 border border-savings-fg/15 rounded-xl p-3 flex flex-col justify-between min-h-[82px]">
+<div class="flex items-center justify-between">
+<span class="font-label text-label text-savings-fg text-xs font-medium">Ahorro neto</span>
+<div class="w-6 h-6 rounded-full bg-savings-bg flex items-center justify-center">
+<span class="material-symbols-outlined text-savings-fg text-[14px]">savings</span>
+</div>
+</div>
+<div class="font-tabular-figures text-tabular-figures font-bold text-savings-fg text-base tabular-nums balance-value">
+              +900,00 €
+            </div>
+</div>
+<!-- Aportado a Inversión -->
+<div class="bg-investment-bg/50 border border-investment-fg/15 rounded-xl p-3 flex flex-col justify-between min-h-[82px]">
+<div class="flex items-center justify-between">
+<span class="font-label text-label text-investment-fg text-xs font-medium">Aportado inversión</span>
+<div class="w-6 h-6 rounded-full bg-investment-bg flex items-center justify-center">
+<span class="material-symbols-outlined text-investment-fg text-[14px]">show_chart</span>
+</div>
+</div>
+<div class="font-tabular-figures text-tabular-figures font-bold text-investment-fg text-base tabular-nums balance-value">
+              300,00 €
+            </div>
+</div>
+</div>
+<!-- Bloque Secundario Compacto Explicativo -->
+<div class="mt-3 p-3 bg-surface-base rounded-xl border border-border-color space-y-2">
+<div class="flex items-center justify-between text-xs">
+<span class="text-text-secondary flex items-center gap-1 font-label">
+<span class="w-1.5 h-1.5 rounded-full bg-primary-container"></span>
+              Gasto para presupuesto:
+            </span>
+<span class="font-tabular-figures font-semibold text-text-primary tabular-nums balance-value">1.050,00 €</span>
+</div>
+<div class="flex items-center justify-between text-xs">
+<span class="text-text-secondary flex items-center gap-1 font-label">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+              Pagado con reservas:
+            </span>
+<span class="font-tabular-figures font-semibold text-text-primary tabular-nums balance-value">450,00 €</span>
+</div>
+<div class="pt-2 border-t border-border-color/60 flex items-start gap-1.5 text-[11px] text-text-secondary leading-tight">
+<span class="material-symbols-outlined text-[14px] text-text-secondary flex-shrink-0 mt-0.5">info</span>
+<span>Las transferencias a inversión no computan como gasto de consumo.</span>
+</div>
+</div>
+</section>
+<!-- 4. TARJETA «PRESUPUESTO DEL MES» -->
+<section class="bg-surface-card border border-border-color rounded-xl p-space-lg shadow-sm">
+<div class="flex items-center justify-between mb-2">
+<h2 class="font-section-title text-section-title text-text-primary font-bold">Presupuesto del mes</h2>
+<span class="px-2 py-0.5 bg-income-bg text-income-fg rounded-full font-label text-xs font-semibold">
+            Quedan 550,00 €
+          </span>
+</div>
+<!-- Resumen numérico -->
+<div class="flex items-baseline justify-between mb-2">
+<span class="font-body text-body text-text-secondary text-xs">
+<strong class="text-text-primary font-tabular-figures text-sm tabular-nums balance-value">1.050,00 €</strong> gastados de 1.600,00 €
+          </span>
+<span class="font-tabular-figures text-xs text-text-secondary font-medium tabular-nums">66%</span>
+</div>
+<!-- Barra de progreso estilizada en #0F766E -->
+<div class="w-full h-2.5 bg-surface-secondary rounded-full overflow-hidden mb-4">
+<div class="h-full bg-primary-container rounded-full transition-all duration-500" style="width: 65.6%;"></div>
+</div>
+<!-- Subcategorías Ilustrativas -->
+<div class="space-y-3 pt-1 border-t border-border-color">
+<!-- Supermercado -->
+<div class="space-y-1">
+<div class="flex items-center justify-between text-xs">
+<span class="flex items-center gap-1.5 font-label text-text-primary">
+<span class="material-symbols-outlined text-primary text-[17px]">shopping_cart</span>
+                Supermercado
+              </span>
+<span class="font-tabular-figures text-text-secondary tabular-nums">
+<strong class="text-text-primary balance-value">460,00 €</strong> / 600 €
+              </span>
+</div>
+<div class="w-full h-1.5 bg-surface-secondary rounded-full overflow-hidden">
+<div class="h-full bg-primary-container rounded-full" style="width: 76%;"></div>
+</div>
+</div>
+<!-- Hogar & Suministros -->
+<div class="space-y-1">
+<div class="flex items-center justify-between text-xs">
+<span class="flex items-center gap-1.5 font-label text-text-primary">
+<span class="material-symbols-outlined text-primary text-[17px]">home</span>
+                Hogar y servicios
+              </span>
+<span class="font-tabular-figures text-text-secondary tabular-nums">
+<strong class="text-text-primary balance-value">340,00 €</strong> / 500 €
+              </span>
+</div>
+<div class="w-full h-1.5 bg-surface-secondary rounded-full overflow-hidden">
+<div class="h-full bg-primary-container rounded-full" style="width: 68%;"></div>
+</div>
+</div>
+<!-- Ocio & Restauración -->
+<div class="space-y-1">
+<div class="flex items-center justify-between text-xs">
+<span class="flex items-center gap-1.5 font-label text-text-primary">
+<span class="material-symbols-outlined text-primary text-[17px]">restaurant</span>
+                Ocio y restauración
+              </span>
+<span class="font-tabular-figures text-text-secondary tabular-nums">
+<strong class="text-text-primary balance-value">250,00 €</strong> / 500 €
+              </span>
+</div>
+<div class="w-full h-1.5 bg-surface-secondary rounded-full overflow-hidden">
+<div class="h-full bg-primary-container rounded-full" style="width: 50%;"></div>
+</div>
+</div>
+</div>
+<div class="mt-3 text-right">
+<button class="inline-flex items-center gap-1 text-primary hover:text-text-primary font-label text-xs font-semibold min-h-[44px]">
+            Ver presupuesto completo
+            <span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</button>
+</div>
+</section>
+<!-- 5. EVOLUCIÓN DEL PATRIMONIO (Gráfica compacta de 6 meses) -->
+<section class="bg-surface-card border border-border-color rounded-xl p-space-lg shadow-sm">
+<div class="flex items-start justify-between mb-2"><div><span class="font-label text-label text-text-secondary text-xs uppercase tracking-wider">Evolución patrimonial</span><div class="mt-0.5"><span class="font-headline-md font-bold text-text-primary tabular-nums balance-value text-xl leading-tight">12.500,00 €</span></div></div><button class="min-h-[44px] px-2 text-primary hover:text-text-primary font-label text-xs font-medium inline-flex items-center">Detalles ›</button></div>
+<!-- SVG Micro-Gráfica de 6 Meses -->
+<div class="relative mt-2 pt-2">
+<svg class="w-full h-28 overflow-visible" preserveaspectratio="none" viewbox="0 0 320 100">
+<defs>
+<lineargradient id="wealthGradient" x1="0" x2="0" y1="0" y2="1">
+<stop offset="0%" stop-color="#0F766E" stop-opacity="0.22"></stop>
+<stop offset="100%" stop-color="#0F766E" stop-opacity="0.0"></stop>
+</lineargradient>
+</defs>
+<!-- Líneas de referencia horizontales sutiles -->
+<line stroke="#D7DFDA" stroke-dasharray="3 3" stroke-width="0.75" x1="0" x2="320" y1="20" y2="20"></line>
+<line stroke="#D7DFDA" stroke-dasharray="3 3" stroke-width="0.75" x1="0" x2="320" y1="60" y2="60"></line>
+<!-- Área rellena -->
+<polygon fill="url(#wealthGradient)" points="0,78 64,72 128,62 192,50 256,40 320,18 320,100 0,100"></polygon>
+<!-- Trazo principal -->
+<polyline fill="none" points="0,78 64,72 128,62 192,50 256,40 320,18" stroke="#0F766E" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"></polyline>
+<!-- Puntos de referencia -->
+<circle cx="0" cy="78" fill="#FFFFFF" r="3" stroke="#0F766E" stroke-width="2"></circle>
+<circle cx="64" cy="72" fill="#FFFFFF" r="3" stroke="#0F766E" stroke-width="2"></circle>
+<circle cx="128" cy="62" fill="#FFFFFF" r="3" stroke="#0F766E" stroke-width="2"></circle>
+<circle cx="192" cy="50" fill="#FFFFFF" r="3" stroke="#0F766E" stroke-width="2"></circle>
+<circle cx="256" cy="40" fill="#FFFFFF" r="3" stroke="#0F766E" stroke-width="2"></circle>
+<!-- Último punto activo destacado -->
+<circle cx="320" cy="18" fill="#0F766E" r="4.5" stroke="#FFFFFF" stroke-width="2"></circle>
+</svg>
+<!-- Etiquetas de meses -->
+<div class="flex justify-between text-[11px] font-label text-text-secondary mt-1 px-1">
+<span>May</span>
+<span>Jun</span>
+<span>Jul</span>
+<span>Ago</span>
+<span>Sep</span>
+<span class="font-bold text-primary">Oct</span>
+</div>
+</div>
+</section>
+<!-- 6. AVISO PLEGABLE / NOTIFICACIÓN -->
+<section class="border border-border-color bg-surface-card rounded-xl overflow-hidden transition-all shadow-sm">
+<details class="group">
+<summary class="flex items-center justify-between p-3.5 cursor-pointer list-none select-none min-h-[44px]">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-primary text-[20px]" data-weight="fill">check_circle</span>
+<span class="font-label text-label text-xs font-semibold text-text-primary">1 aviso revisado</span>
+</div>
+<div class="flex items-center gap-1.5 text-text-secondary">
+<span class="font-label text-xs text-text-secondary">Ver detalle</span>
+<span class="material-symbols-outlined text-[18px] group-open:rotate-180 transition-transform">expand_more</span>
+</div>
+</summary>
+<div class="px-3.5 pb-3.5 pt-1 text-xs font-body text-text-secondary border-t border-border-color/60 bg-surface-base/50">
+<p>Se concilió automáticamente la cuota de suscripción anual reservada el 15 de octubre. El remanente asignado permanece en tu balance de seguridad.</p>
+</div>
+</details>
+</section>
+<!-- 7. BOTÓN PRINCIPAL DE ACCIÓN: AÑADIR MOVIMIENTO -->
+</main>
+<!-- 8. BOTTOM NAVBAR NATIVO DE IOS -->
+<nav class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-space-sm py-1 pb-safe max-w-lg mx-auto bg-surface-card border-t border-border-color shadow-sm">
+<!-- Inicio (Activa) -->
+<a aria-current="page" class="flex flex-col items-center justify-center text-primary font-medium p-1 min-h-[44px] min-w-[44px] active:scale-95 transition-transform" href="#">
+<span class="material-symbols-outlined text-[22px]" data-weight="fill">home</span>
+<span class="font-label text-label text-[11px] leading-tight mt-0.5">Inicio</span>
+</a>
+<!-- Movimientos -->
+<a class="flex flex-col items-center justify-center text-text-secondary hover:text-primary p-1 min-h-[44px] min-w-[44px] active:scale-95 transition-transform" href="#">
+<span class="material-symbols-outlined text-[22px]">receipt_long</span>
+<span class="font-label text-label text-[11px] leading-tight mt-0.5">Movimientos</span>
+</a>
+<!-- Cuentas -->
+<a class="flex flex-col items-center justify-center text-text-secondary hover:text-primary p-1 min-h-[44px] min-w-[44px] active:scale-95 transition-transform" href="#">
+<span class="material-symbols-outlined text-[22px]">account_balance</span>
+<span class="font-label text-label text-[11px] leading-tight mt-0.5">Cuentas</span>
+</a>
+<!-- Presupuestos -->
+<a class="flex flex-col items-center justify-center text-text-secondary hover:text-primary p-1 min-h-[44px] min-w-[44px] active:scale-95 transition-transform" href="#">
+<span class="material-symbols-outlined text-[22px]">pie_chart</span>
+<span class="font-label text-label text-[11px] leading-tight mt-0.5">Presupuestos</span>
+</a>
+<!-- Ajustes -->
+<a class="flex flex-col items-center justify-center text-text-secondary hover:text-primary p-1 min-h-[44px] min-w-[44px] active:scale-95 transition-transform" href="#">
+<span class="material-symbols-outlined text-[22px]">settings</span>
+<span class="font-label text-label text-[11px] leading-tight mt-0.5">Ajustes</span>
+</a>
+</nav>
+</div>
+<!-- SCRIPT DE MICRO-INTERACCIÓN DE PRIVACIDAD -->
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const togglePrivacyBtn = document.getElementById('toggle-privacy-btn');
+      const eyeIcon = document.getElementById('eye-icon');
+      const balanceValues = document.querySelectorAll('.balance-value');
+      let isHidden = false;
+
+      // Almacenar valores originales
+      balanceValues.forEach(el => {
+        el.dataset.original = el.textContent.trim();
+      });
+
+      togglePrivacyBtn.addEventListener('click', () => {
+        isHidden = !isHidden;
+        if (isHidden) {
+          eyeIcon.textContent = 'visibility_off';
+          balanceValues.forEach(el => {
+            el.textContent = '••••••';
+          });
+        } else {
+          eyeIcon.textContent = 'visibility';
+          balanceValues.forEach(el => {
+            el.textContent = el.dataset.original;
+          });
+        }
+      });
+    });
+  </script>
+</body></html>

@@ -229,6 +229,7 @@ struct TransactionsView: View {
                                             TransactionRow(transaction: transaction)
                                         }
                                         .buttonStyle(.plain)
+                                        .listRowBackground(AppDesign.cardBackground)
                                         .accessibilityHint("Abre el detalle del movimiento")
                                         .swipeActions(edge: .trailing) {
                                             Button(role: .destructive) {
@@ -345,10 +346,31 @@ struct TransactionsView: View {
         }
     }
 
-    private var reviewSummary: some View {
-        Button {
-            showOnlyReview.toggle()
-        } label: {
+    private var reviewAction: TransactionReviewService.FilterAction {
+        TransactionReviewService.filterAction(pendingCount: reviewCount, showingOnlyReview: showOnlyReview)
+    }
+
+    @ViewBuilder private var reviewSummary: some View {
+        if reviewAction == .none {
+            reviewSummaryContent
+                .accessibilityElement(children: .combine)
+        } else {
+            Button {
+                switch reviewAction {
+                case .showPending: showOnlyReview = true
+                case .showAll: showOnlyReview = false
+                case .none: break
+                }
+            } label: {
+                reviewSummaryContent
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint(showOnlyReview ? "Vuelve a mostrar los movimientos con los filtros actuales"
+                : "Muestra posibles duplicados y movimientos sin una categoría compatible")
+        }
+    }
+
+    private var reviewSummaryContent: some View {
             AdaptiveValueRow {
                 HStack(spacing: 12) {
                     Image(systemName: reviewCount == 0 ? "checkmark.circle" : "checklist")
@@ -356,21 +378,23 @@ struct TransactionsView: View {
                         .frame(width: 42, height: 42)
                         .background(AppDesign.tertiaryBackground, in: RoundedRectangle(cornerRadius: 12))
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Por revisar").font(.headline).foregroundStyle(.primary)
-                        Text(reviewCount == 0 ? "Sin incidencias detectadas" : reviewCount == 1
+                        Text(reviewCount == 0 ? "Todo revisado" : "Por revisar").font(.headline).foregroundStyle(.primary)
+                        Text(reviewCount == 0
+                            ? (activeFilterCount > 0 || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                                ? "Sin incidencias con los filtros actuales" : "Sin incidencias en los movimientos registrados")
+                            : reviewCount == 1
                             ? "1 movimiento con revisión pendiente" : "\(reviewCount) movimientos con revisión pendiente")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
             } value: {
-                Label(showOnlyReview ? "Ver todos" : "Ver pendientes", systemImage: "chevron.right")
-                    .font(.caption.weight(.semibold)).foregroundStyle(AppDesign.accent)
+                if reviewAction != .none {
+                    Label(showOnlyReview ? "Ver todos" : "Ver pendientes", systemImage: "chevron.right")
+                        .font(.caption.weight(.semibold)).foregroundStyle(AppDesign.accent)
+                }
             }
             .padding(AppDesign.cardPadding)
             .financeCardSurface()
-        }
-        .buttonStyle(.plain)
-        .accessibilityHint("Muestra posibles duplicados y movimientos sin una categoría compatible")
     }
 
     private var activeFilterCount: Int {

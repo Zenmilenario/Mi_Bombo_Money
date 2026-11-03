@@ -20,6 +20,13 @@ enum TransactionReviewIssue: String, Identifiable {
 }
 
 enum TransactionReviewService {
+    enum FilterAction: Equatable { case none, showPending, showAll }
+
+    static func filterAction(pendingCount: Int, showingOnlyReview: Bool) -> FilterAction {
+        if showingOnlyReview { return .showAll }
+        return pendingCount > 0 ? .showPending : .none
+    }
+
     static func issues(for transaction: FinancialTransaction) -> [TransactionReviewIssue] {
         var issues: [TransactionReviewIssue] = []
         if transaction.duplicateState == .possible { issues.append(.possibleDuplicate) }

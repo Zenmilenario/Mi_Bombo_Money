@@ -39,7 +39,7 @@ Pendiente: ejecutar en macOS los checks de SwiftData y las compilaciones iOS des
 
 ## Flujo implementado
 
-1. Dentro del modo cloud: Ajustes → Datos → Conexiones bancarias → Conectar mis bancos reales.
+1. Dentro del modo cloud: Ajustes → Mis bancos. La conexión de demostración/sandbox se mantiene aparte en Ajustes → Opciones avanzadas → Laboratorio bancario.
 2. Comprobar la conexión con el servidor personal predefinido. Se usa la sesión Supabase; no se pide una clave estática del servidor.
 3. Elegir el banco desde el catálogo actual de Enable Banking para España y particulares. El proveedor determina qué modalidades admite; el nombre comercial por sí solo no acredita una cuenta concreta.
 4. El propietario autoriza el acceso de consulta en el flujo del banco.
@@ -121,3 +121,7 @@ Estos pasos ya se han realizado en este despliegue personal. No hay que repetir 
 - [Referencia API de Enable Banking](https://enablebanking.com/docs/api/reference/).
 - [Catálogo de bancos para España](https://enablebanking.com/open-banking-apis?country=ES).
 - [Validación de usuarios con Supabase Auth](https://supabase.com/docs/reference/javascript/auth-getuser).
+
+## Entrada simplificada · 0.6.4
+
+Mis bancos abre directamente la conexión personal en modo cloud, sin pasar por los ajustes de sandbox. Se conserva la separación de espacios y el laboratorio sigue disponible en Avanzado. El selector de destino de entrada dispone de cobertura Swift. No cambia el protocolo, los servidores, los permisos ni las claves. [Navegación y comprobaciones](../AJUSTES.md).

@@ -71,6 +71,7 @@ struct DashboardView: View {
     let onOpenAccounts: () -> Void
     let onOpenBudgets: () -> Void
     let onOpenSettings: () -> Void
+    let onAddMovement: () -> Void
 
     private var activeAccounts: [FinancialAccount] {
         accounts.filter { !$0.isArchived }
@@ -383,6 +384,14 @@ struct DashboardView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                if !activeAccounts.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button(action: onAddMovement) {
+                            Label("Añadir movimiento", systemImage: "plus")
+                        }
+                        .accessibilityLabel("Añadir movimiento")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         withAnimation(.easeInOut(duration: 0.18)) {
@@ -437,21 +446,15 @@ struct DashboardView: View {
 
     private var netWorthCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline) {
-                    netWorthTitle
-                    Spacer()
-                    lastUpdateLabel
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    netWorthTitle
-                    lastUpdateLabel
-                }
+            AdaptiveValueRow {
+                netWorthTitle
+            } value: {
+                lastUpdateLabel
             }
 
             PrivacyAmountText(
                 minorUnits: currentNetWorth,
-                font: .system(size: 38, weight: .bold, design: .rounded),
+                font: .system(.largeTitle, design: .rounded),
                 weight: .bold
             )
             .minimumScaleFactor(0.72)
@@ -473,24 +476,22 @@ struct DashboardView: View {
             Divider()
                 .overlay(Color.primary.opacity(0.08))
 
-            NavigationLink {
-                ReservedFundsView()
-            } label: {
-                VStack(spacing: 9) {
-                    AdaptiveValueRow {
-                        Label("Disponible para usar", systemImage: "wallet.bifold").font(.subheadline)
-                    } value: {
-                        PrivacyAmountText(minorUnits: spendableCash, font: .subheadline, weight: .semibold)
-                    }
-                    AdaptiveValueRow {
-                        Label("Reservado", systemImage: "lock.circle").font(.subheadline)
-                    } value: {
-                        PrivacyAmountText(minorUnits: reservedCash, font: .subheadline, weight: .semibold)
-                    }
+            AdaptiveCardGrid(minimumColumnWidth: 145, maximumColumns: 2, spacing: 12) {
+                Button(action: onOpenAccounts) {
+                    fundingTile(title: "Disponible para usar", amount: spendableCash,
+                        systemImage: "wallet.bifold", tint: spendableCash >= 0 ? AppDesign.accent : AppDesign.expense)
                 }
-                .foregroundStyle(.primary)
+                .buttonStyle(.plain)
+                .accessibilityHint("Abre tus cuentas")
+                NavigationLink {
+                    ReservedFundsView()
+                } label: {
+                    fundingTile(title: "Reservado", amount: reservedCash,
+                        systemImage: "lock.circle", tint: AppDesign.savings)
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint("Gestiona el dinero apartado para tus objetivos")
             }
-            .buttonStyle(.plain)
 
         }
         .padding(20)
@@ -500,6 +501,26 @@ struct DashboardView: View {
                            startPoint: .topLeading, endPoint: .bottomTrailing),
             in: RoundedRectangle(cornerRadius: AppDesign.heroRadius, style: .continuous))
         .financeCardSurface(radius: AppDesign.heroRadius)
+    }
+
+    private func fundingTile(title: String, amount: Int64, systemImage: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(tint)
+                .fixedSize(horizontal: false, vertical: true)
+            PrivacyAmountText(minorUnits: amount, font: .title3, weight: .semibold)
+                .foregroundStyle(.primary)
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
+        .overlay {
+            RoundedRectangle(cornerRadius: AppDesign.compactRadius)
+                .strokeBorder(tint.opacity(0.25), lineWidth: 1).allowsHitTesting(false)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: AppDesign.compactRadius))
     }
 
     private var netWorthTitle: some View {

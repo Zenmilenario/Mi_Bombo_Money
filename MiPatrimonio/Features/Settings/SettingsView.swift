@@ -1,6 +1,72 @@
 import SwiftData
 import SwiftUI
 
+private enum SettingsRoute: CaseIterable, Equatable {
+    case cloud, banks, categories, rules, recurring, institutions, goals, reserves
+    case backup, csv, credentials, sandbox, privacy, help
+
+    private var details: (String, String, String) {
+        switch self {
+        case .cloud: ("Mi nube", "Cuenta y sincronización", "cloud")
+        case .banks: ("Mis bancos", "Conectar, actualizar y revisar movimientos", "building.columns.circle")
+        case .categories: ("Categorías", "", "tag")
+        case .rules: ("Categorización automática", "Reglas para reconocer conceptos habituales", "text.magnifyingglass")
+        case .recurring: ("Cargos y aportaciones periódicas", "Suscripciones, ingresos y transferencias", "repeat.circle")
+        case .institutions: ("Bancos y entidades de la app", "Nombres, colores y tarjetas", "building.columns")
+        case .goals: ("Objetivos de ahorro", "", "target")
+        case .reserves: ("Dinero reservado", "También disponible desde Cuentas", "lock.circle")
+        case .backup: ("Exportar o restaurar copia", "Guarda todos tus datos o recupera una copia", "externaldrive")
+        case .csv: ("Importar movimientos CSV", "Añade un extracto desde Archivos", "square.and.arrow.down")
+        case .credentials: ("Usuario y contraseña local", "Desbloqueo en este dispositivo", "person.badge.key")
+        case .sandbox: ("Laboratorio bancario", "Sandbox y demostración con datos de prueba", "testtube.2")
+        case .privacy: ("Privacidad y protección de datos", "", "hand.raised")
+        case .help: ("Cómo usar la app", "", "questionmark.circle")
+        }
+    }
+    var title: String { details.0 }
+    var subtitle: String { details.1 }
+    var systemImage: String { details.2 }
+    var searchTerms: String {
+        let aliases: String
+        switch self {
+        case .cloud: aliases = "cloud correo sesión sincronizar conexión activar nube"
+        case .banks: aliases = "enable banking conectar banco permisos conciliación cuentas movimientos automáticos"
+        case .rules: aliases = "reglas categorías categorizar"
+        case .recurring: aliases = "movimientos recurrentes mensual recibos suscripción"
+        case .backup: aliases = "copia seguridad JSON cifrada contraseña recuperar respaldo"
+        case .csv: aliases = "importación fichero archivo extracto"
+        case .credentials: aliases = "seguridad acceso contraseña usuario local"
+        case .sandbox: aliases = "pruebas probar demo desarrollo sandbox"
+        case .goals: aliases = "metas ahorro"
+        case .reserves: aliases = "reservas apartar fondos"
+        case .institutions: aliases = "colores color tarjetas"
+        case .help: aliases = "ayuda primeros pasos versión información soporte"
+        default: aliases = ""
+        }
+        return title + " " + subtitle + " " + aliases
+    }
+}
+
+private struct SettingsRouteLabel: View {
+    let title: String
+    let subtitle: String
+    let systemImage: String
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.body.weight(.medium))
+                .foregroundStyle(AppDesign.accent)
+                .frame(width: 32, height: 32)
+                .background(AppDesign.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).foregroundStyle(.primary)
+                if !subtitle.isEmpty { Text(subtitle).font(.caption).foregroundStyle(.secondary) }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }.padding(.vertical, 3)
+    }
+}
+
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.isBankingTestWorkspace) private var isBankingTestWorkspace
@@ -18,205 +84,226 @@ struct SettingsView: View {
     @State private var showingResetConfirmation = false
     @State private var resetError: String?
 
+    @State private var searchText = ""
+    @State private var moreToolsExpanded = false
+    @State private var securityExpanded = false
+    @State private var advancedExpanded = false
+    @State private var helpExpanded = false
+
+    private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var availableRoutes: [SettingsRoute] {
+        SettingsRoute.allCases.filter { route in
+            if isBankingTestWorkspace && [.cloud, .banks, .backup, .csv, .sandbox].contains(route) { return false }
+            return true
+        }
+    }
+    private func matches(_ words: String) -> Bool {
+        let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
+        let text = words.folding(options: options, locale: .current)
+        let query = searchText.folding(options: options, locale: .current).split(whereSeparator: \.isWhitespace)
+        return query.allSatisfy { text.contains($0) }
+    }
+    private func shows(_ route: SettingsRoute) -> Bool {
+        availableRoutes.contains(route) && matches(route.searchTerms)
+    }
+    private func showsAny(_ routes: [SettingsRoute]) -> Bool { routes.contains(where: shows) }
+    private var showsPreferences: Bool { matches("apariencia tema claro oscuro automático") || matches("privacidad ocultar importes cantidades") }
+    private var showsSecurity: Bool { matches("seguridad bloqueo desbloqueo biometría Face ID Touch ID huella") || shows(.credentials) }
+    private var showsStorage: Bool { matches("almacenamiento datos guardados dispositivo cuentas movimientos tarjetas entidades") }
+    private var showsReset: Bool { matches("eliminar borrar restablecer empezar desde cero datos") }
+    private var hasResults: Bool {
+        availableRoutes.contains(where: shows) || showsPreferences || showsSecurity || showsStorage || showsReset
+    }
+    private func expansion(_ stored: Binding<Bool>) -> Binding<Bool> {
+        Binding(get: { isSearching || stored.wrappedValue }, set: { stored.wrappedValue = $0 })
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    Toggle(isOn: $appLockEnabled) {
-                        Label("Bloqueo de aplicación", systemImage: "lock.shield")
-                    }
-
-                    if appLockEnabled {
-                        NavigationLink {
-                            SecurityCredentialsView()
-                        } label: {
-                            HStack {
-                                Label("Acceso por usuario y contraseña", systemImage: "person.badge.key")
-                                Spacer()
-                                Text(UserAuthService.isConfigured ? "Activo" : "Sin configurar")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-
-                        Toggle(isOn: $autoPromptBiometrics) {
-                            Label("Pedir Face ID / Touch ID al abrir", systemImage: "faceid")
-                        }
-                    }
-
-                    Toggle(isOn: $hideAmounts) {
-                        Label("Ocultar importes", systemImage: "eye.slash")
-                    }
-                } header: {
-                    Text("Seguridad y acceso")
-                } footer: {
-                    Text(appLockEnabled
-                        ? "Puedes desbloquear la aplicación con tu usuario y contraseña, o con Face ID / Touch ID. Si la solicitud biométrica directa está desactivada, verás la pantalla de inicio de sesión para elegir cómo entrar."
-                        : "La aplicación puede bloquearse al salir y ocultar todas las cantidades en listas y gráficos.")
-                }
-
-                Section("Apariencia") {
-                    Picker(selection: $appearanceMode) {
-                        ForEach(AppAppearance.allCases) { appearance in
-                            Text(appearance.title).tag(appearance.rawValue)
-                        }
-                    } label: {
-                        Label("Tema", systemImage: "circle.lefthalf.filled")
-                    }
-
-                    LabeledContent {
-                        Text("Euro (EUR)")
-                            .foregroundStyle(.secondary)
-                    } label: {
-                        Label("Moneda principal", systemImage: "eurosign.circle")
-                    }
-                }
-
-                Section("Datos") {
-                    if isBankingTestWorkspace {
-                        Text("Estás en el espacio de prueba. Sus cuentas, movimientos y presupuestos se guardan aparte. Usa Volver a mis finanzas para salir.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        if isCloudWorkspace {
-                            NavigationLink {
-                                CloudAccountSettingsView()
-                            } label: {
-                                Label("Cuenta y sincronización", systemImage: "cloud")
-                            }
-                        } else {
-                            Button { cloudMode = true } label: {
-                                Label("Conectar sincronización cloud", systemImage: "icloud.and.arrow.up")
-                            }
-                        }
-                        NavigationLink {
-                            BankConnectionsView()
-                        } label: {
-                            Label("Conexiones bancarias", systemImage: "building.columns.circle")
-                        }
-
-                        NavigationLink {
-                            BackupView()
-                        } label: {
-                            Label("Copia de seguridad", systemImage: "externaldrive")
-                        }
-
-                        NavigationLink {
-                            CSVImportView()
-                        } label: {
-                            Label("Importar movimientos", systemImage: "square.and.arrow.down")
-                        }
-                    }
-
-                    NavigationLink {
-                        LocalDataSummaryView(
-                            accountCount: accounts.count,
-                            transactionCount: transactions.count,
-                            cardCount: cards.count,
-                            institutionCount: institutions.count
-                        )
-                    } label: {
-                        Label("Datos guardados en este dispositivo", systemImage: "internaldrive")
-                    }
-
-                    LabeledContent {
-                        Text("Próximamente")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } label: {
-                        Label("Importar archivos Excel", systemImage: "tablecells")
-                    }
-
-                    Button(role: .destructive) {
-                        showingResetConfirmation = true
-                    } label: {
-                        Label("Empezar desde cero", systemImage: "trash")
-                    }
-                }
-
-                Section("Organización") {
-                    NavigationLink {
-                        InstitutionsView()
-                    } label: {
-                        Label("Bancos y entidades", systemImage: "building.columns")
-                    }
-
-                    NavigationLink {
-                        CategoriesView()
-                    } label: {
-                        Label("Categorías", systemImage: "tag")
-                    }
-
-                    NavigationLink {
-                        CategoryRulesView()
-                    } label: {
-                        Label("Reglas de categorías", systemImage: "text.magnifyingglass")
-                    }
-
-                    NavigationLink {
-                        GoalsView()
-                    } label: {
-                        Label("Objetivos de ahorro", systemImage: "target")
-                    }
-
-                    NavigationLink {
-                        ReservedFundsView()
-                    } label: {
-                        Label("Dinero reservado", systemImage: "lock.circle")
-                    }
-
-                    NavigationLink {
-                        RecurringMovementsView()
-                    } label: {
-                        Label("Movimientos recurrentes", systemImage: "repeat.circle")
-                    }
-                }
-
-                Section("Información") {
-                    NavigationLink {
-                        PrivacyInformationView()
-                    } label: {
-                        Label("Privacidad y protección de datos", systemImage: "hand.raised")
-                    }
-
-                    NavigationLink {
-                        AppHelpView()
-                    } label: {
-                        Label("Ayuda", systemImage: "questionmark.circle")
-                    }
-
-                    LabeledContent {
-                        Text(appVersion)
-                            .foregroundStyle(.secondary)
-                    } label: {
-                        Label("Versión", systemImage: "info.circle")
-                    }
+                if !hasResults {
+                    ContentUnavailableView.search(text: searchText)
+                } else {
+                    connectionSection
+                    organizationSection
+                    preferencesSection
+                    dataSection
+                    advancedSection
+                    helpSection
                 }
             }
+            .listStyle(.insetGrouped)
             .cloudSyncToolbar()
             .scrollContentBackground(.hidden)
             .background(AppDesign.pageBackground)
             .navigationTitle("Ajustes")
+            .searchable(text: $searchText, prompt: "Buscar en ajustes")
         }
         .confirmationDialog(
-            "Empezar desde cero",
+            isBankingTestWorkspace ? "Eliminar datos de prueba" : "Eliminar todos los datos financieros",
             isPresented: $showingResetConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Eliminar mis datos", role: .destructive) {
+            Button(isBankingTestWorkspace ? "Eliminar datos de prueba" : "Eliminar mis datos", role: .destructive) {
                 clearAllData()
             }
+            Button("Cancelar", role: .cancel) { }
         } message: {
-            Text(isCloudWorkspace
+            Text(isBankingTestWorkspace
+                ? "Se eliminarán los datos de este espacio de pruebas. Tus finanzas personales no se modifican."
+                : isCloudWorkspace
                 ? "Se eliminarán los datos de esta cuenta cloud al sincronizar, también en tus otros dispositivos. Las categorías comunes volverán a aparecer. Exporta una copia antes de continuar."
                 : "Se eliminarán cuentas, movimientos, categorías personalizadas, presupuestos y demás datos locales. Las categorías comunes volverán a aparecer. Esta acción no se puede deshacer.")
         }
         .alert("No se pudieron eliminar los datos", isPresented: Binding(
-            get: { resetError != nil },
-            set: { if !$0 { resetError = nil } }
+            get: { resetError != nil }, set: { if !$0 { resetError = nil } }
         )) {
             Button("Aceptar", role: .cancel) { resetError = nil }
-        } message: {
-            Text(resetError ?? "Error desconocido")
+        } message: { Text(resetError ?? "Error desconocido") }
+    }
+
+    @ViewBuilder private var connectionSection: some View {
+        if isBankingTestWorkspace && !isSearching {
+            Section {
+                Label("Espacio de pruebas", systemImage: "testtube.2")
+                Text("Estos datos están separados de tus finanzas. Usa Volver a mis finanzas para salir.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        if showsAny([.cloud, .banks]) {
+            Section("Cuenta y bancos") {
+                routeRow(.cloud)
+                routeRow(.banks)
+            }
+        }
+    }
+
+    @ViewBuilder private var organizationSection: some View {
+        if showsAny([.categories, .rules, .recurring, .institutions, .goals, .reserves]) {
+            Section("Organiza tus finanzas") {
+                routeRow(.categories)
+                routeRow(.rules)
+                routeRow(.recurring)
+                if showsAny([.institutions, .goals, .reserves]) {
+                    DisclosureGroup("Más herramientas", isExpanded: expansion($moreToolsExpanded)) {
+                        routeRow(.institutions)
+                        routeRow(.goals)
+                        routeRow(.reserves)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var preferencesSection: some View {
+        if showsPreferences || showsSecurity {
+            Section("A tu gusto") {
+                if matches("apariencia tema claro oscuro automático") {
+                    Picker(selection: $appearanceMode) {
+                        ForEach(AppAppearance.allCases) { appearance in
+                            Text(appearance.title).tag(appearance.rawValue)
+                        }
+                    } label: { Label("Tema", systemImage: "circle.lefthalf.filled") }
+                }
+                if matches("privacidad ocultar importes cantidades") {
+                    Toggle(isOn: $hideAmounts) { Label("Ocultar importes", systemImage: "eye.slash") }
+                }
+                if showsSecurity {
+                    DisclosureGroup(isExpanded: expansion($securityExpanded)) {
+                        if matches("seguridad bloqueo desbloqueo biometría Face ID Touch ID huella") {
+                            Toggle("Bloquear la app al salir", isOn: $appLockEnabled)
+                            if appLockEnabled {
+                                Toggle("Solicitar Face ID o Touch ID al abrir", isOn: $autoPromptBiometrics)
+                            }
+                        }
+                        routeRow(.credentials)
+                        Text("El acceso local desbloquea esta app en el dispositivo. Tu cuenta de la nube se gestiona en Mi nube.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } label: { Label("Seguridad y desbloqueo", systemImage: "lock.shield") }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var dataSection: some View {
+        if showsAny([.backup, .csv]) {
+            Section("Copias e importación") {
+                routeRow(.backup)
+                routeRow(.csv)
+            }
+        }
+    }
+
+    @ViewBuilder private var advancedSection: some View {
+        if showsStorage || showsReset || shows(.sandbox) {
+            Section {
+                DisclosureGroup("Opciones avanzadas", isExpanded: expansion($advancedExpanded)) {
+                    if showsStorage {
+                        LabeledContent("Cuentas", value: "\(accounts.count)")
+                        LabeledContent("Movimientos", value: "\(transactions.count)")
+                        LabeledContent("Tarjetas", value: "\(cards.count)")
+                        LabeledContent("Entidades", value: "\(institutions.count)")
+                        Text(isBankingTestWorkspace ? "Este espacio de pruebas está separado de tus finanzas personales."
+                            : isCloudWorkspace ? "Esta copia del dispositivo se sincroniza con tu cuenta." : "Estos datos pertenecen al espacio abierto en este dispositivo.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    routeRow(.sandbox)
+                    if showsReset {
+                        Button(role: .destructive) { showingResetConfirmation = true } label: {
+                            Label(isBankingTestWorkspace ? "Eliminar datos de prueba" : "Eliminar todos los datos financieros", systemImage: "trash")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var helpSection: some View {
+        if showsAny([.help, .privacy]) || !isSearching {
+            Section {
+                if showsAny([.help, .privacy]) {
+                    DisclosureGroup("Ayuda y privacidad", isExpanded: expansion($helpExpanded)) {
+                        routeRow(.help)
+                        routeRow(.privacy)
+                    }
+                }
+            } footer: { Text("Mi Bombo Money · \(appVersion)") }
+        }
+    }
+
+    @ViewBuilder private func routeRow(_ route: SettingsRoute) -> some View {
+        if shows(route) {
+            Group {
+                if route == .cloud && !isCloudWorkspace {
+                    Button { cloudMode = true } label: {
+                        SettingsRouteLabel(title: "Activar mi nube", subtitle: "Accede a tus datos desde tus dispositivos", systemImage: route.systemImage)
+                    }
+                } else {
+                    NavigationLink { destination(route) } label: {
+                        SettingsRouteLabel(title: route.title, subtitle: route.subtitle, systemImage: route.systemImage)
+                    }
+                }
+            }
+            .listRowBackground(AppDesign.cardBackground)
+        }
+    }
+
+    @ViewBuilder private func destination(_ route: SettingsRoute) -> some View {
+        switch route {
+        case .cloud: CloudAccountSettingsView()
+        case .banks: BankConnectionsView()
+        case .categories: CategoriesView()
+        case .rules: CategoryRulesView()
+        case .recurring: RecurringMovementsView()
+        case .institutions: InstitutionsView()
+        case .goals: GoalsView()
+        case .reserves: ReservedFundsView()
+        case .backup: BackupView()
+        case .csv: CSVImportView()
+        case .credentials: SecurityCredentialsView()
+        case .sandbox: BankConnectionsView(testOnly: true)
+        case .privacy: PrivacyInformationView()
+        case .help: AppHelpView()
         }
     }
 
@@ -250,51 +337,19 @@ struct SettingsView: View {
         if let version, let build, version != build {
             return "\(version) (\(build))"
         }
-        return version ?? build ?? "0.2"
-    }
-}
-
-private struct LocalDataSummaryView: View {
-    @Environment(\.isCloudWorkspace) private var isCloudWorkspace
-    let accountCount: Int
-    let transactionCount: Int
-    let cardCount: Int
-    let institutionCount: Int
-
-    var body: some View {
-        List {
-            Section("Contenido") {
-                LabeledContent("Cuentas", value: "\(accountCount)")
-                LabeledContent("Movimientos", value: "\(transactionCount)")
-                LabeledContent("Tarjetas", value: "\(cardCount)")
-                LabeledContent("Bancos y entidades", value: "\(institutionCount)")
-            }
-
-            Section {
-                Label(isCloudWorkspace ? "Esta copia local se sincroniza con tu cuenta cloud." : "Los datos se guardan localmente en este dispositivo.", systemImage: "internaldrive")
-                Label("No se almacenan contraseñas bancarias.", systemImage: "key.slash")
-                Label("Los archivos quedan protegidos cuando el dispositivo está bloqueado.", systemImage: "lock.shield")
-            } header: {
-                Text("Protección")
-            } footer: {
-                Text(isCloudWorkspace
-                    ? "Al eliminar la app se pierde la copia local y cualquier cambio que no se haya subido. Los datos ya sincronizados permanecen en tu cuenta. Puedes exportar copias cifradas desde Ajustes."
-                    : "Al eliminar la app se eliminan sus datos locales. Exporta una copia cifrada desde Ajustes para poder recuperarlos.")
-            }
-        }
-        .navigationTitle("Datos locales")
-        .navigationBarTitleDisplayMode(.inline)
+        return version ?? build ?? "Versión no disponible"
     }
 }
 
 private struct PrivacyInformationView: View {
     @Environment(\.isCloudWorkspace) private var isCloudWorkspace
+    @Environment(\.isBankingTestWorkspace) private var isBankingTestWorkspace
     var body: some View {
         List {
             Section {
                 PrivacyInfoRow(
                     title: "Funciona sin conexión",
-                    message: "Puedes consultar y registrar tu información sin depender de un servidor externo.",
+                    message: "Puedes consultar y registrar cambios sin conexión. La sincronización con la nube y las consultas al banco necesitan internet.",
                     systemImage: "wifi.slash"
                 )
 
@@ -306,13 +361,15 @@ private struct PrivacyInformationView: View {
 
                 PrivacyInfoRow(
                     title: "Acceso protegido",
-                    message: "Puedes exigir Face ID, Touch ID o el código del dispositivo para abrir la aplicación.",
+                    message: "Puedes bloquear la app al salir y desbloquearla con la autenticación del dispositivo o con tu usuario local.",
                     systemImage: "faceid"
                 )
 
                 PrivacyInfoRow(
-                    title: isCloudWorkspace ? "Sincronización activada" : "Almacenamiento local",
-                    message: isCloudWorkspace
+                    title: isBankingTestWorkspace ? "Datos de prueba separados" : isCloudWorkspace ? "Sincronización activada" : "Almacenamiento local",
+                    message: isBankingTestWorkspace
+                        ? "Este espacio guarda datos de prueba aparte. No se envían a tu cuenta personal ni se mezclan con sus copias."
+                        : isCloudWorkspace
                         ? "Tus datos se envían mediante HTTPS a tu cuenta de Supabase y se conservan también en este dispositivo. Cada usuario tiene su espacio y los cambios sin conexión quedan pendientes."
                         : "Los datos de este modo se guardan en el dispositivo. Puedes conectar una cuenta cloud y elegir explícitamente si quieres copiarlos.",
                     systemImage: "cloud"
@@ -326,11 +383,13 @@ private struct PrivacyInformationView: View {
             }
 
             Section {
-                Text("La conexión bancaria de prueba requiere internet. El servidor guarda sesiones cifradas; el historial sincronizado se guarda solo en un espacio de prueba separado en este dispositivo. No se mezcla con tus finanzas reales ni se incluye en sus copias. La clave de acceso queda en el llavero del dispositivo. Las cuentas bancarias reales siguen bloqueadas en esta versión.")
+                Text("Al conectar tus bancos con Enable Banking, autorizas la consulta de cuentas y movimientos desde el flujo del proveedor y del banco. La app no inicia pagos. Los permisos y sesiones se gestionan en el servidor personal; los movimientos que incorporas se guardan en tus finanzas y, en modo cloud, se sincronizan con tu cuenta. Puedes desconectar el banco desde Mis bancos.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                Text("El Laboratorio bancario usa datos de demostración o sandbox y un espacio separado. Sus datos no se incorporan a tus finanzas personales ni a sus copias.")
+                    .font(.caption).foregroundStyle(.secondary)
             } header: {
-                Text("Prueba de conexión bancaria")
+                Text("Conexión con tus bancos")
             }
         }
         .navigationTitle("Privacidad")
@@ -376,7 +435,7 @@ private struct AppHelpView: View {
                 HelpStepRow(
                     number: 2,
                     title: "Registra movimientos",
-                    message: "Usa el botón azul para anotar movimientos. Puedes recordar una categoría para descripciones habituales."
+                    message: "Pulsa Añadir movimiento o el botón +. Si conectas tu banco, revisa la primera descarga desde Mis bancos. Las reglas de categorización reconocen conceptos habituales."
                 )
 
                 HelpStepRow(
@@ -388,7 +447,7 @@ private struct AppHelpView: View {
                 HelpStepRow(
                     number: 4,
                     title: "Revisa tus objetivos",
-                    message: "Crea metas de ahorro y consulta su progreso desde Ajustes."
+                    message: "En Ajustes, despliega Más herramientas para ver objetivos y dinero reservado. También puedes buscar la opción por su nombre."
                 )
             }
 
@@ -400,7 +459,7 @@ private struct AppHelpView: View {
                 }
 
                 LabeledContent("Saldo de una cuenta") {
-                    Text("Saldo inicial + movimientos + valoraciones")
+                    Text("Saldo de referencia y movimientos posteriores")
                         .multilineTextAlignment(.trailing)
                         .foregroundStyle(.secondary)
                 }
@@ -428,7 +487,7 @@ private struct HelpStepRow: View {
                 .font(.caption.weight(.bold))
                 .foregroundStyle(.white)
                 .frame(width: 28, height: 28)
-                .background(Color.accentColor, in: Circle())
+                .background(AppDesign.actionFill, in: Circle())
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)

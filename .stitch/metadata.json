@@ -1,0 +1,55 @@
+{
+  "title": "Mi Bombo Money — propuestas de Inicio",
+  "status": "referencia oscura elegida por el usuario; ambas apariencias; primera adaptación SwiftUI 0.6.3 preparada, pendiente de checks y prueba física",
+  "date": "2026-11-03",
+  "projects": {
+    "claro": {
+      "id": "10304836250533292740",
+      "designSystem": "assets/7772803384884d28b7197c0098383f42"
+    },
+    "oscuro": {
+      "id": "4781742726702300859",
+      "designSystem": "assets/14975b39c8784692a600a37edbc887ca"
+    }
+  },
+  "screens": [
+    {
+      "variant": "claro-iphone",
+      "sourceScreen": "projects/10304836250533292740/screens/45c65923d9ed467582c81082bf99c2e0",
+      "width": "780",
+      "height": "3188",
+      "screenshot": "designs/claro-iphone.png",
+      "html": "designs/claro-iphone.html"
+    },
+    {
+      "variant": "claro-ipad",
+      "sourceScreen": "projects/10304836250533292740/screens/e570e14f39704648a23373579adac4c0",
+      "width": "2560",
+      "height": "2048",
+      "screenshot": "designs/claro-ipad.png",
+      "html": "designs/claro-ipad.html"
+    },
+    {
+      "variant": "oscuro-iphone",
+      "sourceScreen": "projects/4781742726702300859/screens/ce205f0f753749ae9772b1662d09f5b1",
+      "width": "780",
+      "height": "2952",
+      "screenshot": "designs/oscuro-iphone.png",
+      "html": "designs/oscuro-iphone.html"
+    },
+    {
+      "variant": "oscuro-ipad",
+      "sourceScreen": "projects/4781742726702300859/screens/77a52277008145fa893b94f6edbf0d36",
+      "width": "2560",
+      "height": "2048",
+      "screenshot": "designs/oscuro-ipad.png",
+      "html": "designs/oscuro-ipad.html"
+    }
+  ],
+  "selectedReference": "oscuro",
+  "appearanceOptions": [
+    "system",
+    "light",
+    "dark"
+  ]
+}

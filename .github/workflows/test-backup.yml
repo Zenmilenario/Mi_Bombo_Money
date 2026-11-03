@@ -72,6 +72,9 @@ jobs:
             Tests/TransactionReviewCheck.swift -o build/finance-check/TransactionReviewCheck
           build/finance-check/TransactionReviewCheck
 
+      - name: Comprobar filas adaptables sin espacios vacíos
+        run: python3 Tests/check_adaptive_layout.py
+
   passwords:
     name: Contraseñas y separación de acceso bancario
     runs-on: macos-latest

@@ -3,6 +3,12 @@ import Foundation
 @main
 struct TransactionReviewCheck {
     @MainActor static func main() {
+        precondition(TransactionReviewService.filterAction(pendingCount: 0, showingOnlyReview: false) == .none,
+                     "A completed review must not open an empty pending filter")
+        precondition(TransactionReviewService.filterAction(pendingCount: 2, showingOnlyReview: false) == .showPending)
+        precondition(TransactionReviewService.filterAction(pendingCount: 2, showingOnlyReview: true) == .showAll)
+        precondition(TransactionReviewService.filterAction(pendingCount: 0, showingOnlyReview: true) == .showAll,
+                     "Resolving the last issue must preserve an exit back to all movements")
         let bank = FinancialInstitution(name: "Banco ficticio")
         let account = FinancialAccount(name: "Cuenta ficticia", type: .checking, institution: bank)
         let expense = FinanceCategory(name: "Gastos", kind: .expense)

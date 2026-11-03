@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, viewport-fit=cover" name="viewport"/>
+<title>Mi Bombo Money</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-secondary-fixed": "#0a1c30",
+            "on-tertiary-fixed-variant": "#703706",
+            "on-primary-fixed-variant": "#004f50",
+            "inverse-surface": "#dfe3e3",
+            "surface-container-highest": "#313636",
+            "on-tertiary": "#502400",
+            "background": "#111D2B",
+            "primary-container": "#68cfd0",
+            "income-bg": "#193D32",
+            "outline-variant": "#3d4949",
+            "surface-container-high": "#262b2b",
+            "surface-bright": "#353a3a",
+            "on-primary": "#003737",
+            "surface-tint": "#70d6d7",
+            "surface": "#0f1414",
+            "surface-container": "#1b2120",
+            "border": "#435A73",
+            "on-error": "#690005",
+            "inverse-on-surface": "#2c3131",
+            "button-text": "#102C30",
+            "secondary-fixed-dim": "#b6c8e1",
+            "text-secondary": "#C0CEDD",
+            "on-background": "#dfe3e3",
+            "on-secondary-fixed-variant": "#37485d",
+            "on-primary-container": "#005758",
+            "inverse-primary": "#00696b",
+            "on-primary-fixed": "#002020",
+            "on-tertiary-container": "#783e0d",
+            "primary-fixed": "#8df3f4",
+            "on-error-container": "#ffdad6",
+            "warning-fg": "#FDE68A",
+            "surface-dim": "#0f1414",
+            "expense-fg": "#FDA4AF",
+            "warning-bg": "#423B27",
+            "investment-bg": "#3A2D54",
+            "tertiary": "#ffd2b6",
+            "secondary-fixed": "#d2e4fe",
+            "surface-variant": "#313636",
+            "tertiary-fixed": "#ffdcc6",
+            "on-tertiary-fixed": "#311300",
+            "surface-secondary": "#2B4056",
+            "tertiary-fixed-dim": "#ffb786",
+            "saving-fg": "#93C5FD",
+            "on-surface-variant": "#bdc9c8",
+            "surface-card": "#203145",
+            "error-container": "#93000a",
+            "error": "#ffb4ab",
+            "on-surface": "#dfe3e3",
+            "secondary": "#b6c8e1",
+            "saving-bg": "#1B365B",
+            "surface-container-lowest": "#0a0f0f",
+            "primary": "#85ebec",
+            "expense-bg": "#452936",
+            "surface-container-low": "#171c1c",
+            "secondary-container": "#37485d",
+            "text-primary": "#F3F7FC",
+            "primary-fixed-dim": "#70d6d7",
+            "outline": "#879393",
+            "investment-fg": "#D8B4FE",
+            "on-secondary-container": "#a5b6cf",
+            "on-secondary": "#213146",
+            "tertiary-container": "#ffac73",
+            "income-fg": "#86EFAC"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "margin": "16px",
+            "space-lg": "16px",
+            "gutter": "16px",
+            "space-sm": "8px",
+            "space-md": "12px",
+            "space-2xl": "32px",
+            "space-xs": "4px",
+            "space-xl": "24px"
+          },
+          "fontFamily": {
+            "label": ["Inter"],
+            "section-title": ["Inter"],
+            "patrimony-lg": ["Inter"],
+            "headline-lg": ["Inter"],
+            "body": ["Inter"]
+          },
+          "fontSize": {
+            "label": ["14px", { "lineHeight": "20px", "fontWeight": "500" }],
+            "section-title": ["18px", { "lineHeight": "24px", "fontWeight": "600" }],
+            "patrimony-lg": ["36px", { "lineHeight": "42px", "fontWeight": "700" }],
+            "headline-lg": ["28px", { "lineHeight": "34px", "fontWeight": "650" }],
+            "body": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .tnum { font-feature-settings: "tnum" 1; }
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      font-size: 22px;
+      line-height: 1;
+      display: inline-block;
+    }
+    .material-symbols-outlined.fill {
+      font-variation-settings: 'FILL' 1;
+    }
+  </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="bg-background text-text-primary antialiased min-h-screen pb-28 selection:bg-primary-container selection:text-button-text">
+<!-- iOS Top Header (Shared Component: TopAppBar compliant) -->
+<header class="bg-background w-full px-margin pt-6 pb-space-sm sticky top-0 z-40"><div class="flex flex-col w-full h-auto gap-space-xs">
+<!-- Fila 1: Solo el saludo 'Buenos días' en texto grande a ancho completo -->
+<div class="w-full">
+<h1 class="font-headline-lg text-text-primary tracking-tight leading-tight text-headline-lg font-bold">Buenos días</h1>
+</div>
+<!-- Fila 2: Controles alineados (Píldora Al día, Botón de privacidad, Botón + Movimiento) -->
+<div class="flex items-center justify-between w-full mt-1">
+<!-- Control píldora 'Al día' -->
+<div class="flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface-card border border-border whitespace-nowrap" title="Sincronización en la nube al día">
+<span class="material-symbols-outlined text-primary-container text-[16px]">cloud_done</span>
+<span class="font-label text-primary-container text-[12px] font-medium leading-none">Al día</span>
+</div>
+<div class="flex items-center gap-1.5">
+<!-- Botón de privacidad (ojo) con área táctil accesible -->
+<button aria-label="Alternar visibilidad de importes" class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-text-secondary hover:bg-surface-secondary active:opacity-80 transition-colors duration-150" id="toggle-privacy-btn">
+<span class="material-symbols-outlined" id="privacy-icon">visibility</span>
+</button>
+<!-- Botón primario de acción '+ Movimiento' -->
+<button aria-label="Añadir movimiento" class="min-h-[40px] px-3 flex items-center gap-1 rounded-xl bg-primary-container text-button-text font-label text-[13px] font-semibold hover:bg-primary transition-colors duration-150 active:scale-95 shadow-sm">
+<span class="material-symbols-outlined text-[18px]">add</span>
+<span>Movimiento</span>
+</button>
+</div>
+</div>
+</div></header>
+<!-- Saludo rápido y contexto nativo -->
+<main class="max-w-md mx-auto px-margin pt-space-xs space-y-space-md">
+<!-- Alerta Compacta Desplegable (Ámbar suave #423B27 / #FDE68A) -->
+<section class="bg-warning-bg border border-[#6b5832] rounded-xl px-space-md py-space-sm transition-all duration-200">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-warning-fg fill text-[20px]">warning</span>
+<p class="font-label text-label text-warning-fg">1 aviso revisado</p>
+</div>
+<button aria-label="Expandir aviso" class="min-w-[44px] min-h-[44px] -mr-2 flex items-center justify-center text-warning-fg opacity-90 hover:opacity-100 transition-transform" id="alert-toggle-btn">
+<span class="material-symbols-outlined text-[20px]" id="alert-arrow">expand_more</span>
+</button>
+</div>
+<div class="hidden mt-space-xs pt-space-xs border-t border-[#604f2d] font-label text-label text-warning-fg/90 text-[13px] leading-relaxed" id="alert-detail">
+        El recibo recurrente de energía estimado en 72,00 € ya está asignado a la partida de suministros y no altera tu límite disponible.
+      </div>
+</section>
+<!-- TARJETA PATRIMONIAL DESTACADA (radio 12, fondo #203145, borde #435A73) -->
+<section class="bg-surface-card border border-border rounded-xl p-space-md shadow-sm">
+<div class="flex items-center justify-between">
+<p class="font-label text-label text-text-secondary">Patrimonio total</p>
+<span class="font-label text-label text-primary-container text-[12px] bg-surface-secondary px-2 py-0.5 rounded-full border border-border">Total consolidado</span>
+</div>
+<!-- Cifra tabular grande en una sola línea -->
+<div class="mt-space-xs">
+<p class="font-patrimony-lg text-patrimony-lg text-text-primary tnum tracking-tight amount-text">12.500,00 €</p>
+</div>
+<!-- Fila de desglose directo sin inventos: Efectivo / Inversión -->
+<div class="mt-space-sm pt-space-sm border-t border-border flex items-center justify-between font-label text-label text-text-secondary">
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-saving-fg"></span>
+<span>Efectivo:</span>
+<strong class="text-text-primary font-semibold tnum amount-text">7.500,00 €</strong>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2 h-2 rounded-full bg-investment-fg"></span>
+<span>Inversión:</span>
+<strong class="text-text-primary font-semibold tnum amount-text">5.000,00 €</strong>
+</div>
+</div>
+<!-- Dos bloques destacados para la toma de decisiones -->
+<div class="mt-space-md grid grid-cols-2 gap-space-sm">
+<!-- Disponible para usar (destacado turquesa) -->
+<div class="bg-surface-secondary border border-border rounded-xl p-space-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-1 text-primary-container mb-0.5">
+<span class="material-symbols-outlined text-[16px]">check_circle</span>
+<span class="font-label text-label text-[12px] font-semibold text-primary-container">Disponible para usar</span>
+</div>
+<p class="font-section-title text-section-title text-text-primary tnum amount-text font-bold text-[20px] leading-tight">3.400,00 €</p>
+</div>
+<p class="font-label text-label text-text-secondary text-[11px] mt-space-xs leading-tight">Gasto libre inmediato sin afectar metas</p>
+</div>
+<!-- Reservado (excluido del disponible) -->
+<div class="bg-[#192737] border border-border rounded-xl p-space-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-1 text-secondary mb-0.5">
+<span class="material-symbols-outlined text-[16px]">lock</span>
+<span class="font-label text-label text-[12px] font-semibold text-secondary">Reservado</span>
+</div>
+<p class="font-section-title text-section-title text-text-primary tnum amount-text font-bold text-[20px] leading-tight">4.100,00 €</p>
+</div>
+<p class="font-label text-label text-text-secondary text-[11px] mt-space-xs leading-tight">Fondos asignados a metas e imprevistos</p>
+</div>
+</div>
+</section>
+<!-- RESUMEN MENSUAL: Octubre de 2026 -->
+<section class="bg-surface-card border border-border rounded-xl p-space-md">
+<!-- Selector de mes -->
+<div class="flex items-center justify-between mb-space-md">
+<h2 class="font-section-title text-section-title text-text-primary">Octubre de 2026</h2>
+<div class="flex items-center gap-1">
+<button aria-label="Mes anterior" class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-secondary active:opacity-80 transition-colors">
+<span class="material-symbols-outlined text-[20px]">chevron_left</span>
+</button>
+<span class="font-label text-label text-text-secondary text-[12px]">Mes en curso</span>
+<button aria-label="Mes posterior" class="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-text-secondary hover:bg-surface-secondary opacity-50 cursor-not-allowed" disabled="">
+<span class="material-symbols-outlined text-[20px]">chevron_right</span>
+</button>
+</div>
+</div>
+<!-- Rejilla 2x2 equilibrada de métricas con fondos semánticos exactos -->
+<div class="grid grid-cols-2 gap-space-sm">
+<!-- Ingresos -->
+<div class="bg-income-bg/90 border border-[#235848] rounded-xl p-space-sm flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-label text-label text-income-fg text-[13px]">Ingresos</span>
+<span class="material-symbols-outlined text-income-fg text-[20px]">trending_up</span>
+</div>
+<p class="mt-space-xs font-section-title text-section-title text-income-fg tnum amount-text font-bold text-[19px]">+2.400,00 €</p>
+</div>
+<!-- Gastos totales -->
+<div class="bg-expense-bg/90 border border-[#643a4e] rounded-xl p-space-sm flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-label text-label text-expense-fg text-[13px]">Gastos totales</span>
+<span class="material-symbols-outlined text-expense-fg text-[20px]">trending_down</span>
+</div>
+<p class="mt-space-xs font-section-title text-section-title text-expense-fg tnum amount-text font-bold text-[19px]">-1.500,00 €</p>
+</div>
+<!-- Ahorro neto -->
+<div class="bg-saving-bg/90 border border-[#274f83] rounded-xl p-space-sm flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-label text-label text-saving-fg text-[13px]">Ahorro neto</span>
+<span class="material-symbols-outlined text-saving-fg text-[20px]">savings</span>
+</div>
+<p class="mt-space-xs font-section-title text-section-title text-saving-fg tnum amount-text font-bold text-[19px]">+900,00 €</p>
+</div>
+<!-- Aportado a inversión -->
+<div class="bg-investment-bg/90 border border-[#55407d] rounded-xl p-space-sm flex flex-col justify-between">
+<div class="flex items-center justify-between">
+<span class="font-label text-label text-investment-fg text-[13px]">Aportado a inversión</span>
+<span class="material-symbols-outlined text-investment-fg text-[20px]">auto_graph</span>
+</div>
+<p class="mt-space-xs font-section-title text-section-title text-investment-fg tnum amount-text font-bold text-[19px]">300,00 €</p>
+</div>
+</div>
+<!-- Bloque complementario explicativo compacto -->
+<div class="mt-space-md pt-space-sm border-t border-border bg-[#182636] rounded-xl p-space-sm space-y-1.5 text-[13px]">
+<div class="flex justify-between items-center text-text-secondary">
+<span class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-expense-fg"></span>
+<span>Gasto para presupuesto</span>
+</span>
+<span class="font-semibold text-text-primary tnum amount-text">1.050,00 €</span>
+</div>
+<div class="flex justify-between items-center text-text-secondary">
+<span class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-saving-fg"></span>
+<span>Pagado con reservas</span>
+</span>
+<span class="font-semibold text-text-primary tnum amount-text">450,00 €</span>
+</div>
+<div class="pt-1 border-t border-border/60 flex justify-between items-center text-[12px] text-text-secondary/80">
+<span>Suma computada de desembolso</span>
+<span class="font-medium text-text-primary tnum">1.500,00 € de gastos</span>
+</div>
+</div>
+</section>
+<!-- TARJETA PRESUPUESTO DEL MES -->
+<section class="bg-surface-card border border-border rounded-xl p-space-md">
+<div class="flex items-center justify-between mb-space-sm">
+<div>
+<h2 class="font-section-title text-section-title text-text-primary">Presupuesto del mes</h2>
+<p class="font-label text-label text-text-secondary text-[13px]">Gastos operativos controlados</p>
+</div>
+<a class="min-h-[44px] flex items-center font-label text-label text-primary-container hover:underline" href="#presupuestos">
+          Ver presupuesto
+        </a>
+</div>
+<!-- Cifras de presupuesto -->
+<div class="flex items-baseline justify-between">
+<div>
+<p class="font-headline-lg text-headline-lg text-text-primary tnum amount-text text-[22px]">1.050,00 €</p>
+<p class="font-label text-label text-text-secondary text-[12px]">gastados de 1.600,00 €</p>
+</div>
+<div class="text-right"><p class="font-section-title text-section-title text-primary-container tnum amount-text font-bold">550,00 €</p>
+<p class="font-label text-label text-text-secondary text-[12px]">Quedan disponibles</p></div>
+</div>
+<!-- Barra de progreso nativa 66% -->
+<div class="mt-space-sm">
+<div class="w-full bg-[#121c27] h-3 rounded-full overflow-hidden p-0.5 border border-border/50">
+<div class="bg-primary-container h-full rounded-full transition-all duration-500" style="width: 65.6%;"></div>
+</div>
+<div class="flex justify-between items-center mt-1 font-label text-label text-[11px] text-text-secondary"><span class="font-medium">66% consumido</span>
+<span class="text-text-secondary/80">(1.050,00 € de 1.600,00 €)</span></div>
+</div>
+<!-- Iconos de categorías principales como referencia rápida -->
+<div class="grid grid-cols-4 gap-space-xs mt-space-md pt-space-sm border-t border-border text-center">
+<div class="p-2 rounded-lg bg-surface-secondary flex flex-col items-center">
+<span class="material-symbols-outlined text-primary-container text-[20px]">shopping_cart</span>
+<span class="font-label text-label text-text-secondary text-[11px] mt-1">Super</span>
+<span class="font-label text-label text-text-primary text-[11px] font-semibold tnum">420 €</span>
+</div>
+<div class="p-2 rounded-lg bg-surface-secondary flex flex-col items-center">
+<span class="material-symbols-outlined text-saving-fg text-[20px]">home</span>
+<span class="font-label text-label text-text-secondary text-[11px] mt-1">Hogar</span>
+<span class="font-label text-label text-text-primary text-[11px] font-semibold tnum">310 €</span>
+</div>
+<div class="p-2 rounded-lg bg-surface-secondary flex flex-col items-center">
+<span class="material-symbols-outlined text-investment-fg text-[20px]">movie</span>
+<span class="font-label text-label text-text-secondary text-[11px] mt-1">Ocio</span>
+<span class="font-label text-label text-text-primary text-[11px] font-semibold tnum">190 €</span>
+</div>
+<div class="p-2 rounded-lg bg-surface-secondary flex flex-col items-center">
+<span class="material-symbols-outlined text-income-fg text-[20px]">directions_car</span>
+<span class="font-label text-label text-text-secondary text-[11px] mt-1">Transporte</span>
+<span class="font-label text-label text-text-primary text-[11px] font-semibold tnum">130 €</span>
+</div>
+</div>
+</section>
+<!-- EVOLUCIÓN DEL PATRIMONIO: Sparkline 6 meses -->
+<section class="bg-surface-card border border-border rounded-xl p-space-md">
+<div class="flex items-center justify-between mb-space-xs">
+<div>
+<h2 class="font-section-title text-section-title text-text-primary">Evolución del patrimonio</h2>
+<p class="font-label text-label text-text-secondary text-[12px]">Últimos 6 meses</p>
+</div>
+<a class="min-h-[44px] flex items-center font-label text-label text-text-secondary hover:text-text-primary" href="#detalles-patrimonio">
+          Detalles
+        </a>
+</div>
+<!-- Cifra final visible en una línea -->
+<div class="flex items-center justify-between my-space-xs"><span class="font-headline-lg text-headline-lg text-text-primary tnum amount-text text-[24px]">12.500,00 €</span></div>
+<!-- Gráfica Sparkline / Área SVG nativa -->
+<div class="w-full mt-2">
+<svg aria-label="Gráfica de evolución patrimonial de Mayo a Octubre de 2026" class="w-full h-24 overflow-visible" viewbox="0 0 340 90">
+<defs>
+<lineargradient id="patrimonyGradient" x1="0" x2="0" y1="0" y2="1">
+<stop offset="0%" stop-color="#68CFD0" stop-opacity="0.35"></stop>
+<stop offset="100%" stop-color="#68CFD0" stop-opacity="0.0"></stop>
+</lineargradient>
+</defs>
+<!-- Área rellena -->
+<polygon fill="url(#patrimonyGradient)" points="10,75 74,68 138,58 202,48 266,35 330,15 330,85 10,85"></polygon>
+<!-- Línea de tendencia -->
+<polyline fill="none" points="10,75 74,68 138,58 202,48 266,35 330,15" stroke="#68CFD0" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"></polyline>
+<!-- Puntos clave -->
+<circle cx="10" cy="75" fill="#203145" r="3" stroke="#68CFD0" stroke-width="2"></circle>
+<circle cx="74" cy="68" fill="#203145" r="3" stroke="#68CFD0" stroke-width="2"></circle>
+<circle cx="138" cy="58" fill="#203145" r="3" stroke="#68CFD0" stroke-width="2"></circle>
+<circle cx="202" cy="48" fill="#203145" r="3" stroke="#68CFD0" stroke-width="2"></circle>
+<circle cx="266" cy="35" fill="#203145" r="3" stroke="#68CFD0" stroke-width="2"></circle>
+<!-- Punto final destacado -->
+<circle cx="330" cy="15" fill="#68CFD0" r="4.5" stroke="#111D2B" stroke-width="2"></circle>
+</svg>
+<!-- Eje X de meses -->
+<div class="flex justify-between items-center text-text-secondary font-label text-label text-[11px] pt-1 px-1">
+<span>May</span>
+<span>Jun</span>
+<span>Jul</span>
+<span>Ago</span>
+<span>Sep</span>
+<span class="text-primary font-semibold">Oct</span>
+</div>
+</div>
+</section>
+</main>
+<!-- BARRA DE NAVEGACIÓN INFERIOR NATIVA iOS (Shared Component: BottomNavBar) -->
+<nav aria-label="Navegación principal" class="fixed bottom-0 left-0 w-full z-50 flex justify-around items-center px-margin pt-space-xs pb-[max(12px,env(safe-area-inset-bottom))] bg-background dark:bg-background shadow-lg border-t-0">
+<!-- Inicio (Activa con estilo exacto de Shared Components) -->
+<a aria-current="page" class="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center text-primary dark:text-primary font-label text-label transition-transform active:scale-95" href="#">
+<span class="material-symbols-outlined fill text-primary dark:text-primary text-[24px]">home</span>
+<span class="text-[11px] leading-tight font-semibold mt-0.5">Inicio</span>
+</a>
+<!-- Movimientos -->
+<a class="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center text-text-secondary dark:text-text-secondary font-label text-label hover:text-primary dark:hover:text-primary transition-colors active:scale-95" href="#movimientos">
+<span class="material-symbols-outlined text-[24px]">receipt_long</span>
+<span class="text-[11px] leading-tight mt-0.5">Movimientos</span>
+</a>
+<!-- Cuentas -->
+<a class="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center text-text-secondary dark:text-text-secondary font-label text-label hover:text-primary dark:hover:text-primary transition-colors active:scale-95" href="#cuentas">
+<span class="material-symbols-outlined text-[24px]">account_balance</span>
+<span class="text-[11px] leading-tight mt-0.5">Cuentas</span>
+</a>
+<!-- Presupuestos -->
+<a class="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center text-text-secondary dark:text-text-secondary font-label text-label hover:text-primary dark:hover:text-primary transition-colors active:scale-95" href="#presupuestos">
+<span class="material-symbols-outlined text-[24px]">pie_chart</span>
+<span class="text-[11px] leading-tight mt-0.5">Presupuestos</span>
+</a>
+<!-- Ajustes -->
+<a class="min-w-[44px] min-h-[44px] flex flex-col items-center justify-center text-text-secondary dark:text-text-secondary font-label text-label hover:text-primary dark:hover:text-primary transition-colors active:scale-95" href="#ajustes">
+<span class="material-symbols-outlined text-[24px]">settings</span>
+<span class="text-[11px] leading-tight mt-0.5">Ajustes</span>
+</a>
+</nav>
+<script>
+    // Microinteracción para alternar privacidad de cifras
+    const privacyBtn = document.getElementById('toggle-privacy-btn');
+    const privacyIcon = document.getElementById('privacy-icon');
+    const amounts = document.querySelectorAll('.amount-text');
+    let isHidden = false;
+    const realValues = Array.from(amounts).map(el => el.textContent);
+
+    privacyBtn.addEventListener('click', () => {
+      isHidden = !isHidden;
+      if (isHidden) {
+        privacyIcon.textContent = 'visibility_off';
+        amounts.forEach(el => el.textContent = '•••••• €');
+      } else {
+        privacyIcon.textContent = 'visibility';
+        amounts.forEach((el, index) => el.textContent = realValues[index]);
+      }
+    });
+
+    // Expandir / replegar aviso sin saltos invasivos
+    const alertToggleBtn = document.getElementById('alert-toggle-btn');
+    const alertDetail = document.getElementById('alert-detail');
+    const alertArrow = document.getElementById('alert-arrow');
+
+    alertToggleBtn.addEventListener('click', () => {
+      const isClosed = alertDetail.classList.contains('hidden');
+      if (isClosed) {
+        alertDetail.classList.remove('hidden');
+        alertArrow.textContent = 'expand_less';
+      } else {
+        alertDetail.classList.add('hidden');
+        alertArrow.textContent = 'expand_more';
+      }
+    });
+  </script>
+</body></html>
