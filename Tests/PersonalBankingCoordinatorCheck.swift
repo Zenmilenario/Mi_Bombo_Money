@@ -43,15 +43,28 @@ struct FetchDescriptor<Value> {}
     static var limitedBank: String?
     static var attempts: [String] = []
     static var manual: [Bool] = []
+    static var catalogueFails = false
+    static var requestedAccounts: [String] = []
+    static var feedDelay: UInt64 = 0
+    static var activeReads = 0
+    static var maximumReads = 0
     init(configuration: BankingServerConfiguration, live: Bool) {}
     func status() async throws -> BankingServerStatus { .init(mode: "production", liveBankingEnabled: true, accountingImportEnabled: true) }
     func connections() async throws -> [ConnectedBankSession] { Self.available }
-    func banks() async throws -> [ConnectedBank] { [] }
+    func banks() async throws -> [ConnectedBank] {
+        if Self.catalogueFails { throw BankingConnectionError.server("bank_unavailable") }
+        return []
+    }
     func feeds(_ connections: [ConnectedBankSession], asOf: Date, userInitiated: Bool) async throws -> [BankingAccountFeed] {
         let bank = connections[0].bank
         Self.attempts.append(bank); Self.manual.append(userInitiated)
+        let ids = Set(connections.flatMap(\.accounts).map(\.id))
+        Self.requestedAccounts += ids.sorted()
+        Self.activeReads += 1; Self.maximumReads = max(Self.maximumReads, Self.activeReads)
+        defer { Self.activeReads -= 1 }
+        if Self.feedDelay > 0 { try await Task.sleep(nanoseconds: Self.feedDelay) }
         if bank == Self.limitedBank { throw BankingConnectionError.accountQuery(bank: bank, lastFour: "0000", reason: .bankRateLimited(retryAfter: 21600)) }
-        return Self.values[bank] ?? []
+        return (Self.values[bank] ?? []).filter { ids.contains($0.account.id) }
     }
 }
 enum PersonalBankingImporter {
@@ -136,7 +149,7 @@ enum PersonalBankingImporter {
         try reopened.confirm(choices: [:], account: account, context: context)
         precondition(context.ledger.count == 1)
 
-        // A legacy global wait has no bank identity: preserve it once, without guessing.
+        // A legacy wait stays automatic; an explicit online query still reaches the bank.
         let savedSchedule = UserDefaults.standard.data(forKey: storage + "-bank-schedules-v2")!
         UserDefaults.standard.removeObject(forKey: storage + "-bank-schedules-v2")
         UserDefaults.standard.set(Date.now.addingTimeInterval(3600), forKey: storage + "-blocked-until")
@@ -144,7 +157,8 @@ enum PersonalBankingImporter {
         try await migrated.configure(server: server.absoluteString, account: account)
         BankingConnectionClient.attempts = []
         _ = await migrated.synchronize(account: account, context: context, force: true, onlyBank: "BBVA")
-        precondition(BankingConnectionClient.attempts.isEmpty)
+        precondition(BankingConnectionClient.attempts == ["BBVA"])
+        precondition(migrated.pendingPlan != nil, "A legacy global wait must not leave both banks looking disconnected")
         precondition(UserDefaults.standard.object(forKey: storage + "-blocked-until") == nil)
 
         // Once the other bank can be read, the held transfer is recovered exactly once.
@@ -159,6 +173,38 @@ enum PersonalBankingImporter {
         precondition(context.ledger.count == 2 && context.ledger.filter { $0.kind == "transfer" }.count == 1)
         _ = await recovered.synchronize(account: account, context: context, force: true)
         precondition(context.ledger.count == 2, "Recovering the bank must not repeat its peer's purchase or the transfer")
+        // Opening the first install needs no hidden manual server configuration.
+        let freshAccount = CloudAccountManager()
+        let freshStorage = "banking-live-origin-v1-" + freshAccount.session!.user.id.uuidString.lowercased()
+        defer { for suffix in ["", "-bank-schedules-v2"] { UserDefaults.standard.removeObject(forKey: freshStorage + suffix) } }
+        let freshContext = ModelContext()
+        freshContext.accounts = [FinancialAccount(remote: bbva.account, server: server)]
+        let optional = ConnectedBankAccount(id: "optional-investment-cash", name: "Synthetic optional", currency: "EUR", lastFour: "0000")
+        BankingConnectionClient.available = [.init(id: bbva.connection.id, bank: "BBVA", validUntil: "2099-01-01", accounts: [bbva.account, optional]), bankinter.connection]
+        BankingConnectionClient.attempts = []; BankingConnectionClient.requestedAccounts = []
+        BankingConnectionClient.manual = []; BankingConnectionClient.catalogueFails = true
+        let fresh = PersonalBankingCoordinator()
+        precondition(fresh.savedServer(owner: freshAccount.session!.user.id) == server.absoluteString)
+        try await fresh.connectionCompleted(bank: "BBVA", account: freshAccount, context: freshContext)
+        precondition(BankingConnectionClient.attempts == ["BBVA"] && BankingConnectionClient.manual == [true])
+        precondition(BankingConnectionClient.requestedAccounts == [bbva.account.id], "An optional unlinked investment cash account must not be queried")
+        precondition(fresh.pendingPlan?.items.count == 1 && fresh.catalogueErrorMessage != nil,
+            "Authorization/link completion must prepare a visible download even if the bank catalogue is unavailable")
+        precondition(freshContext.ledger.isEmpty, "Preparing the first download must not import without confirmation")
+        try fresh.confirm(choices: [:], account: freshAccount, context: freshContext)
+        let statusAfterRestart = PersonalBankingCoordinator()
+        try await statusAfterRestart.refresh(account: freshAccount)
+        precondition(statusAfterRestart.bankStatus["BBVA"]?.summary.contains("Última incorporación") == true)
+        // The authorization callback cannot race an automatic download and lose its preview.
+        fresh.discardPending()
+        freshContext.ledger = []; BankingConnectionClient.feedDelay = 150_000_000
+        UserDefaults.standard.removeObject(forKey: freshStorage + "-bank-schedules-v2")
+        let racing = PersonalBankingCoordinator()
+        let auto = Task { await racing.synchronize(account: freshAccount, context: freshContext, onlyBank: "BBVA") }
+        try await Task.sleep(nanoseconds: 20_000_000)
+        try await racing.connectionCompleted(bank: "BBVA", account: freshAccount, context: freshContext)
+        _ = await auto.value
+        precondition(racing.pendingPlan?.items.count == 1 && BankingConnectionClient.maximumReads == 1)
         print("Banking coordinator passed: independent banks, scoped persistent cooldowns, first-download review, legacy wait and deferred transfer recovery.")
     }
 }

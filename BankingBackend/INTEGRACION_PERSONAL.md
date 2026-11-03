@@ -1,5 +1,41 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Preparar y mostrar la descarga al conectar — 0.6.7
+
+Actualizado el 3 de noviembre de 2026. Cliente 0.6.7 (24) preparado localmente; pendiente de checks iOS y prueba física.
+
+### Diagnóstico y alcance
+
+El usuario confirma que en la 0.6.6 las cuentas aparecen conectadas, pero no ve los movimientos que antes se presentaban entre las conexiones y el catálogo. La referencia inicial a Cuentas se ha aclarado: no es un problema visual ni una petición de cambiar sus saldos.
+
+Se han consultado únicamente recuentos en Supabase y en la base del servidor bancario. Los registros contables siguen guardados y las sesiones de producción constan sin caducar; en la consulta de recuentos no había movimientos con referencia de importación bancaria. No se han exportado importes, conceptos, identificadores personales ni credenciales, ni modificado datos remotos. Esto no demuestra que la próxima consulta del banco tenga éxito: todavía debe probarse la descarga con el cliente corregido.
+
+La revisión del código detecta que el retorno de autorización refrescaba metadatos, pero no solicitaba directamente los movimientos. La asociación de cuenta tampoco iniciaba una descarga: ambos dependían de un ciclo automático posterior. La espera heredada podía suprimir también la acción manual. Asimismo, un fallo del catálogo impedía publicar las conexiones recibidas, y una reinstalación sin preferencia del servidor dejaba la descarga sin empezar aunque su origen personal ya esté fijado y validado en la app.
+
+### Correcciones implementadas
+
+- Tras terminar la autorización se invoca un flujo explícito de refresco de conexiones y descarga manual del banco elegido. Tras asociar una cuenta, se hace al cerrar la hoja de asociación. Cancelar esa hoja no inicia una descarga.
+- El coordinador reserva esa operación para que la comprobación automática no consuma la acción manual durante el retorno del navegador. Se conservan las revisiones pendientes y se indica si es necesario terminarlas antes de reemplazar una consulta.
+- Se usa el origen personal HTTPS ya permitido cuando no existe una preferencia local guardada. Se mantienen la comprobación de identidad cloud y el propietario único del servidor.
+- La disponibilidad del catálogo de bancos no bloquea la lectura de las conexiones existentes. Su error se comunica por separado.
+- Las restricciones de actualización automática y manual se distinguen y se conservan por banco. Las esperas antiguas que no identifican el tipo de consulta continúan aplicándose a las automáticas, permitiendo que una acción manual explícita sea evaluada por el banco con contexto PSU. Si el banco rechaza también la consulta manual, se respeta su Retry-After para los nuevos intentos manuales. No se simula presencia del usuario en consultas automáticas.
+- Se recuerda cuándo se descargó e incorporó una consulta y si quedó revisión pendiente. Tras reiniciar no se presenta como pendiente de conectar un banco cuya descarga ya se incorporó; una revisión perdida al cerrar puede recuperarse actualizando explícitamente ese banco.
+- La sección de revisión conserva su ubicación entre conexiones y catálogo. El ancla de desplazamiento pasa a una fila, en vez de envolver la sección completa. Los movimientos nuevos y decisiones preparadas se muestran expandidos de inicio.
+- La primera descarga sigue requiriendo «Incorporar descarga revisada». Conectar o autorizar no sustituye esa confirmación ni mezcla registros manuales con bancarios sin conciliarlos.
+
+La cuenta auxiliar de inversión que el usuario mantiene sin asociar no se solicita ni se incorpora. No se han cambiado el diseño de Cuentas, los modelos contables, el protocolo de sincronización cloud ni los cálculos financieros en esta revisión.
+
+### Verificación
+
+Pasan localmente tres suites Swift: política de conexión/esperas, planificación/transferencias y ejecución del coordinador real con transporte y modelos sintéticos. Casos nuevos: retorno de autorización/asociación, ausencia de configuración local, catálogo no disponible, cuenta auxiliar excluida, recuperación de estado tras reiniciar, espera heredada, distinción manual/automática y retorno de autorización concurrente con otra descarga. Pasan el análisis sintáctico de la vista modificada y la revisión de espacios de Git. No se han realizado consultas nuevas a movimientos bancarios reales para estas pruebas.
+
+Referencia para la distinción de consultas manuales y automáticas: [FAQ oficial de Enable Banking, cabeceras PSU y límites](https://enablebanking.com/docs/faq/#what-are-the-psu-headers-in-the-endpoints-for-fetching-account-details-balances-and-transactions-used-for).
+
+### Pendiente de comprobación en iPad
+
+Publicar 0.6.7 con GitHub Desktop y esperar los checks de macOS/iOS. Instalarla, abrir Mis bancos y pulsar una vez «Actualizar solo BBVA» usando la conexión existente. Comprobar si aparece la revisión; si se prepara correctamente, confirmar su incorporación y buscar los movimientos en la pestaña Movimientos. Si el proveedor limita también la consulta manual, copiar el aviso y respetar ese plazo. No borrar datos, recrear cuentas, renovar permisos sin necesidad ni asociar la cuenta auxiliar para esta prueba.
+
+
 ## Descargas y esperas independientes por banco — 0.6.6
 
 Actualizado el 3 de noviembre de 2026. Preparado localmente; pendiente de checks macOS/iOS e instalación.

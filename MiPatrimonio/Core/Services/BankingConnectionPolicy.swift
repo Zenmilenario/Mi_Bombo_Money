@@ -3,17 +3,26 @@ import Foundation
 struct BankingBankSchedule: Codable, Equatable {
     var nextAttempt: Date = .distantPast
     var blockedUntil: Date?
+    var manualBlockedUntil: Date?
+    var lastDownloadedAt: Date?
+    var lastImportedAt: Date?
+    var awaitingReview: Bool?
 
     func allows(force: Bool, at date: Date) -> Bool {
+        if force { return manualBlockedUntil.map { date >= $0 } ?? true }
         if let blockedUntil, date < blockedUntil { return false }
         return force || date >= nextAttempt
     }
-    var automaticDate: Date { max(nextAttempt, blockedUntil ?? .distantPast) }
+    var automaticDate: Date { max(nextAttempt, max(blockedUntil ?? .distantPast, manualBlockedUntil ?? .distantPast)) }
     mutating func started(at date: Date) { nextAttempt = date.addingTimeInterval(15 * 60) }
-    mutating func downloaded(at date: Date) { nextAttempt = date.addingTimeInterval(6 * 60 * 60); blockedUntil = nil }
-    mutating func failed(at date: Date, retryAfter: TimeInterval?) {
+    mutating func downloaded(at date: Date) {
+        nextAttempt = date.addingTimeInterval(6 * 60 * 60)
+        blockedUntil = nil; manualBlockedUntil = nil; lastDownloadedAt = date
+    }
+    mutating func failed(at date: Date, retryAfter: TimeInterval?, userInitiated: Bool = true) {
         nextAttempt = date.addingTimeInterval(retryAfter ?? 15 * 60)
         blockedUntil = retryAfter.map { date.addingTimeInterval($0) }
+        manualBlockedUntil = userInitiated ? blockedUntil : nil
     }
 }
 
@@ -22,6 +31,7 @@ struct BankingBankSyncStatus {
     var errorMessage: String?
     var retryAt: Date?
     var deferredTransfers = 0
+    var retryIsAutomatic = false
 }
 
 enum BankingConnectionPolicy {

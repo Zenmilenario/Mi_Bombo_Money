@@ -43,6 +43,19 @@ struct BankingSecurityCheck {
             from: JSONEncoder().encode(["Bankinter": bankinterSchedule, "BBVA": bbvaSchedule]))
         precondition(restored["Bankinter"] == bankinterSchedule && restored["BBVA"] == bbvaSchedule)
         precondition(bankinterSchedule.allows(force: false, at: checkDate.addingTimeInterval(21600)))
+        var backgroundLimit = BankingBankSchedule()
+        backgroundLimit.failed(at: checkDate, retryAfter: 21600, userInitiated: false)
+        precondition(!backgroundLimit.allows(force: false, at: checkDate.addingTimeInterval(60)))
+        precondition(backgroundLimit.allows(force: true, at: checkDate.addingTimeInterval(60)),
+            "A background-only restriction must not suppress a genuine online user request")
+        backgroundLimit.failed(at: checkDate, retryAfter: 3600, userInitiated: true)
+        precondition(!backgroundLimit.allows(force: true, at: checkDate.addingTimeInterval(60)),
+            "If the bank also refuses a manual request, its manual Retry-After must be respected")
+        let oldData = try JSONSerialization.data(withJSONObject: [
+            "nextAttempt": checkDate.addingTimeInterval(21600).timeIntervalSinceReferenceDate,
+            "blockedUntil": checkDate.addingTimeInterval(21600).timeIntervalSinceReferenceDate])
+        let oldSchedule = try JSONDecoder().decode(BankingBankSchedule.self, from: oldData)
+        precondition(oldSchedule.allows(force: true, at: checkDate) && !oldSchedule.allows(force: false, at: checkDate))
         // Fictional credentials used only to validate destination policy; never used for a server.
         let token = String(repeating: "a", count: 64)
         let server = "https://bank-test.personal.workers.dev"

@@ -14,6 +14,7 @@ final class PersonalBankingCoordinator: ObservableObject {
     @Published private(set) var connections: [ConnectedBankSession] = []
     @Published private(set) var banks: [ConnectedBank] = []
     @Published private(set) var pendingPlan: PersonalBankingPlan?
+    @Published private(set) var catalogueErrorMessage: String?
     private var pendingFeeds: [BankingAccountFeed] = []
     private var pendingLedger: [UUID: BankingLedgerEntry]?
     private var observedAt: Date?
@@ -23,7 +24,10 @@ final class PersonalBankingCoordinator: ObservableObject {
     private var pendingDeferred: [String: Int] = [:]
     private var owner: UUID?
 
-    func savedServer(owner: UUID) -> String { UserDefaults.standard.string(forKey: key(owner)) ?? "" }
+    func savedServer(owner: UUID) -> String {
+        let saved = UserDefaults.standard.string(forKey: key(owner))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return saved.isEmpty ? "https://" + BankingConnectionPolicy.personalServerHost : saved
+    }
     private func key(_ owner: UUID) -> String { "banking-live-origin-v1-" + owner.uuidString.lowercased() }
     func client(account: CloudAccountManager, override: String? = nil) async throws -> BankingConnectionClient {
         let session = try await account.validSession()
@@ -44,11 +48,38 @@ final class PersonalBankingCoordinator: ObservableObject {
         let client = try await client(account: account)
         _ = try await client.status()
         let connections = try await client.connections()
-        let banks = try await client.banks()
         guard account.session?.user.id == expectedOwner else { throw CancellationError() }
         if self.owner != expectedOwner { bankStatus = [:] }
-        self.connections = connections; self.banks = banks; self.owner = expectedOwner
+        self.connections = connections; self.owner = expectedOwner
         if let expectedOwner { loadSchedules(user: expectedOwner, banks: Set(connections.map(\.bank))) }
+        // Catalogue availability must not hide existing connections or block their reads.
+        do {
+            let availableBanks = try await client.banks()
+            guard account.session?.user.id == expectedOwner else { throw CancellationError() }
+            banks = availableBanks; catalogueErrorMessage = nil
+        } catch is CancellationError { throw CancellationError() }
+        catch let error as URLError where error.code == .cancelled { throw error }
+        catch { catalogueErrorMessage = "No se ha podido cargar el catálogo de bancos. Las conexiones existentes se pueden seguir actualizando." }
+    }
+    /// Called by the UI after authorization or after the account-link sheet has closed.
+    func connectionCompleted(bank: String, account: CloudAccountManager, context: ModelContext) async throws {
+        for _ in 0..<600 {
+            if !busy { break }
+            try Task.checkCancellation()
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        guard !busy else {
+            message = "Ya hay una consulta bancaria en curso. Espera a que termine para ver su revisión."
+            return
+        }
+        // Reserve the coordinator while metadata loads so the automatic loop cannot
+        // consume the user's explicit action in the middle of the callback.
+        busy = true
+        do { try await refresh(account: account) }
+        catch { busy = false; throw error }
+        busy = false
+        nextDiscoveryAttempt = .distantPast
+        _ = await synchronize(account: account, context: context, force: true, onlyBank: bank)
     }
     private func loadSchedules(user: UUID, banks: Set<String>) {
         let storageKey = key(user) + "-bank-schedules-v2"
@@ -70,10 +101,19 @@ final class PersonalBankingCoordinator: ObservableObject {
         }
         for bank in banks {
             if let until = schedules[bank]?.blockedUntil, until > .now {
-                bankStatus[bank] = BankingBankSyncStatus(summary: "Consultas en espera.",
-                    errorMessage: bankStatus[bank]?.errorMessage, retryAt: until)
+                let automaticOnly = schedules[bank]?.manualBlockedUntil.map { $0 <= .now } ?? true
+                bankStatus[bank] = BankingBankSyncStatus(summary: automaticOnly
+                    ? "La actualización automática está en espera. Puedes solicitar una comprobación manual."
+                    : "El banco ha limitado también las consultas manuales.",
+                    errorMessage: bankStatus[bank]?.errorMessage, retryAt: until,
+                    retryIsAutomatic: automaticOnly)
+            } else if schedules[bank]?.awaitingReview == true && pendingPlan == nil {
+                bankStatus[bank] = BankingBankSyncStatus(summary: "Hay una descarga anterior sin incorporar. Actualiza este banco para recuperar la revisión.")
             } else if bankStatus[bank] == nil {
-                bankStatus[bank] = BankingBankSyncStatus(summary: "Cuenta conectada; pendiente de comprobar la descarga.")
+                let imported = schedules[bank]?.lastImportedAt
+                bankStatus[bank] = BankingBankSyncStatus(summary: imported.map {
+                    "Última incorporación: \($0.formatted(date: .abbreviated, time: .shortened))."
+                } ?? "Cuenta conectada; pendiente de comprobar la descarga.")
             }
         }
     }
@@ -84,9 +124,12 @@ final class PersonalBankingCoordinator: ObservableObject {
     }
     private func imported(_ feeds: [BankingAccountFeed], deferred: [String: Int]) {
         for bank in Set(feeds.map(\.connection.bank)) {
+            schedules[bank, default: BankingBankSchedule()].lastImportedAt = .now
+            schedules[bank, default: BankingBankSchedule()].awaitingReview = false
             bankStatus[bank] = BankingBankSyncStatus(summary: "Descarga incorporada a tus finanzas.",
                 deferredTransfers: deferred[bank, default: 0])
         }
+        if let owner { saveSchedules(user: owner) }
     }
     /// Called serially between cloud synchronization passes; never from a closed or locked app.
     @discardableResult
@@ -98,7 +141,10 @@ final class PersonalBankingCoordinator: ObservableObject {
             return false
         }
         if !force && Date.now < nextDiscoveryAttempt { return false }
-        guard !context.hasChanges else { return false }
+        guard !context.hasChanges else {
+            if force { message = "Hay cambios locales pendientes de guardar. Finaliza el formulario antes de actualizar el banco." }
+            return false
+        }
         busy = true; errorMessage = nil; owner = user
         pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; observedAt = nil; pendingDeferred = [:]
         message = "Consultando cada banco por separado…"
@@ -150,9 +196,10 @@ final class PersonalBankingCoordinator: ObservableObject {
                     downloaded += feeds
                 case .failed(let bank, let error):
                     let delay = (error as? BankingConnectionError)?.retryDelay
-                    schedules[bank, default: BankingBankSchedule()].failed(at: .now, retryAfter: delay)
+                    schedules[bank, default: BankingBankSchedule()].failed(at: .now, retryAfter: delay, userInitiated: force)
                     bankStatus[bank] = BankingBankSyncStatus(summary: "No se ha completado la descarga de este banco.",
-                        errorMessage: error.localizedDescription, retryAt: schedules[bank]?.blockedUntil)
+                        errorMessage: error.localizedDescription, retryAt: schedules[bank]?.blockedUntil,
+                        retryIsAutomatic: !force)
                 }
             }
             saveSchedules(user: user)
@@ -176,6 +223,10 @@ final class PersonalBankingCoordinator: ObservableObject {
             catch PersonalBankingError.needsReview { needsReview = true }
             let names = Set(feeds.map(\.connection.bank)).sorted().joined(separator: ", ")
             if needsReview {
+                for bank in Set(feeds.map(\.connection.bank)) {
+                    schedules[bank, default: BankingBankSchedule()].awaitingReview = true
+                }
+                saveSchedules(user: user)
                 pendingFeeds = feeds; pendingPlan = plan; observedAt = date; pendingDeferred = selection.deferredByBank
                 pendingLedger = Dictionary(uniqueKeysWithValues: try PersonalBankingImporter.ledger(in: context).map { ($0.id, $0) })
                 message = "Descarga preparada de \(names): revisa e incorpora los movimientos. El estado de los demás bancos se muestra por separado."
@@ -209,7 +260,9 @@ final class PersonalBankingCoordinator: ObservableObject {
         guard !busy else { return }
         for bank in Set(pendingFeeds.map(\.connection.bank)) {
             bankStatus[bank]?.summary = "Descarga descartada sin incorporar. Puedes solicitar una nueva."
+            schedules[bank, default: BankingBankSchedule()].awaitingReview = false
         }
+        if let owner { saveSchedules(user: owner) }
         pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; observedAt = nil; pendingDeferred = [:]
         message = "No se ha incorporado la descarga descartada. Tus datos guardados se conservan."
     }

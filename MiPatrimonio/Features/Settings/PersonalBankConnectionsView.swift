@@ -16,6 +16,8 @@ struct PersonalBankConnectionsView: View {
     @State private var disconnecting: ConnectedBankSession?
     @State private var choices: [String: PersonalBankingPlan.Choice] = [:]
     @State private var showSuggestions = true
+    @State private var showPrepared = true
+    @State private var bankToRefreshAfterLink: String?
     @State private var browser = BankingBrowserAuthorization()
     @State private var operation: Task<Void, Never>?
 
@@ -70,7 +72,7 @@ struct PersonalBankConnectionsView: View {
                         Text(status.summary).font(.callout)
                         if let error = status.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
                         if let retry = status.retryAt, retry > .now {
-                            Label("Próximo intento: \(retry.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
+                            Label("\(status.retryIsAutomatic ? "Próxima consulta automática" : "Próximo intento"): \(retry.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         if status.deferredTransfers > 0 {
@@ -102,7 +104,10 @@ struct PersonalBankConnectionsView: View {
                 }
             }
             if let plan = banking.pendingPlan {
-                reviewSection(plan).id("personal-bank-review")
+                reviewSection(plan)
+            }
+            if let message = banking.catalogueErrorMessage {
+                Section { Text(message).font(.caption).foregroundStyle(.secondary) }
             }
             if !banking.banks.isEmpty {
                 Section("Conectar o renovar un banco") {
@@ -112,8 +117,7 @@ struct PersonalBankConnectionsView: View {
                             let client = try await banking.client(account: account)
                             let authorization = try await client.start(bank: bank)
                             try await browser.authorize(authorization)
-                            try await banking.refresh(account: account)
-                            banking.disconnected()
+                            try await banking.connectionCompleted(bank: bank.name, account: account, context: context)
                         } } label: {
                             HStack {
                                 Label(bank.name, systemImage: "building.columns.fill")
@@ -141,7 +145,12 @@ struct PersonalBankConnectionsView: View {
             }
         }
         .onDisappear { operation?.cancel() }
-        .sheet(item: $selection) { item in
+        .sheet(item: $selection, onDismiss: {
+            if let bank = bankToRefreshAfterLink {
+                bankToRefreshAfterLink = nil
+                run { try await banking.connectionCompleted(bank: bank, account: account, context: context) }
+            }
+        }) { item in
             NavigationStack {
                 List {
                     Section {
@@ -188,6 +197,7 @@ struct PersonalBankConnectionsView: View {
         Section("Revisar descarga bancaria") {
             Text("\(plan.items.count) movimientos recibidos. Todavía no se han guardado los cambios de esta consulta.")
                 .font(.callout)
+                .id("personal-bank-review")
             LabeledContent("Nuevos", value: "\(plan.items.filter { choices[$0.id] == .new || ($0.candidates.isEmpty && choices[$0.id] == nil) }.count)")
             LabeledContent("Reconocidos automáticamente", value: "\(plan.items.filter { $0.automaticMatch != nil }.count)")
             LabeledContent("Asociaciones preparadas por ti", value: "\(choices.values.filter { if case .match = $0 { return true }; return false }.count)")
@@ -209,7 +219,7 @@ struct PersonalBankConnectionsView: View {
                 }
             }
             ForEach(manual) { item in comparisonRow(item, plan: plan) }
-            DisclosureGroup("Ver nuevos y decisiones preparadas") {
+            DisclosureGroup("Ver nuevos y decisiones preparadas", isExpanded: $showPrepared) {
                 ForEach(plan.items.filter { item in !unresolved.contains { $0.id == item.id } }) { item in
                     VStack(alignment: .leading, spacing: 8) {
                         bankMovement(item)
@@ -320,7 +330,8 @@ struct PersonalBankConnectionsView: View {
         do {
             guard let server = URL(string: server) else { throw BankingConnectionError.invalidConfiguration }
             try PersonalBankingImporter.link(item.remote, bank: item.connection.bank, server: server, to: local, in: context)
-            selection = nil; banking.disconnected()
+            bankToRefreshAfterLink = item.connection.bank
+            selection = nil
         } catch { self.error = error.localizedDescription; selection = nil }
     }
     private func run(protected: Bool = false, _ action: @escaping @MainActor () async throws -> Void) {
