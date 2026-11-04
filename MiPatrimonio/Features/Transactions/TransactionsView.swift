@@ -924,6 +924,7 @@ private struct BulkCategoryView: View {
         do {
             try CategoryRuleService.classify(transactions: selected, category: category,
                 remembering: rememberRule ? rulePhrase : nil, existingRules: rules, in: modelContext)
+            TransactionLearning.confirm(selected, in: modelContext)
             onSaved()
             dismiss()
         } catch { errorMessage = error.localizedDescription }
@@ -935,7 +936,8 @@ private struct TransactionReviewActions: View {
     @Query private var transactions: [FinancialTransaction]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
     @Query private var rules: [CategoryRule]
-    @State private var rememberChoice = true
+    @State private var rememberChoice = false
+    @State private var learnedCategoryID: UUID?
     @State private var rulePhrase = ""
     @State private var errorMessage: String?
     let transaction: FinancialTransaction
@@ -965,6 +967,13 @@ private struct TransactionReviewActions: View {
             if issues.contains(.possibleDuplicate) { duplicateActions }
         }
         .onAppear { if rulePhrase.isEmpty { rulePhrase = transaction.displayDescription } }
+        .task(id: transaction.updatedAt) {
+            learnedCategoryID = nil
+            guard needsCategory, suggestedRule == nil else { return }
+            let prediction = await TransactionLearning.suggest(transaction.displayDescription,
+                type: transaction.type, categories: allowedCategories, in: modelContext)
+            if !Task.isCancelled { learnedCategoryID = prediction }
+        }
         .alert("No se pudo guardar la revisión", isPresented: Binding(
             get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
         )) {
@@ -982,6 +991,12 @@ private struct TransactionReviewActions: View {
                 .controlSize(.large)
                 Text("Sugerida por tu regla «\(rule.phrase)».")
                     .font(.caption).foregroundStyle(.secondary)
+            } else if let category = allowedCategories.first(where: { $0.id == learnedCategoryID }) {
+                Button { assign(category, usingExistingRule: true) } label: {
+                    Label("Confirmar propuesta de IA: \(category.name)", systemImage: "sparkles")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
             }
             Menu {
                 ForEach(allowedCategories) { category in
@@ -1060,6 +1075,7 @@ private struct TransactionReviewActions: View {
             try CategoryRuleService.classify(transactions: [transaction], category: category,
                 remembering: rememberChoice && !usingExistingRule ? rulePhrase : nil,
                 existingRules: rules, in: modelContext)
+            TransactionLearning.confirm([transaction], in: modelContext)
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -1554,6 +1570,7 @@ struct TransactionFormView: View {
     @State private var rulePhrase = ""
     @State private var categoryChosenManually = false
     @State private var automaticCategoryID: UUID?
+    @State private var learnedCategoryID: UUID?
     @State private var validationMessage: String?
     @FocusState private var descriptionIsFocused: Bool
 
@@ -1688,13 +1705,7 @@ struct TransactionFormView: View {
                         if newID != automaticCategoryID { categoryChosenManually = true }
                     }
 
-                    if let rule = matchedCategoryRule,
-                       !categoryChosenManually,
-                       categoryID == rule.category?.id {
-                        Label("Sugerida por la regla «\(rule.phrase)»", systemImage: "sparkle.magnifyingglass")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    categorySuggestion
                 }
 
                 reservedFundingSection
@@ -1739,6 +1750,7 @@ struct TransactionFormView: View {
             } message: {
                 Text(validationMessage ?? "")
             }
+            .task(id: type.rawValue + "|" + descriptionText) { await updateLearningSuggestion() }
             .onAppear {
                 updateSuggestedReservedAmount()
                 if transaction == nil, sourceAccountID == nil {
@@ -1862,6 +1874,36 @@ struct TransactionFormView: View {
         return allowedCategories.first(where: { $0.name == preferredName })
     }
 
+    private func updateLearningSuggestion() async {
+        learnedCategoryID = nil
+        guard transaction == nil, type != .transfer,
+              !categoryChosenManually, matchedCategoryRule == nil else { return }
+        try? await Task.sleep(for: .milliseconds(350))
+        guard !Task.isCancelled else { return }
+        let prediction = await TransactionLearning.suggest(descriptionText, type: type,
+            categories: allowedCategories, in: modelContext)
+        if !Task.isCancelled { learnedCategoryID = prediction }
+    }
+
+    @ViewBuilder
+    private var categorySuggestion: some View {
+        if let rule = matchedCategoryRule,
+           !categoryChosenManually,
+           categoryID == rule.category?.id {
+            Label("Sugerida por la regla «\(rule.phrase)»", systemImage: "sparkle.magnifyingglass")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if !categoryChosenManually, matchedCategoryRule == nil,
+                  let category = allowedCategories.first(where: { $0.id == learnedCategoryID }) {
+            Button {
+                categoryID = category.id
+                categoryChosenManually = true
+            } label: {
+                Label("Usar propuesta de IA: \(category.name)", systemImage: "sparkles")
+            }
+        }
+    }
+
     private var matchedCategoryRule: CategoryRule? {
         CategoryRuleService.match(
             description: descriptionText,
@@ -1979,7 +2021,11 @@ struct TransactionFormView: View {
             transfer.updatedAt = .now
         }
 
+        let savedTransaction: FinancialTransaction
+        let confirmedCategory = rememberCategoryRule ||
+            (categoryChosenManually && (transaction == nil || transaction?.category?.id != categoryID))
         if let transaction {
+            savedTransaction = transaction
             let previousFingerprint = DuplicateDetectionService.fingerprint(
                 date: transaction.date, sourceAccountID: transaction.sourceAccount?.id,
                 destinationAccountID: transaction.destinationAccount?.id, type: transaction.type,
@@ -2002,7 +2048,7 @@ struct TransactionFormView: View {
             transaction.duplicateState = nextDuplicateState
             transaction.updatedAt = .now
         } else {
-            modelContext.insert(FinancialTransaction(
+            savedTransaction = FinancialTransaction(
                 date: date,
                 type: type,
                 amountMinor: amountMinor,
@@ -2015,7 +2061,8 @@ struct TransactionFormView: View {
                 sourceAccount: sourceAccount,
                 destinationAccount: type == .transfer ? destinationAccount : nil,
                 category: category
-            ))
+            )
+            modelContext.insert(savedTransaction)
         }
 
         sourceAccount.lastUpdatedAt = .now
@@ -2035,6 +2082,7 @@ struct TransactionFormView: View {
 
         do {
             try modelContext.save()
+            if confirmedCategory { TransactionLearning.confirm([savedTransaction], in: modelContext) }
             dismiss()
         } catch {
             modelContext.rollback()

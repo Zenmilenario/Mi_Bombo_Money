@@ -8,11 +8,11 @@ En el commit `ab61422`, las cuatro compilaciones iOS fallaron en la misma expres
 
 La corrección local separa la lista, sus secciones y la fila que gestiona selección y acciones al deslizar. Se conserva el acceso al detalle, la selección múltiple y el cambio rápido de categoría. Se mantiene la versión 0.6.10 (build 27).
 
-Pasan el análisis sintáctico Swift de la vista y la revisión de cambios de Git. Falta subir la corrección y verificar las compilaciones de Xcode de ese nuevo commit.
+Pasan el análisis sintáctico Swift de la vista y la revisión de cambios de Git. Las compilaciones de simulador y dispositivo del commit `bdede80` pasaron en GitHub. El usuario confirma que instaló y probó la 0.6.10. [Compilaciones del pull request](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41793245421).
 
 ## Estado y acceso
 
-La versión 0.6.10 (build 27) prepara mejoras de presentación y clasificación en el código local; pendiente de compilación nativa y prueba física. En **Movimientos**, la tarjeta **Por revisar** permite alternar entre todos los movimientos de la selección y los que tienen incidencias. Se mantiene la búsqueda y los filtros de cuenta, categoría, tipo y periodo. También hay un control **Solo por revisar** dentro de Filtros, y se puede quitar desde el chip correspondiente.
+La versión 0.6.10 (build 27) incluye mejoras de presentación y clasificación. El usuario confirma que funciona en el dispositivo. En **Movimientos**, la tarjeta **Por revisar** permite alternar entre todos los movimientos de la selección y los que tienen incidencias. Se mantiene la búsqueda y los filtros de cuenta, categoría, tipo y periodo. También hay un control **Solo por revisar** dentro de Filtros, y se puede quitar desde el chip correspondiente.
 
 ## Clasificar varios movimientos · 0.6.10
 
@@ -38,7 +38,7 @@ Los conceptos manuales y CSV sin identificación bancaria conservan su presentac
 
 Pasan las pruebas portables de títulos conocidos, códigos desconocidos, cuerpo vacío, texto manual, referencias sintéticas de sandbox y conservación del texto. Pasa la clasificación con el servicio real y un contexto de prueba: compatibilidad por tipo, selección inválida, frase común, conservación de datos financieros, aprendizaje por tipo, reutilización de reglas y comportamiento previo de las categorías comunes. El contexto portable no sustituye SwiftData.
 
-El check financiero nativo incluye los nuevos casos con un ModelContainer en memoria y comprueba también que la huella real de duplicados no cambia. Su ejecución en macOS está pendiente del push. Pasan el análisis sintáctico Swift y la comprobación de referencias del proyecto/workflow; la compilación SwiftUI/SwiftData y la prueba visual en dispositivo siguen pendientes.
+El check financiero nativo incluye los nuevos casos con un ModelContainer en memoria y comprueba también que la huella real de duplicados no cambia. El check financiero pasó en macOS para `bdede80`. Pasan el análisis sintáctico Swift y la comprobación de referencias del proyecto/workflow; las compilaciones de simulador y dispositivo pasaron y el usuario probó la versión instalada.
 
 No hay tablas, columnas ni migraciones nuevas. Se usa la sincronización y las copias existentes para categorías y reglas. La incidencia de consulta de BBVA continúa pendiente y no se han hecho consultas bancarias nuevas para esta mejora. Esta entrega no incorpora un modelo de IA.
 

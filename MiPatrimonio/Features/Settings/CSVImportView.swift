@@ -505,6 +505,7 @@ struct CSVImportView: View {
             )
             modelContext.insert(batch)
 
+            var confirmed: [FinancialTransaction] = []
             for row in rows {
                 let transaction = FinancialTransaction(
                     date: row.draft.date,
@@ -522,6 +523,7 @@ struct CSVImportView: View {
                     category: row.category
                 )
                 modelContext.insert(transaction)
+                if categoryCorrections[row.id] != nil { confirmed.append(transaction) }
                 if let sourceAccount = row.sourceAccount {
                     sourceAccount.lastUpdatedAt = Swift.max(sourceAccount.lastUpdatedAt, row.draft.date)
                     sourceAccount.updatedAt = .now
@@ -539,6 +541,7 @@ struct CSVImportView: View {
                 )
             }
             try modelContext.save()
+            TransactionLearning.confirm(confirmed, in: modelContext)
             confirmationMessage = "Se han importado \(rows.count) movimiento(s). Los duplicados exactos se han omitido."
             if !pendingRules.isEmpty {
                 confirmationMessage = (confirmationMessage ?? "") + " Se han guardado \(pendingRules.count) regla(s) de categorías."
@@ -586,6 +589,8 @@ private struct CSVCategoryCorrection {
 
 private struct CSVCategoryCorrectionView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @State private var learnedCategoryID: UUID?
     let row: ImportPreviewRow
     let categories: [FinanceCategory]
     let otherCorrections: [CSVCategoryCorrection]
@@ -660,6 +665,11 @@ private struct CSVCategoryCorrectionView: View {
                 }
 
                 Section("Categoría") {
+                    if let category = compatibleCategories.first(where: { $0.id == learnedCategoryID }) {
+                        Button { categoryID = category.id } label: {
+                            Label("Usar propuesta de IA: \(category.name)", systemImage: "sparkles")
+                        }
+                    }
                     if compatibleCategories.isEmpty {
                         Text("No hay categorías compatibles. Puedes crearlas en Ajustes → Categorías.")
                             .foregroundStyle(.secondary)
@@ -685,6 +695,11 @@ private struct CSVCategoryCorrectionView: View {
                         }
                     }
                 }
+            }
+            .task {
+                let prediction = await TransactionLearning.suggest(row.draft.description,
+                    type: row.draft.type, categories: compatibleCategories, in: modelContext)
+                if !Task.isCancelled { learnedCategoryID = prediction }
             }
             .navigationTitle("Elegir categoría")
             .navigationBarTitleDisplayMode(.inline)

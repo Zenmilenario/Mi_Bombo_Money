@@ -6,11 +6,15 @@ Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e 
 
 El proyecto de Supabase `mi-bombo-money-dev` ya dispone de un esquema PostgreSQL con permisos por usuario y pruebas de aislamiento. El código incorpora acceso cloud y sincronización con copia local separada por usuario; queda pendiente su validación completa en iOS y entre dispositivos. Se activa desde Ajustes → Activar mi nube. Instalación, estado verificado y pruebas reproducibles: [CloudBackend/README.md](CloudBackend/README.md).
 
+## Aprendizaje de categorías · 0.6.11
+
+La app propone categorías en **Por revisar**, en el alta de movimientos y en la revisión del CSV. El modelo combina ejemplos ficticios con el historial del perfil y aprende de las confirmaciones dentro del dispositivo. La primera entrega funciona en modo propuestas. Está preparada localmente y pendiente de checks iOS y prueba en el iPad. [Diseño y evaluación del aprendizaje](CloudBackend/APRENDIZAJE_CATEGORIAS.md).
+
 ## Conceptos y clasificación · 0.6.10
 
-Preparado en el código local: títulos bancarios legibles para los prefijos conocidos, texto guardado accesible en el detalle, selección de varios movimientos para asignar una categoría, acceso rápido desde una fila y aprendizaje de reglas con una frase común. Flujo: **Movimientos → (…) → Seleccionar movimientos → Elegir categoría para la selección**. La selección respeta búsqueda y filtros. Los importes, vínculos de reserva, referencias bancarias y decisiones de duplicados se conservan.
+La 0.6.10 incluye títulos bancarios legibles para los prefijos conocidos, texto guardado accesible en el detalle, selección de varios movimientos para asignar una categoría, acceso rápido desde una fila y aprendizaje de reglas con una frase común. Flujo: **Movimientos → (…) → Seleccionar movimientos → Elegir categoría para la selección**. La selección respeta búsqueda y filtros. Los importes, vínculos de reserva, referencias bancarias y decisiones de duplicados se conservan.
 
-Las reglas opcionales se guardan para futuros movimientos; la corrección inmediata afecta a la selección confirmada. Detalles, límites y pruebas en [Revisión y clasificación de movimientos](REVISION_MOVIMIENTOS.md). Pendiente compilar e instalar 0.6.10 (build 27) para la prueba física. No hay una migración cloud nueva.
+Las reglas opcionales se guardan para futuros movimientos; la corrección inmediata afecta a la selección confirmada. Detalles, límites y pruebas en [Revisión y clasificación de movimientos](REVISION_MOVIMIENTOS.md). El usuario confirma que instaló y probó la 0.6.10 (build 27). No hay una migración cloud nueva.
 
 ## Efectivo e inversiones · 0.6.9
 

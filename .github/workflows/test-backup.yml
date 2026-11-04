@@ -76,6 +76,14 @@ jobs:
             Tests/TransactionReviewCheck.swift -o build/finance-check/TransactionReviewCheck
           build/finance-check/TransactionReviewCheck
 
+      - name: Comprobar aprendizaje de categorías con datos ficticios
+        run: |
+          set -euo pipefail
+          xcrun swiftc -O -swift-version 5 -parse-as-library \
+            MiPatrimonio/Core/Services/TransactionCategoryModel.swift \
+            Tests/TransactionCategoryModelCheck.swift -o build/finance-check/TransactionCategoryModelCheck
+          build/finance-check/TransactionCategoryModelCheck
+
       - name: Comprobar filas adaptables sin espacios vacíos
         run: python3 Tests/check_adaptive_layout.py
 
