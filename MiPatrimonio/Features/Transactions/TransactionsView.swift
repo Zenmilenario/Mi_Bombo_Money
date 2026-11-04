@@ -159,121 +159,7 @@ struct TransactionsView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if transactions.isEmpty {
-                    ContentUnavailableView(
-                        "Sin movimientos",
-                        systemImage: "list.bullet.rectangle",
-                        description: Text(accounts.allSatisfy(\.isArchived)
-                            ? "Primero añade una cuenta desde Cuentas. Después podrás registrar movimientos."
-                            : "Añade un movimiento con el botón azul o importa un archivo CSV.")
-                    )
-                } else {
-                    List {
-                        if isSelecting { selectionControls }
-                        Section {
-                            TransactionPeriodSummaryCard(
-                                transactionCount: filteredTransactions.count,
-                                incomeMinor: filteredIncomeMinor,
-                                expenseMinor: filteredExpenseMinor
-                            )
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.clear)
-                        }
-
-                        Section {
-                            reviewSummary
-                                .listRowInsets(EdgeInsets())
-                                .listRowBackground(Color.clear)
-                        }
-
-                        if activeFilterCount > 0 {
-                            Section {
-                                activeFilters
-                                    .listRowInsets(
-                                        EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
-                                    )
-                            } header: {
-                                HStack {
-                                    Text("Filtros activos")
-                                    Spacer()
-                                    Button("Limpiar") {
-                                        resetFilters()
-                                    }
-                                    .font(.caption.weight(.semibold))
-                                    .textCase(nil)
-                                }
-                            }
-                        }
-
-                        Section {
-                            NavigationLink {
-                                SpendingAnalysisView()
-                            } label: {
-                                Label("Análisis de gastos", systemImage: "chart.bar.xaxis")
-                            }
-                        }
-
-                        if filteredTransactions.isEmpty {
-                            Section {
-                                ContentUnavailableView(
-                                    showOnlyReview && reviewCount == 0 ? "Sin revisiones pendientes" : "Sin resultados",
-                                    systemImage: showOnlyReview && reviewCount == 0 ? "checkmark.circle" : "line.3.horizontal.decrease.circle",
-                                    description: Text(showOnlyReview && reviewCount == 0
-                                        ? "No se detectan duplicados pendientes ni problemas de categoría con los filtros actuales."
-                                        : "Prueba a cambiar la búsqueda o limpiar los filtros.")
-                                )
-                                .frame(maxWidth: .infinity, minHeight: 220)
-                            }
-                        } else {
-                            ForEach(groupedTransactionDays) { group in
-                                Section(
-                                    group.date.formatted(
-                                        .dateTime.weekday(.wide).day().month(.wide).year()
-                                    )
-                                ) {
-                                    ForEach(group.transactions) { transaction in
-                                        Button {
-                                            if isSelecting {
-                                                if selectedIDs.contains(transaction.id) { selectedIDs.remove(transaction.id) }
-                                                else { selectedIDs.insert(transaction.id) }
-                                            } else { selectedTransaction = transaction }
-                                        } label: {
-                                            HStack(spacing: 12) {
-                                                if isSelecting {
-                                                    Image(systemName: selectedIDs.contains(transaction.id) ? "checkmark.circle.fill" : "circle")
-                                                        .foregroundStyle(AppDesign.accent)
-                                                }
-                                                TransactionRow(transaction: transaction)
-                                            }
-                                        }
-                                        .buttonStyle(.plain)
-                                        .listRowBackground(AppDesign.cardBackground)
-                                        .accessibilityHint(isSelecting ? "Selecciona o deselecciona el movimiento" : "Abre el detalle del movimiento")
-                                        .accessibilityValue(isSelecting ? (selectedIDs.contains(transaction.id) ? "Seleccionado" : "Sin seleccionar") : "")
-                                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                                            Button {
-                                                categorySelection = TransactionCategorySelection(transactionIDs: [transaction.id])
-                                            } label: { Label("Categoría", systemImage: "tag") }
-                                            .tint(AppDesign.accent)
-                                            .disabled(isSelecting)
-                                        }
-                                        .swipeActions(edge: .trailing) {
-                                            Button(role: .destructive) {
-                                                delete(transaction)
-                                            } label: {
-                                                Label("Eliminar", systemImage: "trash")
-                                            }
-                                            .disabled(isSelecting)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    .listStyle(.insetGrouped)
-                }
-            }
+            movementContent
             .cloudSyncToolbar()
             .scrollContentBackground(.hidden)
             .background(AppDesign.pageBackground)
@@ -391,6 +277,122 @@ struct TransactionsView: View {
             } message: {
                 Text(deletionError ?? "Error desconocido")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var movementContent: some View {
+        if transactions.isEmpty {
+            ContentUnavailableView(
+                "Sin movimientos",
+                systemImage: "list.bullet.rectangle",
+                description: Text(accounts.allSatisfy(\.isArchived)
+                    ? "Primero añade una cuenta desde Cuentas. Después podrás registrar movimientos."
+                    : "Añade un movimiento con el botón azul o importa un archivo CSV.")
+            )
+        } else {
+            movementsList
+        }
+    }
+
+    private var movementsList: some View {
+        List {
+            if isSelecting { selectionControls }
+            Section {
+                TransactionPeriodSummaryCard(
+                    transactionCount: filteredTransactions.count,
+                    incomeMinor: filteredIncomeMinor,
+                    expenseMinor: filteredExpenseMinor
+                )
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
+
+            Section {
+                reviewSummary
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
+
+            if activeFilterCount > 0 {
+                Section {
+                    activeFilters
+                        .listRowInsets(
+                            EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16)
+                        )
+                } header: {
+                    HStack {
+                        Text("Filtros activos")
+                        Spacer()
+                        Button("Limpiar") {
+                            resetFilters()
+                        }
+                        .font(.caption.weight(.semibold))
+                        .textCase(nil)
+                    }
+                }
+            }
+
+            Section {
+                NavigationLink {
+                    SpendingAnalysisView()
+                } label: {
+                    Label("Análisis de gastos", systemImage: "chart.bar.xaxis")
+                }
+            }
+
+            transactionSections
+        }
+        .listStyle(.insetGrouped)
+    }
+
+    @ViewBuilder
+    private var transactionSections: some View {
+        if filteredTransactions.isEmpty {
+            Section {
+                ContentUnavailableView(
+                    showOnlyReview && reviewCount == 0 ? "Sin revisiones pendientes" : "Sin resultados",
+                    systemImage: showOnlyReview && reviewCount == 0 ? "checkmark.circle" : "line.3.horizontal.decrease.circle",
+                    description: Text(showOnlyReview && reviewCount == 0
+                        ? "No se detectan duplicados pendientes ni problemas de categoría con los filtros actuales."
+                        : "Prueba a cambiar la búsqueda o limpiar los filtros.")
+                )
+                .frame(maxWidth: .infinity, minHeight: 220)
+            }
+        } else {
+            ForEach(groupedTransactionDays) { group in
+                transactionSection(group)
+            }
+        }
+    }
+
+    private func transactionSection(_ group: TransactionDayGroup) -> some View {
+        let heading = group.date.formatted(.dateTime.weekday(.wide).day().month(.wide).year())
+        return Section {
+            ForEach(group.transactions) { transaction in
+                TransactionActionRow(
+                    transaction: transaction,
+                    isSelecting: isSelecting,
+                    isSelected: selectedIDs.contains(transaction.id),
+                    onTap: { tapTransaction(transaction) },
+                    onCategorize: {
+                        categorySelection = TransactionCategorySelection(transactionIDs: Set([transaction.id]))
+                    },
+                    onDelete: { delete(transaction) }
+                )
+            }
+        } header: {
+            Text(heading)
+        }
+    }
+
+    private func tapTransaction(_ transaction: FinancialTransaction) {
+        if !isSelecting {
+            selectedTransaction = transaction
+        } else if selectedIDs.contains(transaction.id) {
+            selectedIDs.remove(transaction.id)
+        } else {
+            selectedIDs.insert(transaction.id)
         }
     }
 
@@ -639,6 +641,60 @@ private struct TransactionPeriodSummaryCard: View {
             AppDesign.cardBackground,
             in: RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
         )
+    }
+}
+
+private struct TransactionActionRow: View {
+    let transaction: FinancialTransaction
+    let isSelecting: Bool
+    let isSelected: Bool
+    let onTap: () -> Void
+    let onCategorize: () -> Void
+    let onDelete: () -> Void
+
+    private var hint: String {
+        isSelecting ? "Selecciona o deselecciona el movimiento" : "Abre el detalle del movimiento"
+    }
+
+    private var selectionValue: String {
+        guard isSelecting else { return "" }
+        return isSelected ? "Seleccionado" : "Sin seleccionar"
+    }
+
+    var body: some View {
+        Button(action: onTap) {
+            rowLabel
+        }
+        .buttonStyle(.plain)
+        .listRowBackground(AppDesign.cardBackground)
+        .accessibilityHint(Text(hint))
+        .accessibilityValue(Text(selectionValue))
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            if !isSelecting {
+                Button(action: onCategorize) {
+                    Label("Categoría", systemImage: "tag")
+                }
+                .tint(AppDesign.accent)
+            }
+        }
+        .swipeActions(edge: .trailing) {
+            if !isSelecting {
+                Button(role: .destructive, action: onDelete) {
+                    Label("Eliminar", systemImage: "trash")
+                }
+            }
+        }
+    }
+
+    private var rowLabel: some View {
+        HStack(spacing: 12) {
+            if isSelecting {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(AppDesign.accent)
+                    .accessibilityHidden(true)
+            }
+            TransactionRow(transaction: transaction)
+        }
     }
 }
 

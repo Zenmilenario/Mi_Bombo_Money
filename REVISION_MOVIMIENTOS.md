@@ -1,6 +1,14 @@
 # Bandeja «Por revisar»
 
-Actualizado: 3 de noviembre de 2026.
+Actualizado: 4 de noviembre de 2026.
+
+## Corrección de compilación iOS · 4 de noviembre de 2026
+
+En el commit `ab61422`, las cuatro compilaciones iOS fallaron en la misma expresión de la lista de Movimientos: Xcode agotó el tiempo de deducción de tipos. Se confirmó en los registros de simulador y dispositivo, tanto del [push](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41792308298) como del [pull request](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41792342146). Los workflows de datos y cálculos, conexión bancaria y almacenamiento cloud pasaron en ese commit.
+
+La corrección local separa la lista, sus secciones y la fila que gestiona selección y acciones al deslizar. Se conserva el acceso al detalle, la selección múltiple y el cambio rápido de categoría. Se mantiene la versión 0.6.10 (build 27).
+
+Pasan el análisis sintáctico Swift de la vista y la revisión de cambios de Git. Falta subir la corrección y verificar las compilaciones de Xcode de ese nuevo commit.
 
 ## Estado y acceso
 
