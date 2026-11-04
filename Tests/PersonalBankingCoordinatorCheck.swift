@@ -69,6 +69,8 @@ struct FetchDescriptor<Value> {}
 }
 enum PersonalBankingImporter {
     struct Result { let inserted: Int; let matched: Int }
+    struct ManualBalance { }
+    struct BalanceReview { }
     static func identity(server: URL, accountID: String) -> String { server.absoluteString + "|" + accountID }
     @MainActor static func ledger(in context: ModelContext) throws -> [BankingLedgerEntry] { context.ledger }
     @MainActor static func plan(_ feeds: [BankingAccountFeed], server: URL, in context: ModelContext) throws -> PersonalBankingPlan {
@@ -78,7 +80,8 @@ enum PersonalBankingImporter {
         return try PersonalBankingPlan.build(feeds: feeds, links: links, ledger: context.ledger)
     }
     @MainActor static func apply(_ feeds: [BankingAccountFeed], server: URL,
-                                choices: [String: PersonalBankingPlan.Choice] = [:], in context: ModelContext, observedAt: Date) throws -> Result {
+                                choices: [String: PersonalBankingPlan.Choice] = [:], manualBalances: [UUID: ManualBalance] = [:],
+                                reviewedBalances: [BalanceReview]? = nil, in context: ModelContext, observedAt: Date) throws -> Result {
         let plan = try plan(feeds, server: server, in: context)
         let decisions = try plan.resolutions(choices)
         for item in plan.items {

@@ -136,10 +136,41 @@ struct PersonalBankingImporterCheck {
         precondition(pairedSummary.expenseMinor == recoveredSummary.expenseMinor && pairedSummary.incomeMinor == recoveredSummary.incomeMinor)
         let repeatPlain = try PersonalBankingImporter.apply(plainFeeds, server: server, in: partialContext, observedAt: observed)
         precondition(repeatPlain.inserted == 0 && repeatPlain.skipped == 2)
+        try checkTradeRepublicWithoutBookedBalance(server: server, in: context, day: day, observed: observed)
         // Live financial imports can never write to the separate sandbox workspace.
         let isolated = try ModelContainer(for: schema, configurations: ModelConfiguration("BankingTests", schema: schema, isStoredInMemoryOnly: true))
         do { _ = try PersonalBankingImporter.apply([feed], server: server, in: isolated.mainContext, observedAt: observed); preconditionFailure("Sandbox accepted real-account import") }
         catch PersonalBankingError.wrongWorkspace { }
         print("Personal banking importer passed: linked existing account, CSV provenance, reserve allocation, budget exclusion, snapshot balance, repeat imports and periodic posting suppression.")
+    }
+
+    @MainActor private static func checkTradeRepublicWithoutBookedBalance(server: URL, in context: ModelContext,
+                                                                         day: Date, observed: Date) throws {
+        let local = FinancialAccount(name: "Trade Republic ficticia", type: .checking, openingDate: day.addingTimeInterval(-86400))
+        context.insert(local)
+        try context.save()
+        let remote = ConnectedBankAccount(id: "trade-test", name: "Prueba", currency: "EUR", lastFour: "0000")
+        try PersonalBankingImporter.link(remote, bank: "Trade Republic", server: server, to: local, in: context)
+        let feed = BankingAccountFeed(connection: .init(id: UUID().uuidString, bank: "Trade Republic", validUntil: "2026-11-01", accounts: [remote]),
+            account: remote, balances: [.init(amountMinor: 40000, currency: "EUR", type: "CLAV")], movements: [
+                .init(id: nil, bookingDate: "2026-10-15", signedAmountMinor: -2000, currency: "EUR", description: "Movimiento bancario"),
+                .init(id: nil, bookingDate: "2026-10-16", signedAmountMinor: -1000, currency: "EUR", description: "Movimiento bancario")])
+        let plan = try PersonalBankingImporter.plan([feed], server: server, in: context)
+        do {
+            _ = try PersonalBankingImporter.apply([feed], server: server, in: context, observedAt: observed)
+            preconditionFailure("An import without a booked balance bypassed review")
+        } catch PersonalBankingError.needsReview { }
+        let manual = [local.id: PersonalBankingImporter.ManualBalance(amount: 12000, date: day.addingTimeInterval(43200))]
+        let previews = try PersonalBankingImporter.balanceReviews(plan, choices: [:], manualBalances: manual, accounts: [local],
+            transactions: [], snapshots: [], at: observed)
+        precondition(previews.first?.current == 0 && previews.first?.projected == 11000)
+        let imported = try PersonalBankingImporter.apply([feed], server: server, manualBalances: manual,
+            reviewedBalances: previews, in: context, observedAt: observed)
+        let rows = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        let snapshots = try context.fetch(FetchDescriptor<BalanceSnapshot>()).filter { $0.account?.id == local.id }
+        precondition(imported.inserted == 2 && snapshots.count == 1 && snapshots.first?.source == .manual)
+        precondition(FinanceCalculator.balance(of: local, at: observed, transactions: rows, snapshots: snapshots) == 11000)
+        let repeated = try PersonalBankingImporter.apply([feed], server: server, in: context, observedAt: observed)
+        precondition(repeated.inserted == 0 && repeated.skipped == 2)
     }
 }

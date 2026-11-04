@@ -143,9 +143,30 @@ struct PersonalBankingPlanCheck {
         let received = feed(rows: [debit], bank: "Trade Republic")
         let withoutBookedBalance = BankingAccountFeed(connection: received.connection, account: received.account,
             balances: [.init(amountMinor: 9000, currency: "EUR", type: "CLAV")], movements: received.movements)
+        let review = try PersonalBankingPlan.build(feeds: [withoutBookedBalance], links: links, ledger: [])
+        precondition(review.items.count == 1 && review.balances.isEmpty && review.requiresBalanceReview)
+        precondition(review.balanceGaps.first?.diagnostics == "CLAV · EUR × 1")
+        let decisions = try review.resolutions([:])
+        precondition(review.newBalanceEffects(for: daily, after: day, through: day, decisions: decisions) == 0)
+        precondition(review.newBalanceEffects(for: daily, after: day.addingTimeInterval(-1), through: day, decisions: decisions) == -1000)
+        let alreadyEntered = try PersonalBankingPlan.build(feeds: [withoutBookedBalance], links: links, ledger: [manual])
+        let matched = try alreadyEntered.resolutions([alreadyEntered.items[0].id: .match(manual.id)])
+        precondition(alreadyEntered.newBalanceEffects(for: daily, after: day.addingTimeInterval(-1), through: day, decisions: matched) == 0)
+
+        let balance = BankingPreview.Balance(amountMinor: 9000, currency: "EUR", type: "CLBD")
+        let repeatedBalance = BankingAccountFeed(connection: received.connection, account: received.account,
+            balances: [balance, balance], movements: [debit])
+        let verified = try PersonalBankingPlan.build(feeds: [repeatedBalance], links: links, ledger: [])
+        precondition(verified.balances.first?.amount == 9000 && verified.balanceGaps.isEmpty)
+        let conflicting = BankingAccountFeed(connection: received.connection, account: received.account,
+            balances: [balance, .init(amountMinor: 10000, currency: "EUR", type: "CLBD")], movements: [debit])
+        let conflictReview = try PersonalBankingPlan.build(feeds: [conflicting], links: links, ledger: [])
+        precondition(conflictReview.balances.isEmpty && conflictReview.requiresBalanceReview)
+        let otherBank = BankingAccountFeed(connection: feed().connection, account: received.account,
+            balances: withoutBookedBalance.balances, movements: [row()])
         do {
-            _ = try PersonalBankingPlan.build(feeds: [withoutBookedBalance], links: links, ledger: [])
-            preconditionFailure("An available balance must not be treated as booked")
+            _ = try PersonalBankingPlan.build(feeds: [otherBank], links: links, ledger: [])
+            preconditionFailure("Trade Republic's balance policy leaked to other banks")
         } catch PersonalBankingError.unavailableBookedBalance(_) { }
     }
     @MainActor private static func checkIndependentDownloads() async throws {

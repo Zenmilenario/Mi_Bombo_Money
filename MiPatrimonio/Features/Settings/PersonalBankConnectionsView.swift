@@ -8,6 +8,7 @@ struct PersonalBankConnectionsView: View {
     @EnvironmentObject private var lock: AppLockManager
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
     @Query private var transactions: [FinancialTransaction]
+    @Query private var snapshots: [BalanceSnapshot]
     @State private var server = ""
     @State private var search = ""
     @State private var showBankCatalogue = false
@@ -16,6 +17,8 @@ struct PersonalBankConnectionsView: View {
     @State private var selection: LinkingSelection?
     @State private var disconnecting: ConnectedBankSession?
     @State private var choices: [String: PersonalBankingPlan.Choice] = [:]
+    @State private var manualBalanceText: [UUID: String] = [:]
+    @State private var manualBalanceDay: [UUID: Date] = [:]
     @State private var showSuggestions = true
     @State private var showPrepared = true
     @State private var bankToRefreshAfterLink: String?
@@ -147,6 +150,9 @@ struct PersonalBankConnectionsView: View {
             }
         }
         .onDisappear { operation?.cancel() }
+        .onChange(of: banking.pendingPlan != nil) { _, hasPlan in
+            if !hasPlan { manualBalanceText = [:]; manualBalanceDay = [:] }
+        }
         .sheet(item: $selection, onDismiss: {
             if let bank = bankToRefreshAfterLink {
                 bankToRefreshAfterLink = nil
@@ -250,6 +256,12 @@ struct PersonalBankConnectionsView: View {
             item.suggestedMatch.map { plan.canMatch(item, to: $0, choices: choices) } == true
         }
         let manual = unresolved.filter { item in !suggested.contains { $0.id == item.id } }
+        let now = Date.now
+        let enteredBalances = manualBalances(for: plan, at: now)
+        let previews = enteredBalances.flatMap { amounts in
+            try? PersonalBankingImporter.balanceReviews(plan, choices: choices, manualBalances: amounts,
+                accounts: accounts, transactions: transactions, snapshots: snapshots, at: now)
+        }
         Section("Revisar descarga bancaria") {
             Text("\(plan.items.count) movimientos recibidos. Todavía no se han guardado los cambios de esta consulta.")
                 .font(.callout)
@@ -299,13 +311,76 @@ struct PersonalBankConnectionsView: View {
                 Text("Quedan \(unresolved.count) decisiones. Las coincidencias reconocidas y los movimientos nuevos ya están preparados.")
                     .font(.caption)
             }
+            ForEach(plan.balanceGaps) { gap in
+                balanceReview(gap, preview: previews?.first { $0.account == gap.id }, now: now)
+            }
             Button("Incorporar descarga revisada") {
-                do { try banking.confirm(choices: choices, account: account, context: context); choices = [:] }
+                guard let enteredBalances, let previews else { return }
+                do {
+                    try banking.confirm(choices: choices, manualBalances: enteredBalances, reviewedBalances: previews,
+                        account: account, context: context)
+                    choices = [:]
+                }
                 catch { self.error = error.localizedDescription }
             }
-            .disabled((try? plan.resolutions(choices)) == nil)
+            .disabled(previews == nil || (try? plan.resolutions(choices)) == nil)
             Button("Descartar esta descarga sin incorporarla") {
                 banking.discardPending(); choices = [:]
+            }
+        }
+    }
+    private func manualBalances(for plan: PersonalBankingPlan, at date: Date) -> [UUID: PersonalBankingImporter.ManualBalance]? {
+        var result: [UUID: PersonalBankingImporter.ManualBalance] = [:]
+        for gap in plan.balanceGaps {
+            let input = manualBalanceText[gap.id, default: ""].trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !input.isEmpty else { continue }
+            guard let amount = MoneyParser.minorUnits(from: input),
+                  (-1_000_000_000_000_000...1_000_000_000_000_000).contains(amount),
+                  let interval = Calendar.current.dateInterval(of: .day, for: manualBalanceDay[gap.id] ?? lastClosedDay(at: date)),
+                  interval.end <= date else { return nil }
+            let cutoff = interval.end.addingTimeInterval(-0.001)
+            result[gap.id] = .init(amount: amount, date: cutoff)
+        }
+        return result
+    }
+
+    private func lastClosedDay(at date: Date) -> Date {
+        Calendar.current.startOfDay(for: date).addingTimeInterval(-1)
+    }
+
+    @ViewBuilder private func balanceReview(_ gap: PersonalBankingPlan.BalanceGap,
+                                            preview: PersonalBankingImporter.BalanceReview?, now: Date) -> some View {
+        let name = accounts.first { $0.id == gap.id }?.name ?? "Trade Republic"
+        let hasSnapshot = snapshots.contains { $0.account?.id == gap.id && $0.date <= now }
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Saldo de \(name)").font(.headline)
+            Text("Trade Republic no ha enviado un saldo contable verificable. Revisa cómo afectarán los movimientos al saldo calculado en la app.")
+                .font(.caption).foregroundStyle(.secondary)
+            DisclosureGroup("Tipos de saldo recibidos") {
+                Text(gap.diagnostics).font(.caption).foregroundStyle(.secondary)
+            }
+            if !hasSnapshot {
+                Text("La app parte del saldo inicial de la cuenta. Si tienes un saldo más fiable, puedes introducirlo aquí.")
+                    .font(.caption).foregroundStyle(.secondary)
+                TextField("Saldo de referencia en euros (opcional)", text: Binding(
+                    get: { manualBalanceText[gap.id, default: ""] }, set: { manualBalanceText[gap.id] = $0 }))
+                    .keyboardType(.numbersAndPunctuation)
+                if !manualBalanceText[gap.id, default: ""].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    let latestDay = lastClosedDay(at: now)
+                    DatePicker("Fecha del saldo", selection: Binding(get: { manualBalanceDay[gap.id] ?? latestDay },
+                        set: { manualBalanceDay[gap.id] = $0 }), in: ...latestDay, displayedComponents: .date)
+                    Text("Usa el saldo al cierre del día elegido. Los movimientos ya incluidos en ese saldo se guardan en el historial.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            if let preview {
+                LabeledContent("Saldo calculado ahora", value: MoneyFormatter.string(minorUnits: preview.current))
+                LabeledContent("Saldo calculado tras importar", value: MoneyFormatter.string(minorUnits: preview.projected))
+                Text("Fecha de referencia: \(preview.baseDate.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("El cálculo estará disponible cuando resuelvas las coincidencias y el saldo manual, si lo has introducido, sea válido.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }

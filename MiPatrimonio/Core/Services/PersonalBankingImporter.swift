@@ -5,6 +5,14 @@ import SwiftData
 /// Only non-secret identity keys enter the financial graph. Consent secrets stay in the Worker.
 enum PersonalBankingImporter {
     struct Result { let inserted: Int; let matched: Int; let skipped: Int }
+    struct ManualBalance { let amount: Int64; let date: Date }
+    struct BalanceReview: Equatable {
+        let account: UUID
+        let current: Int64
+        let projected: Int64
+        let baseDate: Date
+        let hasSnapshot: Bool
+    }
     static func identity(server: URL, accountID: String) -> String {
         "enable:" + hash(server.absoluteString + "|" + accountID)
     }
@@ -105,8 +113,41 @@ enum PersonalBankingImporter {
         }
         return try PersonalBankingPlan.build(feeds: feeds, links: links, ledger: ledger(in: context), namespace: hash(server.absoluteString))
     }
+    @MainActor static func balanceReviews(_ plan: PersonalBankingPlan, choices: [String: PersonalBankingPlan.Choice],
+                                          manualBalances: [UUID: ManualBalance], accounts: [FinancialAccount],
+                                          transactions: [FinancialTransaction], snapshots: [BalanceSnapshot],
+                                          at date: Date = .now) throws -> [BalanceReview] {
+        guard Set(manualBalances.keys).isSubset(of: Set(plan.balanceGaps.map(\.id))) else { throw PersonalBankingError.changed }
+        guard !plan.balanceGaps.isEmpty else { return [] }
+        let decisions = try plan.resolutions(choices)
+        return try plan.balanceGaps.map { gap in
+            guard let account = accounts.first(where: { $0.id == gap.id }) else { throw PersonalBankingError.changed }
+            let snapshot = snapshots.filter { $0.account?.id == gap.id && $0.date <= date }.max { $0.date < $1.date }
+            let current = FinanceCalculator.balance(of: account, at: date, transactions: transactions, snapshots: snapshots)
+            let baseDate: Date
+            let base: Int64
+            if let manual = manualBalances[gap.id] {
+                guard manual.date <= date, snapshot == nil,
+                      (-1_000_000_000_000_000...1_000_000_000_000_000).contains(manual.amount) else {
+                    throw PersonalBankingError.changed
+                }
+                baseDate = manual.date
+                base = transactions.filter { $0.date > manual.date && $0.date <= date }.reduce(manual.amount) {
+                    $0 + FinanceCalculator.effect(of: $1, on: account)
+                }
+            } else {
+                baseDate = snapshot?.date ?? account.openingDate
+                base = current
+            }
+            let additional = plan.newBalanceEffects(for: gap.id, after: baseDate, through: date,
+                includingCutoff: snapshot == nil && manualBalances[gap.id] == nil, decisions: decisions)
+            return BalanceReview(account: gap.id, current: current, projected: base + additional,
+                                 baseDate: baseDate, hasSnapshot: snapshot != nil)
+        }
+    }
     @MainActor static func apply(_ feeds: [BankingAccountFeed], server: URL,
                                  choices: [String: PersonalBankingPlan.Choice] = [:],
+                                 manualBalances: [UUID: ManualBalance] = [:], reviewedBalances: [BalanceReview]? = nil,
                                  in context: ModelContext, observedAt: Date) throws -> Result {
         try requireCloud(context)
         guard !context.hasChanges else { throw PersonalBankingError.changed }
@@ -116,6 +157,12 @@ enum PersonalBankingImporter {
         let existing = Dictionary(uniqueKeysWithValues: try context.fetch(FetchDescriptor<FinancialTransaction>()).map { ($0.id, $0) })
         let rules = try context.fetch(FetchDescriptor<CategoryRule>())
         let snapshots = try context.fetch(FetchDescriptor<BalanceSnapshot>())
+        if plan.requiresBalanceReview || !manualBalances.isEmpty || reviewedBalances != nil {
+            let reviews = try balanceReviews(plan, choices: choices, manualBalances: manualBalances,
+                accounts: Array(accounts.values), transactions: Array(existing.values), snapshots: snapshots)
+            guard let reviewedBalances else { throw PersonalBankingError.needsReview }
+            guard reviews == reviewedBalances else { throw PersonalBankingError.changed }
+        }
         let batch = ImportBatch(fileName: "Enable Banking", source: .bankAPI, importedAt: observedAt)
         var inserted = 0; var matched = 0
         do {
@@ -149,6 +196,12 @@ enum PersonalBankingImporter {
                         source: .bankAPI, notes: "Saldo contable de Enable Banking", account: account))
                 }
                 account.lastUpdatedAt = observedAt; account.updatedAt = observedAt
+            }
+            for (id, manual) in manualBalances {
+                guard let account = accounts[id] else { throw PersonalBankingError.changed }
+                context.insert(BalanceSnapshot(date: manual.date, balanceMinor: manual.amount, source: .manual,
+                    notes: "Saldo de referencia de Trade Republic", account: account))
+                account.lastUpdatedAt = manual.date; account.updatedAt = .now
             }
             if inserted + matched > 0 {
                 batch.importedRows = inserted; batch.skippedDuplicates = plan.alreadyImported + matched
