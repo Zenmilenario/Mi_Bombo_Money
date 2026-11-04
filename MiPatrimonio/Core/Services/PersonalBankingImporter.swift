@@ -40,6 +40,60 @@ enum PersonalBankingImporter {
                 source: $0.sourceAccount?.id, destination: $0.destinationAccount?.id, text: $0.descriptionText, externalID: $0.bankEntryKey)
         }
     }
+
+    @MainActor static func canPairImportedTransfer(_ first: FinancialTransaction, with second: FinancialTransaction) -> Bool {
+        // Some providers have no description. One explicit transfer concept can
+        // support a review of the opposite posting when its text is our fallback.
+        let pair = [first, second]
+        guard first.id != second.id, Set(pair.map(\.type)) == Set([.expense, .income]),
+              pair.contains(where: \.hasBankTransferConcept),
+              pair.allSatisfy({ $0.bankEntryKey != nil && ($0.hasBankTransferConcept || $0.descriptionText == "Movimiento bancario") }),
+              first.amountMinor > 0, first.amountMinor == second.amountMinor,
+              first.date == second.date,
+              let firstAccount = first.sourceAccount, let secondAccount = second.sourceAccount,
+              firstAccount.id != secondAccount.id, firstAccount.currencyCode == secondAccount.currencyCode,
+              !firstAccount.isArchived, !secondAccount.isArchived else { return false }
+        return pair.allSatisfy {
+            $0.category == nil && $0.destinationAccount == nil && $0.reservedFundID == nil
+                && $0.reservedAmountMinor == nil && $0.recurringMovementID == nil && $0.externalID == nil
+                && $0.duplicateState == .none
+        }
+    }
+
+    @MainActor static func pairImportedTransfer(_ first: FinancialTransaction, with second: FinancialTransaction,
+                                                in context: ModelContext) throws {
+        try requireCloud(context)
+        guard !context.hasChanges, first.modelContext === context, second.modelContext === context,
+              canPairImportedTransfer(first, with: second) else { throw PersonalBankingError.changed }
+        let keys = try PersonalBankingPlan.keys(first.bankEntryKey) + PersonalBankingPlan.keys(second.bankEntryKey)
+        guard keys.count == 2, Set(keys).count == 2 else { throw PersonalBankingError.changed }
+        let bankKey = try PersonalBankingPlan.encodedKeys(keys)
+        let source = first.type == .expense ? first.sourceAccount : second.sourceAccount
+        let destination = first.type == .income ? first.sourceAccount : second.sourceAccount
+        let transactions = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        guard !transactions.contains(where: {
+            $0.type == .transfer && $0.sourceAccount?.id == source?.id && $0.destinationAccount?.id == destination?.id
+                && $0.amountMinor == first.amountMinor && Calendar.current.isDate($0.date, inSameDayAs: first.date)
+        }) else { throw PersonalBankingError.transferAlreadyRecorded }
+        var notes = [first.notes, second.notes].filter { !$0.isEmpty }
+        if first.descriptionText != second.descriptionText {
+            notes.append("Concepto bancario del otro apunte: \(second.descriptionText)")
+        }
+        do {
+            first.type = .transfer
+            first.sourceAccount = source
+            first.destinationAccount = destination
+            first.bankEntryKey = bankKey
+            first.fingerprint = DuplicateDetectionService.fingerprint(date: first.date, sourceAccountID: source?.id,
+                destinationAccountID: destination?.id, type: .transfer, amountMinor: first.amountMinor, description: first.descriptionText)
+            first.notes = notes.joined(separator: "\n\n")
+            first.isReconciled = first.isReconciled && second.isReconciled
+            first.updatedAt = .now
+            context.delete(second)
+            try context.save()
+        } catch { context.rollback(); throw error }
+    }
+
     @MainActor static func plan(_ feeds: [BankingAccountFeed], server: URL, in context: ModelContext) throws -> PersonalBankingPlan {
         try requireCloud(context)
         let accounts = try context.fetch(FetchDescriptor<FinancialAccount>())

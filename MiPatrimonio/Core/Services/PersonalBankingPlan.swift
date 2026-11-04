@@ -63,7 +63,7 @@ struct PersonalBankingDownloadSelection {
 }
 
 enum PersonalBankingError: LocalizedError {
-    case invalidData, accountNotLinked, needsReview, changed, incompleteTransfer, wrongWorkspace
+    case invalidData, accountNotLinked, needsReview, changed, incompleteTransfer, wrongWorkspace, transferAlreadyRecorded
     var errorDescription: String? {
         switch self {
         case .invalidData: "Los datos bancarios no son compatibles o están incompletos. No se ha guardado la importación."
@@ -72,6 +72,7 @@ enum PersonalBankingError: LocalizedError {
         case .changed: "Tus datos han cambiado. Actualiza la consulta antes de confirmar."
         case .incompleteTransfer: "Falta la otra parte de una transferencia propia. Conecta y actualiza ambas cuentas antes de importar."
         case .wrongWorkspace: "Las cuentas reales solo se incorporan a tu espacio personal cloud, nunca al sandbox."
+        case .transferAlreadyRecorded: "Ya hay una transferencia con esas cuentas, importe y fecha. Comprueba ese movimiento antes de unir los apuntes."
         }
     }
 }

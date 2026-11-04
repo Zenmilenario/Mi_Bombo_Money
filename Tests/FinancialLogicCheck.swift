@@ -448,6 +448,10 @@ struct FinancialLogicCheck {
             ("/TXT/H|PAGO BIZUM DE PRUEBA", "PAGO BIZUM DE PRUEBA"),
             ("  /txt/d|COMERCIO  CON\nESPACIOS  ", "COMERCIO CON ESPACIOS"),
             ("/TXT/D|PAYPAL *SAMPLE/ORDER", "PAYPAL *SAMPLE/ORDER"),
+            ("/TXT/D|TRANS INM/ Persona Ficticia", "Transferencia inmediata · Persona Ficticia"),
+            ("/TXT/H|TRANSFERENCIA RECIBIDA: Prueba", "Transferencia · Prueba"),
+            ("PAGO CON TARJETA DE SERVICIOS VARIOS // PAGO CON TARJETA // TIENDA FICTICIA* ABC123", "TIENDA FICTICIA* ABC123"),
+            ("PAGO CON TARJETA // COMERCIO // PEDIDO", "PAGO CON TARJETA // COMERCIO // PEDIDO"),
             ("/TXT/Z|CODIGO DESCONOCIDO", "/TXT/Z|CODIGO DESCONOCIDO"),
             ("/OTRO/D|CODIGO DESCONOCIDO", "/OTRO/D|CODIGO DESCONOCIDO"),
             ("Compra /TXT/D| interna", "Compra /TXT/D| interna"),
@@ -457,6 +461,10 @@ struct FinancialLogicCheck {
             precondition(TransactionPresentation.title(raw, isBanking: false) == raw,
                 "A manually entered or CSV concept must not be rewritten by display cleaning")
         }
+        precondition(TransactionPresentation.indicatesTransfer("/TXT/D|TRANS INM/ Persona Ficticia"))
+        precondition(!TransactionPresentation.indicatesTransfer("/TXT/Z|TRANS INM/ Persona Ficticia"))
+        precondition(!TransactionPresentation.indicatesTransfer("/TXT/H|PAGO BIZUM DE PRUEBA"))
+        precondition(!TransactionPresentation.indicatesTransfer("COMPRA TRANS INM/ PRUEBA"))
         let raw = "/TXT/D|MERCADO FICTICIO"
         let transaction = FinancialTransaction(date: date(1), type: .expense, amountMinor: 1250,
             descriptionText: raw, fingerprint: "stable", bankEntryKey: "synthetic-bank-key", sourceAccount: nil)

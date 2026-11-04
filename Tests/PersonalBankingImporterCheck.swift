@@ -113,6 +113,29 @@ struct PersonalBankingImporterCheck {
         precondition(FinanceCalculator.balance(of: secondAccount, at: observed, transactions: recoveredRows, snapshots: recoveredSnapshots) == 9250)
         let repeatedRecovery = try PersonalBankingImporter.apply(complete.feeds, server: server, in: partialContext, observedAt: observed)
         precondition(repeatedRecovery.inserted == 0 && repeatedRecovery.skipped == 2)
+        let plainDebit = BankingAccountFeed(connection: aFeed.connection, account: a, balances: aFeed.balances, movements: [
+            .init(id: "text-debit", bookingDate: "2026-10-15", signedAmountMinor: -1250, currency: "EUR", description: "/TXT/D|TRANS INM/ Persona Ficticia")])
+        let plainCredit = BankingAccountFeed(connection: bFeed.connection, account: b, balances: bFeed.balances, movements: [
+            .init(id: "text-credit", bookingDate: "2026-10-15", signedAmountMinor: 1250, currency: "EUR", description: "Movimiento bancario")])
+        let plainFeeds = [plainDebit, plainCredit]
+        let initialPlain = try PersonalBankingImporter.apply(plainFeeds, server: server, in: partialContext, observedAt: observed)
+        precondition(initialPlain.inserted == 2)
+        let plainRows = try partialContext.fetch(FetchDescriptor<FinancialTransaction>()).filter { $0.amountMinor == 1250 }
+        let debit = plainRows.first { $0.type == .expense }!, credit = plainRows.first { $0.type == .income }!
+        let bankKeys = Set([debit.bankEntryKey!, credit.bankEntryKey!])
+        let retainedID = credit.id
+        precondition(PersonalBankingImporter.canPairImportedTransfer(credit, with: debit))
+        try PersonalBankingImporter.pairImportedTransfer(credit, with: debit, in: partialContext)
+        let pairedRows = try partialContext.fetch(FetchDescriptor<FinancialTransaction>())
+        let combined = pairedRows.first { $0.id == retainedID }!
+        let combinedKeys = Set(try PersonalBankingPlan.keys(combined.bankEntryKey))
+        precondition(pairedRows.count == recoveredRows.count + 1 && combined.type == .transfer && combinedKeys == bankKeys)
+        precondition(combined.sourceAccount?.id == firstAccount.id && combined.destinationAccount?.id == secondAccount.id)
+        precondition(combined.notes.contains("TRANS INM/") && combined.descriptionText == "Movimiento bancario")
+        let pairedSummary = FinanceCalculator.monthlySummary(for: observed, transactions: pairedRows)
+        precondition(pairedSummary.expenseMinor == recoveredSummary.expenseMinor && pairedSummary.incomeMinor == recoveredSummary.incomeMinor)
+        let repeatPlain = try PersonalBankingImporter.apply(plainFeeds, server: server, in: partialContext, observedAt: observed)
+        precondition(repeatPlain.inserted == 0 && repeatPlain.skipped == 2)
         // Live financial imports can never write to the separate sandbox workspace.
         let isolated = try ModelContainer(for: schema, configurations: ModelConfiguration("BankingTests", schema: schema, isStoredInMemoryOnly: true))
         do { _ = try PersonalBankingImporter.apply([feed], server: server, in: isolated.mainContext, observedAt: observed); preconditionFailure("Sandbox accepted real-account import") }

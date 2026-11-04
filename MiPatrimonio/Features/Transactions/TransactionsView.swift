@@ -940,7 +940,9 @@ private struct TransactionReviewActions: View {
     @State private var learnedCategoryID: UUID?
     @State private var rulePhrase = ""
     @State private var errorMessage: String?
+    @State private var transferPartner: FinancialTransaction?
     let transaction: FinancialTransaction
+    let reviewAsTransfer: () -> Void
 
     private var issues: [TransactionReviewIssue] { TransactionReviewService.issues(for: transaction) }
     private var needsCategory: Bool { issues.contains(.missingCategory) || issues.contains(.incompatibleCategory) }
@@ -969,7 +971,7 @@ private struct TransactionReviewActions: View {
         .onAppear { if rulePhrase.isEmpty { rulePhrase = transaction.displayDescription } }
         .task(id: transaction.updatedAt) {
             learnedCategoryID = nil
-            guard needsCategory, suggestedRule == nil else { return }
+            guard needsCategory, suggestedRule == nil, !transaction.hasBankTransferConcept else { return }
             let prediction = await TransactionLearning.suggest(transaction.displayDescription,
                 type: transaction.type, categories: allowedCategories, in: modelContext)
             if !Task.isCancelled { learnedCategoryID = prediction }
@@ -979,10 +981,23 @@ private struct TransactionReviewActions: View {
         )) {
             Button("Aceptar", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
+        .confirmationDialog("¿Unir los dos apuntes como transferencia propia?", isPresented: Binding(
+            get: { transferPartner != nil }, set: { if !$0 { transferPartner = nil } }
+        ), titleVisibility: .visible, presenting: transferPartner) { partner in
+            Button("Unir como transferencia") {
+                do { try PersonalBankingImporter.pairImportedTransfer(transaction, with: partner, in: modelContext) }
+                catch { errorMessage = error.localizedDescription }
+            }
+        } message: { partner in
+            let source = transaction.type == .expense ? transaction.sourceAccount : partner.sourceAccount
+            let destination = transaction.type == .income ? transaction.sourceAccount : partner.sourceAccount
+            Text("\(source?.bankAndAccountDisplayName ?? "") → \(destination?.bankAndAccountDisplayName ?? ""). Se conservarán las dos referencias bancarias.")
+        }
     }
 
     private var categoryActions: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if transaction.hasBankTransferConcept { transferActions }
             if let rule = suggestedRule, let category = rule.category {
                 Button { assign(category, usingExistingRule: true) } label: {
                     Label("Usar \(category.name)", systemImage: category.systemImage)
@@ -991,7 +1006,7 @@ private struct TransactionReviewActions: View {
                 .controlSize(.large)
                 Text("Sugerida por tu regla «\(rule.phrase)».")
                     .font(.caption).foregroundStyle(.secondary)
-            } else if let category = allowedCategories.first(where: { $0.id == learnedCategoryID }) {
+            } else if !transaction.hasBankTransferConcept, let category = allowedCategories.first(where: { $0.id == learnedCategoryID }) {
                 Button { assign(category, usingExistingRule: true) } label: {
                     Label("Confirmar propuesta de IA: \(category.name)", systemImage: "sparkles")
                 }
@@ -1018,6 +1033,31 @@ private struct TransactionReviewActions: View {
                 }
                 Text("Puedes acortar la frase al nombre del comercio. La regla se aplicará a próximos movimientos del mismo tipo que contengan esa frase.")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var transferActions: some View {
+        let partners = transactions.filter { PersonalBankingImporter.canPairImportedTransfer(transaction, with: $0) }
+        return VStack(alignment: .leading, spacing: 8) {
+            Label("Posible transferencia", systemImage: "arrow.left.arrow.right")
+                .font(.subheadline.weight(.semibold))
+            if partners.isEmpty {
+                Text("Si la otra cuenta también es tuya, comprueba si el otro apunte ya está registrado antes de convertir el movimiento.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button("Revisar como transferencia propia", action: reviewAsTransfer)
+            } else {
+                Text("Hay apuntes de signo contrario del mismo importe y día. Une los dos solo si reconoces el traspaso entre tus cuentas.")
+                    .font(.caption).foregroundStyle(.secondary)
+                ForEach(partners) { partner in
+                    Button { transferPartner = partner } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(partner.sourceAccount?.bankAndAccountDisplayName ?? "Cuenta")
+                            Text(partner.displayDescription).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                }
             }
         }
     }
@@ -1095,6 +1135,7 @@ private struct TransactionDetailView: View {
     let transaction: FinancialTransaction
 
     @State private var showingEdit = false
+    @State private var reviewingTransfer = false
 
     var body: some View {
         NavigationStack {
@@ -1120,7 +1161,9 @@ private struct TransactionDetailView: View {
                     }
 
                     if !TransactionReviewService.issues(for: transaction).isEmpty {
-                        TransactionReviewActions(transaction: transaction)
+                        TransactionReviewActions(transaction: transaction) {
+                            reviewingTransfer = true
+                        }
                     }
                 }
                 .padding(.horizontal, 16)
@@ -1129,6 +1172,9 @@ private struct TransactionDetailView: View {
             .background(AppDesign.pageBackground)
             .navigationTitle("Detalle del movimiento")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $reviewingTransfer) {
+                TransactionFormView(transaction: transaction, asBankTransfer: true)
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cerrar") {
@@ -1624,6 +1670,7 @@ struct TransactionFormView: View {
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var existingTransactions: [FinancialTransaction]
 
     private let transaction: FinancialTransaction?
+    private let asBankTransfer: Bool
 
     @State private var date: Date
     @State private var type: TransactionType
@@ -1647,13 +1694,15 @@ struct TransactionFormView: View {
 
     init(transaction: FinancialTransaction? = nil, preferredReservedFund: ReservedFund? = nil,
          preferredType: TransactionType = .expense, preferredSource: FinancialAccount? = nil,
-         preferredDestination: FinancialAccount? = nil, preferredDescription: String = "") {
+         preferredDestination: FinancialAccount? = nil, preferredDescription: String = "", asBankTransfer: Bool = false) {
         self.transaction = transaction
+        self.asBankTransfer = asBankTransfer
+        let bankIncoming = asBankTransfer && transaction?.type == .income
         _date = State(initialValue: transaction?.date ?? .now)
-        _type = State(initialValue: transaction?.type ?? preferredType)
-        _sourceAccountID = State(initialValue: transaction?.sourceAccount?.id ?? preferredReservedFund?.account?.id ?? preferredSource?.id)
-        _destinationAccountID = State(initialValue: transaction?.destinationAccount?.id ?? preferredDestination?.id)
-        _categoryID = State(initialValue: transaction?.category?.id)
+        _type = State(initialValue: asBankTransfer ? .transfer : transaction?.type ?? preferredType)
+        _sourceAccountID = State(initialValue: bankIncoming ? nil : transaction?.sourceAccount?.id ?? preferredReservedFund?.account?.id ?? preferredSource?.id)
+        _destinationAccountID = State(initialValue: bankIncoming ? transaction?.sourceAccount?.id : transaction?.destinationAccount?.id ?? preferredDestination?.id)
+        _categoryID = State(initialValue: asBankTransfer ? nil : transaction?.category?.id)
         _descriptionText = State(initialValue: transaction?.descriptionText ?? preferredReservedFund?.name ?? preferredDescription)
         _amountText = State(initialValue: transaction.map {
             String(format: "%.2f", Double($0.amountMinor) / 100)
@@ -1715,12 +1764,14 @@ struct TransactionFormView: View {
             Form {
                 Section("Movimiento") {
                     DatePicker("Fecha", selection: $date, displayedComponents: [.date])
+                        .disabled(asBankTransfer)
                         .onChange(of: date) { _, _ in updateSuggestedReservedAmount() }
                     Picker("Tipo", selection: $type) {
                         ForEach(TransactionType.allCases) { type in
                             Label(type.title, systemImage: type.systemImage).tag(type)
                         }
                     }
+                    .disabled(asBankTransfer)
                     .onChange(of: type) { _, newType in
                         if !newType.countsAsExpense && newType != .transfer { reservedFundID = nil; reservedAmountText = "" }
                         categoryChosenManually = false
@@ -1734,26 +1785,29 @@ struct TransactionFormView: View {
 
                     TextField("Importe", text: $amountText)
                         .keyboardType(.decimalPad)
+                        .disabled(asBankTransfer)
                         .onChange(of: amountText) { _, _ in
                             updateSuggestedReservedAmount()
                         }
                     TextField("Descripción", text: $descriptionText)
+                        .disabled(asBankTransfer)
                         .focused($descriptionIsFocused)
                         .onChange(of: descriptionText) { _, _ in
                             if !categoryChosenManually { applySuggestedCategory() }
                         }
 
-                    Picker("Cuenta", selection: $sourceAccountID) {
+                    Picker(type == .transfer ? "Cuenta de origen" : "Cuenta", selection: $sourceAccountID) {
                         Text("Seleccionar").tag(nil as UUID?)
                         ForEach(activeAccounts) { account in
                             Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
                         }
                     }
-
+                    .disabled(asBankTransfer && transaction?.type == .expense)
                     .onChange(of: sourceAccountID) { _, newID in
                         if let fundID = reservedFundID, !eligibleReservedFunds.contains(where: { $0.id == fundID }) {
                             reservedFundID = nil; reservedAmountText = ""
                         }
+                        .disabled(asBankTransfer && transaction?.type == .income)
                         updateSuggestedReservedAmount()
                     }
 
@@ -1982,8 +2036,8 @@ struct TransactionFormView: View {
     }
 
     private func save() {
-        let cleanDescription = descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !cleanDescription.isEmpty else {
+        let cleanDescription = asBankTransfer ? descriptionText : descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanDescription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             validationMessage = "Añade una descripción para reconocer el movimiento, por ejemplo «Compra del supermercado»."
             return
         }
@@ -1999,6 +2053,27 @@ struct TransactionFormView: View {
         if type == .transfer {
             guard let destinationAccount, destinationAccount.id != sourceAccount.id else {
                 validationMessage = "Selecciona una cuenta de destino diferente."
+                return
+            }
+        }
+        if asBankTransfer, let transaction {
+            let bankSide = transaction.type == .income ? destinationAccount : sourceAccount
+            guard transaction.hasBankTransferConcept, type == .transfer, bankSide?.id == transaction.sourceAccount?.id,
+                  date == transaction.date, amountMinor == transaction.amountMinor, sourceAccount.currencyCode == destinationAccount?.currencyCode else {
+                validationMessage = "Conserva el importe, la fecha y el lado del banco. Elige otra cuenta en la misma moneda para completar la transferencia."
+                return
+            }
+            let otherAccount = transaction.type == .income ? sourceAccount : destinationAccount
+            let oppositeType: TransactionType = transaction.type == .income ? .expense : .income
+            if existingTransactions.contains(where: { other in
+                guard other.id != transaction.id, other.amountMinor == amountMinor,
+                      Calendar.current.isDate(other.date, inSameDayAs: date) else { return false }
+                if other.type == .transfer {
+                    return other.sourceAccount?.id == sourceAccount.id && other.destinationAccount?.id == destinationAccount?.id
+                }
+                return other.type == oppositeType && other.sourceAccount?.id == otherAccount?.id
+            }) {
+                validationMessage = "Ya hay un apunte del mismo importe y día en la otra cuenta, o una transferencia registrada. Compruébalo antes de convertir este movimiento."
                 return
             }
         }

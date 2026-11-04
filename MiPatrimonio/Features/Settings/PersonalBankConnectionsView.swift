@@ -19,6 +19,8 @@ struct PersonalBankConnectionsView: View {
     @State private var showSuggestions = true
     @State private var showPrepared = true
     @State private var bankToRefreshAfterLink: String?
+    @State private var tradeRepublicWarning: ConnectedBank?
+    @State private var bankToAuthorizeAfterWarning: ConnectedBank?
     @State private var browser = BankingBrowserAuthorization()
     @State private var operation: Task<Void, Never>?
 
@@ -173,6 +175,37 @@ struct PersonalBankConnectionsView: View {
                 .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { selection = nil } } }
             }
         }
+        .sheet(item: $tradeRepublicWarning, onDismiss: {
+            if let bank = bankToAuthorizeAfterWarning {
+                bankToAuthorizeAfterWarning = nil
+                authorize(bank)
+            }
+        }) { bank in
+            ScrollView {
+                SectionCard("Conecta Trade Republic con un QR") {
+                    Text("Abre la conexión en el iPad y ten a mano el móvil en el que usas Trade Republic.")
+                    Label("En la página de Trade Republic, abre el menú superior y elige «Solicitar sitio web de escritorio».",
+                          systemImage: "1.circle.fill")
+                    Label("Deja abierta esa página y escanea el QR con la cámara del móvil. Confirma en la app de Trade Republic que quieres compartir tu cuenta con Enable Banking.",
+                          systemImage: "2.circle.fill")
+                    Label("Vuelve a Mis bancos y asocia la cuenta de efectivo con la que ya usas en Mi Bombo Money.",
+                          systemImage: "3.circle.fill")
+                    Text("La cámara que necesitas es la del móvil que escanea el QR. Si la verificación se bloquea también allí, contacta con atención al cliente desde Ayuda en Trade Republic.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Button("Continuar con Trade Republic") {
+                        bankToAuthorizeAfterWarning = bank
+                        tradeRepublicWarning = nil
+                    }
+                    .buttonStyle(.borderedProminent)
+                    Button("Volver a Mis bancos") { tradeRepublicWarning = nil }
+                        .buttonStyle(.bordered)
+                }
+                .padding()
+            }
+            .background(AppDesign.pageBackground)
+            .presentationDetents([.medium, .large])
+        }
         .confirmationDialog("¿Desconectar este banco? Se revocará el permiso; tus movimientos guardados se conservan.", isPresented: Binding(
             get: { disconnecting != nil }, set: { if !$0 { disconnecting = nil } }
         ), titleVisibility: .visible) {
@@ -190,11 +223,10 @@ struct PersonalBankConnectionsView: View {
     }
     private func bankRow(_ bank: ConnectedBank) -> some View {
         Button {
-            run(protected: true) {
-                let client = try await banking.client(account: account)
-                let authorization = try await client.start(bank: bank)
-                try await browser.authorize(authorization)
-                try await banking.connectionCompleted(bank: bank.name, account: account, context: context)
+            if bank.name.caseInsensitiveCompare("Trade Republic") == .orderedSame {
+                tradeRepublicWarning = bank
+            } else {
+                authorize(bank)
             }
         } label: {
             HStack {
@@ -202,6 +234,14 @@ struct PersonalBankConnectionsView: View {
                 Spacer()
                 if bank.beta { Text("Beta").font(.caption) }
             }
+        }
+    }
+    private func authorize(_ bank: ConnectedBank) {
+        run(protected: true) {
+            let client = try await banking.client(account: account)
+            let authorization = try await client.start(bank: bank)
+            try await browser.authorize(authorization)
+            try await banking.connectionCompleted(bank: bank.name, account: account, context: context)
         }
     }
     @ViewBuilder private func reviewSection(_ plan: PersonalBankingPlan) -> some View {
