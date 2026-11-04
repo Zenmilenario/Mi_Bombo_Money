@@ -150,6 +150,7 @@ final class PersonalBankingCoordinator: ObservableObject {
         message = "Consultando cada banco por separado…"
         defer { busy = false }
         nextDiscoveryAttempt = .now.addingTimeInterval(15 * 60)
+        var downloaded: [BankingAccountFeed] = []
         do {
             let client = try await client(account: account)
             _ = try await client.status()
@@ -187,7 +188,6 @@ final class PersonalBankingCoordinator: ObservableObject {
                 self.saveSchedules(user: user)
                 return try await client.feeds(group, asOf: date, userInitiated: force)
             }
-            var downloaded: [BankingAccountFeed] = []
             for outcome in outcomes {
                 switch outcome {
                 case .downloaded(let bank, let feeds):
@@ -218,7 +218,7 @@ final class PersonalBankingCoordinator: ObservableObject {
             let firstImport = plan.balances.contains { balance in
                 !snapshots.contains { $0.account?.id == balance.account && $0.source == .bankAPI && $0.notes == "Saldo contable de Enable Banking" }
             }
-            var needsReview = firstImport
+            var needsReview = firstImport || plan.requiresReferenceReview
             do { _ = try plan.resolutions([:]) }
             catch PersonalBankingError.needsReview { needsReview = true }
             let names = Set(feeds.map(\.connection.bank)).sorted().joined(separator: ", ")
@@ -239,6 +239,9 @@ final class PersonalBankingCoordinator: ObservableObject {
         } catch is CancellationError { message = "Consulta cancelada. Tus datos guardados se conservan." }
         catch let error as URLError where error.code == .cancelled { message = "Consulta cancelada. Tus datos guardados se conservan." }
         catch {
+            for bank in Set(downloaded.map(\.connection.bank)) {
+                bankStatus[bank]?.summary = "Descarga recibida, pero no se ha podido incorporar."
+            }
             message = "No se ha incorporado esta descarga. Tus datos guardados se conservan."
             errorMessage = error.localizedDescription
         }

@@ -126,6 +126,20 @@ test('provider cooldown honours numeric and date Retry-After, with a six-hour fa
   }
 });
 
+test('invalid bank feed reports one fixed diagnostic without exposing transaction data', async t => {
+  const logs = [];
+  t.mock.method(console, 'warn', value => logs.push(JSON.parse(value)));
+  const remote = { id: 'private-account', uid: 'private-uid', currency: 'EUR' };
+  const invalid = { status: 'BOOK', booking_date: 'private-date', credit_debit_indicator: 'CRDT',
+    transaction_amount: { amount: '12.30', currency: 'EUR' }, remittance_information: ['private-description'] };
+  await assert.rejects(accountData({}, remote, '2026-09-01', '2026-11-03', null, env, async url => {
+    if (url.endsWith('/application')) return Response.json(application);
+    assert.ok(url.includes('/transactions?'));
+    return Response.json({ transactions: [invalid, invalid] });
+  }), { code: 'invalid_provider_data' });
+  assert.deepEqual(logs, [{ event: 'banking_feed_validation', operation: 'transactions', field: 'booking_date' }]);
+});
+
 test('balance failures, throttling and malformed error bodies stay bounded and retain only fixed diagnostics', async t => {
   const logs = [];
   t.mock.method(console, 'warn', value => logs.push(JSON.parse(value)));
