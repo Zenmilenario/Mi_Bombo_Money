@@ -998,11 +998,9 @@ private struct TransactionReviewActions: View {
                 .buttonStyle(.bordered)
                 .controlSize(.large)
             }
-            Menu {
-                ForEach(allowedCategories) { category in
-                    Button { assign(category) } label: {
-                        Label(category.name, systemImage: category.systemImage)
-                    }
+            NavigationLink {
+                TransactionCategoryPicker(categories: allowedCategories, selection: nil) { category in
+                    assign(category)
                 }
             } label: {
                 Label("Elegir categoría", systemImage: "tag")
@@ -1294,6 +1292,80 @@ private struct TransactionDetailView: View {
     }
 }
 
+struct TransactionCategoryPickerLink: View {
+    let categories: [FinanceCategory]
+    @Binding var selection: UUID?
+    var onSelect: () -> Void = {}
+
+    var body: some View {
+        NavigationLink {
+            TransactionCategoryPicker(categories: categories, selection: selection) { category in
+                selection = category.id
+                onSelect()
+            }
+        } label: {
+            LabeledContent("Categoría") {
+                if let category = categories.first(where: { $0.id == selection }) {
+                    Label(category.name, systemImage: category.systemImage)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Elegir").foregroundStyle(.secondary)
+                }
+            }
+        }
+        .disabled(categories.isEmpty)
+    }
+}
+
+private struct TransactionCategoryPicker: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    let categories: [FinanceCategory]
+    let selection: UUID?
+    let onSelect: (FinanceCategory) -> Void
+
+    private var matches: [FinanceCategory] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return categories.filter { query.isEmpty || $0.name.localizedStandardContains(query) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    var body: some View {
+        List {
+            TextField("Buscar categoría", text: $searchText)
+                .autocorrectionDisabled()
+            let results = matches
+            if results.isEmpty {
+                Label("No hay categorías con ese nombre.", systemImage: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(results) { category in
+                Button {
+                    dismiss()
+                    onSelect(category)
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: category.systemImage)
+                            .foregroundStyle(Color(hex: category.colorHex))
+                            .frame(width: 28)
+                        Text(category.name).foregroundStyle(.primary)
+                        Spacer()
+                        if selection == category.id {
+                            Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
+                        }
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selection == category.id ? [.isSelected] : [])
+            }
+        }
+        .navigationTitle("Elegir categoría")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 private struct TransactionFiltersView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -1569,7 +1641,6 @@ struct TransactionFormView: View {
     @State private var rememberCategoryRule = false
     @State private var rulePhrase = ""
     @State private var categoryChosenManually = false
-    @State private var automaticCategoryID: UUID?
     @State private var learnedCategoryID: UUID?
     @State private var validationMessage: String?
     @FocusState private var descriptionIsFocused: Bool
@@ -1695,17 +1766,10 @@ struct TransactionFormView: View {
                         }
                     }
 
-                    Picker("Categoría", selection: $categoryID) {
-                        ForEach(allowedCategories) { category in
-                            Label(category.name, systemImage: category.systemImage)
-                                .tag(Optional(category.id))
-                        }
-                    }
-                    .onChange(of: categoryID) { _, newID in
-                        if newID != automaticCategoryID { categoryChosenManually = true }
-                    }
-
                     categorySuggestion
+                    TransactionCategoryPickerLink(categories: allowedCategories, selection: $categoryID) {
+                        categoryChosenManually = true
+                    }
                 }
 
                 reservedFundingSection
@@ -1760,7 +1824,7 @@ struct TransactionFormView: View {
                         ?? activeAccounts.first?.id
                 }
                 if transaction == nil || !allowedCategories.contains(where: { $0.id == categoryID }) {
-                    applySuggestedCategory()
+                    if !categoryChosenManually { applySuggestedCategory() }
                 } else {
                     categoryChosenManually = true
                 }
@@ -1914,7 +1978,6 @@ struct TransactionFormView: View {
 
     private func applySuggestedCategory() {
         let proposedID = matchedCategoryRule?.category?.id ?? preferredCategory(for: type)?.id
-        automaticCategoryID = proposedID
         categoryID = proposedID
     }
 

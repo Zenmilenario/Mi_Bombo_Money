@@ -6,6 +6,12 @@ Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e 
 
 El proyecto de Supabase `mi-bombo-money-dev` ya dispone de un esquema PostgreSQL con permisos por usuario y pruebas de aislamiento. El código incorpora acceso cloud y sincronización con copia local separada por usuario; queda pendiente su validación completa en iOS y entre dispositivos. Se activa desde Ajustes → Activar mi nube. Instalación, estado verificado y pruebas reproducibles: [CloudBackend/README.md](CloudBackend/README.md).
 
+## Categorías de efectivo y búsqueda de bancos · 0.6.12
+
+Los perfiles nuevos incluyen **Retirada de efectivo** e **Ingreso de efectivo**. En un perfil existente se añaden desde **Ajustes → Categorías → Añadir categorías de efectivo**. La IA puede sugerir ambas. El selector de movimientos muestra categorías compatibles con búsqueda por nombre y Ajustes las agrupa por tipo.
+
+En **Ajustes → Mis bancos**, la búsqueda muestra solo los bancos que coinciden con el nombre escrito. El catálogo completo queda plegado bajo **Ver bancos disponibles**. La compilación nativa y la prueba de navegación en iOS quedan pendientes.
+
 ## Aprendizaje de categorías · 0.6.11
 
 La app propone categorías en **Por revisar**, en el alta de movimientos y en la revisión del CSV. El modelo combina ejemplos ficticios con el historial del perfil y aprende de las confirmaciones dentro del dispositivo. La primera entrega funciona en modo propuestas. Está preparada localmente y pendiente de checks iOS y prueba en el iPad. [Diseño y evaluación del aprendizaje](CloudBackend/APRENDIZAJE_CATEGORIAS.md).

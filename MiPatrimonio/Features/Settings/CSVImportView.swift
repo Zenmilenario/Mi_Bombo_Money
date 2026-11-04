@@ -674,25 +674,7 @@ private struct CSVCategoryCorrectionView: View {
                         Text("No hay categorías compatibles. Puedes crearlas en Ajustes → Categorías.")
                             .foregroundStyle(.secondary)
                     } else {
-                        ForEach(compatibleCategories) { category in
-                            Button {
-                                categoryID = category.id
-                            } label: {
-                                HStack {
-                                    Image(systemName: category.systemImage)
-                                        .foregroundStyle(Color(hex: category.colorHex))
-                                        .frame(width: 28)
-                                    Text(category.name).foregroundStyle(.primary)
-                                    Spacer()
-                                    if categoryID == category.id {
-                                        Image(systemName: "checkmark").foregroundStyle(Color.accentColor)
-                                    }
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityAddTraits(categoryID == category.id ? [.isSelected] : [])
-                        }
+                        TransactionCategoryPickerLink(categories: compatibleCategories, selection: $categoryID)
                     }
                 }
             }

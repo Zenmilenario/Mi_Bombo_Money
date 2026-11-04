@@ -125,6 +125,8 @@ struct TransactionCategoryModel: Sendable {
         ("Reembolsos", ["Devolución compra comercio", "Reembolso pedido devuelto", "Abono devolución tarjeta", "Devolución importe compra"]),
         ("Intereses", ["Abono intereses cuenta", "Liquidación intereses ahorro", "Interés remuneración saldo", "Intereses depósito"]),
         ("Dividendos", ["Abono dividendo acciones", "Dividendo cartera valores", "Pago dividendos participaciones", "Distribución dividendos"]),
-        ("Ventas", ["Ingreso venta segunda mano", "Cobro venta artículo", "Abono venta marketplace", "Liquidación ventas"])
+        ("Ventas", ["Ingreso venta segunda mano", "Cobro venta artículo", "Abono venta marketplace", "Liquidación ventas"]),
+        ("Retirada de efectivo", ["Retirada efectivo cajero", "Reintegro en cajero automático", "Disposición efectivo ATM", "Extracción de dinero en cajero", "Retirada de metálico oficina"]),
+        ("Ingreso de efectivo", ["Ingreso de efectivo en cajero", "Depósito de billetes en oficina", "Abono efectivo cajero automático", "Ingreso de metálico en ventanilla", "Depósito efectivo autoservicio"])
     ]
 }
