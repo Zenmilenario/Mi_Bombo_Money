@@ -218,7 +218,7 @@ final class PersonalBankingCoordinator: ObservableObject {
             let firstImport = plan.balances.contains { balance in
                 !snapshots.contains { $0.account?.id == balance.account && $0.source == .bankAPI && $0.notes == "Saldo contable de Enable Banking" }
             }
-            var needsReview = firstImport || plan.requiresReferenceReview
+            var needsReview = firstImport || plan.requiresReferenceReview || plan.requiresBalanceReview
             do { _ = try plan.resolutions([:]) }
             catch PersonalBankingError.needsReview { needsReview = true }
             let names = Set(feeds.map(\.connection.bank)).sorted().joined(separator: ", ")
@@ -247,13 +247,15 @@ final class PersonalBankingCoordinator: ObservableObject {
         }
         return false
     }
-    func confirm(choices: [String: PersonalBankingPlan.Choice], account: CloudAccountManager, context: ModelContext) throws {
+    func confirm(choices: [String: PersonalBankingPlan.Choice], manualBalances: [UUID: PersonalBankingImporter.ManualBalance] = [:],
+                 reviewedBalances: [PersonalBankingImporter.BalanceReview] = [], account: CloudAccountManager, context: ModelContext) throws {
         guard !busy, let user = account.session?.user.id, user == owner, let observedAt,
               Date.now.timeIntervalSince(observedAt) < 15 * 60, pendingPlan != nil,
               let server = URL(string: savedServer(owner: user)) else { throw PersonalBankingError.changed }
         let current = Dictionary(uniqueKeysWithValues: try PersonalBankingImporter.ledger(in: context).map { ($0.id, $0) })
         guard current == pendingLedger else { throw PersonalBankingError.changed }
-        let result = try PersonalBankingImporter.apply(pendingFeeds, server: server, choices: choices, in: context, observedAt: observedAt)
+        let result = try PersonalBankingImporter.apply(pendingFeeds, server: server, choices: choices,
+            manualBalances: manualBalances, reviewedBalances: reviewedBalances, in: context, observedAt: observedAt)
         imported(pendingFeeds, deferred: pendingDeferred)
         pendingPlan = nil; pendingFeeds = []; pendingDeferred = [:]
         message = "\(result.inserted) movimientos nuevos · \(result.matched) coincidencias conservadas."

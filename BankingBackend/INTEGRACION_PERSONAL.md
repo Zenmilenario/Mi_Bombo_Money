@@ -18,6 +18,16 @@ En 0.6.14, para un apunte de Trade Republic sin referencia ni datos de emparejam
 
 La prueba del plan de importación pasó en Swift sobre Linux con apuntes ficticios, incluidos débitos iguales, abonos del mismo importe, una descarga reordenada y el rechazo de un saldo no contable. Queda pendiente validar la compilación iOS y repetir «Actualizar solo Trade Republic» en el iPad. Si aparece «Revisar descarga bancaria», comprobar fecha, importe y posibles coincidencias, confirmar el lote y verificar en Movimientos que otra consulta no vuelve a añadirlo.
 
+**Prueba posterior en el iPad, 14:35.** La descarga llegó y la app la rechazó al validar el saldo, antes de revisar las referencias de los movimientos. El código exige un único saldo contable válido en EUR. Prefiere el saldo contable intradía (`ITBD`) y recurre al de cierre (`CLBD`) cuando falta el primero. El aviso cubre tanto la ausencia como la ambigüedad o un importe fuera de rango. La captura no identifica cuál de estos casos se produjo. [Tipos de saldo en Enable Banking](https://enablebanking.com/docs/api/reference/#balancestatus).
+
+### Adaptador de Trade Republic en iOS 0.6.15
+
+El adaptador interpreta la respuesta de Trade Republic antes de construir el plan de importación. Conserva las claves locales de los apuntes sin referencia que ya generaba la 0.6.14. Acepta un saldo contable válido y agrupa sus repeticiones cuando el importe es idéntico. Si recibe únicamente saldo disponible, saldos contables contradictorios o ningún saldo utilizable, prepara los movimientos para revisión sin registrar un saldo bancario nuevo. En «Tipos de saldo recibidos» se muestran códigos conocidos, EUR u otra moneda y sus recuentos. [Tipos de saldo en Enable Banking](https://enablebanking.com/docs/api/reference/#balancestatus).
+
+La revisión muestra el saldo calculado antes y después de las decisiones de conciliación. Usa la última valoración guardada o el saldo inicial. Si todavía no hay valoración, se puede introducir un saldo de cierre manual con fecha. Los apuntes que preceden a esa referencia se guardan en el historial y solo los posteriores modifican el saldo a partir de ella. La app comprueba de nuevo la vista previa al confirmar y guarda los movimientos y el saldo manual en la misma operación.
+
+Queda pendiente compilar en iOS y probar «Actualizar solo Trade Republic» con la conexión real. Comprobar los tipos de saldo que llegan en esa descarga, resolver coincidencias, confirmar y repetir la consulta para comprobar que no se duplican los apuntes. El tipo recibido en la prueba de las 14:35 sigue sin confirmar.
+
 ## Consulta BBVA pendiente tras probar 0.6.8 — 3 de noviembre de 2026
 
 El usuario comunica el aviso de que el banco o proveedor no ha podido completar la consulta al actualizar BBVA. Revisión rápida, sin pedir nuevos movimientos: `/health` respondió 200 y estado saludable; `/v1/status` sin autenticación respondió 401, como corresponde. El despliegue personal activo sigue siendo `937c0048-3e11-48f9-956f-7385a1771c99`. Pasaron las dos pruebas específicas de clasificación segura de errores del proveedor y de errores de saldos.
