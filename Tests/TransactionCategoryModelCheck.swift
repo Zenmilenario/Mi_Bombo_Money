@@ -9,7 +9,7 @@ struct TransactionCategoryModelCheck {
         let examples = TransactionCategoryModel.syntheticExamples.flatMap { name, descriptions in
             descriptions.map { TransactionCategoryModel.Example(text: $0, categoryID: categories[name]!, weight: 1) }
         }
-        let incomeNames = ["Nómina", "Reembolsos", "Intereses", "Dividendos", "Ventas"]
+        let incomeNames = ["Nómina", "Reembolsos", "Intereses", "Dividendos", "Ventas", "Ingreso de efectivo"]
         let income = Set(incomeNames.map { categories[$0]! })
         let expenses = Set(categories.values).subtracting(income)
         let model = TransactionCategoryModel.train(examples.filter { expenses.contains($0.categoryID) })!
@@ -37,6 +37,8 @@ struct TransactionCategoryModelCheck {
         }
         precondition(correct >= 6, "The model should recognize several unseen descriptions")
         precondition(incomeModel.predict("Abono intereses de mi depósito", allowed: income)?.categoryID == categories["Intereses"])
+        precondition(model.predict("Reintegro efectivo cajero 0182", allowed: expenses)?.categoryID == categories["Retirada de efectivo"])
+        precondition(incomeModel.predict("Ingreso efectivo cajero sucursal 04", allowed: income)?.categoryID == categories["Ingreso de efectivo"])
         precondition(model.predict("92746172039383", allowed: expenses) == nil)
         precondition(model.predict("Farmacia Plaza medicamentos", allowed: income) == nil)
 

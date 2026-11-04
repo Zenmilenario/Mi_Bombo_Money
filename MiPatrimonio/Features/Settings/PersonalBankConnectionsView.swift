@@ -10,6 +10,7 @@ struct PersonalBankConnectionsView: View {
     @Query private var transactions: [FinancialTransaction]
     @State private var server = ""
     @State private var search = ""
+    @State private var showBankCatalogue = false
     @State private var busy = false
     @State private var error: String?
     @State private var selection: LinkingSelection?
@@ -26,8 +27,8 @@ struct PersonalBankConnectionsView: View {
         let remote: ConnectedBankAccount
         var id: String { remote.id }
     }
-    private var filteredBanks: [ConnectedBank] {
-        banking.banks.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
+    private var bankQuery: String {
+        search.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     var body: some View {
         ScrollViewReader { scroll in
@@ -111,20 +112,19 @@ struct PersonalBankConnectionsView: View {
             }
             if !banking.banks.isEmpty {
                 Section("Conectar o renovar un banco") {
-                    TextField("Buscar banco", text: $search)
-                    ForEach(filteredBanks) { bank in
-                        Button { run(protected: true) {
-                            let client = try await banking.client(account: account)
-                            let authorization = try await client.start(bank: bank)
-                            try await browser.authorize(authorization)
-                            try await banking.connectionCompleted(bank: bank.name, account: account, context: context)
-                        } } label: {
-                            HStack {
-                                Label(bank.name, systemImage: "building.columns.fill")
-                                Spacer()
-                                if bank.beta { Text("Beta").font(.caption) }
-                            }
+                    TextField("Buscar por nombre del banco", text: $search)
+                        .autocorrectionDisabled()
+                    if bankQuery.isEmpty {
+                        DisclosureGroup("Ver bancos disponibles (\(banking.banks.count))", isExpanded: $showBankCatalogue) {
+                            ForEach(banking.banks) { bank in bankRow(bank) }
                         }
+                    } else {
+                        let matches = banking.banks.filter { $0.name.localizedStandardContains(bankQuery) }
+                        if matches.isEmpty {
+                            Label("No hay bancos disponibles con ese nombre.", systemImage: "magnifyingglass")
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(matches) { bank in bankRow(bank) }
                     }
                 }
             }
@@ -187,6 +187,22 @@ struct PersonalBankConnectionsView: View {
         .alert("Conexión bancaria", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("Aceptar", role: .cancel) { error = nil }
         } message: { Text(error ?? "") }
+    }
+    private func bankRow(_ bank: ConnectedBank) -> some View {
+        Button {
+            run(protected: true) {
+                let client = try await banking.client(account: account)
+                let authorization = try await client.start(bank: bank)
+                try await browser.authorize(authorization)
+                try await banking.connectionCompleted(bank: bank.name, account: account, context: context)
+            }
+        } label: {
+            HStack {
+                Label(bank.name, systemImage: "building.columns.fill")
+                Spacer()
+                if bank.beta { Text("Beta").font(.caption) }
+            }
+        }
     }
     @ViewBuilder private func reviewSection(_ plan: PersonalBankingPlan) -> some View {
         let unresolved = plan.unresolvedItems(choices)

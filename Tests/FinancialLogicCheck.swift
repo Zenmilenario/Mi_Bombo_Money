@@ -410,12 +410,25 @@ struct FinancialLogicCheck {
 
     @MainActor
     private static func checkCategories() throws {
+        let existingProfile = try makeContainer()
+        let existingContext = existingProfile.mainContext
+        let customCash = FinanceCategory(name: "INGRESO DE EFECTIVO", kind: .income, isArchived: true)
+        existingContext.insert(customCash)
+        precondition(CategoryDefaultsService.hasMissingCashCategories(in: [customCash]))
+        try CategoryDefaultsService.restoreMissingCashCategories(in: existingContext, stableIDs: true)
+        try CategoryDefaultsService.restoreMissingCashCategories(in: existingContext, stableIDs: true)
+        let cashCategories = try existingContext.fetch(FetchDescriptor<FinanceCategory>())
+        precondition(cashCategories.count == 2 && cashCategories.contains { $0.id == customCash.id && $0.isArchived })
+        precondition(cashCategories.contains { $0.name == "Retirada de efectivo" && $0.kind == .expense })
+        precondition(!CategoryDefaultsService.hasMissingCashCategories(in: cashCategories))
+
         let container = try makeContainer()
         let context = container.mainContext
         try CategoryDefaultsService.restoreMissing(in: context)
         let first = try context.fetch(FetchDescriptor<FinanceCategory>())
         precondition(!first.isEmpty && first.allSatisfy { !$0.systemImage.isEmpty })
         precondition(first.contains { $0.kind == .expense } && first.contains { $0.kind == .income } && first.contains { $0.kind == .transfer })
+        precondition(first.contains { $0.name == "Ingreso de efectivo" && $0.kind == .income })
         try CategoryDefaultsService.restoreMissing(in: context)
         let second = try context.fetch(FetchDescriptor<FinanceCategory>())
         precondition(second.count == first.count, "Restoring common categories must not duplicate them")

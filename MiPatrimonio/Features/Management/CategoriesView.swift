@@ -3,6 +3,7 @@ import SwiftUI
 
 struct CategoriesView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.isCloudWorkspace) private var isCloudWorkspace
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
     @Query private var transactions: [FinancialTransaction]
     @Query private var budgets: [MonthlyBudget]
@@ -13,18 +14,36 @@ struct CategoriesView: View {
     @State private var showingAdd = false
     @State private var editingCategory: FinanceCategory?
     @State private var errorMessage: String?
+    @State private var searchText = ""
+
+    private var searchQuery: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var matchingCategories: [FinanceCategory] {
+        categories.filter { searchQuery.isEmpty || $0.name.localizedStandardContains(searchQuery) }
+    }
 
     private var activeCategories: [FinanceCategory] {
-        categories.filter { !$0.isArchived }
+        matchingCategories.filter { !$0.isArchived }
     }
 
     private var archivedCategories: [FinanceCategory] {
-        categories.filter(\.isArchived)
+        matchingCategories.filter(\.isArchived)
     }
 
     var body: some View {
         List {
-            if activeCategories.isEmpty {
+            if searchQuery.isEmpty, !categories.isEmpty, CategoryDefaultsService.hasMissingCashCategories(in: categories) {
+                Section {
+                    Button("Añadir categorías de efectivo", systemImage: "banknote") {
+                        restoreCashCategories()
+                    }
+                }
+            }
+            if !searchQuery.isEmpty && matchingCategories.isEmpty {
+                Text("No hay categorías con ese nombre.").foregroundStyle(.secondary)
+            } else if activeCategories.isEmpty && searchQuery.isEmpty {
                 ContentUnavailableView(
                     "Sin categorías",
                     systemImage: "tag",
@@ -34,7 +53,10 @@ struct CategoriesView: View {
                     restoreDefaultCategories()
                 }
             } else {
-                categorySection("Activas", items: activeCategories)
+                ForEach(CategoryKind.allCases) { kind in
+                    let items = activeCategories.filter { $0.kind == kind }
+                    if !items.isEmpty { categorySection(kind.title, items: items) }
+                }
             }
 
             if !archivedCategories.isEmpty {
@@ -54,6 +76,7 @@ struct CategoriesView: View {
             }
         }
         .navigationTitle("Categorías")
+        .searchable(text: $searchText, prompt: "Buscar categoría")
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Menu {
@@ -189,6 +212,14 @@ struct CategoriesView: View {
     private func restoreDefaultCategories() {
         do {
             try CategoryDefaultsService.restoreMissing(in: modelContext)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func restoreCashCategories() {
+        do {
+            try CategoryDefaultsService.restoreMissingCashCategories(in: modelContext, stableIDs: isCloudWorkspace)
         } catch {
             errorMessage = error.localizedDescription
         }

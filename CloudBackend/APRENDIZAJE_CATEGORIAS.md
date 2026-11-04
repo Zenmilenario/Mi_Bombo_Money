@@ -42,6 +42,12 @@ Para una evaluación reproducible conviene registrar la versión de la represent
 
 Una comparación pendiente es ejecutar las reglas actuales y el clasificador sobre el mismo conjunto de movimientos posteriores al entrenamiento, con las categorías de referencia verificadas antes de comparar. Medir el acierto entre las propuestas y qué porcentaje de los movimientos recibe una propuesta permite separar la mejora del modelo de la facilidad del conjunto de prueba.
 
+## Categorías de efectivo en 0.6.12
+
+El catálogo inicial incorpora **Retirada de efectivo** para gastos e **Ingreso de efectivo** para ingresos. Los perfiles existentes pueden añadir ambas desde **Ajustes → Categorías → Añadir categorías de efectivo**. El botón añade las que falten y conserva las categorías archivadas. Los movimientos de efectivo entre una cuenta bancaria y una cartera que ya se lleva en la app se registran como transferencias entre cuentas propias, para evitar contar dos veces el dinero.
+
+Se añadieron ejemplos ficticios de cajeros y ventanilla para que el modelo pueda proponer estas categorías. La selección manual tiene búsqueda en el formulario, en Por revisar y al corregir el CSV. Añadir categorías nuevas sigue siendo útil cuando ayudan a distinguir movimientos que la persona quiera analizar. La prueba del modelo incluye un reintegro y un ingreso en cajero con textos distintos de los del entrenamiento. La validación de la interfaz en iOS está pendiente.
+
 ## Evidencia disponible
 
 La prueba ejecutable en Swift usa 12 conceptos ficticios distintos del conjunto de entrenamiento. El modelo propuso 8 y acertó las 8. También se comprobó que sustituir una etiqueta cambia la predicción de un concepto parecido, que distingue ingresos de gastos y que se abstiene ante una referencia puramente numérica. La muestra es inicial. El acierto con el historial real y la cobertura por categoría quedan por medir antes de activar la asignación automática.
