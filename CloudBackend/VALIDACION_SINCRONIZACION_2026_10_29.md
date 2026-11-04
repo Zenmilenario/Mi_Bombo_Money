@@ -51,10 +51,14 @@ El check nativo de `bdede80` pasó con datos ficticios en contenedores SwiftData
 
 El usuario confirma que la comprobación de apertura de la copia cifrada en el iPad funcionó sin errores y que sus movimientos permanecieron igual. Procedimiento de la prueba desde Archivos. En **Ajustes → Exportar o restaurar copia**, activar **Proteger copia con contraseña**, exportar a Archivos y volver a abrir el fichero con **Elegir copia JSON o cifrada**. Introducir la contraseña y comparar los recuentos de cuentas y movimientos de la vista previa. Terminar la prueba saliendo de la pantalla tras comprobar los recuentos. El botón **Reemplazar datos con esta copia** inicia una restauración y queda fuera de esta comprobación.
 
-La restauración completa en un dispositivo físico requiere un entorno de prueba separado. También queda pendiente el ensayo de sincronización con un segundo dispositivo. El laboratorio bancario actual oculta la ruta de copias.
+La restauración completa en un dispositivo físico requiere un entorno de prueba separado. El laboratorio bancario actual oculta la ruta de copias.
+
+## Lectura en un segundo dispositivo
+
+El 4 de noviembre de 2026, el usuario confirmó que pudo ver en el iPhone los datos de Mi nube que ya consultaba en el iPad al iniciar sesión con la misma cuenta. La comprobación cubre el acceso y la lectura de datos en dos dispositivos físicos. Queda por comprobar la edición desde ambos dispositivos. En una prueba aparte, el usuario confirmó el alta de Trade Republic iniciada en el iPad y aprobada en el móvil mediante QR. [Recorrido de conexión](../BankingBackend/EVALUACION_ENABLE_BANKING.md#conectar-trade-republic-desde-el-ipad-con-un-qr).
 
 ## Pendiente
 
-- Mismo usuario en dos dispositivos físicos, cambios independientes y resolución de un conflicto sobre el mismo registro.
+- Cambios independientes desde el iPhone y el iPad y resolución de un conflicto sobre el mismo registro.
 - Comprobar físicamente la pausa mientras hay un formulario abierto y su reanudación, así como combinaciones adicionales de navegación y ventanas.
 - La bandeja «Por revisar» es posterior a esta validación de sincronización. El usuario probó la 0.6.10. La propagación de cambios de clasificación entre dos dispositivos queda por comprobar. Véase ver [REVISION_MOVIMIENTOS.md](../REVISION_MOVIMIENTOS.md).

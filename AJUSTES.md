@@ -33,6 +33,8 @@ La búsqueda compara palabras sin distinguir mayúsculas ni acentos y permite es
 
 Desde 0.6.12, **Mis bancos → Conectar o renovar un banco** muestra el buscador y mantiene plegado el catálogo completo. Al escribir parte del nombre aparecen las coincidencias del catálogo disponible para esa conexión. Si no hay coincidencias, se muestra un aviso. Puedes abrir y cerrar **Ver bancos disponibles** con la búsqueda vacía. Pendiente de verificar en iOS con un catálogo cargado.
 
+En 0.6.13, al elegir **Trade Republic**, se muestra una tarjeta con los pasos para solicitar la versión de escritorio de la página del banco en el iPad, escanear el QR con el móvil y confirmar en la app de Trade Republic. Puedes volver a Mis bancos o continuar con la autorización. El usuario confirmó que el flujo con QR funciona en el iPad. Queda pendiente comprobar la presentación de la tarjeta actualizada en iOS. [Recorrido de conexión](BankingBackend/EVALUACION_ENABLE_BANKING.md#conectar-trade-republic-desde-el-ipad-con-un-qr).
+
 En el espacio de pruebas no se muestran los accesos a cuenta cloud, conexión personal, copias/importación personal ni otro laboratorio anidado. El acceso bancario rechaza el espacio de prueba incluso si hereda la marca cloud del contenedor. En local no se abre el cliente personal sin activar la nube.
 
 Eliminar datos permanece en Avanzado, con una confirmación explícita y explicación del alcance. En nube indica que la eliminación se sincroniza con los otros dispositivos; en pruebas señala que afecta al espacio de prueba. No se han ejecutado eliminaciones, importaciones, cambios de contraseña, revocaciones ni migraciones para verificar esta entrega.

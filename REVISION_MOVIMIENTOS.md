@@ -2,6 +2,18 @@
 
 Actualizado: 4 de noviembre de 2026.
 
+## Transferencias bancarias · 0.6.13
+
+Las cuatro compilaciones de iOS del commit `d1e2666` fallaron en el selector de cuenta del formulario de movimientos. El modificador que bloquea la cuenta de destino estaba dentro de la acción que actualiza la reserva al cambiar la cuenta de origen. La corrección separa los selectores y aplica cada bloqueo a su campo. Para una transferencia iniciada desde un apunte bancario, se mantiene fija la cuenta que registró el cargo o el abono. Queda pendiente la compilación de Xcode con el cambio publicado. [Registro del simulador](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41828251244/job/126568455641) · [Registro del dispositivo](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41828289681/job/126568588225).
+
+Los conceptos como `TRANS INM/` y `TRANSFERENCIA RECIBIDA:` se muestran con un título legible. En los pagos con tarjeta, si el proveedor antepone segmentos genéricos conocidos separados por `//`, el título muestra el comercio y su referencia. El concepto original sigue visible en el detalle. Los códigos desconocidos y los segmentos con contenido propio se conservan.
+
+En **Por revisar**, el tipo de concepto activa una propuesta de transferencia antes de las categorías. Si hay un cargo y un abono bancarios sin categoría, de cuentas distintas, con el mismo importe y fecha contable, se pueden unir tras confirmar. Se conserva un movimiento con dos referencias bancarias y ambos conceptos. El cargo y el abono dejan de computar como gasto e ingreso. La app excluye de la unión los apuntes con reserva, cargo periódico, conciliación de CSV o posibles duplicados.
+
+Cuando uno de los bancos solo aporta el texto genérico «Movimiento bancario», el concepto reconocible del otro lado puede bastar para proponer la pareja. Esto cubre la falta de concepto documentada para Trade Republic cuando la conexión sí entrega ambos apuntes con referencias válidas. [Datos que facilita Trade Republic según Enable Banking](https://enablebanking.com/docs/markets/de/#trade-republic).
+
+Si solo se recibió un lado, el formulario conserva la fecha, el importe, el concepto y la cuenta del banco y pide la otra cuenta. Si detecta el otro apunte o un traspaso ya registrado para las cuentas, fecha e importe elegidos, pide revisarlo antes de guardar. El texto indica el medio de pago, así que el usuario confirma que las dos cuentas son propias. Se usan los registros y las referencias existentes. La validación SwiftData y la interfaz en iOS quedan pendientes.
+
 ## Corrección de compilación iOS · 4 de noviembre de 2026
 
 En el commit `ab61422`, las cuatro compilaciones iOS fallaron en la misma expresión de la lista de Movimientos: Xcode agotó el tiempo de deducción de tipos. Se confirmó en los registros de simulador y dispositivo, tanto del [push](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41792308298) como del [pull request](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41792342146). Los workflows de datos y cálculos, conexión bancaria y almacenamiento cloud pasaron en ese commit.

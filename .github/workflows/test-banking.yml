@@ -34,6 +34,7 @@ jobs:
             MiPatrimonio/Core/Services/FinanceCalculator.swift \
             MiPatrimonio/Core/Services/CategoryRuleService.swift \
             MiPatrimonio/Core/Services/DuplicateDetectionService.swift \
+            MiPatrimonio/Core/Services/TransactionPresentation.swift \
             MiPatrimonio/Core/Services/RecurringMovementService.swift \
             MiPatrimonio/Core/Services/BankingConnectionModels.swift \
             MiPatrimonio/Core/Services/PersonalBankingPlan.swift \
