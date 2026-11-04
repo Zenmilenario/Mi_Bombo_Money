@@ -1796,28 +1796,10 @@ struct TransactionFormView: View {
                             if !categoryChosenManually { applySuggestedCategory() }
                         }
 
-                    Picker(type == .transfer ? "Cuenta de origen" : "Cuenta", selection: $sourceAccountID) {
-                        Text("Seleccionar").tag(nil as UUID?)
-                        ForEach(activeAccounts) { account in
-                            Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
-                        }
-                    }
-                    .disabled(asBankTransfer && transaction?.type == .expense)
-                    .onChange(of: sourceAccountID) { _, newID in
-                        if let fundID = reservedFundID, !eligibleReservedFunds.contains(where: { $0.id == fundID }) {
-                            reservedFundID = nil; reservedAmountText = ""
-                        }
-                        .disabled(asBankTransfer && transaction?.type == .income)
-                        updateSuggestedReservedAmount()
-                    }
+                    sourceAccountPicker
 
                     if type == .transfer {
-                        Picker("Cuenta destino", selection: $destinationAccountID) {
-                            Text("Seleccionar").tag(nil as UUID?)
-                            ForEach(activeAccounts.filter { $0.id != sourceAccountID }) { account in
-                                Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
-                            }
-                        }
+                        destinationAccountPicker
                     }
 
                     categorySuggestion
@@ -1893,6 +1875,33 @@ struct TransactionFormView: View {
                 }
             }
         }
+    }
+
+    private var sourceAccountPicker: some View {
+        Picker(type == .transfer ? "Cuenta de origen" : "Cuenta", selection: $sourceAccountID) {
+            Text("Seleccionar").tag(nil as UUID?)
+            ForEach(activeAccounts) { account in
+                Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
+            }
+        }
+        .disabled(asBankTransfer && transaction?.type == .expense)
+        .onChange(of: sourceAccountID) { _, _ in
+            if let fundID = reservedFundID, !eligibleReservedFunds.contains(where: { $0.id == fundID }) {
+                reservedFundID = nil
+                reservedAmountText = ""
+            }
+            updateSuggestedReservedAmount()
+        }
+    }
+
+    private var destinationAccountPicker: some View {
+        Picker("Cuenta destino", selection: $destinationAccountID) {
+            Text("Seleccionar").tag(nil as UUID?)
+            ForEach(activeAccounts.filter { $0.id != sourceAccountID }) { account in
+                Label(account.bankAndAccountDisplayName, systemImage: account.bankSystemImage).tag(Optional(account.id))
+            }
+        }
+        .disabled(asBankTransfer && transaction?.type == .income)
     }
 
     @ViewBuilder
