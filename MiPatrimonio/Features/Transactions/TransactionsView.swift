@@ -33,6 +33,11 @@ private struct TransactionDayGroup: Identifiable {
     let transactions: [FinancialTransaction]
 }
 
+private struct TransactionCategorySelection: Identifiable {
+    let id = UUID()
+    let transactionIDs: Set<UUID>
+}
+
 private enum TransactionDateFilter: String, CaseIterable, Identifiable {
     case all
     case thisMonth
@@ -65,6 +70,9 @@ struct TransactionsView: View {
     @State private var showOnlyDuplicates = false
     @State private var showOnlyReview = false
     @State private var showingFilters = false
+    @State private var isSelecting = false
+    @State private var selectedIDs = Set<UUID>()
+    @State private var categorySelection: TransactionCategorySelection?
     @State private var selectedTransaction: FinancialTransaction?
     @State private var deletionError: String?
 
@@ -108,6 +116,7 @@ struct TransactionsView: View {
 
             return [
                 transaction.descriptionText,
+                transaction.displayDescription,
                 transaction.notes,
                 transaction.sourceAccount?.name ?? "",
                 transaction.destinationAccount?.name ?? "",
@@ -161,6 +170,7 @@ struct TransactionsView: View {
                     )
                 } else {
                     List {
+                        if isSelecting { selectionControls }
                         Section {
                             TransactionPeriodSummaryCard(
                                 transactionCount: filteredTransactions.count,
@@ -224,19 +234,37 @@ struct TransactionsView: View {
                                 ) {
                                     ForEach(group.transactions) { transaction in
                                         Button {
-                                            selectedTransaction = transaction
+                                            if isSelecting {
+                                                if selectedIDs.contains(transaction.id) { selectedIDs.remove(transaction.id) }
+                                                else { selectedIDs.insert(transaction.id) }
+                                            } else { selectedTransaction = transaction }
                                         } label: {
-                                            TransactionRow(transaction: transaction)
+                                            HStack(spacing: 12) {
+                                                if isSelecting {
+                                                    Image(systemName: selectedIDs.contains(transaction.id) ? "checkmark.circle.fill" : "circle")
+                                                        .foregroundStyle(AppDesign.accent)
+                                                }
+                                                TransactionRow(transaction: transaction)
+                                            }
                                         }
                                         .buttonStyle(.plain)
                                         .listRowBackground(AppDesign.cardBackground)
-                                        .accessibilityHint("Abre el detalle del movimiento")
+                                        .accessibilityHint(isSelecting ? "Selecciona o deselecciona el movimiento" : "Abre el detalle del movimiento")
+                                        .accessibilityValue(isSelecting ? (selectedIDs.contains(transaction.id) ? "Seleccionado" : "Sin seleccionar") : "")
+                                        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                            Button {
+                                                categorySelection = TransactionCategorySelection(transactionIDs: [transaction.id])
+                                            } label: { Label("Categoría", systemImage: "tag") }
+                                            .tint(AppDesign.accent)
+                                            .disabled(isSelecting)
+                                        }
                                         .swipeActions(edge: .trailing) {
                                             Button(role: .destructive) {
                                                 delete(transaction)
                                             } label: {
                                                 Label("Eliminar", systemImage: "trash")
                                             }
+                                            .disabled(isSelecting)
                                         }
                                     }
                                 }
@@ -258,6 +286,18 @@ struct TransactionsView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 12) {
                         Menu {
+                            Button {
+                                isSelecting.toggle()
+                                selectedIDs.removeAll()
+                            } label: {
+                                Label(isSelecting ? "Terminar selección" : "Seleccionar movimientos", systemImage: "checkmark.circle")
+                            }
+                            if isSelecting {
+                                Button("Categorizar seleccionados (\(selectedIDs.count))") {
+                                    categorySelection = TransactionCategorySelection(transactionIDs: selectedIDs)
+                                }
+                                .disabled(selectedIDs.isEmpty)
+                            }
                             Button {
                                 exportCSV()
                             } label: {
@@ -313,6 +353,14 @@ struct TransactionsView: View {
             .sheet(item: $selectedTransaction) { transaction in
                 TransactionDetailView(transaction: transaction)
             }
+            .sheet(item: $categorySelection) { selection in
+                BulkCategoryView(transactionIDs: selection.transactionIDs) {
+                    selectedIDs.removeAll(); isSelecting = false
+                }
+            }
+            .onChange(of: filteredTransactions.map(\.id)) { _, visibleIDs in
+                selectedIDs.formIntersection(visibleIDs)
+            }
             .alert(
                 "Exportar movimientos",
                 isPresented: Binding(
@@ -343,6 +391,25 @@ struct TransactionsView: View {
             } message: {
                 Text(deletionError ?? "Error desconocido")
             }
+        }
+    }
+
+    private var selectionControls: some View {
+        Section {
+            Text("\(selectedIDs.count) movimientos seleccionados").font(.headline)
+            HStack {
+                Button("Seleccionar resultados") { selectedIDs = Set(filteredTransactions.map(\.id)) }
+                Spacer()
+                Button("Cancelar") { isSelecting = false; selectedIDs.removeAll() }
+            }
+            Button {
+                categorySelection = TransactionCategorySelection(transactionIDs: selectedIDs)
+            } label: {
+                Label("Elegir categoría para la selección", systemImage: "tag")
+            }
+            .disabled(selectedIDs.isEmpty)
+        } footer: {
+            Text("La selección se limita a los resultados de tu búsqueda y filtros. Al cambiar los filtros se retiran los movimientos que dejan de aparecer.")
         }
     }
 
@@ -588,7 +655,7 @@ private struct TransactionRow: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(transaction.descriptionText)
+                    Text(transaction.displayDescription)
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
 
@@ -667,12 +734,153 @@ private struct TransactionRow: View {
 }
 
 
+private struct BulkCategoryView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
+    @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
+    @Query private var rules: [CategoryRule]
+    let transactionIDs: Set<UUID>
+    let onSaved: () -> Void
+    @State private var searchText = ""
+    @State private var categoryID: UUID?
+    @State private var rememberRule = false
+    @State private var rulePhrase = ""
+    @State private var initialized = false
+    @State private var errorMessage: String?
+
+    private var selected: [FinancialTransaction] {
+        transactions.filter { transactionIDs.contains($0.id) }
+    }
+    private var compatibleCategories: [FinanceCategory] {
+        guard !selected.isEmpty else { return [] }
+        return categories.filter { category in
+            selected.allSatisfy { CategoryRuleService.supports(category, for: $0.type) }
+        }
+    }
+    private var visibleCategories: [FinanceCategory] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return compatibleCategories.filter { query.isEmpty || $0.name.localizedStandardContains(query) }
+    }
+    private var chosenCategory: FinanceCategory? {
+        compatibleCategories.first { $0.id == categoryID }
+    }
+    private var learningIssue: String? {
+        guard rememberRule, let category = chosenCategory else { return nil }
+        return CategoryRuleService.classificationError(transactions: selected, category: category, remembering: rulePhrase)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Text("\(selected.count) movimientos seleccionados").font(.headline)
+                    if let chosenCategory {
+                        LabeledContent("Categoría elegida", value: chosenCategory.name)
+                    }
+                    if selected.count != transactionIDs.count {
+                        Text("La selección ha cambiado o algún movimiento ya no existe. Cierra y vuelve a seleccionarlos.")
+                            .foregroundStyle(.red)
+                    }
+                    DisclosureGroup("Ver movimientos seleccionados") {
+                        ForEach(selected) { transaction in
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(transaction.displayDescription)
+                                Text("\(transaction.type.title) · \(transaction.sourceAccount?.bankAndAccountDisplayName ?? "Sin cuenta")")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                } footer: {
+                    Text("La categoría se aplicará a toda esta selección. Los vínculos de reservas y movimientos periódicos se conservan.")
+                }
+                Section("Categoría") {
+                    if compatibleCategories.isEmpty {
+                        Text("No hay una categoría compatible con toda la selección. Selecciona movimientos de tipos compatibles o crea una categoría en Ajustes.")
+                            .foregroundStyle(.secondary)
+                    } else if visibleCategories.isEmpty {
+                        Text("No hay categorías con ese nombre.").foregroundStyle(.secondary)
+                    }
+                    ForEach(visibleCategories) { category in
+                        Button {
+                            categoryID = category.id
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: category.systemImage)
+                                    .foregroundStyle(Color(hex: category.colorHex))
+                                    .frame(width: 32, height: 32)
+                                Text(category.name).foregroundStyle(.primary)
+                                Spacer()
+                                if categoryID == category.id { Image(systemName: "checkmark.circle.fill") }
+                            }
+                            .frame(minHeight: 44)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityValue(categoryID == category.id ? "Seleccionada" : "")
+                    }
+                }
+                if chosenCategory != nil {
+                    Section {
+                        Toggle("Recordar para próximos movimientos", isOn: $rememberRule)
+                        if rememberRule {
+                            TextField("Comercio o frase a reconocer", text: $rulePhrase)
+                                .textInputAutocapitalization(.never)
+                            if let learningIssue {
+                                Text(learningIssue).font(.footnote).foregroundStyle(.red)
+                            }
+                        }
+                    } footer: {
+                        Text("La frase debe aparecer en todos los conceptos seleccionados. Se guarda una regla para cada tipo seleccionado. Si esa frase ya tenía una regla para ese tipo, se actualiza su categoría. Puedes clasificar ahora sin guardar ninguna regla.")
+                    }
+                }
+            }
+            .navigationTitle(selected.count == 1 ? "Cambiar categoría" : "Categorizar selección")
+            .navigationBarTitleDisplayMode(.inline)
+            .searchable(text: $searchText, prompt: "Buscar categoría")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Aplicar (\(selected.count))") { save() }
+                        .fontWeight(.semibold)
+                        .disabled(chosenCategory == nil || learningIssue != nil || selected.isEmpty
+                                  || selected.count != transactionIDs.count)
+                }
+            }
+            .onAppear {
+                guard !initialized else { return }
+                initialized = true
+                if let first = selected.first,
+                   Set(selected.map { CategoryRuleService.normalized($0.displayDescription) }).count == 1 {
+                    rulePhrase = first.displayDescription
+                }
+            }
+            .alert("No se pudo guardar la categoría", isPresented: Binding(
+                get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
+            )) { Button("Aceptar", role: .cancel) { errorMessage = nil } }
+            message: { Text(errorMessage ?? "") }
+        }
+    }
+
+    private func save() {
+        guard selected.count == transactionIDs.count, !selected.isEmpty, let category = chosenCategory else {
+            errorMessage = "Revisa la selección y elige una categoría compatible."; return
+        }
+        do {
+            try CategoryRuleService.classify(transactions: selected, category: category,
+                remembering: rememberRule ? rulePhrase : nil, existingRules: rules, in: modelContext)
+            onSaved()
+            dismiss()
+        } catch { errorMessage = error.localizedDescription }
+    }
+}
+
 private struct TransactionReviewActions: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var transactions: [FinancialTransaction]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
     @Query private var rules: [CategoryRule]
     @State private var rememberChoice = true
+    @State private var rulePhrase = ""
     @State private var errorMessage: String?
     let transaction: FinancialTransaction
 
@@ -700,6 +908,7 @@ private struct TransactionReviewActions: View {
             if needsCategory { categoryActions }
             if issues.contains(.possibleDuplicate) { duplicateActions }
         }
+        .onAppear { if rulePhrase.isEmpty { rulePhrase = transaction.displayDescription } }
         .alert("No se pudo guardar la revisión", isPresented: Binding(
             get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
         )) {
@@ -735,7 +944,10 @@ private struct TransactionReviewActions: View {
             }
             if CategoryRuleService.normalized(transaction.descriptionText).count >= 3 {
                 Toggle("Recordar esta elección", isOn: $rememberChoice)
-                Text("Se usará la categoría elegida en próximos movimientos cuyo concepto contenga esta descripción.")
+                if rememberChoice {
+                    TextField("Comercio o frase a reconocer", text: $rulePhrase)
+                }
+                Text("Puedes acortar la frase al nombre del comercio. La regla se aplicará a próximos movimientos del mismo tipo que contengan esa frase.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -770,7 +982,7 @@ private struct TransactionReviewActions: View {
     private func similarRow(_ other: FinancialTransaction) -> some View {
         AdaptiveValueRow {
             VStack(alignment: .leading, spacing: 4) {
-                Text(other.descriptionText).font(.subheadline.weight(.medium))
+                Text(other.displayDescription).font(.subheadline.weight(.medium))
                 Text("\(other.sourceAccount?.bankAndAccountDisplayName ?? "Sin cuenta") · \(other.type.title) · \(other.date.formatted(date: .abbreviated, time: .omitted))")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -788,14 +1000,11 @@ private struct TransactionReviewActions: View {
             errorMessage = "Esta categoría ya no está disponible para este tipo de movimiento."
             return
         }
-        commit {
-            transaction.category = category
-            transaction.updatedAt = .now
-            if rememberChoice && !usingExistingRule {
-                CategoryRuleService.remember(phrase: transaction.descriptionText, type: transaction.type,
-                    category: category, existing: rules, in: modelContext)
-            }
-        }
+        do {
+            try CategoryRuleService.classify(transactions: [transaction], category: category,
+                remembering: rememberChoice && !usingExistingRule ? rulePhrase : nil,
+                existingRules: rules, in: modelContext)
+        } catch { errorMessage = error.localizedDescription }
     }
 
     private func commit(_ update: () -> Void) {
@@ -823,6 +1032,13 @@ private struct TransactionDetailView: View {
                 LazyVStack(spacing: AppDesign.sectionSpacing) {
                     summaryCard
                     movementDetails
+                    if transaction.displayDescription != transaction.descriptionText {
+                        SectionCard("Concepto guardado", subtitle: "Descripción conservada tal como está registrada") {
+                            Text(transaction.descriptionText)
+                                .font(.subheadline).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
 
                     if !transaction.notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         SectionCard("Notas") {
@@ -873,7 +1089,7 @@ private struct TransactionDetailView: View {
                 .frame(width: 56, height: 56)
                 .background(accentColor.opacity(0.12), in: Circle())
 
-            Text(transaction.descriptionText)
+            Text(transaction.displayDescription)
                 .font(.headline)
                 .multilineTextAlignment(.center)
 
@@ -1517,7 +1733,7 @@ struct TransactionFormView: View {
                         Picker("Transferencia de esta reserva", selection: $reservedTransferID) {
                             Text("Elige la transferencia").tag(nil as UUID?)
                             ForEach(plan.candidateTransfers) { transfer in
-                                Text("\(transfer.date.formatted(date: .abbreviated, time: .omitted)) · \(transfer.descriptionText) · \(MoneyFormatter.string(minorUnits: transfer.amountMinor))")
+                                Text("\(transfer.date.formatted(date: .abbreviated, time: .omitted)) · \(transfer.displayDescription) · \(MoneyFormatter.string(minorUnits: transfer.amountMinor))")
                                     .tag(Optional(transfer.id))
                             }
                         }
@@ -1543,7 +1759,7 @@ struct TransactionFormView: View {
                     }
                     if let plan = paymentPlan(for: fund, requested: MoneyParser.minorUnits(from: reservedAmountText)),
                        let transfer = plan.transfer {
-                        Label("Al guardar se vincularán \(MoneyFormatter.string(minorUnits: plan.transferredAmount)) de la transferencia «\(transfer.descriptionText)» a esta reserva. No se creará otro movimiento.",
+                        Label("Al guardar se vincularán \(MoneyFormatter.string(minorUnits: plan.transferredAmount)) de la transferencia «\(transfer.displayDescription)» a esta reserva. No se creará otro movimiento.",
                               systemImage: "arrow.left.arrow.right")
                             .font(.footnote)
                     }

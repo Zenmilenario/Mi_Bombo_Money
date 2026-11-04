@@ -6,11 +6,17 @@ Aplicación SwiftUI local para consolidar cuentas, efectivo, tarjetas, ahorro e 
 
 El proyecto de Supabase `mi-bombo-money-dev` ya dispone de un esquema PostgreSQL con permisos por usuario y pruebas de aislamiento. El código incorpora acceso cloud y sincronización con copia local separada por usuario; queda pendiente su validación completa en iOS y entre dispositivos. Se activa desde Ajustes → Activar mi nube. Instalación, estado verificado y pruebas reproducibles: [CloudBackend/README.md](CloudBackend/README.md).
 
+## Conceptos y clasificación · 0.6.10
+
+Preparado en el código local: títulos bancarios legibles para los prefijos conocidos, texto guardado accesible en el detalle, selección de varios movimientos para asignar una categoría, acceso rápido desde una fila y aprendizaje de reglas con una frase común. Flujo: **Movimientos → (…) → Seleccionar movimientos → Elegir categoría para la selección**. La selección respeta búsqueda y filtros. Los importes, vínculos de reserva, referencias bancarias y decisiones de duplicados se conservan.
+
+Las reglas opcionales se guardan para futuros movimientos; la corrección inmediata afecta a la selección confirmada. Detalles, límites y pruebas en [Revisión y clasificación de movimientos](REVISION_MOVIMIENTOS.md). Pendiente compilar e instalar 0.6.10 (build 27) para la prueba física. No hay una migración cloud nueva.
+
 ## Efectivo e inversiones · 0.6.9
 
-Preparado en el código local el acceso **Cuentas → Efectivo e inversiones**. Se distinguen el efectivo de cada entidad y el valor registrado de la cartera; se muestran aportaciones y retiradas del mes, acciones con las cuentas preseleccionadas y actualización de valoraciones. Las carteras excluidas del patrimonio tienen una acción para revisar su configuración. Las aportaciones futuras dejan de contarse como realizadas en Inicio. No se modifican automáticamente saldos ni preferencias existentes.
+Disponible el acceso **Cuentas → Efectivo e inversiones**. El usuario confirma que ha probado la versión 0.6.9. Se distinguen el efectivo de cada entidad y el valor registrado de la cartera; se muestran aportaciones y retiradas del mes, acciones con las cuentas preseleccionadas y actualización de valoraciones. Las carteras excluidas del patrimonio tienen una acción para revisar su configuración. Las aportaciones futuras dejan de contarse como realizadas en Inicio. No se modifican automáticamente saldos ni preferencias existentes.
 
-La cartera se actualiza con valoraciones registradas; no hay cotizaciones ni posiciones automáticas. Detalles, pruebas y límites en [Efectivo e inversiones](INVERSIONES.md). Pendientes los checks nativos y la prueba física de 0.6.9 (build 26).
+La cartera se actualiza con valoraciones registradas; no hay cotizaciones ni posiciones automáticas. Detalles, pruebas y límites en [Efectivo e inversiones](INVERSIONES.md). La prueba del usuario de 0.6.9 (build 26) está confirmada; quedan por revisar los checks del commit instalado y comprobar específicamente sincronización y recuperación de estos casos.
 
 ## Dinero reservado entre cuentas · 0.6.8
 

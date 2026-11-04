@@ -253,7 +253,10 @@ struct PersonalBankConnectionsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Label("Del banco · \(item.kind == "transfer" ? "Transferencia" : item.kind == "expense" ? "Gasto" : "Ingreso")", systemImage: "building.columns")
                 .font(.caption).foregroundStyle(.secondary)
-            Text(item.text).font(.headline).fixedSize(horizontal: false, vertical: true)
+            Text(TransactionPresentation.title(item.text, isBanking: true)).font(.headline).fixedSize(horizontal: false, vertical: true)
+            if TransactionPresentation.title(item.text, isBanking: true) != item.text {
+                DisclosureGroup("Ver concepto del banco") { Text(item.text).font(.caption).textSelection(.enabled) }
+            }
             HStack {
                 Text(item.date, style: .date)
                 Spacer()
@@ -266,7 +269,7 @@ struct PersonalBankConnectionsView: View {
     }
     private func existingMovement(_ candidate: FinancialTransaction) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text(candidate.descriptionText).font(.subheadline.weight(.semibold))
+            Text(candidate.displayDescription).font(.subheadline.weight(.semibold))
                 .fixedSize(horizontal: false, vertical: true)
             HStack {
                 Text(candidate.date, style: .date)

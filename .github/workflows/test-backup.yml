@@ -53,6 +53,7 @@ jobs:
             MiPatrimonio/Core/Services/ReservedLedger.swift \
             MiPatrimonio/Shared/Formatting.swift \
             MiPatrimonio/Core/Services/FinanceCalculator.swift \
+            MiPatrimonio/Core/Services/TransactionPresentation.swift \
             MiPatrimonio/Core/Services/DashboardAlertReviewState.swift \
             MiPatrimonio/Core/Services/DuplicateDetectionService.swift \
             MiPatrimonio/Core/Services/RecurringMovementService.swift \

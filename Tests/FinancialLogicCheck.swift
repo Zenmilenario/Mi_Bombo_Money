@@ -10,6 +10,8 @@ struct FinancialLogicCheck {
     static func main() throws {
         checkBalancesAndHistory()
         checkInvestmentFlows()
+        checkReadableDescriptions()
+        try checkBulkClassification()
         checkReservedPayments()
         checkReservedTransfers()
         checkReservedBudgets()
@@ -425,6 +427,95 @@ struct FinancialLogicCheck {
         precondition(CategoryRuleService.match(description: "Mercadona", type: .income, rules: [general]) == nil)
         supermarket.isArchived = true
         precondition(CategoryRuleService.match(description: "Mercadona", type: .expense, rules: [general]) == nil)
+    }
+
+    private static func checkReadableDescriptions() {
+        for (raw, expected) in [
+            ("/TXT/D|MERCADO FICTICIO", "MERCADO FICTICIO"),
+            ("/TXT/H|PAGO BIZUM DE PRUEBA", "PAGO BIZUM DE PRUEBA"),
+            ("  /txt/d|COMERCIO  CON\nESPACIOS  ", "COMERCIO CON ESPACIOS"),
+            ("/TXT/D|PAYPAL *SAMPLE/ORDER", "PAYPAL *SAMPLE/ORDER"),
+            ("/TXT/Z|CODIGO DESCONOCIDO", "/TXT/Z|CODIGO DESCONOCIDO"),
+            ("/OTRO/D|CODIGO DESCONOCIDO", "/OTRO/D|CODIGO DESCONOCIDO"),
+            ("Compra /TXT/D| interna", "Compra /TXT/D| interna"),
+            ("/TXT/D|   ", "/TXT/D|   ")
+        ] {
+            precondition(TransactionPresentation.title(raw, isBanking: true) == expected)
+            precondition(TransactionPresentation.title(raw, isBanking: false) == raw,
+                "A manually entered or CSV concept must not be rewritten by display cleaning")
+        }
+        let raw = "/TXT/D|MERCADO FICTICIO"
+        let transaction = FinancialTransaction(date: date(1), type: .expense, amountMinor: 1250,
+            descriptionText: raw, fingerprint: "stable", bankEntryKey: "synthetic-bank-key", sourceAccount: nil)
+        precondition(transaction.displayDescription == "MERCADO FICTICIO")
+        precondition(transaction.descriptionText == raw && transaction.bankEntryKey == "synthetic-bank-key"
+                     && transaction.fingerprint == "stable")
+        transaction.bankEntryKey = nil
+        precondition(transaction.displayDescription == raw)
+        transaction.externalID = "bank-test:synthetic"
+        precondition(transaction.displayDescription == "MERCADO FICTICIO")
+    }
+
+    @MainActor
+    private static func checkBulkClassification() throws {
+        let container = try makeContainer()
+        let context = container.mainContext
+        let account = FinancialAccount(name: "Cuenta ficticia", type: .checking)
+        let category = FinanceCategory(name: "Alimentación", kind: .expense)
+        let incompatible = FinanceCategory(name: "Ingresos", kind: .income)
+        let fund = ReservedFund(name: "Objetivo ficticio", amountMinor: 5000, account: account)
+        let payment = FinancialTransaction(date: date(1, 5), type: .expense, amountMinor: 1500,
+            descriptionText: "/TXT/D|MERCADO FICTICIO", fingerprint: "unchanged", duplicateState: .confirmed,
+            bankEntryKey: "synthetic-payment", recurringMovementID: UUID(), reservedFundID: fund.id,
+            reservedAmountMinor: 1000, sourceAccount: account)
+        let fee = FinancialTransaction(date: date(1, 6), type: .fee, amountMinor: 100,
+            descriptionText: "MERCADO FICTICIO COMISION", bankEntryKey: "synthetic-fee", sourceAccount: account)
+        context.insert(account); context.insert(category); context.insert(incompatible); context.insert(fund)
+        context.insert(payment); context.insert(fee)
+        try context.save()
+        let savedID = payment.id, recurringID = payment.recurringMovementID
+        do {
+            try CategoryRuleService.classify(transactions: [payment, fee], category: incompatible,
+                existingRules: [], in: context)
+            preconditionFailure("A mixed batch must reject an incompatible category before applying anything")
+        } catch is CategoryRuleService.ClassificationError { }
+        precondition(payment.category == nil && fee.category == nil)
+        precondition(CategoryRuleService.classificationError(transactions: [], category: category) != nil)
+        precondition(CategoryRuleService.classificationError(transactions: [payment, payment], category: category) != nil)
+        precondition(CategoryRuleService.classificationError(transactions: [payment, fee], category: category,
+            remembering: "Otro comercio") != nil)
+        precondition(CategoryRuleService.classificationError(transactions: [payment], category: category, remembering: "ab") != nil)
+        #if canImport(CryptoKit)
+        let beforeFingerprint = DuplicateDetectionService.fingerprint(date: payment.date,
+            sourceAccountID: payment.sourceAccount?.id, destinationAccountID: payment.destinationAccount?.id,
+            type: payment.type, amountMinor: payment.amountMinor, description: payment.descriptionText)
+        #endif
+        try CategoryRuleService.classify(transactions: [payment, fee], category: category,
+            remembering: "Mercado ficticio", existingRules: [], in: context)
+        #if canImport(CryptoKit)
+        precondition(beforeFingerprint == DuplicateDetectionService.fingerprint(date: payment.date,
+            sourceAccountID: payment.sourceAccount?.id, destinationAccountID: payment.destinationAccount?.id,
+            type: payment.type, amountMinor: payment.amountMinor, description: payment.descriptionText))
+        #endif
+        precondition(payment.category?.id == category.id && fee.category?.id == category.id)
+        precondition(payment.id == savedID && payment.amountMinor == 1500 && payment.date == date(1, 5)
+            && payment.reservedFundID == fund.id && payment.reservedAmountMinor == 1000
+            && payment.recurringMovementID == recurringID && payment.sourceAccount?.id == account.id
+            && payment.bankEntryKey == "synthetic-payment" && payment.fingerprint == "unchanged"
+            && payment.duplicateState == .confirmed && payment.descriptionText == "/TXT/D|MERCADO FICTICIO",
+            "Bulk classification must preserve financial data, raw text, duplicate decisions and banking identity")
+        let rules = try context.fetch(FetchDescriptor<CategoryRule>())
+        precondition(rules.count == 2)
+        precondition(CategoryRuleService.match(description: "/TXT/D|MERCADO FICTICIO OTRO DIA", type: .expense, rules: rules)?.category?.id == category.id)
+        precondition(CategoryRuleService.match(description: "MERCADO FICTICIO", type: .income, rules: rules) == nil)
+        precondition(CategoryRuleService.match(description: "OTRO COMERCIO", type: .expense, rules: rules) == nil)
+        try CategoryRuleService.classify(transactions: [payment, fee], category: category,
+            remembering: "MERCADO FICTICIO", existingRules: rules, in: context)
+        let updatedRules = try context.fetch(FetchDescriptor<CategoryRule>())
+        precondition(updatedRules.count == 2,
+            "Remembering the same phrase again must update the existing rules instead of duplicating them")
+        category.isArchived = true
+        precondition(CategoryRuleService.classificationError(transactions: [payment, fee], category: category) != nil)
     }
 
     @MainActor

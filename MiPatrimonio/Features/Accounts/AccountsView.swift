@@ -1133,7 +1133,7 @@ private struct AccountDetailView: View {
                     ForEach(accountTransactions.prefix(8)) { transaction in
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(transaction.descriptionText)
+                                Text(transaction.displayDescription)
                                 Text(transaction.date, format: .dateTime.day().month().year())
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
