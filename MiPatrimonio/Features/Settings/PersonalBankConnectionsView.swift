@@ -262,6 +262,10 @@ struct PersonalBankConnectionsView: View {
             if plan.alreadyImported > 0 {
                 LabeledContent("Ya importados en consultas anteriores", value: "\(plan.alreadyImported)")
             }
+            if plan.requiresReferenceReview {
+                Text("Trade Republic envía algunos apuntes sin referencia bancaria. Comprueba la fecha y el importe antes de incorporarlos. Los apuntes iguales pueden ser pagos distintos.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             Text("Asociar conserva tu movimiento, su categoría, reserva y relación con cargos periódicos. No lo reemplaza ni lo duplica.")
                 .font(.caption).foregroundStyle(.secondary)
             if !suggested.isEmpty {

@@ -63,7 +63,10 @@ test('JSON validation rejects large, ambiguous and extra configuration fields', 
 test('bank amounts use exact cents and debit direction; pending or malformed data never become booked movements', async () => {
   assert.equal(amountMinor('1234.56'), 123456);
   assert.equal(amountMinor('-0.01'), -1);
+  assert.equal(amountMinor('1234.560000'), 123456);
+  assert.equal(amountMinor('-0.0100'), -1);
   for (const invalid of ['1,23', '12.345', 'NaN', '1e3', '99999999999999.99', null]) assert.throws(() => amountMinor(invalid));
+  assert.throws(() => amountMinor('12.340001', 'transactions'), { feedValidation: { operation: 'transactions', field: 'amount_subcent' } });
   const account = { id: 'account', currency: 'EUR' };
   const booked = { status: 'BOOK', entry_reference: 'reference', transaction_amount: { amount: '12.30', currency: 'EUR' },
     credit_debit_indicator: 'DBIT', booking_date: '2026-10-10', remittance_information: ['Compra de prueba'] };
@@ -73,7 +76,10 @@ test('bank amounts use exact cents and debit direction; pending or malformed dat
   assert.equal(await normalizeTransaction({ ...booked, status: 'PDNG' }, account), null);
   await assert.rejects(normalizeTransaction({ ...booked, credit_debit_indicator: 'invalid' }, account));
   await assert.rejects(normalizeTransaction({ ...booked, booking_date: '2026-02-30' }, account));
-  await assert.rejects(normalizeTransaction({ ...booked, transaction_amount: { amount: '-12.30', currency: 'EUR' } }, account));
+  const signedDebit = { ...booked, transaction_amount: { amount: '-12.3000', currency: 'EUR' } };
+  assert.equal((await normalizeTransaction(signedDebit, account)).signedAmountMinor, -1230);
+  await assert.rejects(normalizeTransaction({ ...signedDebit, credit_debit_indicator: 'CRDT' }, account),
+    { feedValidation: { operation: 'transactions', field: 'amount_sign' } });
 });
 
 test('RSA JWT has short lifetime, correct audience and verified signature; production application keys cannot authorize a sandbox', async () => {

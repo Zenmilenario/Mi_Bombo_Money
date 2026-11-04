@@ -1,5 +1,23 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Descargas de BBVA y Trade Republic — 4 de noviembre de 2026
+
+Las dos conexiones aparecen autorizadas y asociadas en el iPad. El servidor personal respondió correctamente a la comprobación de salud. El registro de Enable Banking del 4 de noviembre a las 13:48:19, hora de Madrid, muestra una sesión de BBVA autorizada y una petición de token a Redsys con HTTP 200. La consulta de movimientos falló en Redsys con HTTP 500, `INTERNAL_SERVER_ERROR` y el mensaje `Service temporary unavailable for BBVA`. Enable Banking devolvió HTTP 400 con `ASPSP_ERROR` a nuestro servidor.
+
+El registro confirma que esa descarga falló antes de que la app recibiera movimientos. No permite determinar si la incidencia fue general ni si sigue activa. No hay indicios en esa consulta de que sea necesario volver a autorizar la cuenta o cambiar el importador. Si vuelve a fallar tras esperar, revisar la nueva petición y facilitar a soporte de Enable Banking su identificador de solicitud por un canal privado. Véase la [guía de errores de Enable Banking](https://enablebanking.com/docs/faq/).
+
+En la consulta manual de Trade Republic de las 13:47, hora de Madrid, el diagnóstico registró `amount_format` en los movimientos. El aviso se produce al convertir el importe. La falta de descripción está contemplada y se presenta como «Movimiento bancario». [Datos de Trade Republic en Enable Banking](https://enablebanking.com/docs/markets/de/#trade-republic).
+
+Tras aceptar importes expresados con más de dos decimales si los dígitos adicionales son ceros, la segunda prueba de Trade Republic llegó al rechazo `amount_sign`. El servidor personal ejecuta la versión `ac687d0d-9730-4868-b30c-97fb6021f30d`. Esta versión normaliza los débitos tanto si llegan con signo negativo como si llegan en magnitud positiva. Un abono marcado como tal con importe negativo sigue siendo incompatible. La conversión conserva los céntimos exactos. Las 47 pruebas del servidor pasaron. Tras desplegar el ajuste, la consulta manual de Trade Republic devolvió HTTP 200 y el usuario confirmó que el aviso desapareció. La incorporación de los movimientos al registro contable queda por confirmar. [Formato y sentido de los importes en la API](https://enablebanking.com/docs/api/reference/#amounttype).
+
+### Incorporación de Trade Republic en iOS 0.6.14
+
+A las 14:11 el iPad mostraba 100 movimientos recibidos y un rechazo al preparar la importación. La pantalla anterior agrupaba varios fallos bajo el mismo aviso. La falta de referencia es un caso compatible con los datos que documenta el proveedor y que el importador anterior rechazaba. [Datos que entrega Trade Republic mediante Enable Banking](https://enablebanking.com/docs/markets/de/#trade-republic).
+
+En 0.6.14, para un apunte de Trade Republic sin referencia ni datos de emparejamiento se construye una clave local por cuenta, fecha, moneda, importe con signo y número de aparición en la descarga completa. Dos apuntes idénticos conservan claves distintas. Otra descarga con los mismos apuntes los reconoce aunque cambie el orden. La clave cuenta apariciones de apuntes indistinguibles y no representa un identificador del banco. Los apuntes nuevos con clave local pasan por confirmación y las coincidencias con registros manuales requieren una decisión. El saldo contable en euros sigue siendo obligatorio y ahora tiene un aviso específico.
+
+La prueba del plan de importación pasó en Swift sobre Linux con apuntes ficticios, incluidos débitos iguales, abonos del mismo importe, una descarga reordenada y el rechazo de un saldo no contable. Queda pendiente validar la compilación iOS y repetir «Actualizar solo Trade Republic» en el iPad. Si aparece «Revisar descarga bancaria», comprobar fecha, importe y posibles coincidencias, confirmar el lote y verificar en Movimientos que otra consulta no vuelve a añadirlo.
+
 ## Consulta BBVA pendiente tras probar 0.6.8 — 3 de noviembre de 2026
 
 El usuario comunica el aviso de que el banco o proveedor no ha podido completar la consulta al actualizar BBVA. Revisión rápida, sin pedir nuevos movimientos: `/health` respondió 200 y estado saludable; `/v1/status` sin autenticación respondió 401, como corresponde. El despliegue personal activo sigue siendo `937c0048-3e11-48f9-956f-7385a1771c99`. Pasaron las dos pruebas específicas de clasificación segura de errores del proveedor y de errores de saldos.

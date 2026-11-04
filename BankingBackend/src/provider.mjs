@@ -80,7 +80,19 @@ async function api(path, env, options = {}, transport = fetch) {
   if (!response.ok) throw await providerFailure(response, path);
   if (options.method === 'DELETE') { await response.body?.cancel(); return {}; }
   const bytes = await limitedBytes(response, 2_000_000);
-  try { return JSON.parse(new TextDecoder().decode(bytes)); } catch { throw new Fault(502, 'invalid_provider_data'); }
+  try { return JSON.parse(new TextDecoder().decode(bytes)); }
+  catch {
+    if (path.includes('/transactions?')) throw invalidFeed('transactions', 'json');
+    if (path.endsWith('/balances')) throw invalidFeed('balances', 'json');
+    throw new Fault(502, 'invalid_provider_data');
+  }
+}
+
+function invalidFeed(operation, field) {
+  // Only call with fixed diagnostic labels, never with fields supplied by a bank.
+  const fault = new Fault(502, 'invalid_provider_data');
+  fault.feedValidation = { operation, field };
+  return fault;
 }
 export async function verifySandbox(env, transport = fetch) {
   if (mode(env) === 'demo') return;
@@ -160,28 +172,34 @@ export function demoConnection(bank) {
   return { bank, sessionID: 'fictitious-session', validUntil: new Date((now() + 86400) * 1000).toISOString(),
     accounts: [{ id: 'demo-cash', uid: 'fictitious-account', name: 'Efectivo de prueba', currency: 'EUR', lastFour: '0000' }] };
 }
-export function amountMinor(value) {
-  if (typeof value !== 'string' || !/^-?\d{1,14}(\.\d{1,2})?$/.test(value)) throw new Fault(502, 'invalid_provider_data');
+export function amountMinor(value, operation) {
+  if (value == null) throw invalidFeed(operation, 'amount_missing');
+  if (typeof value !== 'string') throw invalidFeed(operation, 'amount_type');
+  if (!/^-?\d{1,14}(\.\d{1,18})?$/.test(value)) throw invalidFeed(operation, 'amount_format');
   const negative = value.startsWith('-');
   const [units, fraction = ''] = value.replace('-', '').split('.');
-  const number = Number(BigInt(units) * 100n + BigInt(fraction.padEnd(2, '0')));
-  if (!Number.isSafeInteger(number)) throw new Fault(502, 'invalid_provider_data');
+  if (/[1-9]/.test(fraction.slice(2))) throw invalidFeed(operation, 'amount_subcent');
+  const number = Number(BigInt(units) * 100n + BigInt(fraction.slice(0, 2).padEnd(2, '0')));
+  if (!Number.isSafeInteger(number)) throw invalidFeed(operation, 'amount_range');
   return negative ? -number : number;
 }
 export async function normalizeTransaction(t, account, env) {
+  if (!t || typeof t !== 'object') throw invalidFeed('transactions', 'row');
   if (t.status !== 'BOOK') return null;
-  const amount = amountMinor(t.transaction_amount?.amount);
-  if (amount < 0 || !['CRDT', 'DBIT'].includes(t.credit_debit_indicator)
-      || t.transaction_amount?.currency !== account.currency
-      || !/^\d{4}-\d{2}-\d{2}$/.test(t.booking_date ?? '') || !Number.isFinite(Date.parse(t.booking_date))
-      || new Date(t.booking_date).toISOString().slice(0, 10) !== t.booking_date) throw new Fault(502, 'invalid_provider_data');
+  const amount = amountMinor(t.transaction_amount?.amount, 'transactions');
+  if (!['CRDT', 'DBIT'].includes(t.credit_debit_indicator)) throw invalidFeed('transactions', 'direction');
+  const debit = t.credit_debit_indicator === 'DBIT';
+  if (!debit && amount < 0) throw invalidFeed('transactions', 'amount_sign');
+  if (t.transaction_amount?.currency !== account.currency) throw invalidFeed('transactions', 'currency');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t.booking_date ?? '') || !Number.isFinite(Date.parse(t.booking_date))
+      || new Date(t.booking_date).toISOString().slice(0, 10) !== t.booking_date) throw invalidFeed('transactions', 'booking_date');
   const description = (Array.isArray(t.remittance_information) ? t.remittance_information : []).filter(s => typeof s === 'string').join(' ').slice(0, 500)
     || String(t.creditor?.name ?? t.debtor?.name ?? 'Movimiento bancario').slice(0, 500);
   const reference = t.entry_reference || t.transaction_id;
   const otherIBAN = (t.credit_debit_indicator === 'DBIT' ? t.creditor_account?.iban : t.debtor_account?.iban);
   const pairReference = t.end_to_end_id || t.reference_number;
   return { id: reference ? await sha256(`${account.id}:${reference}`) : null,
-    bookingDate: t.booking_date, signedAmountMinor: t.credit_debit_indicator === 'DBIT' ? -amount : amount,
+    bookingDate: t.booking_date, signedAmountMinor: debit ? -Math.abs(amount) : amount,
     currency: account.currency, description,
     counterpartyKey: typeof otherIBAN === 'string' ? (env ? await accountIdentity(otherIBAN.replace(/\s/g, '').toUpperCase(), env)
       : await sha256(otherIBAN.replace(/\s/g, '').toUpperCase())) : undefined,
@@ -204,14 +222,24 @@ export async function accountData(conn, account, from, to, continuation, env, tr
   const path = `/accounts/${encodeURIComponent(account.uid)}`;
   const query = new URLSearchParams({ date_from: from, date_to: to, transaction_status: 'BOOK' });
   if (continuation) query.set('continuation_key', continuation);
-  const transactionResponse = await api(`${path}/transactions?${query}`, env, { headers: psu }, transport);
-  if (!Array.isArray(transactionResponse.transactions)) throw new Fault(502, 'invalid_provider_data');
-  const transactions = (await Promise.all(transactionResponse.transactions.map(t => normalizeTransaction(t, account, env)))).filter(Boolean);
-  const balanceResponse = continuation ? { balances: [] } : await api(`${path}/balances`, env, { headers: psu }, transport);
-  if (!Array.isArray(balanceResponse.balances)) throw new Fault(502, 'invalid_provider_data');
-  const balances = balanceResponse.balances.filter(b => b.balance_amount?.currency === account.currency)
-    .map(b => ({ amountMinor: amountMinor(b.balance_amount.amount), currency: b.balance_amount.currency, type: b.balance_type }));
-  return { balances, transactions, continuation: transactionResponse.continuation_key || null };
+  try {
+    const transactionResponse = await api(`${path}/transactions?${query}`, env, { headers: psu }, transport);
+    if (!Array.isArray(transactionResponse?.transactions)) throw invalidFeed('transactions', 'list');
+    const transactions = (await Promise.all(transactionResponse.transactions.map(t => normalizeTransaction(t, account, env)))).filter(Boolean);
+    const balanceResponse = continuation ? { balances: [] } : await api(`${path}/balances`, env, { headers: psu }, transport);
+    if (!Array.isArray(balanceResponse?.balances)) throw invalidFeed('balances', 'list');
+    const balances = balanceResponse.balances.filter(b => b?.balance_amount?.currency === account.currency).map(b => {
+      const amount = amountMinor(b.balance_amount.amount, 'balances');
+      if (typeof b.balance_type !== 'string') throw invalidFeed('balances', 'type');
+      return { amountMinor: amount, currency: b.balance_amount.currency, type: b.balance_type };
+    });
+    return { balances, transactions, continuation: transactionResponse.continuation_key || null };
+  } catch (error) {
+    if (error instanceof Fault && error.feedValidation) {
+      console.warn(JSON.stringify({ event: 'banking_feed_validation', ...error.feedValidation }));
+    }
+    throw error;
+  }
 }
 export async function revoke(conn, env) {
   if (mode(env) === 'demo') return;

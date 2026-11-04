@@ -4,7 +4,7 @@ import Foundation
 struct PersonalBankingPlanCheck {
     static let daily = UUID(), savings = UUID()
     static let day = ISO8601DateFormatter().date(from: "2026-10-15T00:00:00Z")!
-    static func row(_ id: String = "expense", amount: Int64 = -1000, text: String = "Compra", other: String? = nil, reference: String? = nil) -> BankingPreview.Movement {
+    static func row(_ id: String? = "expense", amount: Int64 = -1000, text: String = "Compra", other: String? = nil, reference: String? = nil) -> BankingPreview.Movement {
         .init(id: id, bookingDate: "2026-10-15", signedAmountMinor: amount, currency: "EUR", description: text, counterpartyKey: other, transferKey: reference)
     }
     static func feed(_ id: String = "daily", own: String = "own-daily", rows: [BankingPreview.Movement]? = nil, bank: String = "Bankinter") -> BankingAccountFeed {
@@ -114,8 +114,39 @@ struct PersonalBankingPlanCheck {
         catch PersonalBankingError.invalidData { }
         do { _ = try PersonalBankingPlan.build(feeds: [feed()], links: [:], ledger: []); preconditionFailure("Unlinked account accepted") }
         catch PersonalBankingError.accountNotLinked { }
+        try checkTradeRepublicWithoutReferences(links: links)
         try await checkIndependentDownloads()
         print("Personal banking plan passed: technical prefixes, explicit bulk proposals, repeated purchases, candidate conflicts, renewal, account scoping, transfers and stable IDs.")
+    }
+    private static func checkTradeRepublicWithoutReferences(links: [String: UUID]) throws {
+        let debit = row(nil, text: "Movimiento bancario")
+        let credit = row(nil, amount: 1000, text: "Movimiento bancario")
+        let manual = entry(text: debit.description)
+        let single = try PersonalBankingPlan.build(feeds: [feed(rows: [debit], bank: "Trade Republic")], links: links, ledger: [manual])
+        precondition(single.items[0].suggestedMatch == manual.id && single.items[0].automaticMatch == nil)
+        let first = try PersonalBankingPlan.build(feeds: [feed(rows: [debit, credit, debit], bank: "Trade Republic")], links: links, ledger: [manual])
+        precondition(first.items.count == 3 && Set(first.items.map(\.id)).count == 3 && first.requiresReferenceReview)
+        precondition(first.items.allSatisfy { $0.automaticMatch == nil }, "Local references must not automatically claim a manual record")
+        let imported = first.items.map { item in
+            BankingLedgerEntry(id: UUID(), date: item.date, kind: item.kind, amount: item.amount, source: item.source,
+                               destination: item.destination, text: item.text, externalID: item.id)
+        }
+        let same = try PersonalBankingPlan.build(feeds: [feed(rows: [debit, debit, credit], bank: "Trade Republic")], links: links, ledger: imported)
+        precondition(same.items.isEmpty && same.alreadyImported == 3 && !same.requiresReferenceReview)
+        let extra = try PersonalBankingPlan.build(feeds: [feed(rows: [credit, debit, debit, debit], bank: "Trade Republic")], links: links, ledger: imported)
+        precondition(extra.items.count == 1 && extra.items[0].kind == "expense" && extra.requiresReferenceReview)
+
+        do {
+            _ = try PersonalBankingPlan.build(feeds: [feed(rows: [debit])], links: links, ledger: [])
+            preconditionFailure("Reference fallback leaked to other banks")
+        } catch PersonalBankingError.missingMovementReference(_) { }
+        let received = feed(rows: [debit], bank: "Trade Republic")
+        let withoutBookedBalance = BankingAccountFeed(connection: received.connection, account: received.account,
+            balances: [.init(amountMinor: 9000, currency: "EUR", type: "CLAV")], movements: received.movements)
+        do {
+            _ = try PersonalBankingPlan.build(feeds: [withoutBookedBalance], links: links, ledger: [])
+            preconditionFailure("An available balance must not be treated as booked")
+        } catch PersonalBankingError.unavailableBookedBalance(_) { }
     }
     @MainActor private static func checkIndependentDownloads() async throws {
         enum FixtureFailure: Error { case unavailable }
