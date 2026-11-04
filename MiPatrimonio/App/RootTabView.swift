@@ -91,6 +91,7 @@ struct RootTabView: View {
         .sheet(isPresented: $showingQuickAdd) {
             TransactionFormView()
         }
+        .task { _ = await TransactionLearning.models(in: modelContext) }
         .onAppear(perform: postDueMovements)
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { postDueMovements() }

@@ -19,6 +19,8 @@
 		219076C5A6B7013E107CED6A /* DuplicateDetectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = D070D44D99EF74D09121DC3A /* DuplicateDetectionService.swift */; };
 		53A85344CB11AC583D57D309 /* FinanceCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B73B9F8DEB33A2F7D6FE21A3 /* FinanceCalculator.swift */; };
 		AE99AC42A61C4A21BA620101 /* TransactionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE99AC42A61C4A21BA620102 /* TransactionPresentation.swift */; };
+		C052C1AD02F04BBBA7000003 /* TransactionLearning.swift in Sources */ = {isa = PBXBuildFile; fileRef = C052C1AD02F04BBBA7000004 /* TransactionLearning.swift */; };
+		C052C1AD02F04BBBA7000001 /* TransactionCategoryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C052C1AD02F04BBBA7000002 /* TransactionCategoryModel.swift */; };
 		F7C718E66A194A3BB3D00101 /* ReservedLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C718E66A194A3BB3D00102 /* ReservedLedger.swift */; };
 		6547D7CB25BFF0C2FB6BEE6F /* RecurringMovementService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AAA08F6E2ADDFAC1EF2CD3 /* RecurringMovementService.swift */; };
 		773BDE4A7B8F40C38BFA65A1 /* BackupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 773BDE4A7B8F40C38BFA65A2 /* BackupService.swift */; };
@@ -82,6 +84,8 @@
 		D070D44D99EF74D09121DC3A /* DuplicateDetectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DuplicateDetectionService.swift; sourceTree = "<group>"; };
 		B73B9F8DEB33A2F7D6FE21A3 /* FinanceCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FinanceCalculator.swift; sourceTree = "<group>"; };
 		AE99AC42A61C4A21BA620102 /* TransactionPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionPresentation.swift; sourceTree = "<group>"; };
+		C052C1AD02F04BBBA7000004 /* TransactionLearning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionLearning.swift; sourceTree = "<group>"; };
+		C052C1AD02F04BBBA7000002 /* TransactionCategoryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionCategoryModel.swift; sourceTree = "<group>"; };
 		F7C718E66A194A3BB3D00102 /* ReservedLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservedLedger.swift; sourceTree = "<group>"; };
 		11AAA08F6E2ADDFAC1EF2CD3 /* RecurringMovementService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurringMovementService.swift; sourceTree = "<group>"; };
 		773BDE4A7B8F40C38BFA65A2 /* BackupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupService.swift; sourceTree = "<group>"; };
@@ -239,6 +243,8 @@
 				D070D44D99EF74D09121DC3A /* DuplicateDetectionService.swift */,
 				B73B9F8DEB33A2F7D6FE21A3 /* FinanceCalculator.swift */,
 				AE99AC42A61C4A21BA620102 /* TransactionPresentation.swift */,
+				C052C1AD02F04BBBA7000004 /* TransactionLearning.swift */,
+				C052C1AD02F04BBBA7000002 /* TransactionCategoryModel.swift */,
 				F7C718E66A194A3BB3D00102 /* ReservedLedger.swift */,
 				11AAA08F6E2ADDFAC1EF2CD3 /* RecurringMovementService.swift */,
 				773BDE4A7B8F40C38BFA65A2 /* BackupService.swift */,
@@ -450,6 +456,8 @@
 				219076C5A6B7013E107CED6A /* DuplicateDetectionService.swift in Sources */,
 				53A85344CB11AC583D57D309 /* FinanceCalculator.swift in Sources */,
 				AE99AC42A61C4A21BA620101 /* TransactionPresentation.swift in Sources */,
+				C052C1AD02F04BBBA7000003 /* TransactionLearning.swift in Sources */,
+				C052C1AD02F04BBBA7000001 /* TransactionCategoryModel.swift in Sources */,
 				F7C718E66A194A3BB3D00101 /* ReservedLedger.swift in Sources */,
 				6547D7CB25BFF0C2FB6BEE6F /* RecurringMovementService.swift in Sources */,
 				773BDE4A7B8F40C38BFA65A1 /* BackupService.swift in Sources */,
@@ -581,14 +589,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.6.10;
+				MARKETING_VERSION = 0.6.11;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -605,14 +613,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 27;
+				CURRENT_PROJECT_VERSION = 28;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.6.10;
+				MARKETING_VERSION = 0.6.11;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

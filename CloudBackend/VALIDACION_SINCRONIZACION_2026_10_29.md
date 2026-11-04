@@ -45,8 +45,16 @@ Estas comprobaciones son específicas: no constituyen una certificación de segu
 - `verify_sync_roundtrip.sql`: ensayo transaccional sobre propietarios ficticios. No es una migración ni se ejecuta desde la app.
 - `Tests/CloudProtocolCheck.swift`: protocolo y ciclo automático; las ramas Apple se comprueban en macOS mediante GitHub Actions.
 
+## Copia y recuperación en 0.6.10 · 4 de noviembre de 2026
+
+El check nativo de `bdede80` pasó con datos ficticios en contenedores SwiftData en memoria. Comprueba restauración repetida, reservas que pasan entre cuentas, reglas, valoraciones, copias cifradas y rechazo de copias inválidas o contraseñas incorrectas. [Exportación y restauración](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41793245325/job/126451262541).
+
+El usuario confirma que la comprobación de apertura de la copia cifrada en el iPad funcionó sin errores y que sus movimientos permanecieron igual. Procedimiento de la prueba desde Archivos. En **Ajustes → Exportar o restaurar copia**, activar **Proteger copia con contraseña**, exportar a Archivos y volver a abrir el fichero con **Elegir copia JSON o cifrada**. Introducir la contraseña y comparar los recuentos de cuentas y movimientos de la vista previa. Terminar la prueba saliendo de la pantalla tras comprobar los recuentos. El botón **Reemplazar datos con esta copia** inicia una restauración y queda fuera de esta comprobación.
+
+La restauración completa en un dispositivo físico requiere un entorno de prueba separado. También queda pendiente el ensayo de sincronización con un segundo dispositivo. El laboratorio bancario actual oculta la ruta de copias.
+
 ## Pendiente
 
 - Mismo usuario en dos dispositivos físicos, cambios independientes y resolución de un conflicto sobre el mismo registro.
 - Comprobar físicamente la pausa mientras hay un formulario abierto y su reanudación, así como combinaciones adicionales de navegación y ventanas.
-- La nueva bandeja «Por revisar» es una entrega posterior al commit validado de sincronización. Está en el código local y necesita sus propios checks de GitHub y prueba de interfaz: ver [REVISION_MOVIMIENTOS.md](../REVISION_MOVIMIENTOS.md).
+- La bandeja «Por revisar» es posterior a esta validación de sincronización. El usuario probó la 0.6.10. La propagación de cambios de clasificación entre dos dispositivos queda por comprobar. Véase ver [REVISION_MOVIMIENTOS.md](../REVISION_MOVIMIENTOS.md).
