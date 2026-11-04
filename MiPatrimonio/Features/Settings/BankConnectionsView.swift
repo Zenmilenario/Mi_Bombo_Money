@@ -269,7 +269,10 @@ private struct BankAccountPreviewView: View {
                     ForEach(Array(movements.enumerated()), id: \.offset) { _, movement in
                         AdaptiveValueRow {
                             VStack(alignment: .leading, spacing: 5) {
-                                Text(movement.description)
+                                Text(TransactionPresentation.title(movement.description, isBanking: true))
+                                if TransactionPresentation.title(movement.description, isBanking: true) != movement.description {
+                                    DisclosureGroup("Ver concepto del banco") { Text(movement.description).font(.caption).textSelection(.enabled) }
+                                }
                                 Text(movement.bookingDate).font(.caption).foregroundStyle(.secondary)
                             }
                         } value: {

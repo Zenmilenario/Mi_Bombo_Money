@@ -1,6 +1,6 @@
 # Efectivo e inversiones · 0.6.9
 
-Actualizado el 3 de noviembre de 2026. Implementado en el código local; pendiente de compilación nativa y prueba en el dispositivo.
+Actualizado el 3 de noviembre de 2026. Implementado. El usuario confirma que ha probado la versión 0.6.9; no comunica incidencias en esa confirmación.
 
 ## Decisión de modelo
 
@@ -50,4 +50,4 @@ Pasan las comprobaciones locales de cálculos con Swift 6.2.1 sobre Linux usando
 
 Pasa el análisis sintáctico de las vistas modificadas. Se mantiene la prueba financiera nativa en GitHub Actions con los nuevos casos. La compilación SwiftUI/SwiftData requiere macOS; la ejecución local no la sustituye.
 
-Pendiente: subir 0.6.9 (build 26), consultar sus checks, instalar y probar el acceso en iPhone/iPad, la selección de cuentas y el guardado/sincronización de una transferencia y una valoración. No se han modificado datos financieros del usuario durante la implementación.
+El usuario confirma que la versión 0.6.9 (build 26) ya está probada. Esta confirmación no detalla cada caso ejecutado ni acredita por separado la sincronización o restauración de transferencias y valoraciones. Pendientes: consultar los checks del commit instalado y completar esas comprobaciones específicas de conservación de datos. No se han modificado datos financieros del usuario durante la implementación.
