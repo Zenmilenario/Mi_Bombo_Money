@@ -2,11 +2,19 @@ name: Comprobar conexión bancaria de prueba
 
 on:
   push:
+    branches: [main]
+    tags: ["**"]
   pull_request:
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   personal:

@@ -63,6 +63,8 @@ La app requiere **iOS 17 o posterior**. Una instalación nueva empieza sin movim
 
 Sube tu rama con GitHub Desktop y revisa las ejecuciones de [GitHub Actions](https://github.com/Zenmilenario/Mi_Bombo_Money/actions). El repositorio dispone de validación iOS y generación de IPA; instalar en un dispositivo requiere el proceso de firma correspondiente.
 
+Abre una **pull request en borrador** para que cada push de la rama ejecute todos los checks una sola vez por workflow. También se valida `main` después del merge. Una rama sin PR se puede comprobar con **Run workflow**. [Política de comprobaciones y cobertura](CI.md).
+
 [Subir desde Windows](SUBIR_DESDE_WINDOWS.md) · [Distribución e instalación de IPA](DISTRIBUCION_IPA.md)
 
 ## Cómo está construida
@@ -88,6 +90,7 @@ Sube tu rama con GitHub Desktop y revisa las ejecuciones de [GitHub Actions](htt
 | La revisión de movimientos y los ajustes | [Conciliación y categorías](REVISION_MOVIMIENTOS.md) · [Navegación de Ajustes](AJUSTES.md) |
 | El diseño de la interfaz | [Diseño visual](DISENO_VISUAL_2026_10_29.md) |
 | Las versiones y decisiones anteriores | [Historial de desarrollo](docs/HISTORIAL_DESARROLLO.md) |
+| Los checks, sus eventos y la cobertura conservada | [Comprobaciones de GitHub](CI.md) |
 
 ## Datos y seguridad
 

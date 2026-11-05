@@ -3,12 +3,18 @@ name: Comprobar almacenamiento cloud
 on:
   workflow_dispatch:
   push:
-    paths: ['supabase/**', 'CloudBackend/**', 'MiPatrimonio/Core/Cloud/**', 'Tests/Cloud*', '.github/workflows/test-cloud.yml', 'MiPatrimonio/Core/Services/**', 'MiPatrimonio/Core/Models/**', 'MiPatrimonio/App/**', 'MiPatrimonio/Features/Settings/**', 'MiPatrimonio/Resources/CloudConfiguration.json']
+    branches: [main]
+    tags: ["**"]
   pull_request:
-    paths: ['supabase/**', 'CloudBackend/**', 'MiPatrimonio/Core/Cloud/**', 'Tests/Cloud*', '.github/workflows/test-cloud.yml', 'MiPatrimonio/Core/Services/**', 'MiPatrimonio/Core/Models/**', 'MiPatrimonio/App/**', 'MiPatrimonio/Features/Settings/**', 'MiPatrimonio/Resources/CloudConfiguration.json']
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   postgres:
