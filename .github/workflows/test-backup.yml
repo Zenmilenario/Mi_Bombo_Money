@@ -123,8 +123,34 @@ jobs:
             MiPatrimonio/Core/Services/ReservedLedger.swift \
             MiPatrimonio/Core/Services/TransactionOperationModel.swift \
             MiPatrimonio/Core/Services/TransactionOperationLearning.swift \
+            MiPatrimonio/Core/Services/TransactionCorrectionModel.swift \
+            MiPatrimonio/Core/Services/CategoryRuleService.swift \
+            MiPatrimonio/Core/Services/DuplicateDetectionService.swift \
             Tests/TransactionOperationLearningCheck.swift -o build/finance-check/TransactionOperationLearningCheck
           build/finance-check/TransactionOperationLearningCheck
+
+      - name: Comprobar aprendizaje temporal de correcciones completas
+        run: |
+          set -euo pipefail
+          xcrun swiftc -O -swift-version 5 -parse-as-library \
+            MiPatrimonio/Core/Services/TransactionOperationModel.swift \
+            MiPatrimonio/Core/Services/TransactionCorrectionModel.swift \
+            Tests/TransactionCorrectionModelCheck.swift -o build/finance-check/TransactionCorrectionModelCheck
+          build/finance-check/TransactionCorrectionModelCheck
+
+      - name: Comprobar aplicación segura y deshacer de correcciones aprendidas
+        run: |
+          set -euo pipefail
+          xcrun swiftc -O -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
+            MiPatrimonio/Core/Models/Models.swift \
+            MiPatrimonio/Core/Services/ReservedLedger.swift \
+            MiPatrimonio/Core/Services/CategoryRuleService.swift \
+            MiPatrimonio/Core/Services/DuplicateDetectionService.swift \
+            MiPatrimonio/Core/Services/TransactionOperationModel.swift \
+            MiPatrimonio/Core/Services/TransactionCorrectionModel.swift \
+            MiPatrimonio/Core/Services/TransactionOperationLearning.swift \
+            Tests/TransactionAutomaticCorrectionCheck.swift -o build/finance-check/TransactionAutomaticCorrectionCheck
+          build/finance-check/TransactionAutomaticCorrectionCheck
 
   passwords:
     name: Contraseñas y separación de acceso bancario

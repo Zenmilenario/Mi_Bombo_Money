@@ -6,6 +6,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A17F00112233445566770001 /* TransactionCorrectionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17F00112233445566770002 /* TransactionCorrectionModel.swift */; };
 		A16F00112233445566770001 /* TransactionOperationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F00112233445566770002 /* TransactionOperationModel.swift */; };
 		A16F00112233445566770003 /* TransactionOperationLearning.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F00112233445566770004 /* TransactionOperationLearning.swift */; };
 		B913B5C88D1449A2890A1234 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B913B5C88D1449A2890A1235 /* Assets.xcassets */; };
@@ -73,6 +74,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A17F00112233445566770002 /* TransactionCorrectionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionCorrectionModel.swift; sourceTree = "<group>"; };
 		A16F00112233445566770002 /* TransactionOperationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionOperationModel.swift; sourceTree = "<group>"; };
 		A16F00112233445566770004 /* TransactionOperationLearning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionOperationLearning.swift; sourceTree = "<group>"; };
 		B913B5C88D1449A2890A1235 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -250,6 +252,7 @@
 				C052C1AD02F04BBBA7000004 /* TransactionLearning.swift */,
 				C052C1AD02F04BBBA7000002 /* TransactionCategoryModel.swift */,
 				A16F00112233445566770002 /* TransactionOperationModel.swift */,
+				A17F00112233445566770002 /* TransactionCorrectionModel.swift */,
 				A16F00112233445566770004 /* TransactionOperationLearning.swift */,
 				F7C718E66A194A3BB3D00102 /* ReservedLedger.swift */,
 				11AAA08F6E2ADDFAC1EF2CD3 /* RecurringMovementService.swift */,
@@ -465,6 +468,7 @@
 				C052C1AD02F04BBBA7000003 /* TransactionLearning.swift in Sources */,
 				C052C1AD02F04BBBA7000001 /* TransactionCategoryModel.swift in Sources */,
 				A16F00112233445566770001 /* TransactionOperationModel.swift in Sources */,
+				A17F00112233445566770001 /* TransactionCorrectionModel.swift in Sources */,
 				A16F00112233445566770003 /* TransactionOperationLearning.swift in Sources */,
 				F7C718E66A194A3BB3D00101 /* ReservedLedger.swift in Sources */,
 				6547D7CB25BFF0C2FB6BEE6F /* RecurringMovementService.swift in Sources */,
@@ -597,14 +601,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 33;
+				CURRENT_PROJECT_VERSION = 34;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.6.16;
+				MARKETING_VERSION = 0.6.17;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -621,14 +625,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 33;
+				CURRENT_PROJECT_VERSION = 34;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.6.16;
+				MARKETING_VERSION = 0.6.17;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

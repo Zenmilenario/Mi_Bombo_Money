@@ -1,5 +1,8 @@
 import SwiftData
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 private enum AppTab: Hashable {
     case home
@@ -17,6 +20,8 @@ struct RootTabView: View {
     @State private var selectedMonth = Date.now.startOfMonth()
     @State private var showingQuickAdd = false
     @State private var recurrenceError: String?
+    @State private var correctionRevision = 0
+    @State private var correctionError: String?
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -92,6 +97,24 @@ struct RootTabView: View {
             TransactionFormView()
         }
         .task { _ = await TransactionLearning.models(in: modelContext) }
+        .onReceive(NotificationCenter.default.publisher(for: TransactionOperationLearning.didChange)) { _ in
+            correctionRevision += 1
+        }
+        .task(id: "\(modelContext.container.configurations.first?.url.absoluteString ?? "")|\(scenePhase == .active)|\(correctionRevision)") {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                do {
+                    _ = try await TransactionOperationLearning.applyLearnedCorrections(in: modelContext) {
+                        scenePhase == .active && !showingQuickAdd && !hasPresentedWindow
+                    }
+                } catch {
+                    if !Task.isCancelled { correctionError = "No se pudo aplicar una corrección aprendida. Puedes revisar los movimientos manualmente." }
+                    return
+                }
+                do { try await Task.sleep(for: .seconds(20)) }
+                catch { return }
+            }
+        }
         .onAppear(perform: postDueMovements)
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { postDueMovements() }
@@ -104,6 +127,10 @@ struct RootTabView: View {
         } message: {
             Text(recurrenceError ?? "Error desconocido")
         }
+        .alert("Correcciones aprendidas", isPresented: Binding(
+            get: { correctionError != nil }, set: { if !$0 { correctionError = nil } }
+        )) { Button("Aceptar", role: .cancel) { correctionError = nil } }
+        message: { Text(correctionError ?? "") }
     }
 
     @ViewBuilder
@@ -138,6 +165,18 @@ struct RootTabView: View {
         } catch {
             recurrenceError = error.localizedDescription
         }
+    }
+
+    private var hasPresentedWindow: Bool {
+        #if canImport(UIKit)
+        for scene in UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }) where scene.activationState == .foregroundActive {
+            for window in scene.windows where window.isKeyWindow {
+                if let presented = window.rootViewController?.presentedViewController,
+                   presented.isViewLoaded, presented.view.window != nil, !presented.isBeingDismissed { return true }
+            }
+        }
+        #endif
+        return false
     }
 }
 

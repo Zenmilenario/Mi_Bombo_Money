@@ -1,13 +1,13 @@
 # Aprendizaje de categorías y modelo de datos
 
-Primera entrega preparada en 0.6.11, compilación 28. Actualizado el 4 de noviembre de 2026. Pendientes la compilación iOS en GitHub y la evaluación en el iPad.
+Primera entrega preparada en 0.6.11, compilación 28. Actualizado el 5 de noviembre de 2026 con las correcciones aprendidas de 0.6.17, compilación 34. Pendientes la compilación iOS en GitHub y la evaluación en el dispositivo de esta ampliación.
 
 ## Experiencia en la app
 
 - **Movimientos → Por revisar → detalle** muestra una propuesta de IA para movimientos sin categoría compatible cuando el modelo encuentra señales suficientes. Las reglas explícitas tienen prioridad. El usuario puede confirmar la propuesta o elegir otra categoría.
 - El formulario de un movimiento nuevo y la hoja de categorías del CSV ofrecen una propuesta en su propio flujo. La elección de CSV se aprende cuando termina la importación.
 - Confirmar, corregir una categoría o cambiarla en lote guarda una señal de aprendizaje después de guardar el movimiento. El modelo se actualiza en el dispositivo de forma automática.
-- Esta entrega es la fase de propuestas. La asignación sin confirmación queda supeditada a una evaluación con movimientos reales. Las transferencias quedan fuera del clasificador.
+- El clasificador de texto conserva su función de propuestas. En 0.6.17 un modelo separado aprende acciones completas de las correcciones explícitas y puede aplicar categorías o convertir determinados gastos bancarios en transferencias a inversión cuando supera las comprobaciones temporales descritas más abajo.
 
 ## Datos de entrenamiento
 
@@ -22,13 +22,13 @@ Una confirmación local relaciona el UUID del movimiento con una huella de conce
 | Información | Lugar | Papel |
 | --- | --- | --- |
 | Movimiento, categoría y sus relaciones | SwiftData y tablas de Supabase existentes | Registro financiero y sincronización |
-| Confirmación del usuario | Archivo protegido junto al almacén SwiftData de cada perfil | Procedencia de la etiqueta para entrenar en ese dispositivo |
+| Confirmación del usuario y corrección contable | Archivos protegidos junto al almacén SwiftData de cada perfil | Procedencia de las etiquetas y acciones para entrenar en ese dispositivo |
 | Ejemplos ficticios | Código de la app | Arranque del modelo |
 | Pesos y vocabulario | Memoria del dispositivo | Modelo reconstruible al iniciar la app |
 
 El archivo local usa escritura atómica y protección completa. Solicita la exclusión de la copia del sistema. Las copias financieras incluyen las categorías guardadas y el dispositivo puede reconstruir un modelo inicial a partir del historial recuperado. Las confirmaciones del aprendizaje son locales. Por eso dos dispositivos pueden generar propuestas distintas aunque tengan los mismos movimientos y categorías.
 
-La arquitectura usa el almacén existente como fuente de datos y entrena sin llamadas a un servicio de IA. Esta entrega usa el esquema actual de Supabase. La copia de seguridad, la sincronización y los cambios de categoría siguen sus flujos de persistencia actuales. [Configuración del almacén SwiftData](https://developer.apple.com/documentation/swiftdata/modelconfiguration/url).
+La arquitectura usa el almacén existente como fuente de datos y entrena sin llamadas a un servicio de IA. Usa el esquema actual de Supabase. Las correcciones financieras se sincronizan por el flujo existente; los ejemplos y auditorías del aprendizaje son locales. La copia de seguridad financiera no exporta estos archivos de aprendizaje. [Configuración del almacén SwiftData](https://developer.apple.com/documentation/swiftdata/modelconfiguration/url).
 
 ## Cómo presentarlo en el TFM
 
@@ -50,6 +50,26 @@ Se añadieron ejemplos ficticios de cajeros y ventanilla para que el modelo pued
 
 ## Evidencia disponible
 
+### Correcciones aprendidas — preparado localmente en 0.6.17 (34)
+
+**Implementado.** Al guardar una edición humana de un movimiento bancario, se conserva la observación previa y la acción elegida: tipo, categoría y cuenta de destino. También cuentan las categorías confirmadas desde la revisión individual o en lote. Se aprende desde esta versión; las antiguas ediciones sin procedencia verificable no se convierten retrospectivamente en etiquetas de transferencia. Identificar «Saveback» en la tarjeta semántica sigue siendo distinto de editar la acción contable.
+
+El tercer modelo utiliza **clasificación supervisada por los tres vecinos más próximos (kNN)**. Aprende de los ejemplos humanos de cada perfil; no incorpora reglas de comercios, importes personales ni las capturas privadas al código. Conserva el concepto bancario previo aunque el usuario lo renombre durante la corrección. Usa texto, importe, sentido, día y día de la semana; exige la misma cuenta y sentido para comparar. La distancia ponderada y sus umbrales son hiperparámetros del algoritmo, no reglas de clasificación para una persona. Los cambios de condiciones de tarjeta siguen perteneciendo al modelo semántico; no demuestran una acción contable.
+
+**Condiciones de aplicación.** Debe haber al menos seis observaciones humanas distintas de la acción propuesta, tres de otras acciones y ejemplos de la acción repartidos en al menos dos meses. Los tres vecinos deben coincidir, estar próximos y separados de la alternativa. Además se hacen comprobaciones temporales: cada ejemplo se predice usando exclusivamente meses anteriores. La acción necesita al menos tres aciertos temporales de esa cuenta y sentido, sin falsos positivos observados para ella. Una observación repetida no aumenta la evidencia y los ejemplos contradictorios compiten. Estos filtros no acreditan una precisión estadística garantizada. Sin evidencia suficiente, el resultado es abstención y revisión manual.
+
+**Alcance automático actual.** Solo apuntes bancarios llegados después de iniciar este aprendizaje, todavía sin categoría ni destino, sin decisión manual, reserva, periodicidad, referencia externa de CSV o duplicado pendiente. Se puede asignar una categoría compatible manteniendo el tipo, o convertir un gasto en transferencia hacia una cuenta de inversión activa, de la misma moneda y sin conexión bancaria propia. El destino debe existir desde la fecha del apunte. Se conserva importe, fecha, cuenta de efectivo, concepto, notas, lote y referencia bancaria. Se modifica el mismo registro; no se crean dos movimientos. Las reglas explícitas y clasificaciones ya guardadas tienen prioridad.
+
+El procesador se ejecuta mientras la app está activa, con comprobación cada veinte segundos y modelo reutilizado en memoria. Se pausa con formularios/hojas abiertos o cambios sin guardar; vuelve a comprobar los ejemplos y destinos después de entrenar para detectar cambios cloud durante la espera. No hace consultas al banco ni funciona con la app cerrada. No modifica retroactivamente los registros anteriores a la activación ni periodos anteriores al último mes usado para aprender.
+
+**Control y recuperación.** En el detalle se puede desactivar «Aplicar correcciones aprendidas» para todo el perfil. Una aplicación automática muestra su procedencia y ofrece «Deshacer corrección y enseñar a la IA». Deshacer restaura la acción anterior, conserva los datos del banco, añade evidencia negativa y protege el registro frente a una repetición automática. Las predicciones aplicadas no se utilizan como etiquetas humanas. Si el usuario cambia tipo, destino o categoría, su edición tiene prioridad. No se tocan pagos reservados ni vínculos periódicos. Si existe una posible contrapartida ya registrada o una transferencia manual equivalente, se requiere revisión.
+
+**Persistencia.** Se amplía el archivo protegido de operaciones con ejemplos de corrección, acciones y auditorías para deshacer. Estos ejemplos contienen el texto y contexto necesarios del apunte previo; se guardan dentro del almacenamiento privado de la app, sin enviarlos a un servicio de IA. Se conservan las confirmaciones antiguas y su formato de huella. Se escribe la información de recuperación antes del guardado financiero; una etiqueta pendiente solo se usa si sigue coincidiendo con el movimiento guardado. Ante un fallo se revierte SwiftData; una auditoría pendiente no aparece como aplicada. Esto no es una transacción distribuida entre el archivo y SwiftData. Se conserva una etiqueta anterior para no perder un ejemplo válido tras una edición fallida. Una actualización normal conserva los archivos; reinstalar o borrar el perfil puede perderlos. Dos dispositivos comparten los resultados financieros sincronizados, pero todavía no comparten este aprendizaje ni la auditoría para deshacer.
+
+**Saveback y Round up.** Corregir un débito confirmado de gasto a transferencia y seleccionar su destino enseña esa acción. Si vuelve un apunte comparable y se cumplen los filtros, podrá aplicarla solo. Con descripciones vacías, compras y beneficios parecidos pueden seguir siendo indistinguibles; no se promete identificar todos los Saveback. Esta entrega no crea la recompensa bruta, su retención o un abono compensatorio, ni completa automáticamente la conciliación multietapa o el objetivo de una aportación periódica. No cambia un ingreso a transferencia ni empareja dos cuentas bancarias conectadas.
+
+**Validación.** Las pruebas del modelo usan datos ficticios y comprueban otro periodo, cambio de destino/categoría, aislamiento por cuenta, observaciones repetidas, ausencia de alternativas, contradicciones y abstención. Las pruebas del adaptador cubren aplicación sobre el mismo registro, conservación de datos, ausencia de autoentrenamiento, deshacer, edición revertida, pausa, reservas/periodicidad, contrapartidas, destinos archivados o de otra moneda, persistencia y perfiles separados. La ejecución local usa sustitutos de SwiftData y hashing: no valida los frameworks ni la protección de archivos de Apple. Se conectan a CI las pruebas con SwiftData/CryptoKit reales, además de conservar las suites anteriores. Compilación Debug/Release de iOS y prueba física pendientes tras subir la versión.
+
 ### Reconocimiento de beneficios de inversión — preparado localmente en 0.6.16
 
 Actualizado el 5 de noviembre de 2026. Se ha incorporado un segundo clasificador supervisado de regresión logística multiclase, separado del modelo de categorías. Distingue otro movimiento, aportación a inversión, Round up y Saveback. Aprende pesos de palabras, fragmentos de texto y, con confirmaciones reales, importe, sentido, día, día de la semana y contexto de cuenta. Las condiciones de la tarjeta, si se conocen para ese periodo, se añaden al contexto. Los ejemplos ficticios iniciales enseñan vocabulario; no fijan un calendario ni importes personales para decidir la clase.
@@ -60,13 +80,13 @@ Para textos genéricos, el modelo se abstiene mientras no haya al menos ocho obs
 
 Las confirmaciones guardan UUID, huella de identidad y tipo en un archivo protegido junto al almacén del perfil; no duplican conceptos ni importes en ese archivo. Las condiciones de la cuenta se guardan allí también. El modelo deriva los ejemplos vigentes de los movimientos y se entrena en segundo plano. Una edición del importe, fecha, concepto, tipo, cuenta, moneda o referencia bancaria invalida la etiqueta antigua. Una corrección sustituye la anterior; una predicción sin confirmar nunca se utiliza como etiqueta. Los beneficios confirmados quedan fuera del entrenamiento de categorías ordinarias. La revisión suprime la propuesta de categoría de consumo cuando hay una identificación especializada o una propuesta de operación pendiente; conserva la clasificación manual y las reglas explícitas.
 
-El archivo usa escritura atómica y protección completa, y se excluye de la copia del sistema. Se conserva en una actualización normal que mantenga el almacén. Las confirmaciones y condiciones son locales a cada dispositivo y perfil; no se han añadido tablas cloud ni se incluyen en la exportación financiera. Reinstalar o borrar el almacenamiento puede perderlas. La sincronización del aprendizaje, su copia portable y la clasificación contable automática siguen pendientes.
+El archivo usa escritura atómica y protección completa, y se excluye de la copia del sistema. Se conserva en una actualización normal que mantenga el almacén. Las confirmaciones y condiciones son locales a cada dispositivo y perfil; no se han añadido tablas cloud ni se incluyen en la exportación financiera. Reinstalar o borrar el almacenamiento puede perderlas. En 0.6.16 no había aplicación contable automática; el alcance limitado añadido en 0.6.17 se explica arriba. La sincronización del aprendizaje y su copia portable siguen pendientes.
 
 **Validación local:** pasan las pruebas del núcleo con conceptos distintos de las semillas, aprendizaje contextual sobre otro periodo, correcciones, aislamiento por cuenta, abstención y repetición de observaciones. Sigue pasando la prueba anterior de categorías. El adaptador se ha compilado y ejecutado con los modelos reales sin macros y sustitutos de SwiftData y hashing: persistencia del archivo, correcciones, invalidación, vigencia de condiciones, aislamiento de perfil/sandbox y conservación de los datos financieros. No valida las garantías de SwiftData, CryptoKit ni los atributos de protección de Apple. El workflow incorpora las pruebas del núcleo y del adaptador con SwiftData real para macOS. Compilación iOS y prueba física pendientes de GitHub y del dispositivo.
 
 ### Alcance que continúa pendiente
 
-Pendiente de implementar: aplicar el tipo confirmado a una conciliación contable completa. Round up representa dinero propio trasladado a inversión y Saveback una recompensa; una categoría de gasto por sí sola no representa correctamente estos efectos. En esta entrega identificar un beneficio no cambia saldos, presupuestos, tipo de movimiento ni aportaciones periódicas. La interfaz lo indica expresamente.
+Pendiente de implementar: aplicar el tipo semántico confirmado a una conciliación contable multietapa completa. Round up representa dinero propio trasladado a inversión y Saveback una recompensa; una categoría de gasto por sí sola no representa correctamente estos efectos. Identificar un beneficio no cambia por sí solo la contabilidad. Las correcciones completas de 0.6.17 sí pueden aprender una acción financiera limitada, con los filtros descritos arriba.
 
 El clasificador de categorías sigue aprendiendo del texto; el nuevo de operaciones admite contexto. Los apuntes de Trade Republic inspeccionados carecen de descripciones, por lo que añadir palabras sintéticas al entrenamiento no resuelve ese caso. Sin suficientes confirmaciones se requiere identificación explícita. La lectura de capturas mediante OCR y su vinculación verificable con los apuntes todavía no están implementadas.
 

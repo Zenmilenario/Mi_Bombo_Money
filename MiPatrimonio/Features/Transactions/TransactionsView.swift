@@ -1277,9 +1277,34 @@ private struct TransactionOperationReviewCard: View {
     @State private var roundUpMultiplier = 1
     @State private var termsFrom = Date.now
     @State private var termsMessage: String?
+    @State private var automation: TransactionOperationLearning.AutomationStatus?
 
     var body: some View {
         SectionCard("Reconocimiento de inversión", subtitle: "La IA aprende de lo que confirmas") {
+            if let automation {
+                Toggle("Aplicar correcciones aprendidas", isOn: Binding(
+                    get: { self.automation?.enabled ?? false }, set: { enabled in
+                        do {
+                            try TransactionOperationLearning.setAutomationEnabled(enabled, in: modelContext)
+                            refresh += 1
+                        } catch { errorMessage = "No se pudo cambiar la automatización." }
+                    }))
+                Text("\(automation.savedExamples) ejemplos de correcciones guardados en este perfil. La aplicación automática requiere ejemplos suficientes y aciertos al comprobar periodos posteriores.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if automation.automaticallyApplied {
+                    Label("Corregido automáticamente por la IA", systemImage: "sparkles")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Esta acción había acertado \(automation.validatedPredictions) comprobaciones temporales. Revisa el tipo, la categoría y la cuenta de destino.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button("Deshacer corrección y enseñar a la IA") {
+                        do {
+                            try TransactionOperationLearning.undoAutomaticCorrection(transaction, in: modelContext)
+                            refresh += 1
+                        } catch { errorMessage = "No se pudo deshacer: el movimiento puede haber cambiado. Revísalo manualmente." }
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
             if let kind = review?.confirmed {
                 Label("Identificado: \(kind.title)", systemImage: "checkmark.seal")
                     .font(.subheadline.weight(.semibold))
@@ -1308,7 +1333,7 @@ private struct TransactionOperationReviewCard: View {
                 Label(review?.confirmed == nil ? "Identificar operación" : "Corregir identificación", systemImage: "tag")
                     .frame(minHeight: 44, alignment: .leading)
             }
-            Text("La identificación entrena la IA; no cambia saldos ni presupuestos. Las confirmaciones se guardan en este dispositivo y perfil.")
+            Text("Identificar el beneficio guarda su etiqueta. Corregir el tipo, la categoría o el destino del movimiento también enseña la acción que deseas para futuros apuntes. El aprendizaje se guarda en este dispositivo y perfil.")
                 .font(.caption).foregroundStyle(.secondary)
             if review?.confirmed == .saveback {
                 Text("Comprueba el abono de la recompensa, la retención y la inversión neta. Esta etiqueta no crea un ingreso en efectivo ni elimina un cargo bancario.")
@@ -1335,6 +1360,7 @@ private struct TransactionOperationReviewCard: View {
                 let result = try await TransactionOperationLearning.review(transaction, in: modelContext)
                 if !Task.isCancelled {
                     review = result; errorMessage = nil
+                    automation = try TransactionOperationLearning.automationStatus(for: transaction, in: modelContext)
                     if let terms = try TransactionOperationLearning.terms(for: transaction, in: modelContext) {
                         savebackPercent = String(terms.savebackPercent)
                         roundUpMultiplier = terms.roundUpMultiplier
@@ -2408,6 +2434,10 @@ struct TransactionFormView: View {
             excluding: transaction?.id
         )
 
+        let correctionSnapshot: TransactionOperationLearning.EditSnapshot?
+        do { correctionSnapshot = try transaction.flatMap { try TransactionOperationLearning.captureEdit($0, in: modelContext) } }
+        catch { validationMessage = "No se pudo preparar el aprendizaje de la corrección. Inténtalo de nuevo."; return }
+
         if let transfer = transferToLink, let fund = fundingFund {
             transfer.reservedFundID = fund.id
             transfer.reservedAmountMinor = transferFunding
@@ -2474,8 +2504,10 @@ struct TransactionFormView: View {
         }
 
         do {
+            try TransactionOperationLearning.rememberEdit(correctionSnapshot, after: savedTransaction,
+                explicitlyReviewed: confirmedCategory, in: modelContext)
             try modelContext.save()
-            if confirmedCategory { TransactionLearning.confirm([savedTransaction], in: modelContext) }
+            if confirmedCategory { TransactionLearning.confirm([savedTransaction], in: modelContext, recordCorrection: false) }
             dismiss()
         } catch {
             modelContext.rollback()
