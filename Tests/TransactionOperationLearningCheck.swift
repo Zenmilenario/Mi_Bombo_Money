@@ -1,5 +1,6 @@
 import Foundation
 import SwiftData
+import CryptoKit
 
 @main
 struct TransactionOperationLearningCheck {
@@ -27,6 +28,16 @@ struct TransactionOperationLearningCheck {
         let revision = row.updatedAt
         let before = try await TransactionOperationLearning.review(row, in: context)
         precondition(before.confirmed == nil && before.prediction == nil)
+        struct LegacyRecord: Codable { let signature: String; let kind: TransactionOperationKind }
+        struct LegacyHistory: Codable { let records: [UUID: LegacyRecord]; let terms: [UUID: [TransactionOperationModel.CardTerms]] }
+        let legacyFields = [row.id.uuidString, row.typeRaw, String(row.amountMinor), String(row.date.timeIntervalSince1970),
+            row.descriptionText, account.id.uuidString, "", account.currencyCode, "", row.bankEntryKey!]
+        let legacySignature = SHA256.hash(data: Data(legacyFields.joined(separator: "|").utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        let legacy = LegacyHistory(records: [row.id: .init(signature: legacySignature, kind: .roundUp)], terms: [:])
+        try JSONEncoder().encode(legacy).write(to: cloud.configurations.first!.url.appendingPathExtension("operation-learning-v1.json"))
+        let upgraded = try await TransactionOperationLearning.review(row, in: context)
+        precondition(upgraded.confirmed == .roundUp, "An app update must preserve the old history and signatures")
         try TransactionOperationLearning.confirm(.roundUp, transaction: row, in: context)
         let after = try await TransactionOperationLearning.review(row, in: context)
         precondition(after.confirmed == .roundUp)

@@ -45,7 +45,7 @@ La interfaz se adapta al espacio disponible y al tamaño de letra. Incluye apari
 
 **IA de categorías.** Un clasificador local aprende de ejemplos y de las confirmaciones del usuario para proponer categorías. Las propuestas requieren revisión; no equivalen a una contabilidad autónoma.
 
-**Próxima entrega preparada localmente.** El reconocimiento de operaciones incorpora propuestas de Round up, Saveback y aportaciones a inversión. Permite corregir identificaciones y guardar condiciones por cuenta. Todavía no aplica automáticamente estos tipos a los saldos ni presupuestos. La compilación iOS y la prueba física de esta ampliación están pendientes.
+**0.6.17 (34), preparada localmente.** Además de identificar operaciones, aprende de tus cambios de tipo, categoría y destino. Cuando supera comprobaciones con ejemplos de meses posteriores al entrenamiento, puede categorizar nuevos apuntes y convertir gastos bancarios reconocidos en transferencias a inversión. Permite pausar y deshacer; los casos ambiguos mantienen revisión manual. El aprendizaje es local, sin llamadas a una IA externa. Compilación iOS y prueba física pendientes; alcance y límites en la documentación.
 
 Consulta el [alcance y la evaluación de los modelos](CloudBackend/APRENDIZAJE_CATEGORIAS.md) y la [integración bancaria personal](BankingBackend/INTEGRACION_PERSONAL.md).
 

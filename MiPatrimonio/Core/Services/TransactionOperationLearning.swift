@@ -14,12 +14,24 @@ enum TransactionOperationLearning {
     private struct History: Codable {
         var records: [UUID: Record] = [:]
         var terms: [UUID: [TransactionOperationModel.CardTerms]] = [:]
+        var corrections: [UUID: HumanCorrection] = [:]
+        var priorCorrections: [UUID: HumanCorrection] = [:]
+        var manualReviewIDs: Set<UUID> = []
+        var automatic: [UUID: AutomaticCorrection] = [:]
+        var automationEnabled = true
+        var enabledAt: Date?
         init() { }
-        private enum CodingKeys: String, CodingKey { case records, terms }
+        private enum CodingKeys: String, CodingKey { case records, terms, corrections, priorCorrections, manualReviewIDs, automatic, automationEnabled, enabledAt }
         init(from decoder: Decoder) throws {
             let values = try decoder.container(keyedBy: CodingKeys.self)
             records = try values.decodeIfPresent([UUID: Record].self, forKey: .records) ?? [:]
             terms = try values.decodeIfPresent([UUID: [TransactionOperationModel.CardTerms]].self, forKey: .terms) ?? [:]
+            corrections = try values.decodeIfPresent([UUID: HumanCorrection].self, forKey: .corrections) ?? [:]
+            priorCorrections = try values.decodeIfPresent([UUID: HumanCorrection].self, forKey: .priorCorrections) ?? [:]
+            manualReviewIDs = try values.decodeIfPresent(Set<UUID>.self, forKey: .manualReviewIDs) ?? []
+            automatic = try values.decodeIfPresent([UUID: AutomaticCorrection].self, forKey: .automatic) ?? [:]
+            automationEnabled = try values.decodeIfPresent(Bool.self, forKey: .automationEnabled) ?? true
+            enabledAt = try values.decodeIfPresent(Date.self, forKey: .enabledAt)
         }
     }
     struct Review {
@@ -32,6 +44,40 @@ enum TransactionOperationLearning {
     }
     private static var training: Training?
     private static var job: Task<TransactionOperationModel?, Never>?
+    private struct HumanCorrection: Codable {
+        let example: TransactionCorrectionModel.Example
+        let signature: String
+    }
+    private struct AutomaticCorrection: Codable {
+        let before: TransactionCorrectionModel.Action
+        let after: TransactionCorrectionModel.Action
+        let signature: String
+        let fingerprint: String
+        let validated: Int
+    }
+    struct EditSnapshot {
+        let input: TransactionOperationModel.Input
+        let action: TransactionCorrectionModel.Action
+        let sourceID: UUID
+        let amount: Int64
+        let date: Date
+        let bankKey: String
+        let kind: TransactionOperationKind?
+        let signature: String
+    }
+    struct AutomationStatus {
+        let enabled: Bool
+        let savedExamples: Int
+        let automaticallyApplied: Bool
+        let validatedPredictions: Int
+    }
+    private struct CorrectionTraining: Equatable, Sendable {
+        let location: URL
+        let examples: [TransactionCorrectionModel.Example]
+    }
+    private static var correctionTraining: CorrectionTraining?
+    private static var correctionJob: Task<TransactionCorrectionModel?, Never>?
+    private static var applying: Set<URL> = []
 
     private static func location(in context: ModelContext) -> URL? {
         guard let configuration = context.container.configurations.first,
@@ -61,14 +107,206 @@ enum TransactionOperationLearning {
                      accountKey: hash(account.id.uuidString + "|" + account.currencyCode),
                      savebackPercent: terms?.savebackPercent, roundUpMultiplier: terms?.roundUpMultiplier)
     }
-    private static func signature(_ transaction: FinancialTransaction) -> String {
-        hash([transaction.id.uuidString, transaction.typeRaw, String(transaction.amountMinor),
+    private static func signature(_ transaction: FinancialTransaction, applying action: TransactionCorrectionModel.Action? = nil) -> String {
+        let destinationID: String
+        let destinationCurrency: String
+        if let action {
+            destinationID = action.destinationID?.uuidString ?? ""
+            destinationCurrency = action.destinationID == nil ? "" : (transaction.sourceAccount?.currencyCode ?? "")
+        } else {
+            destinationID = transaction.destinationAccount?.id.uuidString ?? ""
+            destinationCurrency = transaction.destinationAccount?.currencyCode ?? ""
+        }
+        // Preserve the pre-0.6.17 signature format so confirmed identities survive an update.
+        let fields: [String] = [transaction.id.uuidString, action?.type ?? transaction.typeRaw, String(transaction.amountMinor),
               String(transaction.date.timeIntervalSince1970), transaction.descriptionText,
-              transaction.sourceAccount?.id.uuidString ?? "", transaction.destinationAccount?.id.uuidString ?? "",
-              transaction.sourceAccount?.currencyCode ?? "", transaction.destinationAccount?.currencyCode ?? "",
-              transaction.bankEntryKey ?? ""].joined(separator: "|"))
+              transaction.sourceAccount?.id.uuidString ?? "", destinationID,
+              transaction.sourceAccount?.currencyCode ?? "", destinationCurrency, transaction.bankEntryKey ?? ""]
+        return hash(fields.joined(separator: "|"))
     }
     static func supports(_ transaction: FinancialTransaction) -> Bool { input(transaction)?.valid == true }
+
+    private static func action(_ row: FinancialTransaction) -> TransactionCorrectionModel.Action {
+        .init(type: row.typeRaw, destinationID: row.destinationAccount?.id, categoryID: row.category?.id)
+    }
+
+    /// Capture bank facts before an edit; the resulting action is recorded only for a human decision.
+    static func captureEdit(_ row: FinancialTransaction, in context: ModelContext) throws -> EditSnapshot? {
+        guard row.modelContext === context, supports(row), let location = location(in: context),
+              let sourceID = row.sourceAccount?.id, let bankKey = row.bankEntryKey else { return nil }
+        if row.type == .transfer {
+            guard row.destinationAccount?.type == .investment, row.destinationAccount?.bankIdentityKey == nil else { return nil }
+        }
+        let history = try read(location)
+        guard let value = input(row, terms: applicableTerms(history, transaction: row)) else { return nil }
+        let saved = history.records[row.id]
+        let priorInput = history.corrections[row.id].flatMap { $0.signature == signature(row) ? $0.example.input : nil }
+        return EditSnapshot(input: priorInput ?? value, action: action(row), sourceID: sourceID,
+            amount: row.amountMinor, date: row.date, bankKey: bankKey,
+            kind: saved?.signature == signature(row) ? saved?.kind : nil, signature: signature(row))
+    }
+
+    /// May be staged before the financial save. Signature/action validation ignores failed saves.
+    static func rememberEdit(_ before: EditSnapshot?, after row: FinancialTransaction, explicitlyReviewed: Bool = false,
+                             in context: ModelContext) throws {
+        guard let before, row.modelContext === context, let location = location(in: context) else { return }
+        var history = try read(location)
+        history.manualReviewIDs.insert(row.id)
+        let desired = action(row)
+        guard (explicitlyReviewed || desired != before.action), supports(row),
+              row.sourceAccount?.id == before.sourceID, row.amountMinor == before.amount,
+              row.date == before.date, row.bankEntryKey == before.bankKey,
+              row.reservedFundID == nil, row.reservedAmountMinor == nil, row.recurringMovementID == nil,
+              !before.input.isCredit || row.type != .transfer else { try write(history, at: location); return }
+        if let previous = history.corrections[row.id], previous.signature == before.signature, previous.example.action == before.action {
+            history.priorCorrections[row.id] = previous
+        }
+        history.corrections[row.id] = HumanCorrection(example: .init(input: before.input, action: desired), signature: signature(row))
+        history.enabledAt = history.enabledAt ?? .now
+        if let kind = before.kind { history.records[row.id] = Record(signature: signature(row), kind: kind) }
+        try write(history, at: location)
+    }
+
+    static func rememberCategoryReviews(_ rows: [FinancialTransaction], in context: ModelContext) throws {
+        for row in rows {
+            guard row.category != nil else { continue }
+            try rememberEdit(captureEdit(row, in: context), after: row, explicitlyReviewed: true, in: context)
+        }
+    }
+
+    static func automationStatus(for row: FinancialTransaction, in context: ModelContext) throws -> AutomationStatus {
+        guard row.modelContext === context, let location = location(in: context) else { throw LearningError.unavailable }
+        let history = try read(location)
+        let audit = history.automatic[row.id]
+        let applied = audit.map { $0.signature == signature(row) && $0.after == action(row) } ?? false
+        return .init(enabled: history.automationEnabled, savedExamples: history.corrections.count,
+                     automaticallyApplied: applied, validatedPredictions: applied ? audit?.validated ?? 0 : 0)
+    }
+
+    static func setAutomationEnabled(_ enabled: Bool, in context: ModelContext) throws {
+        guard !context.hasChanges, let location = location(in: context) else { throw LearningError.unavailable }
+        var history = try read(location)
+        history.automationEnabled = enabled
+        try write(history, at: location)
+    }
+
+    static func undoAutomaticCorrection(_ row: FinancialTransaction, in context: ModelContext) throws {
+        guard !context.hasChanges, row.modelContext === context, let location = location(in: context) else { throw LearningError.unavailable }
+        let history = try read(location)
+        guard let audit = history.automatic[row.id], audit.signature == signature(row), audit.after == action(row),
+              row.reservedFundID == nil, row.reservedAmountMinor == nil, row.recurringMovementID == nil,
+              let previousType = TransactionType(rawValue: audit.before.type),
+              let before = try captureEdit(row, in: context) else { throw LearningError.unavailable }
+        let accounts = try context.fetch(FetchDescriptor<FinancialAccount>())
+        let categories = try context.fetch(FetchDescriptor<FinanceCategory>())
+        guard audit.before.destinationID == nil || accounts.contains(where: { $0.id == audit.before.destinationID }),
+              audit.before.categoryID == nil || categories.contains(where: { $0.id == audit.before.categoryID }) else { throw LearningError.unavailable }
+        do {
+            row.type = previousType
+            row.destinationAccount = accounts.first { $0.id == audit.before.destinationID }
+            row.category = categories.first { $0.id == audit.before.categoryID }
+            row.fingerprint = audit.fingerprint
+            row.updatedAt = .now
+            try rememberEdit(before, after: row, explicitlyReviewed: true, in: context)
+            try context.save()
+        } catch { context.rollback(); throw error }
+    }
+
+    static func canApply(_ desired: TransactionCorrectionModel.Action, to row: FinancialTransaction,
+                         accounts: [FinancialAccount], categories: [FinanceCategory], transactions: [FinancialTransaction]) -> Bool {
+        guard supports(row), row.date <= .now, row.type == .expense || row.type == .income,
+              row.destinationAccount == nil, row.category == nil, row.externalID == nil,
+              row.reservedFundID == nil, row.reservedAmountMinor == nil, row.recurringMovementID == nil,
+              row.duplicateState == .none, let source = row.sourceAccount, action(row) != desired else { return false }
+        let category = categories.first { $0.id == desired.categoryID }
+        guard desired.categoryID == nil || (category != nil && category?.isArchived == false) else { return false }
+        if desired.type == row.typeRaw {
+            guard desired.destinationID == nil, let category else { return false }
+            return CategoryRuleService.supports(category, for: row.type)
+        }
+        guard desired.type == TransactionType.transfer.rawValue, row.type == .expense,
+              let destination = accounts.first(where: { $0.id == desired.destinationID }), destination.id != source.id,
+              destination.type == .investment, !destination.isArchived, destination.bankIdentityKey == nil,
+              destination.currencyCode == source.currencyCode, destination.openingDate <= row.date,
+              category == nil || category?.kind == .transfer else { return false }
+        return !transactions.contains { other in
+            guard other.id != row.id, other.amountMinor == row.amountMinor,
+                  abs(other.date.timeIntervalSince(row.date)) <= 7 * 86400 else { return false }
+            if other.type == .income && other.sourceAccount?.id == destination.id { return true }
+            return other.type == .transfer && other.sourceAccount?.id == source.id
+                && other.destinationAccount?.id == destination.id && other.bankEntryKey == nil
+        }
+    }
+
+    static func applyLearnedCorrections(in context: ModelContext, canRun: () -> Bool = { true }) async throws -> Int {
+        guard !context.hasChanges, canRun(), !Task.isCancelled, let location = location(in: context),
+              !applying.contains(location) else { return 0 }
+        applying.insert(location)
+        defer { applying.remove(location) }
+        var history = try read(location)
+        guard history.automationEnabled, let enabledAt = history.enabledAt else { return 0 }
+        let rows = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        let candidates = rows.filter { row in
+            row.createdAt >= enabledAt && row.category == nil && row.destinationAccount == nil
+                && history.corrections[row.id] == nil && history.records[row.id] == nil
+                && !history.manualReviewIDs.contains(row.id)
+                && history.automatic[row.id].map { $0.signature != signature(row) || $0.after != action(row) } != false
+                && supports(row)
+        }
+        guard !candidates.isEmpty else { return 0 }
+        let next = CorrectionTraining(location: location, examples: correctionExamples(rows, history: history))
+        if correctionTraining != next || correctionJob == nil {
+            correctionJob?.cancel()
+            correctionTraining = next
+            correctionJob = Task.detached(priority: .utility) { TransactionCorrectionModel.train(next.examples) }
+        }
+        guard let model = await correctionJob?.value, correctionTraining == next,
+              !Task.isCancelled, !context.hasChanges, canRun() else { return 0 }
+        history = try read(location)
+        guard history.automationEnabled else { return 0 }
+        let currentRows = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        // A cloud merge may have committed changes while the detached model was training.
+        guard correctionExamples(currentRows, history: history) == next.examples else { return 0 }
+        let candidateIDs = Set(candidates.map(\.id))
+        let accounts = try context.fetch(FetchDescriptor<FinancialAccount>())
+        let categories = try context.fetch(FetchDescriptor<FinanceCategory>())
+        var changes: [(FinancialTransaction, TransactionCorrectionModel.Action)] = []
+        for row in currentRows where candidateIDs.contains(row.id) {
+            guard history.corrections[row.id] == nil, history.records[row.id] == nil,
+                  !history.manualReviewIDs.contains(row.id),
+                  let value = input(row, terms: applicableTerms(history, transaction: row)),
+                  let decision = model.automaticDecision(value),
+                  canApply(decision.action, to: row, accounts: accounts, categories: categories, transactions: currentRows) else { continue }
+            history.automatic[row.id] = AutomaticCorrection(before: action(row), after: decision.action,
+                signature: signature(row, applying: decision.action), fingerprint: row.fingerprint, validated: decision.validatedPredictions)
+            changes.append((row, decision.action))
+        }
+        guard !changes.isEmpty, canRun(), !Task.isCancelled else { return 0 }
+        // Persist recovery information first. A failed financial save leaves an inactive audit.
+        try write(history, at: location)
+        do {
+            for (row, desired) in changes {
+                row.type = TransactionType(rawValue: desired.type)!
+                row.destinationAccount = accounts.first { $0.id == desired.destinationID }
+                row.category = categories.first { $0.id == desired.categoryID }
+                row.fingerprint = DuplicateDetectionService.fingerprint(date: row.date, sourceAccountID: row.sourceAccount?.id,
+                    destinationAccountID: row.destinationAccount?.id, type: row.type, amountMinor: row.amountMinor, description: row.descriptionText)
+                row.updatedAt = .now
+            }
+            try context.save()
+        } catch { context.rollback(); throw error }
+        return changes.count
+    }
+
+    private static func correctionExamples(_ rows: [FinancialTransaction], history: History) -> [TransactionCorrectionModel.Example] {
+        let ordered = rows.sorted { $0.date == $1.date ? $0.id.uuidString < $1.id.uuidString : $0.date < $1.date }
+        let examples = ordered.compactMap { row -> TransactionCorrectionModel.Example? in
+            let sample = [history.corrections[row.id], history.priorCorrections[row.id]].compactMap { $0 }
+                .first { $0.signature == signature(row) && $0.example.action == action(row) }
+            return sample?.example
+        }
+        return Array(examples.suffix(700))
+    }
 
     static func specializedIDs(in transactions: [FinancialTransaction], context: ModelContext) throws -> Set<UUID> {
         guard let location = location(in: context) else { return [] }
@@ -155,6 +393,9 @@ enum TransactionOperationLearning {
         training = nil
         job?.cancel()
         job = nil
+        correctionJob?.cancel()
+        correctionJob = nil
+        correctionTraining = nil
         NotificationCenter.default.post(name: didChange, object: location)
     }
 }

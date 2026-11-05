@@ -53,7 +53,8 @@ enum TransactionLearning {
     }
 
     /// Record only after the financial save has succeeded.
-    static func confirm(_ transactions: [FinancialTransaction], in context: ModelContext) {
+    static func confirm(_ transactions: [FinancialTransaction], in context: ModelContext, recordCorrection: Bool = true) {
+        if recordCorrection { try? TransactionOperationLearning.rememberCategoryReviews(transactions, in: context) }
         guard !transactions.isEmpty, let url = location(in: context),
               var history = try? history(at: url) else { return }
         for transaction in transactions {

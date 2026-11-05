@@ -1,5 +1,13 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Correcciones contables aprendidas — iOS 0.6.17 (34)
+
+Preparado localmente el 5 de noviembre. Guardar una corrección de tipo, categoría y destino de un apunte bancario alimenta un modelo supervisado kNN por perfil. Puede aplicar categorías y transformar un gasto nuevo en una transferencia a inversión del mismo importe y moneda, conservando su referencia bancaria. Necesita ejemplos humanos de varios periodos y superar comprobaciones temporales; con datos ambiguos se abstiene. No hay reglas específicas para importes de una persona ni cambios en el parser o el servidor en esta entrega.
+
+El detalle muestra las acciones automáticas, permite deshacerlas y pausar la automatización. No se usan las predicciones como ejemplos humanos. Se excluyen reservas, cargos periódicos, categorías ya elegidas y posibles contrapartidas; no se crea la recompensa de Saveback ni su retención, no se emparejan automáticamente dos cuentas conectadas y no se modifican consultas bancarias. Los cambios financieros siguen la sincronización cloud existente; el aprendizaje y el historial para deshacer son locales. Los registros anteriores al inicio del aprendizaje se revisan manualmente.
+
+Las pruebas locales del núcleo y del adaptador con sustitutos pasan; SwiftData real y compilación iOS quedan pendientes de GitHub, además de probarlo físicamente. Condiciones precisas, almacenamiento y límites en [aprendizaje de categorías y correcciones](../CloudBackend/APRENDIZAJE_CATEGORIAS.md).
+
 ## Descargas de BBVA y Trade Republic — 4 de noviembre de 2026
 
 Las dos conexiones aparecen autorizadas y asociadas en el iPad. El servidor personal respondió correctamente a la comprobación de salud. El registro de Enable Banking del 4 de noviembre a las 13:48:19, hora de Madrid, muestra una sesión de BBVA autorizada y una petición de token a Redsys con HTTP 200. La consulta de movimientos falló en Redsys con HTTP 500, `INTERNAL_SERVER_ERROR` y el mensaje `Service temporary unavailable for BBVA`. Enable Banking devolvió HTTP 400 con `ASPSP_ERROR` a nuestro servidor.
