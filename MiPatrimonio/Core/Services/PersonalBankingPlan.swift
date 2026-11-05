@@ -1,5 +1,34 @@
 import Foundation
 
+/// Find an exact combination without selecting arbitrarily between equivalent groups.
+enum ContributionRecognition {
+    struct Posting { let id: UUID; let amount: Int64 }
+    enum Match: Equatable { case unique(Set<UUID>), ambiguous, requiresSelection, none }
+
+    static func match(_ postings: [Posting], remaining: Int64) -> Match {
+        guard remaining > 0 else { return .none }
+        let eligible = postings.filter { $0.amount > 0 && $0.amount <= remaining }
+        guard Set(eligible.map(\.id)).count == eligible.count else { return .none }
+        guard eligible.count <= 60 else { return .requiresSelection }
+        // Retain at most two alternatives per sum. More alternatives cannot become unique later.
+        var combinations: [Int64: [[UUID]]] = [0: [[]]]
+        for posting in eligible {
+            let previous = combinations
+            for (amount, groups) in previous where amount <= remaining - posting.amount {
+                let sum = amount + posting.amount
+                var alternatives = combinations[sum, default: []]
+                for group in groups where alternatives.count < 2 {
+                    alternatives.append(group + [posting.id])
+                }
+                combinations[sum] = alternatives
+            }
+            guard combinations.count <= 5000 else { return .requiresSelection }
+        }
+        guard let groups = combinations[remaining] else { return .none }
+        return groups.count == 1 ? .unique(Set(groups[0])) : .ambiguous
+    }
+}
+
 /// An unavailable bank must not discard another bank's complete download.
 enum PersonalBankingDownloadBatch {
     enum Outcome {
@@ -65,12 +94,14 @@ struct PersonalBankingDownloadSelection {
 enum PersonalBankingError: LocalizedError {
     case invalidData, accountNotLinked, needsReview, changed, incompleteTransfer, wrongWorkspace, transferAlreadyRecorded
     case unavailableBookedBalance(String), invalidMovement(String), missingMovementReference(String)
+    case contributionNeedsTransferReview
     var errorDescription: String? {
         switch self {
         case .invalidData: "Los datos bancarios no son compatibles o están incompletos. No se ha guardado la importación."
         case .unavailableBookedBalance(let bank): "\(bank) no ha enviado un saldo contable en euros que se pueda verificar."
         case .invalidMovement(let bank): "\(bank) ha enviado un movimiento con fecha, importe, moneda o concepto no válido."
         case .missingMovementReference(let bank): "\(bank) ha enviado un movimiento sin una referencia que permita identificarlo."
+        case .contributionNeedsTransferReview: "Hay un ingreso del mismo importe y día en la cuenta de inversión. Revisa ambos apuntes como transferencia antes de reconocer esta aportación."
         case .accountNotLinked: "Asocia primero las cuentas bancarias con las cuentas de la app."
         case .needsReview: "Revisa las posibles coincidencias antes de incorporar los movimientos."
         case .changed: "Tus datos han cambiado. Actualiza la consulta antes de confirmar."

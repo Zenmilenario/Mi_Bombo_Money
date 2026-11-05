@@ -115,8 +115,24 @@ struct PersonalBankingPlanCheck {
         do { _ = try PersonalBankingPlan.build(feeds: [feed()], links: [:], ledger: []); preconditionFailure("Unlinked account accepted") }
         catch PersonalBankingError.accountNotLinked { }
         try checkTradeRepublicWithoutReferences(links: links)
+        checkContributionCombinations()
         try await checkIndependentDownloads()
         print("Personal banking plan passed: technical prefixes, explicit bulk proposals, repeated purchases, candidate conflicts, renewal, account scoping, transfers and stable IDs.")
+    }
+    private static func checkContributionCombinations() {
+        let a = UUID(), b = UUID(), c = UUID()
+        let split: [ContributionRecognition.Posting] = [.init(id: a, amount: 20000), .init(id: b, amount: 20000)]
+        precondition(ContributionRecognition.match(split, remaining: 40000) == .unique([a, b]))
+        precondition(ContributionRecognition.match(Array(split.reversed()), remaining: 40000) == .unique([a, b]))
+        precondition(ContributionRecognition.match(split, remaining: 20000) == .ambiguous)
+        precondition(ContributionRecognition.match(split, remaining: 50000) == .none)
+        let uneven: [ContributionRecognition.Posting] = [.init(id: a, amount: 12000), .init(id: b, amount: 23000)]
+        precondition(ContributionRecognition.match(uneven, remaining: 35000) == .unique([a, b]))
+        precondition(ContributionRecognition.match(split + [.init(id: c, amount: 40000)], remaining: 40000) == .ambiguous)
+        precondition(ContributionRecognition.match([.init(id: a, amount: Int64.max)], remaining: 40000) == .none)
+        precondition(ContributionRecognition.match(split, remaining: 0) == .none)
+        let many = (0..<61).map { _ in ContributionRecognition.Posting(id: UUID(), amount: 100) }
+        precondition(ContributionRecognition.match(many, remaining: 40000) == .requiresSelection)
     }
     private static func checkTradeRepublicWithoutReferences(links: [String: UUID]) throws {
         let debit = row(nil, text: "Movimiento bancario")

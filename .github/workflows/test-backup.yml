@@ -87,6 +87,25 @@ jobs:
       - name: Comprobar filas adaptables sin espacios vacíos
         run: python3 Tests/check_adaptive_layout.py
 
+      - name: Comprobar IA de tipos de operación y abstención
+        run: |
+          set -euo pipefail
+          xcrun swiftc -O -swift-version 5 -parse-as-library \
+            MiPatrimonio/Core/Services/TransactionOperationModel.swift \
+            Tests/TransactionOperationModelCheck.swift -o build/finance-check/TransactionOperationModelCheck
+          build/finance-check/TransactionOperationModelCheck
+
+      - name: Comprobar persistencia y aislamiento del aprendizaje de operaciones
+        run: |
+          set -euo pipefail
+          xcrun swiftc -O -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
+            MiPatrimonio/Core/Models/Models.swift \
+            MiPatrimonio/Core/Services/ReservedLedger.swift \
+            MiPatrimonio/Core/Services/TransactionOperationModel.swift \
+            MiPatrimonio/Core/Services/TransactionOperationLearning.swift \
+            Tests/TransactionOperationLearningCheck.swift -o build/finance-check/TransactionOperationLearningCheck
+          build/finance-check/TransactionOperationLearningCheck
+
   passwords:
     name: Contraseñas y separación de acceso bancario
     runs-on: macos-latest

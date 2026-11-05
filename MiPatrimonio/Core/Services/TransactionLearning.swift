@@ -73,10 +73,12 @@ enum TransactionLearning {
         guard let url = location(in: context), let history = try? history(at: url),
               let categories = try? context.fetch(FetchDescriptor<FinanceCategory>()),
               let transactions = try? context.fetch(FetchDescriptor<FinancialTransaction>()),
+              let specialized = try? TransactionOperationLearning.specializedIDs(in: transactions, context: context),
               let rules = try? context.fetch(FetchDescriptor<CategoryRule>()) else { return nil }
+        let categoryTransactions = transactions.filter { !specialized.contains($0.id) }
         let input = Training(scope: url,
-            expenses: examples(for: .expense, categories: categories, transactions: transactions, rules: rules, history: history),
-            income: examples(for: .income, categories: categories, transactions: transactions, rules: rules, history: history))
+            expenses: examples(for: .expense, categories: categories, transactions: categoryTransactions, rules: rules, history: history),
+            income: examples(for: .income, categories: categories, transactions: categoryTransactions, rules: rules, history: history))
         if training == input, let job {
             let result = await job.value
             return training == input ? result : nil

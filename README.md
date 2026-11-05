@@ -20,6 +20,8 @@ En **Ajustes → Mis bancos**, la búsqueda muestra solo los bancos que coincide
 
 La app propone categorías en **Por revisar**, en el alta de movimientos y en la revisión del CSV. El modelo combina ejemplos ficticios con el historial del perfil y aprende de las confirmaciones dentro del dispositivo. La primera entrega funciona en modo propuestas. Está preparada localmente y pendiente de checks iOS y prueba en el iPad. [Diseño y evaluación del aprendizaje](CloudBackend/APRENDIZAJE_CATEGORIAS.md).
 
+Preparado localmente en 0.6.16: el detalle de un movimiento bancario incorpora un segundo modelo para proponer Round up, Saveback o aportación a inversión. Aprende de identificaciones y correcciones del perfil y permite indicar las condiciones de la cuenta con vigencia. Cuando faltan datos se abstiene. Identificar un tipo no modifica la contabilidad; la conciliación automática de estos beneficios y la sincronización de sus etiquetas quedan pendientes. Compilación iOS y prueba física pendientes.
+
 ## Conceptos y clasificación · 0.6.10
 
 La 0.6.10 incluye títulos bancarios legibles para los prefijos conocidos, texto guardado accesible en el detalle, selección de varios movimientos para asignar una categoría, acceso rápido desde una fila y aprendizaje de reglas con una frase común. Flujo: **Movimientos → (…) → Seleccionar movimientos → Elegir categoría para la selección**. La selección respeta búsqueda y filtros. Los importes, vínculos de reserva, referencias bancarias y decisiones de duplicados se conservan.

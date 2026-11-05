@@ -334,6 +334,7 @@ struct TransactionsView: View {
             }
 
             Section {
+                InvestmentContributionShortcut()
                 NavigationLink {
                     SpendingAnalysisView()
                 } label: {
@@ -931,6 +932,137 @@ private struct BulkCategoryView: View {
     }
 }
 
+private struct InvestmentContributionShortcut: View {
+    @Query private var transactions: [FinancialTransaction]
+    @Query private var recurring: [RecurringMovement]
+
+    var body: some View {
+        let count = PersonalBankingImporter.contributionProposals(recurring: recurring, transactions: transactions).count
+        NavigationLink {
+            InvestmentContributionReviewView()
+        } label: {
+            Label {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(count > 0 ? "\(count) aportaciones por confirmar" : "Reconocer aportaciones a inversión")
+                    if count > 0 { Text("Cargos que pueden completar tus aportaciones periódicas").font(.caption).foregroundStyle(.secondary) }
+                }
+            } icon: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+            }
+        }
+    }
+}
+
+private struct InvestmentContributionReviewView: View {
+    @Environment(\.modelContext) private var context
+    @Query private var transactions: [FinancialTransaction]
+    @Query private var recurring: [RecurringMovement]
+    @State private var selected: [String: Set<UUID>] = [:]
+    @State private var confirming: PersonalBankingImporter.ContributionProposal?
+    @State private var error: String?
+    @State private var status: String?
+
+    private var proposals: [PersonalBankingImporter.ContributionProposal] {
+        PersonalBankingImporter.contributionProposals(recurring: recurring, transactions: transactions)
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Text("Se buscan uno o varios cargos de la cuenta de origen que completen una aportación periódica. Revisa el destino antes de confirmar.")
+                    .foregroundStyle(.secondary)
+                if let status { Text(status).foregroundStyle(AppDesign.income) }
+            }
+            if proposals.isEmpty {
+                ContentUnavailableView("Sin coincidencias completas", systemImage: "arrow.triangle.2.circlepath",
+                    description: Text("Las propuestas aparecerán cuando los cargos descargados puedan completar una aportación periódica a inversión. Comprueba su cuenta de origen e importe en Aportaciones y cargos periódicos."))
+            }
+            ForEach(proposals) { proposal in contributionSection(proposal) }
+        }
+        .navigationTitle("Aportaciones detectadas")
+        .confirmationDialog("¿Confirmar estos cargos como aportación a inversión?", isPresented: Binding(
+            get: { confirming != nil }, set: { if !$0 { confirming = nil } }), titleVisibility: .visible,
+            presenting: confirming) { proposal in
+                Button("Confirmar aportación") {
+                    do {
+                        try PersonalBankingImporter.confirmContribution(proposal, selectedIDs: selection(for: proposal), in: context)
+                        selected.removeValue(forKey: proposal.id)
+                        status = "Aportación reconocida. Ya cuenta en el resumen de inversión."
+                    } catch { self.error = error.localizedDescription }
+                }
+            } message: { proposal in
+                let rule = recurring.first { $0.id == proposal.recurringID }
+                Text("\(MoneyFormatter.string(minorUnits: proposal.remaining)) hacia \(rule?.destinationAccount?.bankAndAccountDisplayName ?? "la cuenta de inversión"). Los cargos se convertirán en transferencias.\(proposal.planned.isEmpty ? "" : " Se sustituirá la previsión de este periodo por los cargos seleccionados.")")
+            }
+        .alert("No se pudo reconocer la aportación", isPresented: Binding(
+            get: { error != nil }, set: { if !$0 { error = nil } })) {
+                Button("Aceptar", role: .cancel) { error = nil }
+            } message: { Text(error ?? "") }
+    }
+
+    private func selection(for proposal: PersonalBankingImporter.ContributionProposal) -> Set<UUID> {
+        if let selection = selected[proposal.id] { return selection }
+        if case .unique(let ids) = proposal.match { return ids }
+        return []
+    }
+
+    @ViewBuilder private func contributionSection(_ proposal: PersonalBankingImporter.ContributionProposal) -> some View {
+        let rule = recurring.first { $0.id == proposal.recurringID }
+        let selection = selection(for: proposal)
+        let total = proposal.candidates.filter { selection.contains($0.id) }.reduce(Int64.zero) { $0 + $1.amountMinor }
+        Section {
+            Text("\(rule?.sourceAccount?.bankAndAccountDisplayName ?? "") → \(rule?.destinationAccount?.bankAndAccountDisplayName ?? "")")
+                .font(.subheadline)
+            LabeledContent("Previsto en el periodo", value: MoneyFormatter.string(minorUnits: proposal.expected))
+            LabeledContent("Ya reconocido", value: MoneyFormatter.string(minorUnits: proposal.recognized))
+            if case .ambiguous = proposal.match {
+                Text("Hay varias combinaciones posibles. Selecciona los cargos que pertenecen a esta aportación.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if case .requiresSelection = proposal.match {
+                Text("Hay muchos cargos candidatos. Selecciona los que pertenecen a esta aportación para comprobar el total.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if case .unique(let suggested) = proposal.match {
+                ForEach(proposal.candidates.filter { suggested.contains($0.id) }) { transaction in
+                    contributionPosting(transaction, proposal: proposal)
+                }
+                let others = proposal.candidates.filter { !suggested.contains($0.id) }
+                if !others.isEmpty {
+                    DisclosureGroup("Ver otros cargos del periodo (\(others.count))") {
+                        ForEach(others) { transaction in contributionPosting(transaction, proposal: proposal) }
+                    }
+                }
+            } else {
+                ForEach(proposal.candidates) { transaction in contributionPosting(transaction, proposal: proposal) }
+            }
+            LabeledContent("Seleccionado", value: MoneyFormatter.string(minorUnits: total))
+            if !proposal.planned.isEmpty {
+                Text("Hay una previsión de esta aportación ya registrada. Al confirmar se sustituirá por los cargos seleccionados, conservando sus notas.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Button("Reconocer aportación") { confirming = proposal }
+                .disabled(selection.isEmpty || total != proposal.remaining)
+        } header: {
+            Text("\(rule?.name ?? "Aportación") · \(proposal.period.start.formatted(date: .abbreviated, time: .omitted))")
+        }
+    }
+
+    private func contributionPosting(_ transaction: FinancialTransaction,
+                                     proposal: PersonalBankingImporter.ContributionProposal) -> some View {
+        Toggle(isOn: Binding(get: { selection(for: proposal).contains(transaction.id) }, set: { checked in
+            var ids = selection(for: proposal)
+            if checked { ids.insert(transaction.id) } else { ids.remove(transaction.id) }
+            selected[proposal.id] = ids
+        })) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(transaction.displayDescription)
+                Text("\(transaction.date.formatted(date: .abbreviated, time: .omitted)) · \(MoneyFormatter.string(minorUnits: transaction.amountMinor))")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
 private struct TransactionReviewActions: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var transactions: [FinancialTransaction]
@@ -941,6 +1073,7 @@ private struct TransactionReviewActions: View {
     @State private var rulePhrase = ""
     @State private var errorMessage: String?
     @State private var transferPartner: FinancialTransaction?
+    @State private var operationReviewRevision = 0
     let transaction: FinancialTransaction
     let reviewAsTransfer: () -> Void
 
@@ -969,9 +1102,16 @@ private struct TransactionReviewActions: View {
             if issues.contains(.possibleDuplicate) { duplicateActions }
         }
         .onAppear { if rulePhrase.isEmpty { rulePhrase = transaction.displayDescription } }
-        .task(id: transaction.updatedAt) {
+        .onReceive(NotificationCenter.default.publisher(for: TransactionOperationLearning.didChange)) { _ in
+            learnedCategoryID = nil
+            operationReviewRevision += 1
+        }
+        .task(id: "\(transaction.updatedAt.timeIntervalSince1970)|\(operationReviewRevision)") {
             learnedCategoryID = nil
             guard needsCategory, suggestedRule == nil, !transaction.hasBankTransferConcept else { return }
+            if TransactionOperationLearning.supports(transaction),
+               let operation = try? await TransactionOperationLearning.review(transaction, in: modelContext),
+               let kind = operation.confirmed ?? operation.prediction?.kind, kind != .ordinary { return }
             let prediction = await TransactionLearning.suggest(transaction.displayDescription,
                 type: transaction.type, categories: allowedCategories, in: modelContext)
             if !Task.isCancelled { learnedCategoryID = prediction }
@@ -1127,6 +1267,109 @@ private struct TransactionReviewActions: View {
     }
 }
 
+private struct TransactionOperationReviewCard: View {
+    @Environment(\.modelContext) private var modelContext
+    let transaction: FinancialTransaction
+    @State private var review: TransactionOperationLearning.Review?
+    @State private var refresh = 0
+    @State private var errorMessage: String?
+    @State private var savebackPercent = "1"
+    @State private var roundUpMultiplier = 1
+    @State private var termsFrom = Date.now
+    @State private var termsMessage: String?
+
+    var body: some View {
+        SectionCard("Reconocimiento de inversión", subtitle: "La IA aprende de lo que confirmas") {
+            if let kind = review?.confirmed {
+                Label("Identificado: \(kind.title)", systemImage: "checkmark.seal")
+                    .font(.subheadline.weight(.semibold))
+                Text(kind.explanation).font(.footnote).foregroundStyle(.secondary)
+            } else if let prediction = review?.prediction {
+                Label("Propuesta de IA: \(prediction.kind.title)", systemImage: "sparkles")
+                    .font(.subheadline.weight(.semibold))
+                Text(prediction.usesContext
+                     ? "Propuesta por contexto de tus ejemplos confirmados. La fecha y el importe no demuestran por sí solos el tipo de operación."
+                     : "Propuesta aprendida del concepto. Revisa la información del banco antes de confirmar.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Button("Confirmar identificación") { confirm(prediction.kind) }
+                    .buttonStyle(.bordered)
+            } else {
+                Text("No hay evidencia suficiente para proponer un tipo. Puedes identificarlo consultando el detalle del banco; esa decisión ayuda a aprender.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Menu {
+                ForEach(TransactionOperationKind.allCases) { kind in
+                    Button(kind.title) { confirm(kind) }
+                }
+                if review?.confirmed != nil {
+                    Button("Retirar esta identificación", role: .destructive) { confirm(nil) }
+                }
+            } label: {
+                Label(review?.confirmed == nil ? "Identificar operación" : "Corregir identificación", systemImage: "tag")
+                    .frame(minHeight: 44, alignment: .leading)
+            }
+            Text("La identificación entrena la IA; no cambia saldos ni presupuestos. Las confirmaciones se guardan en este dispositivo y perfil.")
+                .font(.caption).foregroundStyle(.secondary)
+            if review?.confirmed == .saveback {
+                Text("Comprueba el abono de la recompensa, la retención y la inversión neta. Esta etiqueta no crea un ingreso en efectivo ni elimina un cargo bancario.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            DisclosureGroup("Condiciones de los beneficios de esta cuenta") {
+                TextField("Saveback bruto (%)", text: $savebackPercent)
+                    .keyboardType(.decimalPad)
+                    .textFieldStyle(.roundedBorder)
+                Picker("Multiplicador de Round up", selection: $roundUpMultiplier) {
+                    ForEach([1, 2, 3, 5, 10], id: \.self) { value in Text("\(value)×").tag(value) }
+                }
+                DatePicker("Aplicar desde", selection: $termsFrom, in: ...Date.now, displayedComponents: .date)
+                Button("Guardar condiciones") { saveTerms() }
+                Text("Indica desde cuándo conoces estas condiciones. El porcentaje es sobre la recompensa bruta; la IA no deduce la retención ni atribuye un cargo solo por coincidir con una fórmula.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if let termsMessage { Text(termsMessage).font(.caption).foregroundStyle(.secondary) }
+            }
+            if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
+        }
+        .task(id: "\(transaction.updatedAt.timeIntervalSince1970)|\(refresh)") {
+            review = nil
+            do {
+                let result = try await TransactionOperationLearning.review(transaction, in: modelContext)
+                if !Task.isCancelled {
+                    review = result; errorMessage = nil
+                    if let terms = try TransactionOperationLearning.terms(for: transaction, in: modelContext) {
+                        savebackPercent = String(terms.savebackPercent)
+                        roundUpMultiplier = terms.roundUpMultiplier
+                        termsFrom = terms.validFrom
+                    } else { termsFrom = min(transaction.date, .now) }
+                }
+            } catch {
+                if !Task.isCancelled { errorMessage = "No se pudo leer el aprendizaje de este perfil. Tus movimientos se conservan." }
+            }
+        }
+    }
+
+    private func confirm(_ kind: TransactionOperationKind?) {
+        do {
+            try TransactionOperationLearning.confirm(kind, transaction: transaction, in: modelContext)
+            errorMessage = nil
+            refresh += 1
+        } catch { errorMessage = "No se pudo guardar la identificación. Inténtalo de nuevo tras guardar los cambios pendientes." }
+    }
+
+    private func saveTerms() {
+        guard let percent = Double(savebackPercent.replacingOccurrences(of: ",", with: ".")) else {
+            errorMessage = "Introduce un porcentaje válido."; return
+        }
+        let terms = TransactionOperationModel.CardTerms(savebackPercent: percent,
+            roundUpMultiplier: roundUpMultiplier, validFrom: Calendar.current.startOfDay(for: termsFrom))
+        guard terms.valid else { errorMessage = "El porcentaje debe ser mayor que cero y no superar el 100 %."; return }
+        do {
+            try TransactionOperationLearning.saveTerms(terms, transaction: transaction, in: modelContext)
+            termsMessage = "Condiciones guardadas para esta cuenta en este dispositivo."
+            refresh += 1
+        } catch { errorMessage = "No se pudieron guardar las condiciones. Guarda primero los cambios pendientes." }
+    }
+}
+
 private struct TransactionDetailView: View {
     @Query private var reservedFunds: [ReservedFund]
     @Environment(\.dismiss) private var dismiss
@@ -1143,6 +1386,9 @@ private struct TransactionDetailView: View {
                 LazyVStack(spacing: AppDesign.sectionSpacing) {
                     summaryCard
                     movementDetails
+                    if TransactionOperationLearning.supports(transaction) {
+                        TransactionOperationReviewCard(transaction: transaction)
+                    }
                     if transaction.displayDescription != transaction.descriptionText {
                         SectionCard("Concepto guardado", subtitle: "Descripción conservada tal como está registrada") {
                             Text(transaction.descriptionText)

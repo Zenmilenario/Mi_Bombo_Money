@@ -13,6 +13,110 @@ enum PersonalBankingImporter {
         let baseDate: Date
         let hasSnapshot: Bool
     }
+    struct ContributionProposal: Identifiable {
+        let recurringID: UUID
+        let sourceID: UUID
+        let destinationID: UUID
+        let period: DateInterval
+        let expected: Int64
+        let recognized: Int64
+        let candidates: [FinancialTransaction]
+        let planned: [FinancialTransaction]
+        let match: ContributionRecognition.Match
+        let revisions: [UUID: Date]
+        var remaining: Int64 { expected - recognized }
+        var id: String { recurringID.uuidString + "|" + String(period.start.timeIntervalSince1970) }
+    }
+
+    @MainActor static func contributionProposals(recurring: [RecurringMovement], transactions: [FinancialTransaction],
+                                                 at date: Date = .now, calendar: Calendar = .autoupdatingCurrent) -> [ContributionProposal] {
+        var proposals: [ContributionProposal] = []
+        for rule in recurring where rule.isActive && rule.type == .transfer && rule.amountMinor > 0 && rule.amountMinor <= 1_000_000_000_000 {
+            guard let source = rule.sourceAccount, let destination = rule.destinationAccount,
+                  source.id != destination.id, !source.isArchived, !destination.isArchived,
+                  source.type != .investment, !source.type.isLiability, destination.type == .investment,
+                  source.currencyCode == destination.currencyCode else { continue }
+            let endDay = rule.endDate.map { calendar.startOfDay(for: $0) } ?? .distantFuture
+            let candidates = transactions.filter {
+                $0.type == .expense && $0.sourceAccount?.id == source.id && $0.destinationAccount == nil
+                    && $0.bankEntryKey != nil && $0.recurringMovementID == nil
+                    && $0.reservedFundID == nil && $0.reservedAmountMinor == nil && $0.duplicateState != .possible
+                    && $0.amountMinor > 0 && $0.amountMinor <= rule.amountMinor && $0.date <= date
+                    && $0.date >= max(source.openingDate, destination.openingDate)
+                    && calendar.startOfDay(for: $0.date) <= endDay
+            }
+            let groups = Dictionary(grouping: candidates) { RecurringMovementService.period(containing: $0.date, for: rule, calendar: calendar) }
+            for (period, rows) in groups {
+                guard let period else { continue }
+                let existing = transactions.filter {
+                    $0.type == .transfer && $0.sourceAccount?.id == source.id && $0.destinationAccount?.id == destination.id
+                        && $0.date >= period.start && $0.date < period.end
+                }
+                let planned = existing.filter {
+                    $0.recurringMovementID == rule.id && $0.bankEntryKey == nil && $0.externalID == nil
+                        && $0.reservedFundID == nil && $0.reservedAmountMinor == nil
+                }
+                let plannedIDs = Set(planned.map(\.id))
+                let actual = existing.filter { !plannedIDs.contains($0.id) }
+                // Stop adding once the target is reached, including discretionary contributions.
+                let recognized = actual.reduce(Int64.zero) { min(rule.amountMinor, $0 + min(rule.amountMinor, $1.amountMinor)) }
+                guard recognized < rule.amountMinor else { continue }
+                let remaining = rule.amountMinor - recognized
+                let plannedAmount = planned.reduce(Int64.zero) { min(rule.amountMinor + 1, $0 + min(rule.amountMinor + 1, $1.amountMinor)) }
+                guard planned.isEmpty || plannedAmount == remaining || plannedAmount == rule.amountMinor else { continue }
+                let ordered = rows.sorted { $0.date == $1.date ? $0.id.uuidString < $1.id.uuidString : $0.date < $1.date }
+                let match = ContributionRecognition.match(ordered.map { .init(id: $0.id, amount: $0.amountMinor) }, remaining: remaining)
+                guard match != .none else { continue }
+                proposals.append(ContributionProposal(recurringID: rule.id, sourceID: source.id, destinationID: destination.id,
+                    period: period, expected: rule.amountMinor, recognized: recognized, candidates: ordered, planned: planned,
+                    match: match, revisions: Dictionary(uniqueKeysWithValues: (ordered + planned).map { ($0.id, $0.updatedAt) })))
+            }
+        }
+        return proposals.sorted { $0.period.start == $1.period.start ? $0.id < $1.id : $0.period.start > $1.period.start }
+    }
+
+    @MainActor static func confirmContribution(_ proposal: ContributionProposal, selectedIDs: Set<UUID>, in context: ModelContext) throws {
+        try requireCloud(context)
+        guard !context.hasChanges else { throw PersonalBankingError.changed }
+        let rules = try context.fetch(FetchDescriptor<RecurringMovement>())
+        let transactions = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        guard let current = contributionProposals(recurring: rules, transactions: transactions).first(where: { $0.id == proposal.id }),
+              current.expected == proposal.expected, current.recognized == proposal.recognized,
+              current.sourceID == proposal.sourceID, current.destinationID == proposal.destinationID,
+              current.period == proposal.period, current.revisions == proposal.revisions,
+              Set(current.planned.map(\.id)) == Set(proposal.planned.map(\.id)),
+              let rule = rules.first(where: { $0.id == current.recurringID }),
+              let destination = rule.destinationAccount, let source = rule.sourceAccount,
+              !selectedIDs.isEmpty, selectedIDs.isSubset(of: Set(current.candidates.map(\.id))) else {
+            throw PersonalBankingError.changed
+        }
+        let selected = current.candidates.filter { selectedIDs.contains($0.id) }
+        let amount = selected.reduce(Int64.zero) { min(current.remaining + 1, $0 + min(current.remaining + 1, $1.amountMinor)) }
+        guard amount == current.remaining else { throw PersonalBankingError.needsReview }
+        // An opposite bank posting needs normal transfer reconciliation first.
+        guard !selected.contains(where: { debit in
+            transactions.contains {
+                $0.type == .income && $0.sourceAccount?.id == destination.id && $0.amountMinor == debit.amountMinor
+                    && Calendar.current.isDate($0.date, inSameDayAs: debit.date)
+            }
+        }) else { throw PersonalBankingError.contributionNeedsTransferReview }
+        do {
+            let plannedNotes = current.planned.map(\.notes).filter { !$0.isEmpty }.joined(separator: "\n\n")
+            for transaction in selected {
+                transaction.type = .transfer
+                transaction.destinationAccount = destination
+                transaction.recurringMovementID = rule.id
+                if transaction.category?.kind != .transfer { transaction.category = nil }
+                if !plannedNotes.isEmpty { transaction.notes += (transaction.notes.isEmpty ? "" : "\n\n") + plannedNotes }
+                transaction.fingerprint = DuplicateDetectionService.fingerprint(date: transaction.date, sourceAccountID: source.id,
+                    destinationAccountID: destination.id, type: .transfer, amountMinor: transaction.amountMinor,
+                    description: transaction.descriptionText)
+                transaction.updatedAt = .now
+            }
+            for planned in current.planned { context.delete(planned) }
+            try context.save()
+        } catch { context.rollback(); throw error }
+    }
     static func identity(server: URL, accountID: String) -> String {
         "enable:" + hash(server.absoluteString + "|" + accountID)
     }

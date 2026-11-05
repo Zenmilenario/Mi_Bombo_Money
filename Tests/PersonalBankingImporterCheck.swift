@@ -137,11 +137,61 @@ struct PersonalBankingImporterCheck {
         let repeatPlain = try PersonalBankingImporter.apply(plainFeeds, server: server, in: partialContext, observedAt: observed)
         precondition(repeatPlain.inserted == 0 && repeatPlain.skipped == 2)
         try checkTradeRepublicWithoutBookedBalance(server: server, in: context, day: day, observed: observed)
+        try checkSplitContributions(server: server, in: context, day: day, observed: observed)
         // Live financial imports can never write to the separate sandbox workspace.
         let isolated = try ModelContainer(for: schema, configurations: ModelConfiguration("BankingTests", schema: schema, isStoredInMemoryOnly: true))
         do { _ = try PersonalBankingImporter.apply([feed], server: server, in: isolated.mainContext, observedAt: observed); preconditionFailure("Sandbox accepted real-account import") }
         catch PersonalBankingError.wrongWorkspace { }
         print("Personal banking importer passed: linked existing account, CSV provenance, reserve allocation, budget exclusion, snapshot balance, repeat imports and periodic posting suppression.")
+    }
+
+    @MainActor private static func checkSplitContributions(server: URL, in context: ModelContext, day: Date, observed: Date) throws {
+        let cash = FinancialAccount(name: "Efectivo de prueba", type: .checking, openingDate: day.addingTimeInterval(-86400))
+        let portfolio = FinancialAccount(name: "Valores de prueba", type: .investment, openingDate: cash.openingDate)
+        let rule = RecurringMovement(name: "Inversión periódica", type: .transfer, amountMinor: 35000,
+            descriptionText: "Inversión", frequency: .monthly, nextDueDate: day,
+            sourceAccount: cash, destinationAccount: portfolio)
+        let planned = FinancialTransaction(date: day, type: .transfer, amountMinor: 35000, descriptionText: "Previsión",
+            notes: "Conservar esta nota", recurringMovementID: rule.id, sourceAccount: cash, destinationAccount: portfolio)
+        context.insert(cash); context.insert(portfolio); context.insert(rule); context.insert(planned)
+        try context.save()
+        let remote = ConnectedBankAccount(id: "contribution-test", name: "Prueba", currency: "EUR", lastFour: "0000")
+        try PersonalBankingImporter.link(remote, bank: "Banco de prueba", server: server, to: cash, in: context)
+        let feed = BankingAccountFeed(connection: .init(id: UUID().uuidString, bank: "Banco de prueba", validUntil: "2026-11-01", accounts: [remote]),
+            account: remote, balances: [.init(amountMinor: 88000, currency: "EUR", type: "CLBD")], movements: [
+                .init(id: "one", bookingDate: "2026-10-15", signedAmountMinor: -12000, currency: "EUR", description: "Movimiento bancario"),
+                .init(id: "two", bookingDate: "2026-10-15", signedAmountMinor: -23000, currency: "EUR", description: "Movimiento bancario")])
+        let imported = try PersonalBankingImporter.apply([feed], server: server, in: context, observedAt: observed)
+        precondition(imported.inserted == 2)
+        let before = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        let proposal = PersonalBankingImporter.contributionProposals(recurring: [rule], transactions: before, at: observed).first!
+        guard case .unique(let ids) = proposal.match else { preconditionFailure("Uneven split was not recognized") }
+        precondition(ids.count == 2 && proposal.planned.map(\.id) == [planned.id])
+        let bankKeys = Set(before.filter { ids.contains($0.id) }.compactMap(\.bankEntryKey))
+        try PersonalBankingImporter.confirmContribution(proposal, selectedIDs: ids, in: context)
+        let after = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        let recognized = after.filter { ids.contains($0.id) }
+        precondition(!after.contains { $0.id == planned.id })
+        precondition(recognized.count == 2 && recognized.allSatisfy {
+            $0.type == .transfer && $0.destinationAccount?.id == portfolio.id && $0.recurringMovementID == rule.id
+                && $0.notes.contains("Conservar esta nota")
+        })
+        precondition(Set(recognized.compactMap(\.bankEntryKey)) == bankKeys)
+        precondition(FinanceCalculator.investmentFlows(for: portfolio, month: day, transactions: after, at: observed).contributedMinor == 35000)
+        precondition(PersonalBankingImporter.contributionProposals(recurring: [rule], transactions: after, at: observed).isEmpty)
+        do {
+            try PersonalBankingImporter.confirmContribution(proposal, selectedIDs: ids, in: context)
+            preconditionFailure("The same contribution was applied twice")
+        } catch PersonalBankingError.changed { }
+        let repeated = try PersonalBankingImporter.apply([feed], server: server, in: context, observedAt: observed)
+        precondition(repeated.inserted == 0 && repeated.skipped == 2)
+        cash.bankIdentityKey = nil
+        rule.postsAutomatically = true
+        rule.nextDueDate = day.addingTimeInterval(-86400)
+        try context.save()
+        let automaticallyPosted = try RecurringMovementService.postDueMovements(in: context, through: observed)
+        precondition(automaticallyPosted == 0 && rule.nextDueDate > observed,
+                     "Recognized split contributions must not be generated again after disconnecting the bank")
     }
 
     @MainActor private static func checkTradeRepublicWithoutBookedBalance(server: URL, in context: ModelContext,
