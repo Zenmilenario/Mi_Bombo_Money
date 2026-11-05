@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="320" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
+  <title id="title">Mi Bombo Money — Tu dinero, con perspectiva</title>
+  <desc id="desc">Portada en grafito y verde agua con una ilustración abstracta de cuentas y evolución financiera. No representa datos reales.</desc>
+  <defs>
+    <linearGradient id="background" x2="1" y2="1"><stop stop-color="#15212d"/><stop offset="1" stop-color="#24394a"/></linearGradient>
+    <linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#99d9cd" stop-opacity=".25"/><stop offset="1" stop-color="#99d9cd" stop-opacity="0"/></linearGradient>
+  </defs>
+  <rect width="1200" height="320" rx="24" fill="url(#background)"/>
+  <circle cx="1100" cy="35" r="210" fill="#99d9cd" opacity=".035"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+    <text x="56" y="68" fill="#a6ddd3" font-size="15" font-weight="600" letter-spacing="3">MI BOMBO MONEY</text>
+    <text x="56" y="132" fill="#f2f6f8" font-size="46" font-weight="700">Tu dinero,</text>
+    <text x="56" y="186" fill="#f2f6f8" font-size="46" font-weight="700">con perspectiva.</text>
+    <text x="58" y="232" fill="#bdcbd5" font-size="18">Cuentas · Presupuestos · Ahorro · Inversión</text>
+    <text x="58" y="275" fill="#91a7b8" font-size="14">Diseñada para iPhone y iPad</text>
+  </g>
+  <g transform="translate(705 50)">
+    <rect width="430" height="220" rx="18" fill="#192a38" stroke="#395164"/>
+    <path d="M28 63H402M28 113H402M28 163H402" stroke="#314858" stroke-width="1"/>
+    <path d="M30 177C70 177 65 153 104 153S148 170 180 128 217 151 255 101 300 107 333 66 370 83 400 37V200H30Z" fill="url(#area)"/>
+    <path d="M30 177C70 177 65 153 104 153S148 170 180 128 217 151 255 101 300 107 333 66 370 83 400 37" fill="none" stroke="#a6ddd3" stroke-width="4" stroke-linecap="round"/>
+    <circle cx="400" cy="37" r="6" fill="#a6ddd3"/>
+    <rect x="-36" y="146" width="150" height="65" rx="12" fill="#2c4556" stroke="#536c7d"/>
+    <rect x="-18" y="164" width="25" height="25" rx="7" fill="#a6ddd3" fill-opacity=".15"/>
+    <path d="m-11 177 5 5 9-12" stroke="#a6ddd3" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M21 169H90M21 181H69" stroke="#b9cbd7" stroke-width="4" stroke-linecap="round"/>
+  </g>
+</svg>
