@@ -50,7 +50,7 @@ enum RecurringMovementService {
                 let alreadyPosted = existingTransactions.contains {
                     $0.recurringMovementID == movement.id
                         && calendar.isDate($0.date, inSameDayAs: scheduledDate)
-                }
+                } || confirmedBankContribution(movement, scheduledDate: scheduledDate, transactions: existingTransactions, calendar: calendar)
                 if alreadyPosted {
                     movement.nextDueDate = nextDate(after: scheduledDate, for: movement)
                     movement.updatedAt = .now
@@ -77,6 +77,38 @@ enum RecurringMovementService {
         }
 
         return postedCount
+    }
+
+    private static func confirmedBankContribution(_ rule: RecurringMovement, scheduledDate: Date,
+                                                  transactions: [FinancialTransaction], calendar: Calendar) -> Bool {
+        guard rule.type == .transfer, let source = rule.sourceAccount, let destination = rule.destinationAccount,
+              destination.type == .investment, rule.amountMinor > 0,
+              let period = period(containing: scheduledDate, for: rule, calendar: calendar) else { return false }
+        let confirmed = transactions.filter {
+            $0.recurringMovementID == rule.id && $0.bankEntryKey != nil && $0.type == .transfer
+                && $0.sourceAccount?.id == source.id && $0.destinationAccount?.id == destination.id
+                && $0.date >= period.start && $0.date < period.end
+        }
+        var remaining = rule.amountMinor
+        for transaction in confirmed where transaction.amountMinor > 0 {
+            remaining -= min(remaining, transaction.amountMinor)
+        }
+        return remaining == 0
+    }
+
+    static func period(containing date: Date, for rule: RecurringMovement,
+                       calendar: Calendar = .autoupdatingCurrent) -> DateInterval? {
+        guard (1...120).contains(rule.interval) else { return nil }
+        let component: Calendar.Component = rule.frequency == .weekly ? .weekOfYear : .month
+        let multiplier = rule.frequency == .yearly ? 12 : rule.frequency == .quarterly ? 3 : 1
+        let step = rule.interval * multiplier
+        guard let anchor = calendar.dateInterval(of: component, for: rule.nextDueDate)?.start,
+              let current = calendar.dateInterval(of: component, for: date)?.start,
+              let distance = calendar.dateComponents([component], from: anchor, to: current).value(for: component) else { return nil }
+        let remainder = ((distance % step) + step) % step
+        guard let start = calendar.date(byAdding: component, value: distance - remainder, to: anchor),
+              let end = calendar.date(byAdding: component, value: step, to: start) else { return nil }
+        return DateInterval(start: start, end: end)
     }
 
     @discardableResult
