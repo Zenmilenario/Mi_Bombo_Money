@@ -255,10 +255,16 @@ async function sandboxFixture(environment = 'SANDBOX', options = {}) {
     if (url.pathname.endsWith('/transactions') && options.rateLimited) return Response.json(
       { error: 'ASPSP_RATE_LIMIT_EXCEEDED', detail: 'private-provider-detail' },
       { status: 429, headers: { 'Retry-After': '900' } });
-    if (url.pathname.endsWith('/transactions')) return Response.json({ transactions: [{ status: 'BOOK', entry_reference: 'fixture-reference',
-      transaction_amount: { amount: '10.00', currency: 'EUR' }, credit_debit_indicator: 'DBIT',
-      booking_date: new Date().toISOString().slice(0, 10), remittance_information: ['Fictitious purchase'] }],
-      continuation_key: url.searchParams.has('continuation_key') ? null : 'next-page' });
+    if (url.pathname.endsWith('/transactions')) {
+      const booked = { status: 'BOOK', entry_reference: 'fixture-reference',
+        transaction_amount: { amount: '10.00', currency: 'EUR' }, credit_debit_indicator: 'DBIT',
+        booking_date: new Date().toISOString().slice(0, 10), remittance_information: ['Fictitious purchase'] };
+      const transactions = [booked];
+      if (options.pendingMovements && !url.searchParams.has('transaction_status')) {
+        transactions.push({ ...booked, status: 'HOLD', entry_reference: 'fixture-hold', booking_date: undefined });
+      }
+      return Response.json({ transactions, continuation_key: url.searchParams.has('continuation_key') ? null : 'next-page' });
+    }
     if (url.pathname === `/sessions/${sessionID}` && request.method === 'DELETE') return new Response(null, { status: options.revokeStatus ?? 204 });
     throw new Error('Unexpected provider endpoint');
   });
@@ -435,7 +441,7 @@ test('complete Mock scenario survives D1 encryption, pagination and renewed cons
 
 
 test('personal production verifies owner identity end-to-end, encrypts consent, imports only authorised reads and revokes', async () => {
-  await sandboxFixture('PRODUCTION', { production: true, bankName: 'Bankinter',
+  await sandboxFixture('PRODUCTION', { production: true, bankName: 'Bankinter', pendingMovements: true,
     aspsps: [{ name: 'Bankinter', country: 'ES', psu_types: ['personal'], maximum_consent_validity: 180 * 86400 }] });
   assert.deepEqual(await (await call('/v1/status')).json(), { mode: 'production', liveBankingEnabled: true, accountingImportEnabled: true });
   assert.equal((await call('/v1/connections', { headers: { Authorization: 'Bearer other.payload.signature' } })).status, 403);
@@ -456,7 +462,15 @@ test('personal production verifies owner identity end-to-end, encrypts consent, 
   const query = `/v1/connections/${first.id}/accounts/${first.accounts[0].id}?from=${to}&to=${to}`;
   const data = await call(query);
   assert.equal(data.status, 200);
-  assert.equal((await data.json()).transactions[0].signedAmountMinor, -1000);
+  const booked = await data.json();
+  assert.equal(booked.transactions[0].signedAmountMinor, -1000);
+  assert.equal(booked.pendingTransactions, undefined);
+  const mixed = await call(`${query}&include_pending=1`);
+  assert.equal(mixed.status, 200);
+  const preview = await mixed.json();
+  assert.deepEqual(preview.transactions, booked.transactions);
+  assert.equal(preview.pendingTransactions.length, 1);
+  assert.equal(preview.pendingTransactions[0].status, 'HOLD');
   const renewal = await start('Bankinter');
   const renewedState = new URL(renewal.authorizationURL).searchParams.get('state');
   await mf.dispatchFetch(`${host}/v1/callback?state=${renewedState}&code=fictitious-code`, { redirect: 'manual' });

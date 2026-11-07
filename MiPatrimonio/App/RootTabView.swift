@@ -1,3 +1,4 @@
+import Combine
 import SwiftData
 import SwiftUI
 #if canImport(UIKit)
@@ -20,8 +21,13 @@ struct RootTabView: View {
     @State private var selectedMonth = Date.now.startOfMonth()
     @State private var showingQuickAdd = false
     @State private var recurrenceError: String?
-    @State private var correctionRevision = 0
     @State private var correctionError: String?
+
+    private let mayApplyLearning: @MainActor () -> Bool
+
+    init(mayApplyLearning: @escaping @MainActor () -> Bool = { true }) {
+        self.mayApplyLearning = mayApplyLearning
+    }
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -97,23 +103,8 @@ struct RootTabView: View {
             TransactionFormView()
         }
         .task { _ = await TransactionLearning.models(in: modelContext) }
-        .onReceive(NotificationCenter.default.publisher(for: TransactionOperationLearning.didChange)) { _ in
-            correctionRevision += 1
-        }
-        .task(id: "\(modelContext.container.configurations.first?.url.absoluteString ?? "")|\(scenePhase == .active)|\(correctionRevision)") {
-            guard scenePhase == .active else { return }
-            while !Task.isCancelled {
-                do {
-                    _ = try await TransactionOperationLearning.applyLearnedCorrections(in: modelContext) {
-                        scenePhase == .active && !showingQuickAdd && !hasPresentedWindow
-                    }
-                } catch {
-                    if !Task.isCancelled { correctionError = "No se pudo aplicar una corrección aprendida. Puedes revisar los movimientos manualmente." }
-                    return
-                }
-                do { try await Task.sleep(for: .seconds(20)) }
-                catch { return }
-            }
+        .task(id: "\(modelContext.container.configurations.first?.url.absoluteString ?? "")|\(scenePhase == .active)") {
+            await listenForCorrectionEvents()
         }
         .onAppear(perform: postDueMovements)
         .onChange(of: scenePhase) { _, phase in
@@ -164,6 +155,52 @@ struct RootTabView: View {
             try RecurringMovementService.postDueMovements(in: modelContext)
         } catch {
             recurrenceError = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    private var canApplyCorrections: Bool {
+        scenePhase == .active && !showingQuickAdd && !hasPresentedWindow && !modelContext.hasChanges && mayApplyLearning()
+    }
+
+    @MainActor
+    private func listenForCorrectionEvents() async {
+        guard scenePhase == .active, let configuration = modelContext.container.configurations.first,
+              ["LocalFinance", "CloudFinance"].contains(configuration.name) else { return }
+        let storeURL = configuration.url
+        // A nil selection checks outstanding candidates after reopening or new human feedback.
+        let (events, queue) = AsyncStream<Set<UUID>?>.makeStream()
+        let imports = NotificationCenter.default.publisher(for: BankingMovementCommit.notification).sink { notification in
+            guard let commit = notification.object as? BankingMovementCommit, commit.storeURL == storeURL else { return }
+            queue.yield(commit.transactionIDs)
+        }
+        let feedback = NotificationCenter.default.publisher(for: TransactionOperationLearning.didChange).sink { notification in
+            guard notification.object as? URL == storeURL else { return }
+            queue.yield(nil)
+        }
+        defer {
+            imports.cancel()
+            feedback.cancel()
+            queue.finish()
+        }
+        queue.yield(nil)
+
+        for await transactionIDs in events {
+            do {
+                while !Task.isCancelled {
+                    if canApplyCorrections && !TransactionOperationLearning.isApplyingCorrections(in: modelContext) {
+                        _ = try await TransactionOperationLearning.applyLearnedCorrections(in: modelContext, transactionIDs: transactionIDs) {
+                            canApplyCorrections
+                        }
+                        if canApplyCorrections { break }
+                    }
+                    // Only pending work waits for a form or a save to finish.
+                    try await Task.sleep(for: .seconds(1))
+                }
+            } catch is CancellationError { return }
+            catch {
+                if !Task.isCancelled { correctionError = "No se pudo aplicar una corrección aprendida. Puedes revisar los movimientos manualmente." }
+            }
         }
     }
 

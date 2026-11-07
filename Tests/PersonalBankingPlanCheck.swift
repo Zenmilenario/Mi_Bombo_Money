@@ -19,6 +19,25 @@ struct PersonalBankingPlanCheck {
         let links = ["daily": daily, "savings": savings]
         let first = try PersonalBankingPlan.build(feeds: [feed()], links: links, ledger: [])
         precondition(first.items.count == 1 && first.balances[0].amount == 9000)
+        let mixed = try JSONDecoder().decode(BankingPreview.self, from: Data("""
+        {"balances":[{"amountMinor":9000,"currency":"EUR","type":"CLBD"},
+                     {"amountMinor":8500,"currency":"EUR","type":"ITAV"}],
+         "transactions":[],
+         "pendingTransactions":[
+            {"id":"expense","date":null,"signedAmountMinor":-1000,"currency":"EUR","description":"Ya confirmado","status":"PDNG"},
+            {"id":null,"date":"2026-10-15","signedAmountMinor":-500,"currency":"EUR","description":"Retención ficticia","status":"HOLD"}]}
+        """.utf8))
+        let existingFeed = feed()
+        let mixedFeed = BankingAccountFeed(connection: existingFeed.connection, account: existingFeed.account,
+            balances: mixed.balances, movements: existingFeed.movements, pendingMovements: mixed.pendingTransactions)
+        let activity = BankingAccountActivity(feed: mixedFeed, observedAt: day)
+        precondition(activity.availableBalance == 8500 && activity.bookedBalance == 9000)
+        precondition(activity.pendingMovements?.map(\.signedAmountMinor) == [-500], "A booked reference supersedes its pending entry")
+        let mixedPlan = try PersonalBankingPlan.build(feeds: [mixedFeed], links: links, ledger: [])
+        precondition(mixedPlan.items.count == 1 && mixedPlan.balances[0].amount == 9000,
+                     "Bank holds and available balances cannot enter accounting")
+        let legacy = try JSONDecoder().decode(BankingPreview.self, from: Data(#"{"balances":[],"transactions":[]}"#.utf8))
+        precondition(legacy.pendingTransactions == nil, "Support the previous worker response")
         let firstChoices = try first.resolutions([:])
         precondition(firstChoices[first.items[0].id] == .new)
         let local = entry()

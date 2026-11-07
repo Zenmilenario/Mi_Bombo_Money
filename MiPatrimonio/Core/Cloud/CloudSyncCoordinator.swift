@@ -176,13 +176,22 @@ final class CloudSyncCoordinator: ObservableObject {
             try LocalEncryptionService.encrypt(BackupService.encode(BackupService.capture(in: container.mainContext)))
                 .write(to: directory.appendingPathComponent("BeforeLastSync.enc"), options: [.atomic, .completeFileProtection])
             var removed = false
+            var addedBankMovements: Set<UUID> = []
             for entity in CloudDocument.entities {
                 let before = Set(try CloudDocument.indexed(current, entity: entity).keys)
-                let after = Set(try CloudDocument.indexed(incoming, entity: entity).keys)
+                let records = try CloudDocument.indexed(incoming, entity: entity)
+                let after = Set(records.keys)
                 if !before.subtracting(after).isEmpty { removed = true }
+                if entity == "transactions" {
+                    addedBankMovements = Set(after.subtracting(before).compactMap { id in
+                        guard records[id]?.object["bankEntryKey"]?.string != nil else { return nil }
+                        return UUID(uuidString: id)
+                    })
+                }
             }
             try CloudBackupAdapter.apply(backup, in: container.mainContext)
             if removed { viewGeneration = UUID() }
+            BankingMovementCommit.publish(storeURL: container.configurations.first?.url, transactionIDs: addedBankMovements)
         }
         let encoded = try JSONEncoder().encode(remote)
         try LocalEncryptionService.encrypt(encoded).write(to: directory.appendingPathComponent("SyncState.enc"), options: [.atomic, .completeFileProtection])

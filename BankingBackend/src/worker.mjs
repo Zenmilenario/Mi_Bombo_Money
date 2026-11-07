@@ -134,7 +134,8 @@ export async function handle(request, env) {
       if (from > to || to > new Date().toISOString().slice(0, 10) || Date.parse(to) - Date.parse(from) > 90 * 86400_000) throw new Fault(400, 'invalid_date_range');
       const next = url.searchParams.get('continuation');
       if (next && next.length > 1024) throw new Fault(400, 'invalid_request');
-      return json(await accountData(conn, account, from, to, next, env, fetch, psuHeaders(request)));
+      const includePending = mode(env) === 'production' && url.searchParams.get('include_pending') === '1';
+      return json(await accountData(conn, account, from, to, next, env, fetch, psuHeaders(request), includePending));
     }
   }
   // No proxy endpoint, arbitrary provider URL, payment or transaction-write routes exist.

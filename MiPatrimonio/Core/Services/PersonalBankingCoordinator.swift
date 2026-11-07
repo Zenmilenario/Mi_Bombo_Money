@@ -15,20 +15,43 @@ final class PersonalBankingCoordinator: ObservableObject {
     @Published private(set) var banks: [ConnectedBank] = []
     @Published private(set) var pendingPlan: PersonalBankingPlan?
     @Published private(set) var catalogueErrorMessage: String?
+    @Published private var accountActivity: [String: BankingAccountActivity] = [:]
     private var pendingFeeds: [BankingAccountFeed] = []
     private var pendingLedger: [UUID: BankingLedgerEntry]?
     private var observedAt: Date?
+    private struct Download {
+        let feeds: [BankingAccountFeed]
+        let knownAccounts: [ConnectedBankAccount]
+        let server: URL
+        let observedAt: Date
+    }
+    private var waitingDownload: Download?
+    private static let reviewLifetime: TimeInterval = 15 * 60
     @Published private(set) var bankStatus: [String: BankingBankSyncStatus] = [:]
     private var schedules: [String: BankingBankSchedule] = [:]
-    private var nextDiscoveryAttempt = Date.distantPast
     private var pendingDeferred: [String: Int] = [:]
     private var owner: UUID?
+
+    func activity(for user: UUID?) -> [String: BankingAccountActivity] {
+        guard let user, user == owner else { return [:] }
+        return accountActivity
+    }
+
+    func nextAutomaticRefresh(for bank: String) -> Date? {
+        schedules[bank]?.automaticDate
+    }
 
     func savedServer(owner: UUID) -> String {
         let saved = UserDefaults.standard.string(forKey: key(owner))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return saved.isEmpty ? "https://" + BankingConnectionPolicy.personalServerHost : saved
     }
     private func key(_ owner: UUID) -> String { "banking-live-origin-v1-" + owner.uuidString.lowercased() }
+    private func discoveryDate(for owner: UUID) -> Date {
+        UserDefaults.standard.object(forKey: key(owner) + "-next-discovery-v1") as? Date ?? .distantPast
+    }
+    private func scheduleDiscovery(for owner: UUID, at date: Date) {
+        UserDefaults.standard.set(date, forKey: key(owner) + "-next-discovery-v1")
+    }
     func client(account: CloudAccountManager, override: String? = nil) async throws -> BankingConnectionClient {
         let session = try await account.validSession()
         let configuration = try BankingServerConfiguration.cloud(url: override ?? savedServer(owner: session.user.id), accessToken: session.accessToken)
@@ -39,8 +62,12 @@ final class PersonalBankingCoordinator: ObservableObject {
         let configuration = try BankingServerConfiguration.cloud(url: server, accessToken: session.accessToken)
         _ = try await BankingConnectionClient(configuration: configuration, live: true).status()
         guard account.session?.user.id == session.user.id else { throw CancellationError() }
+        if configuration.serverURL != URL(string: savedServer(owner: session.user.id)) {
+            accountActivity = [:]
+            waitingDownload = nil
+            clearReview()
+        }
         UserDefaults.standard.set(configuration.serverURL.absoluteString, forKey: key(session.user.id))
-        nextDiscoveryAttempt = .distantPast
         try await refresh(account: account)
     }
     func refresh(account: CloudAccountManager) async throws {
@@ -49,8 +76,16 @@ final class PersonalBankingCoordinator: ObservableObject {
         _ = try await client.status()
         let connections = try await client.connections()
         guard account.session?.user.id == expectedOwner else { throw CancellationError() }
-        if self.owner != expectedOwner { bankStatus = [:] }
+        if self.owner != expectedOwner {
+            bankStatus = [:]
+            accountActivity = [:]
+            waitingDownload = nil
+            clearReview()
+        }
         self.connections = connections; self.owner = expectedOwner
+        if let expectedOwner, let server = URL(string: savedServer(owner: expectedOwner)) {
+            keepActivity(for: connections, server: server)
+        }
         if let expectedOwner { loadSchedules(user: expectedOwner, banks: Set(connections.map(\.bank))) }
         // Catalogue availability must not hide existing connections or block their reads.
         do {
@@ -78,7 +113,6 @@ final class PersonalBankingCoordinator: ObservableObject {
         do { try await refresh(account: account) }
         catch { busy = false; throw error }
         busy = false
-        nextDiscoveryAttempt = .distantPast
         _ = await synchronize(account: account, context: context, force: true, onlyBank: bank)
     }
     private func loadSchedules(user: UUID, banks: Set<String>) {
@@ -108,7 +142,7 @@ final class PersonalBankingCoordinator: ObservableObject {
                     errorMessage: bankStatus[bank]?.errorMessage, retryAt: until,
                     retryIsAutomatic: automaticOnly)
             } else if schedules[bank]?.awaitingReview == true && pendingPlan == nil {
-                bankStatus[bank] = BankingBankSyncStatus(summary: "Hay una descarga anterior sin incorporar. Actualiza este banco para recuperar la revisión.")
+                bankStatus[bank] = BankingBankSyncStatus(summary: "Hay una descarga anterior sin incorporar. La revisión se recuperará en la próxima consulta.")
             } else if bankStatus[bank] == nil {
                 let imported = schedules[bank]?.lastImportedAt
                 bankStatus[bank] = BankingBankSyncStatus(summary: imported.map {
@@ -121,6 +155,11 @@ final class PersonalBankingCoordinator: ObservableObject {
         if let data = try? JSONEncoder().encode(schedules) {
             UserDefaults.standard.set(data, forKey: key(user) + "-bank-schedules-v2")
         }
+    }
+
+    private func keepActivity(for connections: [ConnectedBankSession], server: URL) {
+        let active = Set(connections.flatMap(\.accounts).map { PersonalBankingImporter.identity(server: server, accountID: $0.id) })
+        accountActivity = accountActivity.filter { active.contains($0.key) }
     }
     private func imported(_ feeds: [BankingAccountFeed], deferred: [String: Int]) {
         for bank in Set(feeds.map(\.connection.bank)) {
@@ -135,35 +174,57 @@ final class PersonalBankingCoordinator: ObservableObject {
     @discardableResult
     func synchronize(account: CloudAccountManager, context: ModelContext, force: Bool = false,
                      onlyBank: String? = nil, mayApply: @MainActor () -> Bool = { true }) async -> Bool {
-        guard !busy, let user = account.session?.user.id, !savedServer(owner: user).isEmpty else { return false }
+        guard !busy, !Task.isCancelled, let user = account.session?.user.id else { return false }
+        if owner != user {
+            accountActivity = [:]
+            bankStatus = [:]
+            waitingDownload = nil
+            clearReview()
+            owner = user
+        }
+        let now = Date.now
+        if let observedAt, now.timeIntervalSince(observedAt) >= Self.reviewLifetime {
+            for bank in Set(pendingFeeds.map(\.connection.bank)) {
+                bankStatus[bank]?.summary = "La revisión ha caducado y se recuperará en la próxima consulta."
+            }
+            clearReview()
+            message = "La revisión ha caducado. Se preparará otra al actualizar el banco."
+        }
         if pendingPlan != nil {
             if force { message = "Revisa e incorpora la descarga pendiente, o descártala, antes de solicitar otra." }
             return false
         }
-        if !force && Date.now < nextDiscoveryAttempt { return false }
-        guard !context.hasChanges else {
+        guard !context.hasChanges, mayApply() else {
             if force { message = "Hay cambios locales pendientes de guardar. Finaliza el formulario antes de actualizar el banco." }
             return false
         }
-        busy = true; errorMessage = nil; owner = user
-        pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; observedAt = nil; pendingDeferred = [:]
+        if let received = waitingDownload {
+            waitingDownload = nil
+            if now.timeIntervalSince(received.observedAt) < Self.reviewLifetime {
+                return incorporate(received, user: user, context: context)
+            }
+            message = "La descarga anterior ha caducado. Se actualizará cuando le toque al banco."
+        }
+        if !force && now < discoveryDate(for: user) { return false }
+        busy = true; errorMessage = nil
         message = "Consultando cada banco por separado…"
         defer { busy = false }
-        nextDiscoveryAttempt = .now.addingTimeInterval(15 * 60)
-        var downloaded: [BankingAccountFeed] = []
+        // Reserve the next discovery before issuing any request, including on a cold start.
+        scheduleDiscovery(for: user, at: now.addingTimeInterval(15 * 60))
         do {
             let client = try await client(account: account)
             _ = try await client.status()
             let available = try await client.connections()
             guard account.session?.user.id == user else { throw CancellationError() }
             connections = available
+            let server = URL(string: savedServer(owner: user))!
+            keepActivity(for: available, server: server)
             guard !available.isEmpty else {
                 message = "No hay permisos bancarios activos. Conecta o renueva tu banco."
                 return false
             }
             loadSchedules(user: user, banks: Set(available.map(\.bank)))
             let accounts = try context.fetch(FetchDescriptor<FinancialAccount>())
-            let server = URL(string: savedServer(owner: user))!
             let linked = available.map { connection in
                 ConnectedBankSession(id: connection.id, bank: connection.bank, validUntil: connection.validUntil,
                     accounts: connection.accounts.filter { remote in
@@ -179,21 +240,29 @@ final class PersonalBankingCoordinator: ObservableObject {
             let selected = requested.filter { schedules[$0.bank, default: BankingBankSchedule()].allows(force: force, at: date) }
             guard !selected.isEmpty else {
                 message = "Los bancos seleccionados están en espera. Consulta el estado de cada banco; los demás mantienen su propio plazo."
-                nextDiscoveryAttempt = requested.map { schedules[$0.bank, default: BankingBankSchedule()].automaticDate }.min() ?? nextDiscoveryAttempt
+                if let next = linked.map({ schedules[$0.bank, default: BankingBankSchedule()].automaticDate }).min() {
+                    scheduleDiscovery(for: user, at: next)
+                }
                 return false
             }
             let outcomes = try await PersonalBankingDownloadBatch.load(selected) { group in
                 let bank = group[0].bank
-                self.schedules[bank, default: BankingBankSchedule()].started(at: date)
+                self.schedules[bank, default: BankingBankSchedule()].started(at: .now)
                 self.saveSchedules(user: user)
                 return try await client.feeds(group, asOf: date, userInitiated: force)
             }
+            guard account.session?.user.id == user else { throw CancellationError() }
+            var downloaded: [BankingAccountFeed] = []
             for outcome in outcomes {
                 switch outcome {
                 case .downloaded(let bank, let feeds):
-                    schedules[bank, default: BankingBankSchedule()].downloaded(at: date)
+                    schedules[bank, default: BankingBankSchedule()].downloaded(at: .now)
                     bankStatus[bank] = BankingBankSyncStatus(summary: "\(feeds.reduce(0) { $0 + $1.movements.count }) movimientos recibidos; pendientes de incorporar.")
                     downloaded += feeds
+                    for feed in feeds {
+                        let identity = PersonalBankingImporter.identity(server: server, accountID: feed.account.id)
+                        accountActivity[identity] = BankingAccountActivity(feed: feed, observedAt: date)
+                    }
                 case .failed(let bank, let error):
                     let delay = (error as? BankingConnectionError)?.retryDelay
                     schedules[bank, default: BankingBankSchedule()].failed(at: .now, retryAfter: delay, userInitiated: force)
@@ -203,17 +272,35 @@ final class PersonalBankingCoordinator: ObservableObject {
                 }
             }
             saveSchedules(user: user)
-            nextDiscoveryAttempt = linked.map { schedules[$0.bank, default: BankingBankSchedule()].automaticDate }.min() ?? nextDiscoveryAttempt
+            if let next = linked.map({ schedules[$0.bank, default: BankingBankSchedule()].automaticDate }).min() {
+                scheduleDiscovery(for: user, at: next)
+            }
             guard !downloaded.isEmpty else {
                 message = "No se ha incorporado ninguna descarga. Revisa el estado de cada banco; tus datos guardados se conservan."
                 return false
             }
-            let selection = try PersonalBankingDownloadSelection.prepare(downloaded, knownAccounts: available.flatMap(\.accounts))
+            let received = Download(feeds: downloaded, knownAccounts: available.flatMap(\.accounts), server: server, observedAt: date)
+            if Task.isCancelled || context.hasChanges || !mayApply() {
+                waitingDownload = received
+                message = "Descarga recibida. Se incorporará cuando la app pueda guardar los cambios."
+                return false
+            }
+            return incorporate(received, user: user, context: context)
+        } catch is CancellationError { message = "Consulta cancelada. Tus datos guardados se conservan." }
+        catch let error as URLError where error.code == .cancelled { message = "Consulta cancelada. Tus datos guardados se conservan." }
+        catch {
+            message = "No se ha completado la consulta bancaria."
+            errorMessage = error.localizedDescription
+        }
+        return false
+    }
+
+    private func incorporate(_ download: Download, user: UUID, context: ModelContext) -> Bool {
+        do {
+            let selection = try PersonalBankingDownloadSelection.prepare(download.feeds, knownAccounts: download.knownAccounts)
             let feeds = selection.feeds
             for (bank, count) in selection.deferredByBank { bankStatus[bank]?.deferredTransfers = count }
-            try Task.checkCancellation()
-            guard account.session?.user.id == user, !context.hasChanges, mayApply() else { throw PersonalBankingError.changed }
-            let plan = try PersonalBankingImporter.plan(feeds, server: server, in: context)
+            let plan = try PersonalBankingImporter.plan(feeds, server: download.server, in: context)
             let snapshots = try context.fetch(FetchDescriptor<BalanceSnapshot>())
             let firstImport = plan.balances.contains { balance in
                 !snapshots.contains { $0.account?.id == balance.account && $0.source == .bankAPI && $0.notes == "Saldo contable de Enable Banking" }
@@ -226,20 +313,20 @@ final class PersonalBankingCoordinator: ObservableObject {
                 for bank in Set(feeds.map(\.connection.bank)) {
                     schedules[bank, default: BankingBankSchedule()].awaitingReview = true
                 }
+                let ledger = try PersonalBankingImporter.ledger(in: context)
                 saveSchedules(user: user)
-                pendingFeeds = feeds; pendingPlan = plan; observedAt = date; pendingDeferred = selection.deferredByBank
-                pendingLedger = Dictionary(uniqueKeysWithValues: try PersonalBankingImporter.ledger(in: context).map { ($0.id, $0) })
+                pendingFeeds = feeds; pendingPlan = plan; observedAt = download.observedAt; pendingDeferred = selection.deferredByBank
+                pendingLedger = Dictionary(uniqueKeysWithValues: ledger.map { ($0.id, $0) })
                 message = "Descarga preparada de \(names): revisa e incorpora los movimientos. El estado de los demás bancos se muestra por separado."
                 return false
             }
-            let result = try PersonalBankingImporter.apply(feeds, server: server, in: context, observedAt: date)
+            let result = try PersonalBankingImporter.apply(feeds, server: download.server, in: context, observedAt: download.observedAt)
             imported(feeds, deferred: selection.deferredByBank)
             message = "\(names): \(result.inserted) movimientos nuevos · \(result.matched) coincidencias reconocidas."
+            errorMessage = nil
             return true
-        } catch is CancellationError { message = "Consulta cancelada. Tus datos guardados se conservan." }
-        catch let error as URLError where error.code == .cancelled { message = "Consulta cancelada. Tus datos guardados se conservan." }
-        catch {
-            for bank in Set(downloaded.map(\.connection.bank)) {
+        } catch {
+            for bank in Set(download.feeds.map(\.connection.bank)) {
                 bankStatus[bank]?.summary = "Descarga recibida, pero no se ha podido incorporar."
             }
             message = "No se ha incorporado esta descarga. Tus datos guardados se conservan."
@@ -250,14 +337,14 @@ final class PersonalBankingCoordinator: ObservableObject {
     func confirm(choices: [String: PersonalBankingPlan.Choice], manualBalances: [UUID: PersonalBankingImporter.ManualBalance] = [:],
                  reviewedBalances: [PersonalBankingImporter.BalanceReview] = [], account: CloudAccountManager, context: ModelContext) throws {
         guard !busy, let user = account.session?.user.id, user == owner, let observedAt,
-              Date.now.timeIntervalSince(observedAt) < 15 * 60, pendingPlan != nil,
+              Date.now.timeIntervalSince(observedAt) < Self.reviewLifetime, pendingPlan != nil,
               let server = URL(string: savedServer(owner: user)) else { throw PersonalBankingError.changed }
         let current = Dictionary(uniqueKeysWithValues: try PersonalBankingImporter.ledger(in: context).map { ($0.id, $0) })
         guard current == pendingLedger else { throw PersonalBankingError.changed }
         let result = try PersonalBankingImporter.apply(pendingFeeds, server: server, choices: choices,
             manualBalances: manualBalances, reviewedBalances: reviewedBalances, in: context, observedAt: observedAt)
         imported(pendingFeeds, deferred: pendingDeferred)
-        pendingPlan = nil; pendingFeeds = []; pendingDeferred = [:]
+        clearReview()
         message = "\(result.inserted) movimientos nuevos · \(result.matched) coincidencias conservadas."
         errorMessage = nil
     }
@@ -268,11 +355,17 @@ final class PersonalBankingCoordinator: ObservableObject {
             schedules[bank, default: BankingBankSchedule()].awaitingReview = false
         }
         if let owner { saveSchedules(user: owner) }
-        pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; observedAt = nil; pendingDeferred = [:]
+        clearReview()
         message = "No se ha incorporado la descarga descartada. Tus datos guardados se conservan."
     }
+    private func clearReview() {
+        pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; observedAt = nil; pendingDeferred = [:]
+    }
     func disconnected() {
-        pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; observedAt = nil; pendingDeferred = [:]; nextDiscoveryAttempt = .distantPast
+        accountActivity = [:]
+        waitingDownload = nil
+        clearReview()
+        if let owner { scheduleDiscovery(for: owner, at: .distantPast) }
         errorMessage = nil
         message = "Las conexiones han cambiado. Actualiza los movimientos para preparar la descarga."
     }

@@ -86,6 +86,7 @@ final class BankingConnectionClient {
         for connection in connections {
             for account in connection.accounts {
                 var rows: [BankingPreview.Movement] = []; var balances: [BankingPreview.Balance] = []
+                var pendingRows: [BankingPreview.PendingMovement]?
                 var cursor: String?; var visited = Set<String>(); var complete = false
                 for page in 0..<50 {
                     try Task.checkCancellation()
@@ -93,13 +94,19 @@ final class BankingConnectionClient {
                                                  userInitiated: userInitiated)
                     if page == 0 { balances = data.balances }
                     rows.append(contentsOf: data.transactions)
+                    if let pending = data.pendingTransactions {
+                        if pendingRows == nil { pendingRows = [] }
+                        pendingRows?.append(contentsOf: pending)
+                    }
                     guard rows.count <= 20_000 else { throw BankingWorkspaceError.incompleteHistory }
+                    guard (pendingRows?.count ?? 0) <= 20_000 else { throw BankingWorkspaceError.incompleteHistory }
                     guard let next = data.continuation else { complete = true; break }
                     guard visited.insert(next).inserted else { throw BankingWorkspaceError.incompleteHistory }
                     cursor = next
                 }
                 guard complete else { throw BankingWorkspaceError.incompleteHistory }
-                result.append(BankingAccountFeed(connection: connection, account: account, balances: balances, movements: rows))
+                result.append(BankingAccountFeed(connection: connection, account: account, balances: balances,
+                    movements: rows, pendingMovements: pendingRows))
             }
         }
         return result
@@ -128,6 +135,7 @@ final class BankingConnectionClient {
         let to = asOf
         let from = to.addingTimeInterval(-89 * 86_400)
         var query = [URLQueryItem(name: "from", value: formatter.string(from: from)), URLQueryItem(name: "to", value: formatter.string(from: to))]
+        if live { query.append(URLQueryItem(name: "include_pending", value: "1")) }
         if let continuation { query.append(URLQueryItem(name: "continuation", value: continuation)) }
         do {
             return try await get("/v1/connections/\(connection.id)/accounts/\(account.id)", query: query,

@@ -3,6 +3,8 @@ import SwiftData
 
 @main
 struct TransactionAutomaticCorrectionCheck {
+    @MainActor private final class FeedbackRecorder { var count = 0 }
+
     @MainActor static func main() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("correction-learning-" + UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -55,9 +57,20 @@ struct TransactionAutomaticCorrectionCheck {
         }
         let candidate = row(7, 3, 234)
         context.insert(candidate); try context.save()
+        let feedback = FeedbackRecorder()
+        let observer = NotificationCenter.default.addObserver(forName: TransactionOperationLearning.didChange, object: nil, queue: nil) { notice in
+            guard let storeURL = notice.object as? URL else { return }
+            MainActor.assumeIsolated {
+                precondition(!context.hasChanges && storeURL == cloud.configurations.first?.url)
+                feedback.count += 1
+            }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
         let identity = candidate.id, bankKey = candidate.bankEntryKey, batch = candidate.importBatchID
         let initialCount = try context.fetch(FetchDescriptor<FinancialTransaction>()).count
-        let applied = try await TransactionOperationLearning.applyLearnedCorrections(in: context)
+        let unrelated = try await TransactionOperationLearning.applyLearnedCorrections(in: context, transactionIDs: [UUID()])
+        precondition(unrelated == 0 && candidate.type == .expense, "Only movements in the committed batch can be evaluated by its event")
+        let applied = try await TransactionOperationLearning.applyLearnedCorrections(in: context, transactionIDs: [identity])
         precondition(applied == 1, "A validated correction must apply to a new bank observation")
         precondition(candidate.id == identity && candidate.type == .transfer && candidate.destinationAccount?.id == investment.id
             && candidate.category?.id == contribution.id && candidate.amountMinor == 234 && candidate.date == date(7, 3)
@@ -69,7 +82,7 @@ struct TransactionAutomaticCorrectionCheck {
         let status = try TransactionOperationLearning.automationStatus(for: candidate, in: context)
         precondition(status.automaticallyApplied && status.savedExamples == 36 && status.validatedPredictions >= 3,
             "Automatic decisions must not become human training examples")
-        let repeated = try await TransactionOperationLearning.applyLearnedCorrections(in: context)
+        let repeated = try await TransactionOperationLearning.applyLearnedCorrections(in: context, transactionIDs: [identity])
         precondition(repeated == 0)
 
         // A staged but rolled-back manual edit must not erase the automatic undo record.
@@ -77,10 +90,12 @@ struct TransactionAutomaticCorrectionCheck {
         candidate.category = nil
         try TransactionOperationLearning.rememberEdit(staged, after: candidate, in: context)
         context.rollback()
+        precondition(feedback.count == 0, "Automatic changes and a staged edit that rolls back must not publish feedback")
         let restored = try context.fetch(FetchDescriptor<FinancialTransaction>()).first { $0.id == identity }!
         let afterRollback = try TransactionOperationLearning.automationStatus(for: restored, in: context)
         precondition(afterRollback.automaticallyApplied)
         try TransactionOperationLearning.undoAutomaticCorrection(restored, in: context)
+        precondition(feedback.count == 1, "A saved human rejection must publish feedback once")
         precondition(restored.type == .expense && restored.category == nil && restored.destinationAccount == nil
             && restored.fingerprint == "original" && restored.amountMinor == 234 && restored.bankEntryKey == bankKey)
         let undone = try await TransactionOperationLearning.applyLearnedCorrections(in: context)

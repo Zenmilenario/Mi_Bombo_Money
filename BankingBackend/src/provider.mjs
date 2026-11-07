@@ -183,6 +183,14 @@ export function amountMinor(value, operation) {
   if (!Number.isSafeInteger(number)) throw invalidFeed(operation, 'amount_range');
   return negative ? -number : number;
 }
+function transactionDescription(t) {
+  return (Array.isArray(t.remittance_information) ? t.remittance_information : []).filter(s => typeof s === 'string').join(' ').slice(0, 500)
+    || String(t.creditor?.name ?? t.debtor?.name ?? 'Movimiento bancario').slice(0, 500);
+}
+function validTransactionDate(date) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date ?? '') && Number.isFinite(Date.parse(date))
+    && new Date(date).toISOString().slice(0, 10) === date;
+}
 export async function normalizeTransaction(t, account, env) {
   if (!t || typeof t !== 'object') throw invalidFeed('transactions', 'row');
   if (t.status !== 'BOOK') return null;
@@ -191,10 +199,8 @@ export async function normalizeTransaction(t, account, env) {
   const debit = t.credit_debit_indicator === 'DBIT';
   if (!debit && amount < 0) throw invalidFeed('transactions', 'amount_sign');
   if (t.transaction_amount?.currency !== account.currency) throw invalidFeed('transactions', 'currency');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(t.booking_date ?? '') || !Number.isFinite(Date.parse(t.booking_date))
-      || new Date(t.booking_date).toISOString().slice(0, 10) !== t.booking_date) throw invalidFeed('transactions', 'booking_date');
-  const description = (Array.isArray(t.remittance_information) ? t.remittance_information : []).filter(s => typeof s === 'string').join(' ').slice(0, 500)
-    || String(t.creditor?.name ?? t.debtor?.name ?? 'Movimiento bancario').slice(0, 500);
+  if (!validTransactionDate(t.booking_date)) throw invalidFeed('transactions', 'booking_date');
+  const description = transactionDescription(t);
   const reference = t.entry_reference || t.transaction_id;
   const otherIBAN = (t.credit_debit_indicator === 'DBIT' ? t.creditor_account?.iban : t.debtor_account?.iban);
   const pairReference = t.end_to_end_id || t.reference_number;
@@ -205,7 +211,21 @@ export async function normalizeTransaction(t, account, env) {
       : await sha256(otherIBAN.replace(/\s/g, '').toUpperCase())) : undefined,
     transferKey: typeof pairReference === 'string' && pairReference && pairReference !== 'NOTPROVIDED' ? await sha256(pairReference) : undefined };
 }
-export async function accountData(conn, account, from, to, continuation, env, transport = fetch, psu = {}) {
+async function pendingTransaction(t, account) {
+  if (!['PDNG', 'HOLD'].includes(t?.status) || t.transaction_amount?.currency !== account.currency) return null;
+  const debit = t.credit_debit_indicator === 'DBIT';
+  if (!debit && t.credit_debit_indicator !== 'CRDT') return null;
+  let amount;
+  try { amount = amountMinor(t.transaction_amount.amount, 'transactions'); }
+  catch (error) { if (error instanceof Fault) return null; throw error; }
+  if (!debit && amount < 0) return null;
+  // Only the provider's stable entry reference can identify the same pending and booked entry.
+  const id = typeof t.entry_reference === 'string' && t.entry_reference ? await sha256(`${account.id}:${t.entry_reference}`) : null;
+  return { id, date: [t.transaction_date, t.booking_date].find(validTransactionDate) ?? null,
+    signedAmountMinor: debit ? -Math.abs(amount) : amount, currency: account.currency,
+    description: transactionDescription(t), status: t.status };
+}
+export async function accountData(conn, account, from, to, continuation, env, transport = fetch, psu = {}, includePending = false) {
   if (mode(env) === 'demo') {
     // Fixtures belong to the connection's creation day, not to the query's end
     // date. Changing the date range must never invent another salary/purchase.
@@ -220,12 +240,16 @@ export async function accountData(conn, account, from, to, continuation, env, tr
   }
   await verifySandbox(env, transport);
   const path = `/accounts/${encodeURIComponent(account.uid)}`;
-  const query = new URLSearchParams({ date_from: from, date_to: to, transaction_status: 'BOOK' });
+  const query = new URLSearchParams({ date_from: from, date_to: to });
+  if (!includePending) query.set('transaction_status', 'BOOK');
   if (continuation) query.set('continuation_key', continuation);
   try {
     const transactionResponse = await api(`${path}/transactions?${query}`, env, { headers: psu }, transport);
     if (!Array.isArray(transactionResponse?.transactions)) throw invalidFeed('transactions', 'list');
     const transactions = (await Promise.all(transactionResponse.transactions.map(t => normalizeTransaction(t, account, env)))).filter(Boolean);
+    const pendingTransactions = includePending
+      ? (await Promise.all(transactionResponse.transactions.map(t => pendingTransaction(t, account)))).filter(Boolean)
+      : undefined;
     const balanceResponse = continuation ? { balances: [] } : await api(`${path}/balances`, env, { headers: psu }, transport);
     if (!Array.isArray(balanceResponse?.balances)) throw invalidFeed('balances', 'list');
     const balances = balanceResponse.balances.filter(b => b?.balance_amount?.currency === account.currency).map(b => {
@@ -233,7 +257,7 @@ export async function accountData(conn, account, from, to, continuation, env, tr
       if (typeof b.balance_type !== 'string') throw invalidFeed('balances', 'type');
       return { amountMinor: amount, currency: b.balance_amount.currency, type: b.balance_type };
     });
-    return { balances, transactions, continuation: transactionResponse.continuation_key || null };
+    return { balances, transactions, pendingTransactions, continuation: transactionResponse.continuation_key || null };
   } catch (error) {
     if (error instanceof Fault && error.feedValidation) {
       console.warn(JSON.stringify({ event: 'banking_feed_validation', ...error.feedValidation }));

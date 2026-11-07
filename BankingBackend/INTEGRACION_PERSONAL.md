@@ -1,5 +1,23 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Retenciones y saldo disponible del banco — iOS 0.6.18 (35)
+
+Preparado localmente el 7 de noviembre de 2026. El usuario observó cuatro apuntes que aparecieron en la app tras contabilizarlos el banco. El cliente anterior pedía solo `BOOK` y el servidor también filtraba por ese estado. La nueva consulta personal solicita los estados disponibles en la misma petición de movimientos por página. El servidor conserva los contabilizados en `transactions` y devuelve `HOLD` y `PDNG` en `pendingTransactions` si el banco los facilita. La consulta se activa mediante `include_pending=1` en el servidor personal. [Consulta de movimientos y estados de Enable Banking](https://enablebanking.com/docs/api/reference/#get-account-transactions).
+
+En **Cuentas**, cada fila indica los pendientes comunicados y el detalle muestra los importes provisionales, el concepto disponible, la fecha si se conoce y la hora de consulta. El saldo disponible comunicado por el banco se muestra aparte del saldo contable y de las reservas de la app. Para el disponible se prefiere `ITAV` y se utiliza `CLAV` si falta el primero. Los importes contradictorios del tipo elegido se omiten. Una diferencia entre saldos por sí sola no identifica la causa ni el comercio. [Tipos de saldo de Enable Banking](https://enablebanking.com/docs/api/reference/#balancestatus).
+
+Los datos provisionales se mantienen en memoria por cuenta vinculada durante la sesión y se reemplazan con cada descarga completa. Los apuntes con referencia estable se muestran una vez y los contabilizados prevalecen cuando ambos estados llegan en la misma consulta. Los apuntes provisionales no entran en el historial financiero, presupuestos, reservas ni entrenamiento. Al llegar contabilizados siguen la conciliación existente. Los clientes y servidores anteriores pueden seguir usando la respuesta anterior sin el campo de pendientes.
+
+**Verificación.** Las pruebas ficticias cubren la transición de pendiente a contabilizado, la separación de saldos, la compatibilidad y el aislamiento por cuenta. Quedan pendientes la compilación iOS, el despliegue del servidor personal y la comprobación física de lo que comunica cada banco mientras una operación está retenida.
+
+### Actualización automática al abrir
+
+Con la app activa y desbloqueada, la sincronización del espacio cloud da paso a la consulta bancaria cuando vence el plazo. Antes de acceder al servidor, el coordinador guarda un plazo provisional de quince minutos en el dispositivo, por perfil. Tras recibir el resultado calcula la siguiente consulta a partir de los bancos asociados. Una descarga correcta deja seis horas de espera para la siguiente consulta automática del banco. Si falla, se espera quince minutos o el plazo mayor o menor que comunique el proveedor. Los plazos sobreviven a las reaperturas. La consulta que solicita expresamente el usuario conserva el tratamiento de consulta manual. [Límites de consultas y contexto de usuario en Enable Banking](https://enablebanking.com/docs/faq/#why-am-i-getting-429-response-code-are-there-rate-limits-for-the-api).
+
+Si se abre un formulario o empieza una sincronización cloud durante la descarga, el coordinador conserva en memoria la respuesta completa hasta que pueda preparar o guardar los movimientos de forma segura. La reutiliza durante la ventana de quince minutos de la descarga. La primera importación y las coincidencias ambiguas mantienen su revisión, con un acceso visible en Movimientos. Una revisión caducada deja de bloquear el coordinador y puede recuperarse en otra consulta cuando corresponda. En Mis bancos se puede ver cuándo volverá a tocar la consulta automática de cada banco.
+
+Las pruebas locales simulan diez arranques seguidos dentro del plazo y un formulario abierto durante la descarga. Comprueban que los arranques no repiten la consulta y que la respuesta recibida se incorpora al cerrar el formulario sin descargarla otra vez. Queda pendiente la validación iOS y una apertura real en el dispositivo. La optimización del tiempo de descarga queda para más adelante.
+
 ## Correcciones contables aprendidas — iOS 0.6.17 (34)
 
 Preparado localmente el 5 de noviembre. Guardar una corrección de tipo, categoría y destino de un apunte bancario alimenta un modelo supervisado kNN por perfil. Puede aplicar categorías y transformar un gasto nuevo en una transferencia a inversión del mismo importe y moneda, conservando su referencia bancaria. Necesita ejemplos humanos de varios periodos y superar comprobaciones temporales; con datos ambiguos se abstiene. No hay reglas específicas para importes de una persona ni cambios en el parser o el servidor en esta entrega.

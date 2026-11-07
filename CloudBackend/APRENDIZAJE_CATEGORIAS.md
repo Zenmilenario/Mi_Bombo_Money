@@ -1,6 +1,6 @@
 # Aprendizaje de categorías y modelo de datos
 
-Primera entrega preparada en 0.6.11, compilación 28. Actualizado el 5 de noviembre de 2026 con las correcciones aprendidas de 0.6.17, compilación 34. Pendientes la compilación iOS en GitHub y la evaluación en el dispositivo de esta ampliación.
+Primera entrega preparada en 0.6.11, compilación 28. Actualizado el 7 de noviembre de 2026 con el aprendizaje por eventos de 0.6.18, compilación 35. Quedan pendientes la compilación iOS en GitHub y la comprobación en el dispositivo.
 
 ## Experiencia en la app
 
@@ -60,7 +60,7 @@ El tercer modelo utiliza **clasificación supervisada por los tres vecinos más 
 
 **Alcance automático actual.** Solo apuntes bancarios llegados después de iniciar este aprendizaje, todavía sin categoría ni destino, sin decisión manual, reserva, periodicidad, referencia externa de CSV o duplicado pendiente. Se puede asignar una categoría compatible manteniendo el tipo, o convertir un gasto en transferencia hacia una cuenta de inversión activa, de la misma moneda y sin conexión bancaria propia. El destino debe existir desde la fecha del apunte. Se conserva importe, fecha, cuenta de efectivo, concepto, notas, lote y referencia bancaria. Se modifica el mismo registro; no se crean dos movimientos. Las reglas explícitas y clasificaciones ya guardadas tienen prioridad.
 
-El procesador se ejecuta mientras la app está activa, con comprobación cada veinte segundos y modelo reutilizado en memoria. Se pausa con formularios/hojas abiertos o cambios sin guardar; vuelve a comprobar los ejemplos y destinos después de entrenar para detectar cambios cloud durante la espera. No hace consultas al banco ni funciona con la app cerrada. No modifica retroactivamente los registros anteriores a la activación ni periodos anteriores al último mes usado para aprender.
+El procesador reutiliza el modelo en memoria mientras la app está activa. En 0.6.17 comprobaba cada veinte segundos y en 0.6.18 reacciona a los eventos descritos abajo. Se pausa con formularios, hojas abiertos o cambios sin guardar y vuelve a comprobar los ejemplos y destinos después de entrenar. Los registros anteriores a la activación o al último mes usado para aprender quedan fuera del alcance automático.
 
 **Control y recuperación.** En el detalle se puede desactivar «Aplicar correcciones aprendidas» para todo el perfil. Una aplicación automática muestra su procedencia y ofrece «Deshacer corrección y enseñar a la IA». Deshacer restaura la acción anterior, conserva los datos del banco, añade evidencia negativa y protege el registro frente a una repetición automática. Las predicciones aplicadas no se utilizan como etiquetas humanas. Si el usuario cambia tipo, destino o categoría, su edición tiene prioridad. No se tocan pagos reservados ni vínculos periódicos. Si existe una posible contrapartida ya registrada o una transferencia manual equivalente, se requiere revisión.
 
@@ -69,6 +69,16 @@ El procesador se ejecuta mientras la app está activa, con comprobación cada ve
 **Saveback y Round up.** Corregir un débito confirmado de gasto a transferencia y seleccionar su destino enseña esa acción. Si vuelve un apunte comparable y se cumplen los filtros, podrá aplicarla solo. Con descripciones vacías, compras y beneficios parecidos pueden seguir siendo indistinguibles; no se promete identificar todos los Saveback. Esta entrega no crea la recompensa bruta, su retención o un abono compensatorio, ni completa automáticamente la conciliación multietapa o el objetivo de una aportación periódica. No cambia un ingreso a transferencia ni empareja dos cuentas bancarias conectadas.
 
 **Validación.** Las pruebas del modelo usan datos ficticios y comprueban otro periodo, cambio de destino/categoría, aislamiento por cuenta, observaciones repetidas, ausencia de alternativas, contradicciones y abstención. Las pruebas del adaptador cubren aplicación sobre el mismo registro, conservación de datos, ausencia de autoentrenamiento, deshacer, edición revertida, pausa, reservas/periodicidad, contrapartidas, destinos archivados o de otra moneda, persistencia y perfiles separados. La ejecución local usa sustitutos de SwiftData y hashing: no valida los frameworks ni la protección de archivos de Apple. Se conectan a CI las pruebas con SwiftData/CryptoKit reales, además de conservar las suites anteriores. Compilación Debug/Release de iOS y prueba física pendientes tras subir la versión.
+
+### Aprendizaje por eventos — preparado localmente en 0.6.18 (35)
+
+**Implementado.** Cuando se guarda una importación o una descarga de la nube añade movimientos bancarios al perfil, la app evalúa los nuevos apuntes elegibles. La señal contiene la ubicación del almacén local y los identificadores de los movimientos. Las importaciones repetidas, las filas conciliadas con un movimiento existente y los guardados fallidos quedan fuera de esa señal.
+
+Al guardar una corrección humana, confirmar una categoría o deshacer una corrección automática, la app actualiza los ejemplos protegidos del perfil y vuelve a comprobar los movimientos elegibles. Las predicciones aplicadas por el modelo no se convierten en ejemplos confirmados. La apertura de la app comprueba si quedó trabajo pendiente. Mientras la app está abierta, el procesador espera si hay un formulario abierto, cambios sin guardar, una sincronización cloud en curso o un conflicto por resolver. Los eventos son internos al dispositivo y no generan solicitudes bancarias adicionales.
+
+**Validación.** Las pruebas locales con sustitutos verifican que se seleccionan los identificadores del lote, que repetir la evaluación no reaplica la corrección y que una corrección automática o un guardado revertido no emiten confirmaciones humanas. La prueba del importador en CI comprueba que el aviso se publica después del guardado y que repetir la descarga no lo vuelve a emitir. La compilación iOS y la validación en un dispositivo siguen pendientes.
+
+**Pendiente.** Medir cobertura, correcciones del usuario y tiempo hasta la propuesta. El reconocimiento de cargos recurrentes y la conciliación multietapa de transferencias siguen fuera de este flujo.
 
 ### Reconocimiento de beneficios de inversión — preparado localmente en 0.6.16
 
