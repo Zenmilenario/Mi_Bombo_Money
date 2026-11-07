@@ -171,6 +171,23 @@ struct PersonalBankingPlanCheck {
         let extra = try PersonalBankingPlan.build(feeds: [feed(rows: [credit, debit, debit, debit], bank: "Trade Republic")], links: links, ledger: imported)
         precondition(extra.items.count == 1 && extra.items[0].kind == "expense" && extra.requiresReferenceReview)
 
+        let previousDebit = imported.first { $0.kind == "expense" }!
+        let edited = BankingLedgerEntry(id: previousDebit.id, date: day, kind: "transfer", amount: 1200,
+            source: daily, destination: savings, text: "Aportación corregida", externalID: previousDebit.externalID)
+        let newDebit = row(nil, amount: -2500, text: "Movimiento bancario")
+        let afterEdit = try PersonalBankingPlan.build(feeds: [feed(rows: [debit, newDebit], bank: "Trade Republic")],
+            links: links, ledger: [edited])
+        precondition(afterEdit.alreadyImported == 1 && afterEdit.items.map(\.amount) == [2500] && afterEdit.requiresReferenceReview)
+
+        let stableFeed = feed(bank: "Trade Republic")
+        let stable = try PersonalBankingPlan.build(feeds: [stableFeed], links: links, ledger: [])
+        let changed = BankingLedgerEntry(id: UUID(), date: day, kind: "expense", amount: 1200,
+            source: daily, destination: nil, text: "Compra", externalID: stable.items[0].id)
+        do {
+            _ = try PersonalBankingPlan.build(feeds: [stableFeed], links: links, ledger: [changed])
+            preconditionFailure("A conflicting provider reference must still fail validation")
+        } catch PersonalBankingError.changed { }
+
         do {
             _ = try PersonalBankingPlan.build(feeds: [feed(rows: [debit])], links: links, ledger: [])
             preconditionFailure("Reference fallback leaked to other banks")
