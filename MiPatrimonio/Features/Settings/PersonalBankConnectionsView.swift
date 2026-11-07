@@ -68,7 +68,7 @@ struct PersonalBankConnectionsView: View {
                         Label("Actualizar movimientos bancarios", systemImage: "arrow.clockwise")
                     }
                     .disabled(banking.pendingPlan != nil)
-                    Text("Cada banco tiene su propio plazo de actualización. Si uno limita las consultas, los demás pueden seguir descargando. Si el banco requiere renovar el permiso, tendrás que autorizarlo de nuevo.")
+                    Text("Al abrir la app, se actualiza cada banco cuando le toca. Tras una descarga correcta, se espera al menos seis horas para la siguiente consulta automática.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
@@ -79,6 +79,9 @@ struct PersonalBankConnectionsView: View {
                         if let error = status.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
                         if let retry = status.retryAt, retry > .now {
                             Label("\(status.retryIsAutomatic ? "Próxima consulta automática" : "Próximo intento"): \(retry.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
+                                .font(.caption).foregroundStyle(.secondary)
+                        } else if let next = banking.nextAutomaticRefresh(for: connection.bank), next > .now {
+                            Label("Actualización automática a partir de \(next.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         if status.deferredTransfers > 0 {

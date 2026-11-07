@@ -5,10 +5,17 @@ import UIKit
 #endif
 
 private struct CloudWorkspaceKey: EnvironmentKey { static let defaultValue = false }
+private struct BankAccountActivityKey: EnvironmentKey {
+    static let defaultValue: [String: BankingAccountActivity] = [:]
+}
 extension EnvironmentValues {
     var isCloudWorkspace: Bool {
         get { self[CloudWorkspaceKey.self] }
         set { self[CloudWorkspaceKey.self] = newValue }
+    }
+    var bankAccountActivity: [String: BankingAccountActivity] {
+        get { self[BankAccountActivityKey.self] }
+        set { self[BankAccountActivityKey.self] = newValue }
     }
 }
 
@@ -164,10 +171,11 @@ private struct CloudFinanceWorkspaceView: View {
         // A stable host keeps lifecycle tasks alive when loading/migration becomes the TabView.
         ZStack {
             if sync.ready, let container = sync.container {
-                RootTabView()
+                RootTabView(mayApplyLearning: { !sync.busy && sync.conflict == nil })
                     .id(sync.viewGeneration)
                     .modelContainer(container)
                     .environment(\.isCloudWorkspace, true)
+                    .environment(\.bankAccountActivity, banking.activity(for: account.session?.user.id))
                     .environmentObject(sync)
                     .environmentObject(banking)
             } else if sync.needsMigrationChoice {
@@ -205,10 +213,10 @@ private struct CloudFinanceWorkspaceView: View {
                 return !paused
             } synchronize: {
                 await sync.synchronize(account: account)
-                if !Task.isCancelled, sync.conflict == nil, !hasPresentedWindow,
+                if !Task.isCancelled, !sync.busy, sync.conflict == nil, !hasPresentedWindow,
                    let context = sync.container?.mainContext {
                     let changed = await banking.synchronize(account: account, context: context) {
-                        automaticSyncState.canRun && !hasPresentedWindow
+                        automaticSyncState.canRun && !sync.busy && sync.conflict == nil && !hasPresentedWindow
                     }
                     if changed, !Task.isCancelled { await sync.synchronize(account: account) }
                 }

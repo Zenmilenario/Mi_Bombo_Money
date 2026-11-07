@@ -18,6 +18,7 @@ private enum AccountManagementTool: String, Identifiable {
 }
 
 struct AccountsView: View {
+    @Environment(\.bankAccountActivity) private var bankActivity
     @Environment(\.modelContext) private var modelContext
     @Environment(\.isBankingTestWorkspace) private var isBankingTestWorkspace
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
@@ -462,6 +463,13 @@ struct AccountsView: View {
                 if isStale(account) {
                     Label("Sin actualizar", systemImage: "clock")
                         .font(.caption.weight(.medium))
+                        .foregroundStyle(AppDesign.warning)
+                }
+
+                if !account.isArchived, let key = account.bankIdentityKey,
+                   let count = bankActivity[key]?.pendingMovements?.count, count > 0 {
+                    Label(count == 1 ? "1 pendiente del banco" : "\(count) pendientes del banco", systemImage: "hourglass")
+                        .font(.caption)
                         .foregroundStyle(AppDesign.warning)
                 }
 
@@ -1022,6 +1030,7 @@ struct PaymentCardDetailView: View {
 
 private struct AccountDetailView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.bankAccountActivity) private var bankActivity
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \BalanceSnapshot.date, order: .reverse) private var snapshots: [BalanceSnapshot]
     @Query(sort: \PaymentCard.name) private var cards: [PaymentCard]
@@ -1051,6 +1060,56 @@ private struct AccountDetailView: View {
         FinanceCalculator.reservedAmount(for: account, funds: reservedFunds, transactions: transactions)
     }
 
+    @ViewBuilder
+    private func bankActivitySections(_ activity: BankingAccountActivity) -> some View {
+        Section("Saldos comunicados por el banco") {
+            if let booked = activity.bookedBalance {
+                LabeledContent("Saldo contable") {
+                    PrivacyAmountText(minorUnits: booked, currencyCode: activity.currency)
+                }
+            }
+            if let available = activity.availableBalance {
+                LabeledContent("Saldo disponible del banco") {
+                    PrivacyAmountText(minorUnits: available, currencyCode: activity.currency)
+                }
+            }
+            Text("Consulta del \(activity.observedAt.formatted(date: .abbreviated, time: .shortened)). El disponible del banco puede reflejar retenciones y se muestra separado de tus reservas en la app.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+
+        Section("Pendientes del banco") {
+            if let pending = activity.pendingMovements {
+                if pending.isEmpty {
+                    Text("Sin retenciones ni movimientos pendientes comunicados en esta consulta.")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(Array(pending.enumerated()), id: \.offset) { _, movement in
+                    LabeledContent {
+                        PrivacyAmountText(minorUnits: movement.signedAmountMinor, currencyCode: movement.currency, signed: true)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(TransactionPresentation.title(movement.description, isBanking: true))
+                            HStack {
+                                Text(movement.status == "HOLD" ? "Retenido" : "Pendiente")
+                                if let date = movement.date {
+                                    Text(date.split(separator: "-").reversed().joined(separator: "/"))
+                                }
+                            }
+                            .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if !pending.isEmpty {
+                    Text("Importes provisionales. Los cargos se reflejan en el historial y el presupuesto cuando el banco los contabiliza.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            } else {
+                Text("Detalle de retenciones no disponible en esta consulta.")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     var body: some View {
         List {
             Section {
@@ -1069,6 +1128,10 @@ private struct AccountDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 8)
+            }
+
+            if let key = account.bankIdentityKey, let activity = bankActivity[key], !account.isArchived {
+                bankActivitySections(activity)
             }
 
             Section("Datos de la cuenta") {

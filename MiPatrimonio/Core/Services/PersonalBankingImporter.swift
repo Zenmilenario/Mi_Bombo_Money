@@ -268,7 +268,8 @@ enum PersonalBankingImporter {
             guard reviews == reviewedBalances else { throw PersonalBankingError.changed }
         }
         let batch = ImportBatch(fileName: "Enable Banking", source: .bankAPI, importedAt: observedAt)
-        var inserted = 0; var matched = 0
+        var insertedIDs: Set<UUID> = []
+        var matched = 0
         do {
             for item in plan.items {
                 guard let choice = decisions[item.id] else { throw PersonalBankingError.needsReview }
@@ -287,7 +288,8 @@ enum PersonalBankingImporter {
                         sourceAccount: source, destinationAccount: item.destination.flatMap { accounts[$0] }, category: category)
                     transaction.fingerprint = DuplicateDetectionService.fingerprint(date: item.date, sourceAccountID: item.source,
                         destinationAccountID: item.destination, type: type, amountMinor: item.amount, description: item.text)
-                    context.insert(transaction); inserted += 1
+                    context.insert(transaction)
+                    insertedIDs.insert(transaction.id)
                 }
             }
             for balance in plan.balances {
@@ -307,13 +309,14 @@ enum PersonalBankingImporter {
                     notes: "Saldo de referencia de Trade Republic", account: account))
                 account.lastUpdatedAt = manual.date; account.updatedAt = .now
             }
-            if inserted + matched > 0 {
-                batch.importedRows = inserted; batch.skippedDuplicates = plan.alreadyImported + matched
+            if !insertedIDs.isEmpty || matched > 0 {
+                batch.importedRows = insertedIDs.count; batch.skippedDuplicates = plan.alreadyImported + matched
                 context.insert(batch)
             }
             try context.save()
         } catch { context.rollback(); throw error }
-        return Result(inserted: inserted, matched: matched, skipped: plan.alreadyImported)
+        BankingMovementCommit.publish(storeURL: context.container.configurations.first?.url, transactionIDs: insertedIDs)
+        return Result(inserted: insertedIDs.count, matched: matched, skipped: plan.alreadyImported)
     }
     private static func requireCloud(_ context: ModelContext) throws {
         guard context.container.configurations.allSatisfy({ $0.name == "CloudFinance" }) else { throw PersonalBankingError.wrongWorkspace }

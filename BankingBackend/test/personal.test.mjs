@@ -158,3 +158,39 @@ test('balance failures, throttling and malformed error bodies stay bounded and r
   }
   assert.ok(!JSON.stringify(logs).includes('private'));
 });
+
+test('pending and held entries are read alongside bookings and kept out of the booked feed', async () => {
+  const remote = { id: 'fixture-account', uid: 'fixture-uid', currency: 'EUR' };
+  const amount = { transaction_amount: { amount: '12.30', currency: 'EUR' }, credit_debit_indicator: 'DBIT' };
+  const held = { ...amount, status: 'HOLD', entry_reference: 'fixture-hold',
+    transaction_date: '2026-11-02', remittance_information: ['Compra ficticia'] };
+  const booked = { ...amount, status: 'BOOK', booking_date: '2026-11-03', entry_reference: 'fixture-booked' };
+  const pending = { ...amount, status: 'PDNG', transaction_date: '2026-11-02' };
+  const balances = [{ balance_amount: { amount: '100.00', currency: 'EUR' }, balance_type: 'ITBD' },
+    { balance_amount: { amount: '87.70', currency: 'EUR' }, balance_type: 'ITAV' }];
+  async function download(includePending, rows) {
+    let movementRequests = 0;
+    const result = await accountData({}, remote, '2026-11-01', '2026-11-03', null, env, async url => {
+      if (url.endsWith('/application')) return Response.json(application);
+      if (url.endsWith('/balances')) return Response.json({ balances });
+      movementRequests++;
+      assert.equal(new URL(url).searchParams.get('transaction_status'), includePending ? null : 'BOOK');
+      return Response.json({ transactions: rows });
+    }, {}, includePending);
+    assert.equal(movementRequests, 1);
+    return result;
+  }
+  const first = await download(true, [booked, held, pending, { ...pending, status: 'CNCL' },
+    { ...pending, transaction_amount: { amount: 'invalid', currency: 'EUR' } }]);
+  assert.equal(first.transactions.length, 1);
+  assert.deepEqual(first.pendingTransactions.map(row => [row.status, row.signedAmountMinor, row.date]),
+    [['HOLD', -1230, '2026-11-02'], ['PDNG', -1230, '2026-11-02']]);
+  assert.equal(first.pendingTransactions[1].id, null);
+  assert.deepEqual(first.balances.map(row => row.amountMinor), [10000, 8770]);
+  const settled = await download(true, [booked, { ...held, status: 'BOOK', booking_date: '2026-11-03' }]);
+  assert.deepEqual(settled.pendingTransactions, []);
+  assert.equal(settled.transactions[1].id, first.pendingTransactions[0].id);
+  const legacy = await download(false, [booked, held]);
+  assert.equal(legacy.transactions.length, 1);
+  assert.equal(legacy.pendingTransactions, undefined);
+});

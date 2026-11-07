@@ -147,9 +147,10 @@ enum TransactionOperationLearning {
     }
 
     /// May be staged before the financial save. Signature/action validation ignores failed saves.
+    @discardableResult
     static func rememberEdit(_ before: EditSnapshot?, after row: FinancialTransaction, explicitlyReviewed: Bool = false,
-                             in context: ModelContext) throws {
-        guard let before, row.modelContext === context, let location = location(in: context) else { return }
+                             in context: ModelContext) throws -> Bool {
+        guard let before, row.modelContext === context, let location = location(in: context) else { return false }
         var history = try read(location)
         history.manualReviewIDs.insert(row.id)
         let desired = action(row)
@@ -157,7 +158,10 @@ enum TransactionOperationLearning {
               row.sourceAccount?.id == before.sourceID, row.amountMinor == before.amount,
               row.date == before.date, row.bankEntryKey == before.bankKey,
               row.reservedFundID == nil, row.reservedAmountMinor == nil, row.recurringMovementID == nil,
-              !before.input.isCredit || row.type != .transfer else { try write(history, at: location); return }
+              !before.input.isCredit || row.type != .transfer else {
+            try write(history, at: location)
+            return true
+        }
         if let previous = history.corrections[row.id], previous.signature == before.signature, previous.example.action == before.action {
             history.priorCorrections[row.id] = previous
         }
@@ -165,13 +169,24 @@ enum TransactionOperationLearning {
         history.enabledAt = history.enabledAt ?? .now
         if let kind = before.kind { history.records[row.id] = Record(signature: signature(row), kind: kind) }
         try write(history, at: location)
+        return true
     }
 
     static func rememberCategoryReviews(_ rows: [FinancialTransaction], in context: ModelContext) throws {
+        var changed = false
+        defer { if changed { feedbackDidSave(in: context) } }
         for row in rows {
             guard row.category != nil else { continue }
-            try rememberEdit(captureEdit(row, in: context), after: row, explicitlyReviewed: true, in: context)
+            if try rememberEdit(captureEdit(row, in: context), after: row, explicitlyReviewed: true, in: context) {
+                changed = true
+            }
         }
+    }
+
+    static func feedbackDidSave(in context: ModelContext) {
+        guard !context.hasChanges, location(in: context) != nil,
+              let storeURL = context.container.configurations.first?.url else { return }
+        NotificationCenter.default.post(name: didChange, object: storeURL)
     }
 
     static func automationStatus(for row: FinancialTransaction, in context: ModelContext) throws -> AutomationStatus {
@@ -188,6 +203,7 @@ enum TransactionOperationLearning {
         var history = try read(location)
         history.automationEnabled = enabled
         try write(history, at: location)
+        feedbackDidSave(in: context)
     }
 
     static func undoAutomaticCorrection(_ row: FinancialTransaction, in context: ModelContext) throws {
@@ -209,6 +225,7 @@ enum TransactionOperationLearning {
             row.updatedAt = .now
             try rememberEdit(before, after: row, explicitlyReviewed: true, in: context)
             try context.save()
+            feedbackDidSave(in: context)
         } catch { context.rollback(); throw error }
     }
 
@@ -238,7 +255,12 @@ enum TransactionOperationLearning {
         }
     }
 
-    static func applyLearnedCorrections(in context: ModelContext, canRun: () -> Bool = { true }) async throws -> Int {
+    static func isApplyingCorrections(in context: ModelContext) -> Bool {
+        location(in: context).map { applying.contains($0) } ?? false
+    }
+
+    static func applyLearnedCorrections(in context: ModelContext, transactionIDs: Set<UUID>? = nil,
+                                        canRun: () -> Bool = { true }) async throws -> Int {
         guard !context.hasChanges, canRun(), !Task.isCancelled, let location = location(in: context),
               !applying.contains(location) else { return 0 }
         applying.insert(location)
@@ -247,7 +269,8 @@ enum TransactionOperationLearning {
         guard history.automationEnabled, let enabledAt = history.enabledAt else { return 0 }
         let rows = try context.fetch(FetchDescriptor<FinancialTransaction>())
         let candidates = rows.filter { row in
-            row.createdAt >= enabledAt && row.category == nil && row.destinationAccount == nil
+            (transactionIDs?.contains(row.id) ?? true) && row.createdAt >= enabledAt
+                && row.category == nil && row.destinationAccount == nil
                 && history.corrections[row.id] == nil && history.records[row.id] == nil
                 && !history.manualReviewIDs.contains(row.id)
                 && history.automatic[row.id].map { $0.signature != signature(row) || $0.after != action(row) } != false
@@ -283,7 +306,7 @@ enum TransactionOperationLearning {
         }
         guard !changes.isEmpty, canRun(), !Task.isCancelled else { return 0 }
         // Persist recovery information first. A failed financial save leaves an inactive audit.
-        try write(history, at: location)
+        try write(history, at: location, invalidateModels: false)
         do {
             for (row, desired) in changes {
                 row.type = TransactionType(rawValue: desired.type)!
@@ -335,6 +358,7 @@ enum TransactionOperationLearning {
         history.terms[accountID, default: []].removeAll { $0.validFrom == terms.validFrom }
         history.terms[accountID, default: []].append(terms)
         try write(history, at: location)
+        feedbackDidSave(in: context)
     }
 
     static func review(_ transaction: FinancialTransaction, in context: ModelContext) async throws -> Review {
@@ -382,20 +406,21 @@ enum TransactionOperationLearning {
             history.records[transaction.id] = Record(signature: signature(transaction), kind: kind)
         } else { history.records.removeValue(forKey: transaction.id) }
         try write(history, at: location)
+        feedbackDidSave(in: context)
     }
 
-    private static func write(_ history: History, at location: URL) throws {
+    private static func write(_ history: History, at location: URL, invalidateModels: Bool = true) throws {
         let data = try JSONEncoder().encode(history)
         try data.write(to: location, options: [.atomic, .completeFileProtection])
         var destination = location, attributes = URLResourceValues()
         attributes.isExcludedFromBackup = true
         try destination.setResourceValues(attributes)
+        guard invalidateModels else { return }
         training = nil
         job?.cancel()
         job = nil
         correctionJob?.cancel()
         correctionJob = nil
         correctionTraining = nil
-        NotificationCenter.default.post(name: didChange, object: location)
     }
 }

@@ -48,9 +48,13 @@ struct FetchDescriptor<Value> {}
     static var feedDelay: UInt64 = 0
     static var activeReads = 0
     static var maximumReads = 0
+    static var connectionReads = 0
     init(configuration: BankingServerConfiguration, live: Bool) {}
     func status() async throws -> BankingServerStatus { .init(mode: "production", liveBankingEnabled: true, accountingImportEnabled: true) }
-    func connections() async throws -> [ConnectedBankSession] { Self.available }
+    func connections() async throws -> [ConnectedBankSession] {
+        Self.connectionReads += 1
+        return Self.available
+    }
     func banks() async throws -> [ConnectedBank] {
         if Self.catalogueFails { throw BankingConnectionError.server("bank_unavailable") }
         return []
@@ -107,7 +111,9 @@ enum PersonalBankingImporter {
             balances: [.init(amountMinor: 10000, currency: "EUR", type: "CLBD")], movements: rows)
     }
     @MainActor static func main() async throws {
-        let bbva = feed(bank: "BBVA", id: "bbva", other: "bankinter")
+        var bbva = feed(bank: "BBVA", id: "bbva", other: "bankinter")
+        bbva.pendingMovements = [.init(id: nil, date: String(day), signedAmountMinor: -1250,
+            currency: "EUR", description: "Fictitious hold", status: "HOLD")]
         let bankinter = feed(bank: "Bankinter", id: "bankinter", other: "bbva")
         BankingConnectionClient.available = [bbva.connection, bankinter.connection]
         BankingConnectionClient.values = ["BBVA": [bbva], "Bankinter": [bankinter]]
@@ -117,18 +123,30 @@ enum PersonalBankingImporter {
         let context = ModelContext()
         context.accounts = [bbva, bankinter].map { FinancialAccount(remote: $0.account, server: server) }
         context.snapshots = context.accounts.map { BalanceSnapshot(account: $0) }
-        defer { for suffix in ["", "-bank-schedules-v2", "-blocked-until", "-next"] { UserDefaults.standard.removeObject(forKey: storage + suffix) } }
+        defer { for suffix in ["", "-bank-schedules-v2", "-blocked-until", "-next", "-next-discovery-v1"] { UserDefaults.standard.removeObject(forKey: storage + suffix) } }
         let coordinator = PersonalBankingCoordinator()
         try await coordinator.configure(server: server.absoluteString, account: account)
         let changed = await coordinator.synchronize(account: account, context: context, force: true)
         precondition(changed && context.appliedBanks == ["BBVA"])
         precondition(context.ledger.count == 1 && context.ledger[0].kind == "expense")
+        let bankKey = context.accounts[0].bankIdentityKey!
+        let owner = account.session!.user.id
+        precondition(coordinator.activity(for: owner)[bankKey]?.pendingMovements?.count == 1)
+        precondition(coordinator.activity(for: UUID()).isEmpty)
         precondition(coordinator.bankStatus["BBVA"]?.deferredTransfers == 1)
         precondition(coordinator.bankStatus["Bankinter"]?.retryAt != nil)
         precondition(BankingConnectionClient.manual.allSatisfy { $0 })
         let beforeAutomatic = BankingConnectionClient.attempts
         _ = await coordinator.synchronize(account: account, context: context)
         precondition(BankingConnectionClient.attempts == beforeAutomatic, "Cloud polling must not become repeated bank polling")
+
+        let beforeReopens = BankingConnectionClient.connectionReads
+        for _ in 0..<10 {
+            let coldStart = PersonalBankingCoordinator()
+            _ = await coldStart.synchronize(account: account, context: context)
+        }
+        precondition(BankingConnectionClient.connectionReads == beforeReopens && BankingConnectionClient.attempts == beforeAutomatic,
+                     "Rapid cold starts must use the saved deadline before contacting the server or bank")
 
         let reopened = PersonalBankingCoordinator()
         try await reopened.configure(server: server.absoluteString, account: account)
@@ -137,6 +155,11 @@ enum PersonalBankingImporter {
         precondition(BankingConnectionClient.attempts.isEmpty, "A blocked bank must not be queried after restarting")
         _ = await reopened.synchronize(account: account, context: context, force: true, onlyBank: "BBVA")
         precondition(BankingConnectionClient.attempts == ["BBVA"] && context.ledger.count == 1)
+        bbva.pendingMovements = []
+        BankingConnectionClient.values["BBVA"] = [bbva]
+        _ = await reopened.synchronize(account: account, context: context, force: true, onlyBank: "BBVA")
+        precondition(reopened.activity(for: owner)[bankKey]?.pendingMovements?.isEmpty == true,
+                     "A fresh download replaces provisional entries for that account")
 
         // The first successful bank download still needs explicit confirmation.
         context.snapshots = []; context.ledger = []; BankingConnectionClient.attempts = []
@@ -179,7 +202,7 @@ enum PersonalBankingImporter {
         // Opening the first install needs no hidden manual server configuration.
         let freshAccount = CloudAccountManager()
         let freshStorage = "banking-live-origin-v1-" + freshAccount.session!.user.id.uuidString.lowercased()
-        defer { for suffix in ["", "-bank-schedules-v2"] { UserDefaults.standard.removeObject(forKey: freshStorage + suffix) } }
+        defer { for suffix in ["", "-bank-schedules-v2", "-next-discovery-v1"] { UserDefaults.standard.removeObject(forKey: freshStorage + suffix) } }
         let freshContext = ModelContext()
         freshContext.accounts = [FinancialAccount(remote: bbva.account, server: server)]
         let optional = ConnectedBankAccount(id: "optional-investment-cash", name: "Synthetic optional", currency: "EUR", lastFour: "0000")
@@ -202,12 +225,30 @@ enum PersonalBankingImporter {
         fresh.discardPending()
         freshContext.ledger = []; BankingConnectionClient.feedDelay = 150_000_000
         UserDefaults.standard.removeObject(forKey: freshStorage + "-bank-schedules-v2")
+        UserDefaults.standard.removeObject(forKey: freshStorage + "-next-discovery-v1")
         let racing = PersonalBankingCoordinator()
         let auto = Task { await racing.synchronize(account: freshAccount, context: freshContext, onlyBank: "BBVA") }
         try await Task.sleep(nanoseconds: 20_000_000)
         try await racing.connectionCompleted(bank: "BBVA", account: freshAccount, context: freshContext)
         _ = await auto.value
         precondition(racing.pendingPlan?.items.count == 1 && BankingConnectionClient.maximumReads == 1)
-        print("Banking coordinator passed: independent banks, scoped persistent cooldowns, first-download review, legacy wait and deferred transfer recovery.")
+
+        // An editor opened while the download was in flight must not waste the bank read.
+        freshContext.snapshots = freshContext.accounts.map { BalanceSnapshot(account: $0) }
+        BankingConnectionClient.feedDelay = 0
+        UserDefaults.standard.removeObject(forKey: freshStorage + "-bank-schedules-v2")
+        UserDefaults.standard.removeObject(forKey: freshStorage + "-next-discovery-v1")
+        let waiting = PersonalBankingCoordinator()
+        let beforeWaiting = BankingConnectionClient.attempts.count
+        var safetyChecks = 0
+        let staged = await waiting.synchronize(account: freshAccount, context: freshContext, onlyBank: "BBVA") {
+            safetyChecks += 1
+            return safetyChecks == 1
+        }
+        precondition(!staged && freshContext.ledger.isEmpty && BankingConnectionClient.attempts.count == beforeWaiting + 1)
+        let resumed = await waiting.synchronize(account: freshAccount, context: freshContext)
+        precondition(resumed && freshContext.ledger.count == 1 && BankingConnectionClient.attempts.count == beforeWaiting + 1,
+                     "Closing an editor must import the complete saved download without a second bank request")
+        print("Banking coordinator passed: independent banks, reopen limits, deferred application, first-download review and transfer recovery.")
     }
 }

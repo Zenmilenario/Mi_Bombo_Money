@@ -10,8 +10,7 @@ struct BankingBankSchedule: Codable, Equatable {
 
     func allows(force: Bool, at date: Date) -> Bool {
         if force { return manualBlockedUntil.map { date >= $0 } ?? true }
-        if let blockedUntil, date < blockedUntil { return false }
-        return force || date >= nextAttempt
+        return date >= automaticDate
     }
     var automaticDate: Date { max(nextAttempt, max(blockedUntil ?? .distantPast, manualBlockedUntil ?? .distantPast)) }
     mutating func started(at date: Date) { nextAttempt = date.addingTimeInterval(15 * 60) }

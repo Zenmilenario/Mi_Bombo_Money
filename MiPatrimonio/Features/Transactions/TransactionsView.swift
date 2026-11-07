@@ -58,6 +58,7 @@ private enum TransactionDateFilter: String, CaseIterable, Identifiable {
 
 struct TransactionsView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.isCloudWorkspace) private var isCloudWorkspace
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
@@ -171,6 +172,7 @@ struct TransactionsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 12) {
+                        if isCloudWorkspace { BankDownloadReviewLink() }
                         Menu {
                             Button {
                                 isSelecting.toggle()
@@ -591,6 +593,22 @@ struct TransactionsView: View {
         }
     }
 
+}
+
+private struct BankDownloadReviewLink: View {
+    @EnvironmentObject private var banking: PersonalBankingCoordinator
+
+    var body: some View {
+        if banking.pendingPlan != nil {
+            NavigationLink {
+                PersonalBankConnectionsView()
+            } label: {
+                Label("Revisar descarga bancaria", systemImage: "tray.and.arrow.down.fill")
+                    .labelStyle(.iconOnly)
+            }
+            .accessibilityLabel("Revisar descarga bancaria")
+        }
+    }
 }
 
 private struct TransactionPeriodSummaryCard: View {
@@ -2504,10 +2522,11 @@ struct TransactionFormView: View {
         }
 
         do {
-            try TransactionOperationLearning.rememberEdit(correctionSnapshot, after: savedTransaction,
+            let recordedFeedback = try TransactionOperationLearning.rememberEdit(correctionSnapshot, after: savedTransaction,
                 explicitlyReviewed: confirmedCategory, in: modelContext)
             try modelContext.save()
             if confirmedCategory { TransactionLearning.confirm([savedTransaction], in: modelContext, recordCorrection: false) }
+            if recordedFeedback { TransactionOperationLearning.feedbackDidSave(in: modelContext) }
             dismiss()
         } catch {
             modelContext.rollback()

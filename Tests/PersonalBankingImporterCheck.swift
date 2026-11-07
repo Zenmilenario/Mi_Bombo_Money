@@ -3,6 +3,10 @@ import SwiftData
 
 @main
 struct PersonalBankingImporterCheck {
+    @MainActor private final class CommitRecorder {
+        var batches: [Set<UUID>] = []
+    }
+
     @MainActor static func main() throws {
         let schema = Schema([FinancialInstitution.self, FinancialAccount.self, PaymentCard.self, ReservedFund.self,
             FinanceCategory.self, FinancialTransaction.self, CategoryRule.self, MonthlyBudget.self, RecurringBudget.self,
@@ -98,9 +102,18 @@ struct PersonalBankingImporterCheck {
                 .init(id: "in", bookingDate: "2026-10-15", signedAmountMinor: 5000, currency: "EUR", description: "Synthetic transfer", counterpartyKey: "own-a", transferKey: "pair"),
                 .init(id: "expense", bookingDate: "2026-10-15", signedAmountMinor: -750, currency: "EUR", description: "Synthetic purchase")])
         let independent = try PersonalBankingDownloadSelection.prepare([bFeed], knownAccounts: [a, b])
+        let recorder = CommitRecorder()
+        let observer = NotificationCenter.default.addObserver(forName: BankingMovementCommit.notification, object: nil, queue: nil) { notice in
+            guard let commit = notice.object as? BankingMovementCommit else { return }
+            MainActor.assumeIsolated {
+                precondition(!partialContext.hasChanges && commit.storeURL == partialContainer.configurations.first?.url)
+                recorder.batches.append(commit.transactionIDs)
+            }
+        }
         let firstResult = try PersonalBankingImporter.apply(independent.feeds, server: server, in: partialContext, observedAt: observed)
         let firstRows = try partialContext.fetch(FetchDescriptor<FinancialTransaction>())
         precondition(firstResult.inserted == 1 && firstRows.count == 1 && firstRows[0].type == .expense)
+        precondition(recorder.batches == [Set(firstRows.map(\.id))], "Publish newly saved rows once for their store")
         precondition(FinanceCalculator.monthlySummary(for: observed, transactions: firstRows).incomeMinor == 0)
         let complete = try PersonalBankingDownloadSelection.prepare([aFeed, bFeed], knownAccounts: [a, b])
         let recovered = try PersonalBankingImporter.apply(complete.feeds, server: server, in: partialContext, observedAt: observed)
@@ -113,6 +126,8 @@ struct PersonalBankingImporterCheck {
         precondition(FinanceCalculator.balance(of: secondAccount, at: observed, transactions: recoveredRows, snapshots: recoveredSnapshots) == 9250)
         let repeatedRecovery = try PersonalBankingImporter.apply(complete.feeds, server: server, in: partialContext, observedAt: observed)
         precondition(repeatedRecovery.inserted == 0 && repeatedRecovery.skipped == 2)
+        precondition(recorder.batches.count == 2, "Downloading the same rows again does not wake learning")
+        NotificationCenter.default.removeObserver(observer)
         let plainDebit = BankingAccountFeed(connection: aFeed.connection, account: a, balances: aFeed.balances, movements: [
             .init(id: "text-debit", bookingDate: "2026-10-15", signedAmountMinor: -1250, currency: "EUR", description: "/TXT/D|TRANS INM/ Persona Ficticia")])
         let plainCredit = BankingAccountFeed(connection: bFeed.connection, account: b, balances: bFeed.balances, movements: [

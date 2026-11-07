@@ -1,11 +1,55 @@
 import Foundation
 
+struct BankingMovementCommit: Sendable {
+    static let notification = Notification.Name("BankingMovementCommit.saved")
+    let storeURL: URL
+    let transactionIDs: Set<UUID>
+
+    static func publish(storeURL: URL?, transactionIDs: Set<UUID>) {
+        guard let storeURL, !transactionIDs.isEmpty else { return }
+        NotificationCenter.default.post(name: notification,
+            object: Self(storeURL: storeURL, transactionIDs: transactionIDs))
+    }
+}
+
 struct BankingServerStatus: Decodable { let mode: String; let liveBankingEnabled: Bool; let accountingImportEnabled: Bool }
 struct BankingAccountFeed {
     let connection: ConnectedBankSession
     let account: ConnectedBankAccount
     let balances: [BankingPreview.Balance]
     let movements: [BankingPreview.Movement]
+    var pendingMovements: [BankingPreview.PendingMovement]? = nil
+}
+
+struct BankingAccountActivity {
+    let observedAt: Date
+    let currency: String
+    let bookedBalance: Int64?
+    let availableBalance: Int64?
+    let pendingMovements: [BankingPreview.PendingMovement]?
+
+    init(feed: BankingAccountFeed, observedAt: Date) {
+        self.observedAt = observedAt
+        currency = feed.account.currency
+        let balances = feed.balances.filter { $0.currency == feed.account.currency }
+        func balance(preferred: String, fallback: String) -> Int64? {
+            let preferredRows = balances.filter { $0.type == preferred }
+            let rows = preferredRows.isEmpty ? balances.filter { $0.type == fallback } : preferredRows
+            let amounts = Set(rows.map(\.amountMinor))
+            return amounts.count == 1 ? amounts.first : nil
+        }
+        bookedBalance = balance(preferred: "ITBD", fallback: "CLBD")
+        availableBalance = balance(preferred: "ITAV", fallback: "CLAV")
+        if let pending = feed.pendingMovements {
+            var seenIDs = Set(feed.movements.compactMap(\.id))
+            pendingMovements = pending.filter { row in
+                row.currency == feed.account.currency && ["HOLD", "PDNG"].contains(row.status)
+                    && (row.id.map { seenIDs.insert($0).inserted } ?? true)
+            }.sorted { ($0.date ?? "") > ($1.date ?? "") }
+        } else {
+            pendingMovements = nil
+        }
+    }
 }
 struct ConnectedBank: Decodable, Identifiable {
     let name: String
@@ -52,7 +96,23 @@ struct BankingPreview: Decodable {
             self.currency = currency; self.description = description; self.counterpartyKey = counterpartyKey; self.transferKey = transferKey
         }
     }
+    struct PendingMovement: Decodable {
+        let id: String?
+        let date: String?
+        let signedAmountMinor: Int64
+        let currency: String
+        let description: String
+        let status: String
+    }
     let balances: [Balance]
     let transactions: [Movement]
+    let pendingTransactions: [PendingMovement]?
     let continuation: String?
+
+    init(balances: [Balance], transactions: [Movement], continuation: String?) {
+        self.balances = balances
+        self.transactions = transactions
+        self.continuation = continuation
+        pendingTransactions = nil
+    }
 }
