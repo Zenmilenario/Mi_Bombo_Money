@@ -1,5 +1,13 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Repetición de descargas de Trade Republic — iOS 0.6.19 (36)
+
+El 7 de noviembre de 2026, Mis bancos indicó que la descarga de Trade Republic había llegado y que la app no podía incorporarla. Se reprodujo el mismo aviso con un apunte antiguo sin referencia bancaria cuyo importe y tipo habían cambiado en el registro local. La captura no permite identificar el apunte que disparó el fallo ni confirmar si la descarga incluía la aportación buscada.
+
+El plan de importación reconoce como ya guardado un apunte que vuelve con la misma clave local de Trade Republic. La clave conserva la cuenta bancaria, la fecha contable, la moneda, el importe original con signo y el número de aparición. La app conserva el registro editado y prepara los apuntes nuevos para su revisión habitual. Si el proveedor facilita una referencia propia, siguen comprobándose la cuenta, el importe y el sentido. [Datos que facilita Trade Republic por PSD2](https://enablebanking.com/docs/markets/de/#trade-republic).
+
+La prueba Swift con datos ficticios reprodujo el rechazo anterior. Con la corrección, el apunte antiguo se reconoce y el nuevo queda disponible para revisión. La prueba también comprueba que una referencia del proveedor con importe incompatible sigue rechazándose. Queda pendiente compilar para iOS y comprobar la descarga real en el dispositivo.
+
 ## Retenciones y saldo disponible del banco — iOS 0.6.18 (35)
 
 Preparado localmente el 7 de noviembre de 2026. El usuario observó cuatro apuntes que aparecieron en la app tras contabilizarlos el banco. El cliente anterior pedía solo `BOOK` y el servidor también filtraba por ese estado. La nueva consulta personal solicita los estados disponibles en la misma petición de movimientos por página. El servidor conserva los contabilizados en `transactions` y devuelve `HOLD` y `PDNG` en `pendingTransactions` si el banco los facilita. La consulta se activa mediante `include_pending=1` en el servidor personal. [Consulta de movimientos y estados de Enable Banking](https://enablebanking.com/docs/api/reference/#get-account-transactions).

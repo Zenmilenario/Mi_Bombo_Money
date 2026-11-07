@@ -265,14 +265,6 @@ struct PersonalBankingPlan {
                 guard knownRows.updateValue(entry, forKey: key) == nil else { throw PersonalBankingError.invalidData }
             }
         }
-        let known = Set(knownRows.keys)
-        func validateKnown(_ key: String, source: UUID, destination: UUID?, amount: Int64, kind: String) throws {
-            guard let old = knownRows[key] else { return }
-            let probe = Item(id: key, date: old.date, kind: kind, amount: amount, source: source, destination: destination, text: "")
-            guard compatible(old, with: probe) else {
-                throw PersonalBankingError.changed
-            }
-        }
         var used = Set<String>(); var items: [Item] = []; var skipped = 0
         for leg in legs.sorted(by: { $0.key < $1.key }) where !used.contains(leg.key) {
             let ownOther = leg.row.counterpartyKey.flatMap { ownership[$0] }
@@ -301,13 +293,16 @@ struct PersonalBankingPlan {
                 items.append(item)
             } else {
                 used.insert(leg.key)
-                if known.contains(leg.key) {
-                    try validateKnown(leg.key, source: leg.local, destination: nil, amount: abs(leg.row.signedAmountMinor), kind: leg.row.signedAmountMinor < 0 ? "expense" : "income")
+                let item = Item(id: leg.key, date: leg.date, kind: leg.row.signedAmountMinor < 0 ? "expense" : "income",
+                    amount: abs(leg.row.signedAmountMinor), source: leg.local, destination: nil, text: leg.row.description,
+                    hasLocalReference: leg.hasLocalReference)
+                if let old = knownRows[leg.key] {
+                    // A generated reference includes the original account, date and signed amount.
+                    // A local edit can change the ledger fields without changing that bank identity.
+                    guard leg.hasLocalReference || compatible(old, with: item) else { throw PersonalBankingError.changed }
                     skipped += 1; continue
                 }
-                items.append(Item(id: leg.key, date: leg.date, kind: leg.row.signedAmountMinor < 0 ? "expense" : "income",
-                    amount: abs(leg.row.signedAmountMinor), source: leg.local, destination: nil, text: leg.row.description,
-                    hasLocalReference: leg.hasLocalReference))
+                items.append(item)
             }
         }
         struct CandidateKey: Hashable { let source: UUID?; let destination: UUID?; let kind: String; let amount: Int64 }
