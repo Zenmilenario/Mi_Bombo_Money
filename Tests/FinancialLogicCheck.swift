@@ -481,6 +481,29 @@ struct FinancialLogicCheck {
         }
         precondition(TransactionPresentation.listTitle("MERCADO FICTICIO", isBanking: false) == "MERCADO FICTICIO",
             "A concept the user typed is shown exactly as written")
+        // Saying of the day: stable for a day, changes with the day and when tapped, never empty.
+        var madrid = Calendar(identifier: .gregorian); madrid.timeZone = TimeZone(identifier: "Europe/Madrid")!
+        let morning = madrid.date(from: DateComponents(year: 2026, month: 11, day: 9, hour: 8))!
+        let evening = madrid.date(from: DateComponents(year: 2026, month: 11, day: 9, hour: 22))!
+        let tomorrow = madrid.date(byAdding: .day, value: 1, to: morning)!
+        precondition(DailyQuote.of(morning, calendar: madrid) == DailyQuote.of(evening, calendar: madrid))
+        precondition(DailyQuote.of(morning, calendar: madrid) != DailyQuote.of(tomorrow, calendar: madrid))
+        precondition(DailyQuote.of(morning, offset: 1, calendar: madrid) == DailyQuote.of(tomorrow, calendar: madrid))
+        precondition(DailyQuote.all.allSatisfy { !$0.text.isEmpty && ($0.kind != .quote || $0.author != nil) },
+            "Every quote names its author")
+        // Don Bigotes: a dismissed note stays hidden; three dismissals of one kind mute that kind.
+        var memory = CompanionMemory()
+        precondition(memory.shows(id: "review:1", kind: "review"))
+        memory.dismiss(id: "review:1", kind: "review")
+        precondition(!memory.shows(id: "review:1", kind: "review") && memory.shows(id: "review:2", kind: "review"))
+        memory.dismiss(id: "review:1", kind: "review")
+        precondition(memory.dismissalsByKind["review"] == 1, "Dismissing the same note twice counts once")
+        memory.dismiss(id: "review:2", kind: "review"); memory.dismiss(id: "review:3", kind: "review")
+        precondition(memory.isMuted("review") && !memory.shows(id: "review:4", kind: "review") && memory.shows(id: "holds:1", kind: "holds"))
+        let restored = CompanionMemory(serialized: memory.serialized)
+        precondition(restored == memory && CompanionMemory(serialized: "") == CompanionMemory())
+        memory.forget(except: ["review:3"])
+        precondition(memory.dismissed == ["review:3"] && memory.isMuted("review"), "Forgetting old notes keeps what was muted")
         precondition(TransactionPresentation.indicatesTransfer("/TXT/D|TRANS INM/ Persona Ficticia"))
         precondition(!TransactionPresentation.indicatesTransfer("/TXT/Z|TRANS INM/ Persona Ficticia"))
         precondition(!TransactionPresentation.indicatesTransfer("/TXT/H|PAGO BIZUM DE PRUEBA"))

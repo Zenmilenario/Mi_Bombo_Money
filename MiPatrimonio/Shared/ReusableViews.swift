@@ -21,6 +21,10 @@ enum AppDesign {
         adaptiveColor(light: 0xFFFFFF, dark: 0x15212D, elevated: 0x1C2B3A)
     }
 
+    static var railBackground: Color {
+        adaptiveColor(light: 0xFBFAF7, dark: 0x101B27)
+    }
+
     static var tertiaryBackground: Color {
         adaptiveColor(light: 0xF1EFEA, dark: 0x1C2B3A, elevated: 0x24364A)
     }
@@ -620,5 +624,123 @@ struct AdaptiveSummaryPair: View {
 
     private var secondTile: some View {
         FinancialSummaryTile(title: secondTitle, minorUnits: secondAmount, tint: secondTint)
+    }
+}
+
+// MARK: - Doblón brand pieces
+
+/// Don Bigotes, the app's cat in a suit. Drawn with shapes so it scales and follows the theme.
+struct DonBigotesMark: View {
+    var awake = true
+    var size: CGFloat = 44
+
+    var body: some View {
+        Canvas { context, canvas in
+            let s = min(canvas.width, canvas.height) / 48
+            func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * s, y: y * s) }
+            let fur = Color(red: 0.953, green: 0.933, blue: 0.902)
+            let ear = Color(red: 0.914, green: 0.882, blue: 0.839)
+            let ink = Color(red: 0.078, green: 0.125, blue: 0.173)
+            var ears = Path()
+            ears.move(to: point(10, 20)); ears.addLine(to: point(13, 6)); ears.addLine(to: point(21, 14)); ears.closeSubpath()
+            ears.move(to: point(38, 20)); ears.addLine(to: point(35, 6)); ears.addLine(to: point(27, 14)); ears.closeSubpath()
+            context.fill(ears, with: .color(ear))
+            context.fill(Path(ellipseIn: CGRect(x: 9 * s, y: 10.5 * s, width: 30 * s, height: 27 * s)), with: .color(fur))
+            if awake {
+                context.fill(Path(ellipseIn: CGRect(x: 16 * s, y: 20 * s, width: 6 * s, height: 6 * s)), with: .color(ink))
+                context.fill(Path(ellipseIn: CGRect(x: 26 * s, y: 20 * s, width: 6 * s, height: 6 * s)), with: .color(ink))
+                context.fill(Path(ellipseIn: CGRect(x: 19.5 * s, y: 20.6 * s, width: 1.8 * s, height: 1.8 * s)), with: .color(.white))
+                context.fill(Path(ellipseIn: CGRect(x: 29.5 * s, y: 20.6 * s, width: 1.8 * s, height: 1.8 * s)), with: .color(.white))
+            } else {
+                var lids = Path()
+                lids.move(to: point(16, 24)); lids.addQuadCurve(to: point(22, 24), control: point(19, 26.5))
+                lids.move(to: point(26, 24)); lids.addQuadCurve(to: point(32, 24), control: point(29, 26.5))
+                context.stroke(lids, with: .color(ink), style: StrokeStyle(lineWidth: 1.6 * s, lineCap: .round))
+            }
+            var nose = Path()
+            nose.move(to: point(22.5, 29)); nose.addLine(to: point(25.5, 29)); nose.addLine(to: point(24, 31)); nose.closeSubpath()
+            context.fill(nose, with: .color(Color(red: 0.79, green: 0.55, blue: 0.52)))
+            var tie = Path()
+            tie.move(to: point(24, 37)); tie.addLine(to: point(21, 44)); tie.addLine(to: point(24, 47)); tie.addLine(to: point(27, 44)); tie.closeSubpath()
+            context.fill(tie, with: .color(AppDesign.accent))
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Coins falling into a drum ("bombo"): the illustration of the sign-in and unlock screens.
+struct BomboIllustration: View {
+    var body: some View {
+        Canvas { context, canvas in
+            let s = min(canvas.width / 324, canvas.height / 290)
+            let dx = (canvas.width - 324 * s) / 2 - 70 * s, dy = (canvas.height - 290 * s) / 2
+            func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
+                CGRect(x: dx + x * s, y: dy + y * s, width: w * s, height: h * s)
+            }
+            func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: dx + x * s, y: dy + y * s) }
+            let accent = AppDesign.accent
+            let coin = AppDesign.warning
+            context.fill(Path(ellipseIn: rect(104, 32, 256, 256)), with: .color(accent.opacity(0.07)))
+            context.fill(Path(ellipseIn: rect(140, 68, 184, 184)), with: .color(accent.opacity(0.07)))
+            let line = StrokeStyle(lineWidth: 3 * s, lineCap: .round)
+            context.stroke(Path(ellipseIn: rect(136, 214, 192, 44)), with: .color(accent), style: line)
+            var sides = Path()
+            sides.move(to: point(136, 168)); sides.addLine(to: point(136, 236))
+            sides.move(to: point(328, 168)); sides.addLine(to: point(328, 236))
+            context.stroke(sides, with: .color(accent), style: line)
+            var cords = Path()
+            for (x1, x2) in [(CGFloat(150), CGFloat(182)), (216, 248), (282, 314)] {
+                cords.move(to: point(x1, 178)); cords.addLine(to: point(x2, 228))
+                cords.move(to: point(x2, 178)); cords.addLine(to: point(x1, 228))
+            }
+            context.stroke(cords, with: .color(accent.opacity(0.45)), style: StrokeStyle(lineWidth: 2 * s, lineCap: .round))
+            context.fill(Path(ellipseIn: rect(136, 146, 192, 44)), with: .color(AppDesign.pageBackground))
+            context.stroke(Path(ellipseIn: rect(136, 146, 192, 44)), with: .color(accent), style: line)
+            context.stroke(Path(ellipseIn: rect(160, 154, 144, 28)), with: .color(accent.opacity(0.5)), style: StrokeStyle(lineWidth: 1.5 * s))
+            for (x, y, r) in [(CGFloat(216), CGFloat(118), CGFloat(17)), (198, 40, 12)] {
+                let circle = Path(ellipseIn: rect(x - r, y - r, r * 2, r * 2))
+                context.fill(circle, with: .color(coin.opacity(0.22)))
+                context.stroke(circle, with: .color(coin), style: StrokeStyle(lineWidth: 3 * s))
+            }
+            let edge = Path(ellipseIn: rect(261, 55, 14, 30))
+            context.fill(edge, with: .color(coin.opacity(0.22)))
+            context.stroke(edge, with: .color(coin), style: StrokeStyle(lineWidth: 3 * s))
+            context.draw(Text("€").font(.system(size: 17 * s, weight: .heavy)).foregroundColor(coin), at: point(216, 119))
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Ilustración: monedas que caen dentro de un bombo")
+    }
+}
+
+struct DailyQuoteCard: View {
+    @State private var offset = 0
+
+    var body: some View {
+        let quote = DailyQuote.of(.now, offset: offset)
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { offset += 1 }
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(quote.label).font(.caption.weight(.bold)).tracking(0.6).foregroundStyle(AppDesign.accent)
+                    Spacer()
+                    Text("Otra ›").font(.caption).foregroundStyle(.secondary)
+                }
+                Text(quote.displayText)
+                    .font(quote.kind == .curiosity ? .subheadline.weight(.medium) : .body.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let author = quote.author {
+                    Text("— \(author)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .financeCardSurface(radius: AppDesign.heroRadius)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Muestra otra frase")
     }
 }

@@ -111,3 +111,62 @@ extension FinancialTransaction {
             || externalID?.hasPrefix("bank-test-transfer:") == true
     }
 }
+
+/// A saying, quote or curiosity about money for the sign-in and unlock screens. One per day; never advice.
+struct DailyQuote: Equatable {
+    enum Kind { case quote, saying, curiosity }
+    let kind: Kind
+    let text: String
+    var author: String? = nil
+
+    var label: String {
+        switch kind {
+        case .quote: "FRASE DEL DÍA"
+        case .saying: "REFRÁN DEL DÍA"
+        case .curiosity: "¿SABÍAS QUE…?"
+        }
+    }
+    var displayText: String { kind == .curiosity ? text : "«\(text)»" }
+
+    static let all: [DailyQuote] = [
+        .init(kind: .quote, text: "No es pobre el que tiene poco, sino el que mucho desea.", author: "Séneca"),
+        .init(kind: .curiosity, text: "La peseta nació en 1868 y convivió con el euro hasta el 28 de febrero de 2002."),
+        .init(kind: .saying, text: "Poco a poco se va lejos."),
+        .init(kind: .quote, text: "Dos linajes solos hay en el mundo, que son el tener y el no tener.", author: "Miguel de Cervantes"),
+        .init(kind: .curiosity, text: "La palabra «banco» viene de las mesas de madera donde los cambistas medievales hacían sus tratos."),
+        .init(kind: .quote, text: "El dinero es un buen sirviente, pero un mal amo.", author: "Atribuida a Francis Bacon"),
+        .init(kind: .saying, text: "Grano a grano, llena la gallina el buche."),
+        .init(kind: .quote, text: "La felicidad está en el gusto, y no en las cosas.", author: "François de La Rochefoucauld"),
+        .init(kind: .curiosity, text: "Los billetes y monedas de euro empezaron a circular el 1 de enero de 2002."),
+        .init(kind: .curiosity, text: "El doblón fue una moneda de oro española que circuló durante siglos por medio mundo."),
+        .init(kind: .saying, text: "Quien guarda, halla."),
+        .init(kind: .saying, text: "El tiempo es oro.")
+    ]
+
+    /// The quote for a day, shifted by `offset` when the person taps for another one.
+    static func of(_ date: Date, offset: Int = 0, calendar: Calendar = .current) -> DailyQuote {
+        let day = calendar.ordinality(of: .day, in: .era, for: date) ?? 0
+        let count = all.count
+        return all[((day + offset) % count + count) % count]
+    }
+}
+
+/// What the person dismissed, kept on this device. Three dismissals of one kind mute that kind.
+struct CompanionMemory: Codable, Equatable {
+    var dismissed: Set<String> = []
+    var dismissalsByKind: [String: Int] = [:]
+
+    init() {}
+    init(serialized: String) {
+        self = (try? JSONDecoder().decode(Self.self, from: Data(serialized.utf8))) ?? Self()
+    }
+    var serialized: String { (try? String(decoding: JSONEncoder().encode(self), as: UTF8.self)) ?? "" }
+
+    func isMuted(_ kind: String) -> Bool { dismissalsByKind[kind, default: 0] >= 3 }
+    func shows(id: String, kind: String) -> Bool { !dismissed.contains(id) && !isMuted(kind) }
+    mutating func dismiss(id: String, kind: String) {
+        if dismissed.insert(id).inserted { dismissalsByKind[kind, default: 0] += 1 }
+        // Keep the store small: old dismissals of notes that no longer exist are dropped by `forget`.
+    }
+    mutating func forget(except activeIDs: Set<String>) { dismissed.formIntersection(activeIDs) }
+}

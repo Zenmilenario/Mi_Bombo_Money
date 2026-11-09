@@ -85,6 +85,8 @@ struct TransactionsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.isCloudWorkspace) private var isCloudWorkspace
     @Environment(\.bankAccountActivity) private var bankActivity
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var inspectedID: UUID?
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
@@ -204,7 +206,46 @@ struct TransactionsView: View {
         scopedTransactions.filter { !TransactionReviewService.issues(for: $0).isEmpty }.count
     }
 
+    /// iPad: list on the left, the chosen movement on the right. iPhone: list and a sheet for the detail.
     var body: some View {
+        if horizontalSizeClass == .regular {
+            HStack(spacing: 0) {
+                listStack
+                    .frame(minWidth: 380, idealWidth: 520, maxWidth: 600)
+                Rectangle().fill(AppDesign.cardOutline).frame(width: 1).ignoresSafeArea()
+                inspector
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .background(AppDesign.pageBackground)
+        } else {
+            listStack
+        }
+    }
+
+    @ViewBuilder private var inspector: some View {
+        if let id = inspectedID, let transaction = transactions.first(where: { $0.id == id }) {
+            TransactionDetailView(transaction: transaction, onMergeBankEntry: { kept in
+                pendingBankMerge = (transaction, kept)
+                inspectedID = nil
+                performPendingBankMerge()
+            }, onPairOwnTransfer: { debit, credit in
+                pendingOwnTransfer = (debit, credit)
+                inspectedID = nil
+                performPendingBankMerge()
+            }, onClose: { inspectedID = nil })
+            .id(transaction.id)
+        } else {
+            VStack(spacing: 14) {
+                DonBigotesMark(awake: false, size: 64)
+                Text("Elige un movimiento").font(.title3.weight(.semibold))
+                Text("Su detalle aparecerá aquí, sin tapar la lista.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var listStack: some View {
         NavigationStack {
             movementContent
             .cloudSyncToolbar()
@@ -389,6 +430,12 @@ struct TransactionsView: View {
             }
 
             Section {
+                quickFilters
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
+
+            Section {
                 reviewSummary
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
@@ -491,7 +538,7 @@ struct TransactionsView: View {
 
     private func tapTransaction(_ transaction: FinancialTransaction) {
         if !isSelecting {
-            selectedTransaction = transaction
+            if horizontalSizeClass == .regular { inspectedID = transaction.id } else { selectedTransaction = transaction }
         } else if selectedIDs.contains(transaction.id) {
             selectedIDs.remove(transaction.id)
         } else {
@@ -516,6 +563,37 @@ struct TransactionsView: View {
         } footer: {
             Text("La selección se limita a los resultados de tu búsqueda y filtros. Al cambiar los filtros se retiran los movimientos que dejan de aparecer.")
         }
+    }
+
+    private var quickFilters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                quickChip("Todo", active: selectedType == nil && !showOnlyReview) { selectedType = nil; showOnlyReview = false }
+                quickChip("Gastos", active: selectedType == .expense && !showOnlyReview) { selectedType = .expense; showOnlyReview = false }
+                quickChip("Ingresos", active: selectedType == .income && !showOnlyReview) { selectedType = .income; showOnlyReview = false }
+                quickChip("Transferencias", active: selectedType == .transfer && !showOnlyReview) { selectedType = .transfer; showOnlyReview = false }
+                if reviewCount > 0 || showOnlyReview {
+                    quickChip("Por revisar · \(reviewCount)", active: showOnlyReview, tint: AppDesign.warning) {
+                        selectedType = nil; showOnlyReview = true
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func quickChip(_ title: String, active: Bool, tint: Color = .primary, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(active ? AppDesign.pageBackground : tint)
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+                .background(active ? Color.primary : AppDesign.cardBackground, in: Capsule())
+                .overlay { Capsule().strokeBorder(AppDesign.cardOutline, lineWidth: active ? 0 : 1) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     private var reviewAction: TransactionReviewService.FilterAction {
@@ -1702,6 +1780,8 @@ private struct TransactionDetailView: View {
     let transaction: FinancialTransaction
     let onMergeBankEntry: (FinancialTransaction) -> Void
     let onPairOwnTransfer: (FinancialTransaction, FinancialTransaction) -> Void
+    /// Set when the detail is shown beside the list (iPad) instead of in a sheet.
+    var onClose: (() -> Void)? = nil
 
     @State private var showingEdit = false
     @State private var reviewingTransfer = false
@@ -1763,7 +1843,7 @@ private struct TransactionDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cerrar") {
-                        dismiss()
+                        if let onClose { onClose() } else { dismiss() }
                     }
                 }
 

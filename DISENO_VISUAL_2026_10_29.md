@@ -113,3 +113,38 @@ Preparado el 9 de noviembre de 2026, después de que el usuario rechazara la 0.6
 - **Retenidos legibles:** a los conceptos en bruto («/TXT/COMERCIO 09/11/26|referencia») se les quitan la marca, la fecha pegada y la referencia.
 
 **Verificación.** Prueba de títulos con datos ficticios en `FinancialLogicCheck`. Sin compilador Swift en el equipo: pendientes los checks, el IPA y la revisión en el iPad (claro y oscuro).
+
+## Doblón 0.7.1 (42) · rediseño «Pulso» completo
+
+Preparado el 9 de noviembre de 2026 a petición del usuario («haz todo y cuando instale la versión al completo vamos corrigiendo»). Traslada a la app las pantallas aprobadas en el lienzo, sobre la base de la 0.7.0.
+
+**Implementado.**
+- **Navegación.** En iPad (ancho regular), un raíl lateral propio con el logotipo «D», las cinco secciones y el botón de añadir; ya no tapa el contenido como la barra lateral del sistema. Las cinco pantallas siguen vivas al cambiar de sección. En iPhone se mantiene la barra inferior.
+- **Inicio.**
+  - Protagonista: «Disponible para usar», o «Disponible tras retenciones» si hay cargos retenidos.
+  - Barra de reparto (disponible, reservado, retenido, inversión) con su leyenda.
+  - «Tu margen de hoy»: presupuesto restante dividido entre los días que quedan del mes. Es un dato, no un consejo.
+  - Patrimonio total y su cambio del mes en el pie.
+  - Tarjetas nuevas: «Ritmo del mes» (gasto frente a presupuesto, con la marca del reparto uniforme y la proyección a fin de mes) y «Tu mes, día a día» (calendario coloreado según el gasto diario).
+- **Movimientos.**
+  - En iPad, lista a la izquierda y detalle del movimiento a la derecha, sin hojas encima.
+  - Filtros rápidos: Todo, Gastos, Ingresos, Transferencias y Por revisar.
+- **Cuentas.**
+  - Resumen superior con cuatro métricas: patrimonio, disponible, reservado e invertido.
+  - Accesos compactos en forma de chips.
+  - Cada cuenta como tarjeta: banco, saldo grande, barra libre/reservado/retenido, retenidos, estado («Al día» o «Sin actualizar») y tarjetas asociadas.
+- **Ajustes.**
+  - En iPad, dos paneles: la lista a la izquierda y el detalle a la derecha.
+  - Nuevo apartado de Don Bigotes en «A tu gusto».
+  - Pie con la mascota y la versión.
+- **Acceso y desbloqueo.** Ningún dato personal antes de desbloquear: ilustración del bombo con monedas, lema «Tu dinero, con calma» y la frase, refrán o curiosidad del día (12 en rotación, cambian al tocar). La conexión bancaria «solo lee».
+- **Don Bigotes, el compañero.**
+  - Esquina inferior derecha. Escondido y dormido en el borde cuando no tiene nada que contar; despierto con «Púlsame…» cuando sí.
+  - Al pulsarlo, «Lo que he visto» lista hechos de los datos: cargos retenidos, movimientos por revisar, cargo periódico en los próximos 3 días y cuentas manuales sin actualizar en 30 días. Cada uno tiene «Ver» (abre la sección) y «Ahora no».
+  - Tres descartes de un mismo tipo silencian ese tipo.
+  - Ajustes: activarlo o desactivarlo, cuánto habla (Callado, Discreto, Más hablador) y volver a mostrar lo descartado.
+  - Todo se calcula en el dispositivo.
+
+**Diferencias con la maqueta.** Esta versión no resalta el elemento concreto dentro de la lista al pulsar al gato: lleva a la sección correspondiente. Tampoco aprende las horas de uso. La foto original del gato no se incluye en el repositorio, que es público; solo la mascota dibujada.
+
+**Verificación.** Pruebas con datos ficticios en `FinancialLogicCheck`: frase del día estable por día y distinta al día siguiente, autores presentes, y memoria de descartes del compañero. Escrito sin compilador Swift en el equipo: pendientes los checks, el IPA y la revisión completa en el iPad y el iPhone.

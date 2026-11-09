@@ -73,6 +73,9 @@ struct SettingsView: View {
     @Environment(\.isCloudWorkspace) private var isCloudWorkspace
     @AppStorage("cloudAccountModeEnabled") private var cloudMode = false
     @AppStorage("hideAmounts") private var hideAmounts = false
+    @AppStorage("companionEnabled") private var companionEnabled = true
+    @AppStorage("companionLevel") private var companionLevel = "discreto"
+    @AppStorage("companionMemoryV1") private var companionMemory = ""
     @AppStorage("appLockEnabled") private var appLockEnabled = true
     @AppStorage("autoPromptBiometrics") private var autoPromptBiometrics = false
     @AppStorage("appearanceMode") private var appearanceMode = AppAppearance.system.rawValue
@@ -107,7 +110,11 @@ struct SettingsView: View {
         availableRoutes.contains(route) && matches(route.searchTerms)
     }
     private func showsAny(_ routes: [SettingsRoute]) -> Bool { routes.contains(where: shows) }
-    private var showsPreferences: Bool { matches("apariencia tema claro oscuro automático") || matches("privacidad ocultar importes cantidades") }
+    private var showsPreferences: Bool {
+        matches("apariencia tema claro oscuro automático") || matches("privacidad ocultar importes cantidades")
+            || matches(Self.companionKeywords)
+    }
+    private static let companionKeywords = "don bigotes gato compañero avisos asistente"
     private var showsSecurity: Bool { matches("seguridad bloqueo desbloqueo biometría Face ID Touch ID huella") || shows(.credentials) }
     private var showsStorage: Bool { matches("almacenamiento datos guardados dispositivo cuentas movimientos tarjetas entidades") }
     private var showsReset: Bool { matches("eliminar borrar restablecer empezar desde cero datos") }
@@ -118,8 +125,55 @@ struct SettingsView: View {
         Binding(get: { isSearching || stored.wrappedValue }, set: { stored.wrappedValue = $0 })
     }
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     var body: some View {
-        NavigationStack {
+        container
+        .confirmationDialog(
+            isBankingTestWorkspace ? "Eliminar datos de prueba" : "Eliminar todos los datos financieros",
+            isPresented: $showingResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(isBankingTestWorkspace ? "Eliminar datos de prueba" : "Eliminar mis datos", role: .destructive) {
+                clearAllData()
+            }
+            Button("Cancelar", role: .cancel) { }
+        } message: {
+            Text(isBankingTestWorkspace
+                ? "Se eliminarán los datos de este espacio de pruebas. Tus finanzas personales no se modifican."
+                : isCloudWorkspace
+                ? "Se eliminarán los datos de esta cuenta cloud al sincronizar, también en tus otros dispositivos. Las categorías comunes volverán a aparecer. Exporta una copia antes de continuar."
+                : "Se eliminarán cuentas, movimientos, categorías personalizadas, presupuestos y demás datos locales. Las categorías comunes volverán a aparecer. Esta acción no se puede deshacer.")
+        }
+        .alert("No se pudieron eliminar los datos", isPresented: Binding(
+            get: { resetError != nil }, set: { if !$0 { resetError = nil } }
+        )) {
+            Button("Aceptar", role: .cancel) { resetError = nil }
+        } message: { Text(resetError ?? "Error desconocido") }
+    }
+
+    /// iPad: the sections on the left and the chosen one on the right. iPhone: a single stack.
+    @ViewBuilder private var container: some View {
+        if horizontalSizeClass == .regular {
+            NavigationSplitView {
+                settingsList
+                    .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
+            } detail: {
+                VStack(spacing: 14) {
+                    DonBigotesMark(awake: false, size: 64)
+                    Text("Elige un ajuste").font(.title3.weight(.semibold))
+                    Text("Aquí verás su detalle.").font(.subheadline).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(AppDesign.pageBackground)
+            }
+            .navigationSplitViewStyle(.balanced)
+        } else {
+            NavigationStack { settingsList }
+        }
+    }
+
+    private var settingsList: some View {
             List {
                 if !hasResults {
                     ContentUnavailableView.search(text: searchText)
@@ -143,28 +197,6 @@ struct SettingsView: View {
             .background(AppDesign.pageBackground)
             .navigationTitle("Ajustes")
             .searchable(text: $searchText, prompt: "Buscar en ajustes")
-        }
-        .confirmationDialog(
-            isBankingTestWorkspace ? "Eliminar datos de prueba" : "Eliminar todos los datos financieros",
-            isPresented: $showingResetConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button(isBankingTestWorkspace ? "Eliminar datos de prueba" : "Eliminar mis datos", role: .destructive) {
-                clearAllData()
-            }
-            Button("Cancelar", role: .cancel) { }
-        } message: {
-            Text(isBankingTestWorkspace
-                ? "Se eliminarán los datos de este espacio de pruebas. Tus finanzas personales no se modifican."
-                : isCloudWorkspace
-                ? "Se eliminarán los datos de esta cuenta cloud al sincronizar, también en tus otros dispositivos. Las categorías comunes volverán a aparecer. Exporta una copia antes de continuar."
-                : "Se eliminarán cuentas, movimientos, categorías personalizadas, presupuestos y demás datos locales. Las categorías comunes volverán a aparecer. Esta acción no se puede deshacer.")
-        }
-        .alert("No se pudieron eliminar los datos", isPresented: Binding(
-            get: { resetError != nil }, set: { if !$0 { resetError = nil } }
-        )) {
-            Button("Aceptar", role: .cancel) { resetError = nil }
-        } message: { Text(resetError ?? "Error desconocido") }
     }
 
     @ViewBuilder private var connectionSection: some View {
@@ -212,6 +244,27 @@ struct SettingsView: View {
                 }
                 if matches("privacidad ocultar importes cantidades") {
                     Toggle(isOn: $hideAmounts) { Label("Ocultar importes", systemImage: "eye.slash") }
+                }
+                if matches(Self.companionKeywords) {
+                    Toggle(isOn: $companionEnabled) {
+                        HStack(spacing: 10) {
+                            DonBigotesMark(awake: companionEnabled, size: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Don Bigotes")
+                                Text("Te señala cosas tuyas sin interrumpir").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    if companionEnabled {
+                        Picker("Cuánto habla", selection: $companionLevel) {
+                            Text("Callado").tag("callado")
+                            Text("Discreto").tag("discreto")
+                            Text("Más hablador").tag("hablador")
+                        }
+                        if !companionMemory.isEmpty {
+                            Button("Volver a mostrar los avisos descartados") { companionMemory = "" }
+                        }
+                    }
                 }
                 if showsSecurity {
                     DisclosureGroup(isExpanded: expansion($securityExpanded)) {
@@ -272,7 +325,16 @@ struct SettingsView: View {
                         routeRow(.privacy)
                     }
                 }
-            } footer: { Text("Doblón · \(appVersion)") }
+            } footer: {
+                HStack(spacing: 10) {
+                    DonBigotesMark(awake: true, size: 34)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Doblón · \(appVersion)").font(.footnote.weight(.semibold))
+                        Text("Con Don Bigotes, que vigila tus cuentas con traje y sin prisas.").font(.caption)
+                    }
+                }
+                .padding(.top, 8)
+            }
         }
     }
 
