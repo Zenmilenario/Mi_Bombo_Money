@@ -85,7 +85,8 @@ enum PersonalBankingImporter {
     }
     @MainActor static func apply(_ feeds: [BankingAccountFeed], server: URL,
                                 choices: [String: PersonalBankingPlan.Choice] = [:], manualBalances: [UUID: ManualBalance] = [:],
-                                reviewedBalances: [BalanceReview]? = nil, in context: ModelContext, observedAt: Date) throws -> Result {
+                                reviewedBalances: [BalanceReview]? = nil, ownTransferHints: [String: Set<String>] = [:],
+                                in context: ModelContext, observedAt: Date) throws -> Result {
         let plan = try plan(feeds, server: server, in: context)
         let decisions = try plan.resolutions(choices)
         for item in plan.items {

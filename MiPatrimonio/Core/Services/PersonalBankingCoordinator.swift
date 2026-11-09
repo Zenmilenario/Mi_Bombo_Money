@@ -30,6 +30,7 @@ final class PersonalBankingCoordinator: ObservableObject {
     @Published private(set) var bankStatus: [String: BankingBankSyncStatus] = [:]
     private var schedules: [String: BankingBankSchedule] = [:]
     private var pendingDeferred: [String: Int] = [:]
+    private var pendingHints: [String: Set<String>] = [:]
     private var owner: UUID?
 
     func activity(for user: UUID?) -> [String: BankingAccountActivity] {
@@ -301,9 +302,12 @@ final class PersonalBankingCoordinator: ObservableObject {
             // A problem in one bank's own feed must not hold back the others. Selecting again
             // defers own transfers whose peer bank was excluded; they are never imported as expenses.
             var remaining = download.feeds
+            // Trade Republic sends no counterparty or reference: legs that name it are joined by amount and date.
+            let referenceLessAccounts = Set(connections.filter { $0.bank == "Trade Republic" }.flatMap(\.accounts).map(\.id))
             var prepared: (selection: PersonalBankingDownloadSelection, plan: PersonalBankingPlan)?
             while prepared == nil {
-                let candidate = try PersonalBankingDownloadSelection.prepare(remaining, knownAccounts: download.knownAccounts)
+                let candidate = try PersonalBankingDownloadSelection.prepare(remaining, knownAccounts: download.knownAccounts,
+                    referenceLessAccounts: referenceLessAccounts)
                 do {
                     prepared = (candidate, try PersonalBankingImporter.plan(candidate.feeds, server: download.server, in: context))
                 } catch let error as PersonalBankingError {
@@ -333,12 +337,14 @@ final class PersonalBankingCoordinator: ObservableObject {
                 let ledger = try PersonalBankingImporter.ledger(in: context)
                 saveSchedules(user: user)
                 pendingFeeds = feeds; pendingPlan = plan; observedAt = download.observedAt; pendingDeferred = selection.deferredByBank
+                pendingHints = selection.ownTransferHints
                 pendingLedger = Dictionary(uniqueKeysWithValues: ledger.map { ($0.id, $0) })
                 message = "Descarga preparada de \(names): revisa e incorpora los movimientos. El estado de los demás bancos se muestra por separado."
                 errorMessage = excludedDescription(excluded)
                 return false
             }
-            let result = try PersonalBankingImporter.apply(feeds, server: download.server, in: context, observedAt: download.observedAt)
+            let result = try PersonalBankingImporter.apply(feeds, server: download.server, ownTransferHints: selection.ownTransferHints,
+                in: context, observedAt: download.observedAt)
             imported(feeds, deferred: selection.deferredByBank)
             message = "\(names): \(result.inserted) movimientos nuevos · \(result.matched) coincidencias reconocidas."
             errorMessage = excludedDescription(excluded)
@@ -371,7 +377,8 @@ final class PersonalBankingCoordinator: ObservableObject {
         let current = Dictionary(uniqueKeysWithValues: try PersonalBankingImporter.ledger(in: context).map { ($0.id, $0) })
         guard current == pendingLedger else { throw PersonalBankingError.changed }
         let result = try PersonalBankingImporter.apply(pendingFeeds, server: server, choices: choices,
-            manualBalances: manualBalances, reviewedBalances: reviewedBalances, in: context, observedAt: observedAt)
+            manualBalances: manualBalances, reviewedBalances: reviewedBalances, ownTransferHints: pendingHints,
+            in: context, observedAt: observedAt)
         imported(pendingFeeds, deferred: pendingDeferred)
         clearReview()
         message = "\(result.inserted) movimientos nuevos · \(result.matched) coincidencias conservadas."
@@ -388,7 +395,7 @@ final class PersonalBankingCoordinator: ObservableObject {
         message = "No se ha incorporado la descarga descartada. Tus datos guardados se conservan."
     }
     private func clearReview() {
-        pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; observedAt = nil; pendingDeferred = [:]
+        pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; observedAt = nil; pendingDeferred = [:]; pendingHints = [:]
     }
     func disconnected() {
         accountActivity = [:]

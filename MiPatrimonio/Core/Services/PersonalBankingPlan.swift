@@ -54,8 +54,14 @@ enum PersonalBankingDownloadBatch {
 struct PersonalBankingDownloadSelection {
     let feeds: [BankingAccountFeed]
     let deferredByBank: [String: Int]
+    /// Bank references, by remote account, of legs whose bank named a reference-less own account as the other side.
+    var ownTransferHints: [String: Set<String>] = [:]
 
-    static func prepare(_ feeds: [BankingAccountFeed], knownAccounts: [ConnectedBankAccount]) throws -> Self {
+    /// `referenceLessAccounts`: accounts whose bank sends no counterparty or reference (Trade Republic).
+    /// A leg pointing to one of them can never meet a referenced peer, so it is imported on its own and
+    /// own-transfer pairing joins it with the peer posting by amount and date.
+    static func prepare(_ feeds: [BankingAccountFeed], knownAccounts: [ConnectedBankAccount],
+                        referenceLessAccounts: Set<String> = []) throws -> Self {
         var identities: [String: String] = [:]
         for remote in knownAccounts {
             if let own = remote.ownershipKey {
@@ -64,9 +70,15 @@ struct PersonalBankingDownloadSelection {
             }
         }
         var deferred: [String: Int] = [:]
+        var hints: [String: Set<String>] = [:]
         let selected = feeds.map { feed in
-            let rows = feed.movements.filter { row in
-                guard let otherKey = row.counterpartyKey, let other = identities[otherKey], other != feed.account.id else { return true }
+            let rows = feed.movements.compactMap { row -> BankingPreview.Movement? in
+                guard let otherKey = row.counterpartyKey, let other = identities[otherKey], other != feed.account.id else { return row }
+                if referenceLessAccounts.contains(other) {
+                    if let reference = row.id, !reference.isEmpty { hints[feed.account.id, default: []].insert(reference) }
+                    return BankingPreview.Movement(id: row.id, bookingDate: row.bookingDate, signedAmountMinor: row.signedAmountMinor,
+                        currency: row.currency, description: row.description)
+                }
                 let own = feed.account.ownershipKey
                 let matches = feeds.filter { $0.account.id == other }.flatMap(\.movements).filter {
                     own != nil && $0.counterpartyKey == own && row.transferKey != nil && $0.transferKey == row.transferKey
@@ -80,14 +92,14 @@ struct PersonalBankingDownloadSelection {
                             && $0.bookingDate == peer.bookingDate && peer.signedAmountMinor != Int64.min
                             && $0.signedAmountMinor == -peer.signedAmountMinor && $0.currency == peer.currency
                     }
-                    if reverse.count == 1 { return true }
+                    if reverse.count == 1 { return row }
                 }
                 deferred[feed.connection.bank, default: 0] += 1
-                return false
+                return nil
             }
             return BankingAccountFeed(connection: feed.connection, account: feed.account, balances: feed.balances, movements: rows)
         }
-        return Self(feeds: selected, deferredByBank: deferred)
+        return Self(feeds: selected, deferredByBank: deferred, ownTransferHints: hints)
     }
 }
 

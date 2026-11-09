@@ -78,6 +78,7 @@ struct TransactionsView: View {
     @State private var deletionError: String?
     @State private var bankDeletionCandidate: FinancialTransaction?
     @State private var pendingBankMerge: (duplicate: FinancialTransaction, kept: FinancialTransaction)?
+    @State private var pendingOwnTransfer: (debit: FinancialTransaction, credit: FinancialTransaction)?
     @State private var mergeError: String?
 
     @State private var showingCSVExporter = false
@@ -243,10 +244,13 @@ struct TransactionsView: View {
             }
             .sheet(item: $selectedTransaction, onDismiss: performPendingBankMerge) { transaction in
                 // The detail closes before the duplicate is deleted, so it never renders a removed movement.
-                TransactionDetailView(transaction: transaction) { kept in
+                TransactionDetailView(transaction: transaction, onMergeBankEntry: { kept in
                     pendingBankMerge = (transaction, kept)
                     selectedTransaction = nil
-                }
+                }, onPairOwnTransfer: { debit, credit in
+                    pendingOwnTransfer = (debit, credit)
+                    selectedTransaction = nil
+                })
             }
             .sheet(item: $categorySelection) { selection in
                 BulkCategoryView(transactionIDs: selection.transactionIDs) {
@@ -622,6 +626,11 @@ struct TransactionsView: View {
     }
 
     private func performPendingBankMerge() {
+        if let pair = pendingOwnTransfer {
+            pendingOwnTransfer = nil
+            do { try PersonalBankingImporter.pairOwnTransfer(pair.debit, with: pair.credit, in: modelContext) }
+            catch { mergeError = error.localizedDescription }
+        }
         guard let merge = pendingBankMerge else { return }
         pendingBankMerge = nil
         do { try PersonalBankingImporter.mergeBankEntry(merge.duplicate, into: merge.kept, in: modelContext) }
@@ -1466,6 +1475,74 @@ private struct TransactionOperationReviewCard: View {
     }
 }
 
+/// Proposes joining a debit and a credit of two linked accounts that look like one own transfer.
+private struct OwnTransferProposalCard: View {
+    @Query private var transactions: [FinancialTransaction]
+    @State private var confirming = false
+    let transaction: FinancialTransaction
+    let onPair: (FinancialTransaction, FinancialTransaction) -> Void
+
+    var body: some View {
+        let pair = PersonalBankingImporter.ownTransferPairs(in: transactions, involving: [transaction.id]).first
+        if let pair {
+            SectionCard("Posible transferencia entre tus cuentas", subtitle: "Mismo importe en dos de tus bancos") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(pair.debit.sourceAccount?.bankAndAccountDisplayName ?? "Cuenta") → \(pair.credit.sourceAccount?.bankAndAccountDisplayName ?? "Cuenta")")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Salida el \(pair.debit.date.formatted(date: .abbreviated, time: .omitted)) y entrada el \(pair.credit.date.formatted(date: .abbreviated, time: .omitted)). Si es un traspaso entre tus cuentas, únelos: dejará de contar como gasto e ingreso.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button { confirming = true } label: {
+                        Label("Unir como transferencia", systemImage: "arrow.left.arrow.right")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .confirmationDialog("¿Unir los dos apuntes como transferencia propia?", isPresented: $confirming,
+                                titleVisibility: .visible) {
+                Button("Unir como transferencia") { onPair(pair.debit, pair.credit) }
+                Button("Cancelar", role: .cancel) {}
+            } message: {
+                Text("Se conservan las dos referencias bancarias. Podrás separarlos después desde el detalle de la transferencia.")
+            }
+        }
+    }
+}
+
+/// Shows that two bank postings were joined as one own transfer and lets the user restore them.
+private struct OwnTransferSeparationCard: View {
+    @Environment(\.modelContext) private var modelContext
+    @State private var confirming = false
+    @State private var errorMessage: String?
+    let transaction: FinancialTransaction
+
+    var body: some View {
+        SectionCard("Transferencia entre tus cuentas", subtitle: "Unida a partir de los apuntes de los dos bancos") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("La salida y la entrada se han reconocido como un traspaso entre tus cuentas, así que no cuentan como gasto ni como ingreso.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button(role: .destructive) { confirming = true } label: {
+                    Label("Separar en dos movimientos", systemImage: "arrow.uturn.backward")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .confirmationDialog("¿Separar esta transferencia?", isPresented: $confirming, titleVisibility: .visible) {
+            Button("Separar en gasto e ingreso", role: .destructive) {
+                do { try PersonalBankingImporter.separateOwnTransfer(transaction, in: modelContext) }
+                catch { errorMessage = error.localizedDescription }
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Vuelven los dos apuntes del banco tal como llegaron y no se unirán automáticamente otra vez.")
+        }
+        .alert("No se pudo separar", isPresented: Binding(
+            get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("Aceptar", role: .cancel) { errorMessage = nil }
+        } message: { Text(errorMessage ?? "") }
+    }
+}
+
 /// Lets a bank posting hand its reference to a movement the user already recorded.
 private struct BankEntryMergeCard: View {
     @Query private var transactions: [FinancialTransaction]
@@ -1520,6 +1597,7 @@ private struct TransactionDetailView: View {
 
     let transaction: FinancialTransaction
     let onMergeBankEntry: (FinancialTransaction) -> Void
+    let onPairOwnTransfer: (FinancialTransaction, FinancialTransaction) -> Void
 
     @State private var showingEdit = false
     @State private var reviewingTransfer = false
@@ -1557,7 +1635,14 @@ private struct TransactionDetailView: View {
                     }
 
                     if isCloudWorkspace && transaction.bankEntryKey != nil {
-                        BankEntryMergeCard(transaction: transaction, onMerge: onMergeBankEntry)
+                        if transaction.type == .transfer {
+                            if PersonalBankingImporter.canSeparateOwnTransfer(transaction) {
+                                OwnTransferSeparationCard(transaction: transaction)
+                            }
+                        } else {
+                            OwnTransferProposalCard(transaction: transaction, onPair: onPairOwnTransfer)
+                            BankEntryMergeCard(transaction: transaction, onMerge: onMergeBankEntry)
+                        }
                     }
                 }
                 .padding(.horizontal, 16)

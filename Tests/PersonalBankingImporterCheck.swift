@@ -154,6 +154,7 @@ struct PersonalBankingImporterCheck {
         try checkTradeRepublicWithoutBookedBalance(server: server, in: context, day: day, observed: observed)
         try checkSplitContributions(server: server, in: context, day: day, observed: observed)
         try checkMergeDuplicateBankEntry(server: server, schema: schema, day: day, observed: observed)
+        try checkOwnTransfers(server: server, schema: schema, day: day, observed: observed)
         // Live financial imports can never write to the separate sandbox workspace.
         let isolated = try ModelContainer(for: schema, configurations: ModelConfiguration("BankingTests", schema: schema, isStoredInMemoryOnly: true))
         do { _ = try PersonalBankingImporter.apply([feed], server: server, in: isolated.mainContext, observedAt: observed); preconditionFailure("Sandbox accepted real-account import") }
@@ -208,6 +209,92 @@ struct PersonalBankingImporterCheck {
         let automaticallyPosted = try RecurringMovementService.postDueMovements(in: context, through: observed)
         precondition(automaticallyPosted == 0 && rule.nextDueDate > observed,
                      "Recognized split contributions must not be generated again after disconnecting the bank")
+    }
+
+    /// Own transfers between two linked banks: strong pairs join automatically and can be separated again.
+    @MainActor private static func checkOwnTransfers(server: URL, schema: Schema, day: Date, observed: Date) throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("own-transfers-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        // A file store: undo data needs a location, as on the device.
+        let container = try ModelContainer(for: schema, configurations: ModelConfiguration("CloudFinance", schema: schema,
+            url: directory.appendingPathComponent("cloud.store"), allowsSave: true, cloudKitDatabase: .none))
+        let context = container.mainContext
+        let trade = FinancialAccount(name: "Trade Republic ficticia", type: .checking, openingDate: day.addingTimeInterval(-86400))
+        let bank = FinancialAccount(name: "Bankinter ficticia", type: .checking, openingDate: day.addingTimeInterval(-86400))
+        context.insert(trade); context.insert(bank); try context.save()
+        let tradeRemote = ConnectedBankAccount(id: "tr-own", name: "Prueba", currency: "EUR", lastFour: "0001")
+        let bankRemote = ConnectedBankAccount(id: "bk-own", name: "Prueba", currency: "EUR", lastFour: "0002")
+        try PersonalBankingImporter.link(tradeRemote, bank: "Trade Republic", server: server, to: trade, in: context)
+        try PersonalBankingImporter.link(bankRemote, bank: "Bankinter", server: server, to: bank, in: context)
+        func feeds(_ trade: [BankingPreview.Movement], _ bank: [BankingPreview.Movement]) -> [BankingAccountFeed] {
+            [BankingAccountFeed(connection: .init(id: "tr-connection", bank: "Trade Republic", validUntil: "2026-11-01", accounts: [tradeRemote]),
+                account: tradeRemote, balances: [.init(amountMinor: 10000, currency: "EUR", type: "CLBD")], movements: trade),
+             BankingAccountFeed(connection: .init(id: "bk-connection", bank: "Bankinter", validUntil: "2026-11-01", accounts: [bankRemote]),
+                account: bankRemote, balances: [.init(amountMinor: 20000, currency: "EUR", type: "CLBD")], movements: bank)]
+        }
+        func rows() throws -> [FinancialTransaction] { try context.fetch(FetchDescriptor<FinancialTransaction>()) }
+
+        // Strong: a transfer concept, the same day and a single candidate on each side.
+        let strong = feeds([.init(id: nil, bookingDate: "2026-10-15", signedAmountMinor: -5000, currency: "EUR", description: "Movimiento bancario")],
+                           [.init(id: "in-strong", bookingDate: "2026-10-15", signedAmountMinor: 5000, currency: "EUR", description: "TRANSFERENCIA RECIBIDA FICTICIA")])
+        let first = try PersonalBankingImporter.apply(strong, server: server, in: context, observedAt: observed)
+        precondition(first.inserted == 2)
+        let joined = try rows()
+        precondition(joined.count == 1 && joined[0].type == .transfer, "A strong own-transfer pair is joined automatically")
+        let transfer = joined[0]
+        precondition(transfer.sourceAccount?.id == trade.id && transfer.destinationAccount?.id == bank.id)
+        let transferKeys = try PersonalBankingPlan.keys(transfer.bankEntryKey)
+        precondition(transferKeys.count == 2 && transfer.descriptionText == "TRANSFERENCIA RECIBIDA FICTICIA")
+        let joinedSummary = FinanceCalculator.monthlySummary(for: day, transactions: joined)
+        precondition(joinedSummary.expenseMinor == 0 && joinedSummary.incomeMinor == 0, "An own transfer is neither expense nor income")
+        let again = try PersonalBankingImporter.apply(strong, server: server, in: context, observedAt: observed)
+        let afterAgain = try rows()
+        precondition(again.inserted == 0 && again.skipped == 2 && afterAgain.count == 1, "The next download recognises both legs")
+
+        // Separating restores both postings exactly and they are not joined again.
+        precondition(PersonalBankingImporter.canSeparateOwnTransfer(transfer))
+        let transferID = transfer.id
+        try PersonalBankingImporter.separateOwnTransfer(transfer, in: context)
+        let separated = try rows()
+        precondition(separated.count == 2 && Set(separated.map(\.type)) == Set([.expense, .income]))
+        precondition(separated.contains { $0.id == transferID && $0.type == .expense && $0.descriptionText == "Movimiento bancario" })
+        let separatedSummary = FinanceCalculator.monthlySummary(for: day, transactions: separated)
+        precondition(separatedSummary.expenseMinor == 5000 && separatedSummary.incomeMinor == 5000)
+        let afterSeparation = try PersonalBankingImporter.apply(strong, server: server, in: context, observedAt: observed)
+        let stillSeparated = try rows()
+        precondition(afterSeparation.inserted == 0 && stillSeparated.count == 2, "Separated postings stay separated")
+        let rejoined = try PersonalBankingImporter.pairOwnTransfersAutomatically(involving: Set(separated.map(\.id)), in: context)
+        precondition(rejoined.isEmpty, "Separated keys are never joined automatically again")
+
+        // Weak: no transfer concept and a day apart. It is only proposed, then joined by the user.
+        let weak = feeds([.init(id: nil, bookingDate: "2026-10-15", signedAmountMinor: -700, currency: "EUR", description: "Movimiento bancario")],
+                         [.init(id: "in-weak", bookingDate: "2026-10-16", signedAmountMinor: 700, currency: "EUR", description: "Ingreso ficticio")])
+        _ = try PersonalBankingImporter.apply(weak, server: server, in: context, observedAt: observed)
+        let weakRows = try rows().filter { $0.amountMinor == 700 }
+        precondition(weakRows.count == 2, "A weak pair is never joined automatically")
+        let debit = weakRows.first { $0.type == .expense }!, credit = weakRows.first { $0.type == .income }!
+        let currentRows = try rows()
+        let proposals = PersonalBankingImporter.ownTransferPairs(in: currentRows, involving: [credit.id])
+        precondition(proposals.count == 1 && !proposals[0].strong && proposals[0].debit.id == debit.id)
+        try PersonalBankingImporter.pairOwnTransfer(debit, with: credit, in: context)
+        let weakJoined = try rows().filter { $0.amountMinor == 700 }
+        precondition(weakJoined.count == 1 && weakJoined[0].type == .transfer)
+
+        // Ambiguous: two possible credits for one debit are never paired.
+        let ambiguous = feeds([.init(id: nil, bookingDate: "2026-10-15", signedAmountMinor: -1200, currency: "EUR", description: "Movimiento bancario")],
+                              [.init(id: "in-a", bookingDate: "2026-10-15", signedAmountMinor: 1200, currency: "EUR", description: "TRANSFERENCIA FICTICIA A"),
+                               .init(id: "in-b", bookingDate: "2026-10-16", signedAmountMinor: 1200, currency: "EUR", description: "TRANSFERENCIA FICTICIA B")])
+        _ = try PersonalBankingImporter.apply(ambiguous, server: server, in: context, observedAt: observed)
+        let ambiguousRows = try rows().filter { $0.amountMinor == 1200 }
+        precondition(ambiguousRows.count == 3, "Ambiguous candidates are never paired")
+
+        // The bank named the other own account: strong even without a transfer concept.
+        let hinted = feeds([.init(id: nil, bookingDate: "2026-10-15", signedAmountMinor: -900, currency: "EUR", description: "Movimiento bancario")],
+                           [.init(id: "in-hint", bookingDate: "2026-10-16", signedAmountMinor: 900, currency: "EUR", description: "Ingreso ficticio")])
+        _ = try PersonalBankingImporter.apply(hinted, server: server, ownTransferHints: ["bk-own": ["in-hint"]], in: context, observedAt: observed)
+        let hintedRows = try rows().filter { $0.amountMinor == 900 }
+        precondition(hintedRows.map(\.type) == [.transfer], "A bank naming the other own account is strong evidence")
     }
 
     /// A bank posting imported next to the user's own record can be merged into it, and stays merged.

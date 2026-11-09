@@ -1,5 +1,20 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Transferencias entre tus bancos — iOS 0.6.21 (38)
+
+Preparado el 9 de noviembre de 2026 a partir del caso observado ese día: una transferencia de Trade Republic a Bankinter aparecía como gasto en Trade Republic. Trade Republic no envía contraparte ni referencia, de modo que nunca se aplicaba el emparejamiento por IBAN, y la unión manual exigía la misma fecha exacta. Además, si Bankinter informaba de la cuenta de Trade Republic como origen, su apunte quedaba en espera de una pareja con referencia que nunca llegaría. Propuesta y criterio en la nota «Saldo real — retenciones y transferencias propias» de Obsidian.
+
+**Apuntes que ya no esperan.** Si un banco indica como otra parte una cuenta propia de Trade Republic, el apunte se incorpora por sí solo y se guarda una pista de que el banco nombró esa cuenta.
+
+**Emparejamiento.** Después de cada incorporación se buscan parejas entre cuentas propias vinculadas: un cargo y un abono del mismo importe en cuentas distintas, a dos días como máximo, con una única candidata a cada lado y sin una transferencia ya registrada entre esas cuentas. No participan apuntes con reserva, recurrencia, categoría que no sea de transferencia ni posible duplicado.
+- **Evidencia fuerte** (el banco nombró la otra cuenta propia, o hay concepto de transferencia y como mucho un día de diferencia): se unen automáticamente en una transferencia que conserva las dos referencias. Si el cargo no tenía concepto, toma el del abono.
+- **Evidencia menor:** el detalle muestra «Posible transferencia entre tus cuentas» para unirlos con un toque.
+- **Separar:** el detalle de una transferencia unida así ofrece «Separar en dos movimientos», que restaura los dos apuntes tal como llegaron y evita que se vuelvan a unir automáticamente.
+
+La información para separar se guarda solo en el dispositivo, como el historial del aprendizaje: se puede separar desde el dispositivo que hizo la unión. Un fallo al emparejar no deshace la importación.
+
+**Verificación.** Pruebas con datos ficticios: la selección libera el apunte que nombra a Trade Republic y conserva la pista; con un almacén en archivo se comprueban la unión automática, que la siguiente descarga reconoce los dos lados, la separación, que no se vuelve a unir, la propuesta de evidencia menor, que dos candidatas no se emparejan y que la pista del banco cuenta como evidencia fuerte. Escrito sin compilador Swift disponible; pendientes los checks, el IPA y la prueba en el dispositivo.
+
 ## Coincidencias del mismo día con registros locales — iOS 0.6.20 (37)
 
 Preparado el 9 de noviembre de 2026 a partir de la la revisión técnica de la 0.6.19 (hallazgo 3). El emparejamiento comparaba los días en UTC. Los movimientos importados por CSV, y cualquier registro guardado a medianoche local, caen en España en el día UTC anterior, de modo que nunca se reconocían como del mismo día que su apunte bancario: no había coincidencia automática ni sugerencia de «mismo día», y aumentaban las revisiones manuales.

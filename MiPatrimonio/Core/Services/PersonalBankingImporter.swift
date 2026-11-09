@@ -263,6 +263,210 @@ enum PersonalBankingImporter {
         key.split(separator: ":", maxSplits: 3, omittingEmptySubsequences: false).prefix(3).joined(separator: ":")
     }
 
+    // MARK: Own transfers between linked banks
+
+    /// A debit in one linked account and a credit in another that are the two sides of the same own transfer.
+    /// `strong` pairs are joined automatically after an import; the rest are only proposed.
+    struct OwnTransferPair {
+        let debit: FinancialTransaction
+        let credit: FinancialTransaction
+        let strong: Bool
+    }
+
+    private struct OwnTransferAudit: Codable {
+        struct Joined: Codable {
+            let debitKey: String, creditKey: String
+            let debitText: String, debitNotes: String, debitCategoryID: UUID?, debitFingerprint: String, debitReconciled: Bool
+            let creditID: UUID, creditDate: Date, creditCreatedAt: Date, creditText: String, creditNotes: String
+            let creditAccountID: UUID, creditCategoryID: UUID?, creditFingerprint: String, creditReconciled: Bool
+            let creditImportBatchID: UUID?
+        }
+        var joined: [UUID: Joined] = [:]
+        /// Keys the user separated: they are never joined automatically again.
+        var separated: Set<String> = []
+    }
+
+    @MainActor static func isOwnTransferLeg(_ transaction: FinancialTransaction) -> Bool {
+        guard transaction.type == .expense || transaction.type == .income, transaction.destinationAccount == nil,
+              transaction.amountMinor > 0, let account = transaction.sourceAccount, account.bankIdentityKey != nil,
+              !account.isArchived, transaction.reservedFundID == nil, transaction.reservedAmountMinor == nil,
+              transaction.recurringMovementID == nil, transaction.externalID == nil, transaction.duplicateState == .none,
+              transaction.category == nil || transaction.category?.kind == .transfer,
+              let keys = try? PersonalBankingPlan.keys(transaction.bankEntryKey), keys.count == 1 else { return false }
+        return true
+    }
+
+    /// Pairs need equal amounts, different linked accounts and at most two days apart, with exactly one
+    /// candidate on each side. An existing transfer between those accounts means it is already recorded.
+    /// Strong: a transfer concept on either side (or a bank that named the other own account) and at most one day apart.
+    @MainActor static func ownTransferPairs(in transactions: [FinancialTransaction], involving ids: Set<UUID>? = nil,
+                                           excluding separated: Set<String> = [], hints: Set<String> = []) -> [OwnTransferPair] {
+        let legs = transactions.filter { leg in
+            isOwnTransferLeg(leg) && !((try? PersonalBankingPlan.keys(leg.bankEntryKey)) ?? []).contains { separated.contains($0) }
+        }
+        let debits = legs.filter { $0.type == .expense }
+        let credits = legs.filter { $0.type == .income }
+        func near(_ debit: FinancialTransaction, _ credit: FinancialTransaction) -> Bool {
+            debit.amountMinor == credit.amountMinor && debit.sourceAccount?.id != credit.sourceAccount?.id
+                && debit.sourceAccount?.currencyCode == credit.sourceAccount?.currencyCode
+                && abs(debit.date.timeIntervalSince(credit.date)) <= 2 * 86400
+        }
+        var pairs: [OwnTransferPair] = []
+        for debit in debits {
+            let options = credits.filter { near(debit, $0) }
+            guard options.count == 1, let credit = options.first, debits.filter({ near($0, credit) }).count == 1 else { continue }
+            if let ids, !ids.contains(debit.id) && !ids.contains(credit.id) { continue }
+            let recorded = transactions.contains {
+                $0.type == .transfer && $0.amountMinor == debit.amountMinor
+                    && $0.sourceAccount?.id == debit.sourceAccount?.id && $0.destinationAccount?.id == credit.sourceAccount?.id
+                    && abs($0.date.timeIntervalSince(debit.date)) <= 2 * 86400
+            }
+            guard !recorded else { continue }
+            let named = [debit.bankEntryKey, credit.bankEntryKey].contains { key in key.map { hints.contains($0) } ?? false }
+            let concept = debit.hasBankTransferConcept || credit.hasBankTransferConcept
+            let days = abs(debit.date.timeIntervalSince(credit.date))
+            pairs.append(OwnTransferPair(debit: debit, credit: credit, strong: named || (concept && days <= 86400)))
+        }
+        return pairs.sorted { $0.debit.date == $1.debit.date ? $0.debit.id.uuidString < $1.debit.id.uuidString : $0.debit.date < $1.debit.date }
+    }
+
+    /// Joins the strong pairs that involve the given movements. Recovery data is written before the financial save.
+    @MainActor @discardableResult
+    static func pairOwnTransfersAutomatically(involving ids: Set<UUID>, hints: Set<String> = [],
+                                              in context: ModelContext) throws -> Set<UUID> {
+        try requireCloud(context)
+        guard !context.hasChanges, let location = ownTransferAuditLocation(in: context) else { return [] }
+        var audit = try readOwnTransferAudit(location)
+        let pairs = ownTransferPairs(in: try context.fetch(FetchDescriptor<FinancialTransaction>()), involving: ids,
+                                     excluding: audit.separated, hints: hints).filter(\.strong)
+        guard !pairs.isEmpty else { return [] }
+        for pair in pairs { audit.joined[pair.debit.id] = try auditRecord(pair) }
+        try writeOwnTransferAudit(audit, at: location)
+        var removed = Set<UUID>()
+        do {
+            for pair in pairs {
+                try join(pair.debit, with: pair.credit, in: context)
+                removed.insert(pair.credit.id)
+            }
+            try context.save()
+        } catch { context.rollback(); throw error }
+        return removed
+    }
+
+    /// Joins a proposed pair confirmed by the user. The pair must still be the unique match.
+    @MainActor static func pairOwnTransfer(_ debit: FinancialTransaction, with credit: FinancialTransaction,
+                                           in context: ModelContext) throws {
+        try requireCloud(context)
+        guard !context.hasChanges, debit.modelContext === context, credit.modelContext === context,
+              let location = ownTransferAuditLocation(in: context) else { throw PersonalBankingError.changed }
+        var audit = try readOwnTransferAudit(location)
+        let pairs = ownTransferPairs(in: try context.fetch(FetchDescriptor<FinancialTransaction>()), involving: [debit.id])
+        guard let pair = pairs.first(where: { $0.debit.id == debit.id && $0.credit.id == credit.id }) else {
+            throw PersonalBankingError.changed
+        }
+        audit.joined[debit.id] = try auditRecord(pair)
+        try writeOwnTransferAudit(audit, at: location)
+        do {
+            try join(debit, with: credit, in: context)
+            try context.save()
+        } catch { context.rollback(); throw error }
+    }
+
+    @MainActor static func canSeparateOwnTransfer(_ transaction: FinancialTransaction) -> Bool {
+        guard let context = transaction.modelContext, let location = ownTransferAuditLocation(in: context),
+              let record = try? readOwnTransferAudit(location).joined[transaction.id] else { return false }
+        return transaction.type == .transfer && transaction.destinationAccount?.id == record.creditAccountID
+            && Set((try? PersonalBankingPlan.keys(transaction.bankEntryKey)) ?? []) == Set([record.debitKey, record.creditKey])
+            && transaction.reservedFundID == nil && transaction.reservedAmountMinor == nil && transaction.recurringMovementID == nil
+    }
+
+    /// Restores both bank postings exactly as they were and keeps them from being joined automatically again.
+    @MainActor static func separateOwnTransfer(_ transaction: FinancialTransaction, in context: ModelContext) throws {
+        try requireCloud(context)
+        guard !context.hasChanges, transaction.modelContext === context, canSeparateOwnTransfer(transaction),
+              let location = ownTransferAuditLocation(in: context) else { throw PersonalBankingError.changed }
+        var audit = try readOwnTransferAudit(location)
+        guard let record = audit.joined[transaction.id] else { throw PersonalBankingError.changed }
+        let accounts = try context.fetch(FetchDescriptor<FinancialAccount>())
+        let categories = try context.fetch(FetchDescriptor<FinanceCategory>())
+        let existing = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        guard let creditAccount = accounts.first(where: { $0.id == record.creditAccountID }),
+              !existing.contains(where: { $0.id == record.creditID }) else { throw PersonalBankingError.changed }
+        do {
+            let credit = FinancialTransaction(id: record.creditID, date: record.creditDate, type: .income,
+                amountMinor: transaction.amountMinor, descriptionText: record.creditText, notes: record.creditNotes,
+                isReconciled: record.creditReconciled, fingerprint: record.creditFingerprint, bankEntryKey: record.creditKey,
+                importBatchID: record.creditImportBatchID, createdAt: record.creditCreatedAt, sourceAccount: creditAccount,
+                category: categories.first { $0.id == record.creditCategoryID })
+            transaction.type = .expense
+            transaction.destinationAccount = nil
+            transaction.bankEntryKey = record.debitKey
+            transaction.descriptionText = record.debitText
+            transaction.notes = record.debitNotes
+            transaction.category = categories.first { $0.id == record.debitCategoryID }
+            transaction.fingerprint = record.debitFingerprint
+            transaction.isReconciled = record.debitReconciled
+            transaction.updatedAt = .now
+            context.insert(credit)
+            try context.save()
+        } catch { context.rollback(); throw error }
+        audit.joined[transaction.id] = nil
+        audit.separated.formUnion([record.debitKey, record.creditKey])
+        try? writeOwnTransferAudit(audit, at: location)
+    }
+
+    @MainActor private static func join(_ debit: FinancialTransaction, with credit: FinancialTransaction,
+                                        in context: ModelContext) throws {
+        guard let destination = credit.sourceAccount else { throw PersonalBankingError.changed }
+        debit.bankEntryKey = try PersonalBankingPlan.encodedKeys(PersonalBankingPlan.keys(debit.bankEntryKey)
+            + PersonalBankingPlan.keys(credit.bankEntryKey))
+        let concept = credit.descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        var notes = [debit.notes, credit.notes].filter { !$0.isEmpty }
+        if debit.descriptionText == "Movimiento bancario" && !concept.isEmpty && concept != "Movimiento bancario" {
+            debit.descriptionText = concept
+        } else if !concept.isEmpty && concept != debit.descriptionText && concept != "Movimiento bancario" {
+            notes.append("Concepto bancario del otro apunte: \(concept)")
+        }
+        debit.type = .transfer
+        debit.destinationAccount = destination
+        if debit.category?.kind != .transfer { debit.category = nil }
+        debit.notes = notes.joined(separator: "\n\n")
+        debit.isReconciled = debit.isReconciled && credit.isReconciled
+        debit.fingerprint = DuplicateDetectionService.fingerprint(date: debit.date, sourceAccountID: debit.sourceAccount?.id,
+            destinationAccountID: destination.id, type: .transfer, amountMinor: debit.amountMinor, description: debit.descriptionText)
+        debit.updatedAt = .now
+        context.delete(credit)
+    }
+
+    @MainActor private static func auditRecord(_ pair: OwnTransferPair) throws -> OwnTransferAudit.Joined {
+        guard let debitKey = pair.debit.bankEntryKey, let creditKey = pair.credit.bankEntryKey,
+              let creditAccount = pair.credit.sourceAccount else { throw PersonalBankingError.changed }
+        return OwnTransferAudit.Joined(debitKey: debitKey, creditKey: creditKey,
+            debitText: pair.debit.descriptionText, debitNotes: pair.debit.notes, debitCategoryID: pair.debit.category?.id,
+            debitFingerprint: pair.debit.fingerprint, debitReconciled: pair.debit.isReconciled,
+            creditID: pair.credit.id, creditDate: pair.credit.date, creditCreatedAt: pair.credit.createdAt,
+            creditText: pair.credit.descriptionText, creditNotes: pair.credit.notes, creditAccountID: creditAccount.id,
+            creditCategoryID: pair.credit.category?.id, creditFingerprint: pair.credit.fingerprint,
+            creditReconciled: pair.credit.isReconciled, creditImportBatchID: pair.credit.importBatchID)
+    }
+
+    /// Local to the device, like the learning history: undo data never enters backups or the cloud.
+    private static func ownTransferAuditLocation(in context: ModelContext) -> URL? {
+        guard let configuration = context.container.configurations.first, configuration.name == "CloudFinance",
+              !configuration.isStoredInMemoryOnly else { return nil }
+        return configuration.url.appendingPathExtension("own-transfers-v1.json")
+    }
+    private static func readOwnTransferAudit(_ url: URL) throws -> OwnTransferAudit {
+        guard FileManager.default.fileExists(atPath: url.path) else { return OwnTransferAudit() }
+        return try JSONDecoder().decode(OwnTransferAudit.self, from: Data(contentsOf: url))
+    }
+    private static func writeOwnTransferAudit(_ audit: OwnTransferAudit, at url: URL) throws {
+        try JSONEncoder().encode(audit).write(to: url, options: [.atomic, .completeFileProtection])
+        var destination = url, values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? destination.setResourceValues(values)
+    }
+
     @MainActor static func plan(_ feeds: [BankingAccountFeed], server: URL, in context: ModelContext) throws -> PersonalBankingPlan {
         try requireCloud(context)
         let accounts = try context.fetch(FetchDescriptor<FinancialAccount>())
@@ -309,6 +513,7 @@ enum PersonalBankingImporter {
     @MainActor static func apply(_ feeds: [BankingAccountFeed], server: URL,
                                  choices: [String: PersonalBankingPlan.Choice] = [:],
                                  manualBalances: [UUID: ManualBalance] = [:], reviewedBalances: [BalanceReview]? = nil,
+                                 ownTransferHints: [String: Set<String>] = [:],
                                  in context: ModelContext, observedAt: Date) throws -> Result {
         try requireCloud(context)
         guard !context.hasChanges else { throw PersonalBankingError.changed }
@@ -372,7 +577,15 @@ enum PersonalBankingImporter {
             }
             try context.save()
         } catch { context.rollback(); throw error }
-        BankingMovementCommit.publish(storeURL: context.container.configurations.first?.url, transactionIDs: insertedIDs)
+        // A separate save: a pairing problem never undoes the import; the postings stay for review.
+        let namespace = hash(server.absoluteString)
+        let hintKeys = Set(ownTransferHints.flatMap { account, references in
+            references.map { "enable-entry:\(namespace):\(account):\($0)" }
+        })
+        let joined: Set<UUID> = insertedIDs.isEmpty ? []
+            : ((try? pairOwnTransfersAutomatically(involving: insertedIDs, hints: hintKeys, in: context)) ?? [])
+        BankingMovementCommit.publish(storeURL: context.container.configurations.first?.url,
+                                      transactionIDs: insertedIDs.subtracting(joined))
         return Result(inserted: insertedIDs.count, matched: matched, skipped: plan.alreadyImported)
     }
     private static func requireCloud(_ context: ModelContext) throws {

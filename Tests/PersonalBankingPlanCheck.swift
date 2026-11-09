@@ -195,6 +195,21 @@ struct PersonalBankingPlanCheck {
         }
         precondition(PersonalBankingError.changed.bank == nil && PersonalBankingError.incompleteTransfer.bank == nil,
             "Errors that are not tied to one bank's feed must still stop the whole download")
+        // Trade Republic names no counterparty: a credit pointing to it would wait forever for a referenced peer.
+        let trAccount = ConnectedBankAccount(id: "tr", name: "Trade Republic ficticia", currency: "EUR", lastFour: "0000", ownershipKey: "own-tr")
+        let trFeed = BankingAccountFeed(connection: .init(id: UUID().uuidString, bank: "Trade Republic", validUntil: "2026-11-01", accounts: [trAccount]),
+            account: trAccount, balances: [.init(amountMinor: 1000, currency: "EUR", type: "CLBD")],
+            movements: [row(nil, amount: -5000, text: "Movimiento bancario")])
+        let inbound = feed("savings", own: "own-savings", rows: [row("from-tr", amount: 5000, text: "Ingreso", other: "own-tr", reference: "ref-tr")])
+        let waiting = try PersonalBankingDownloadSelection.prepare([trFeed, inbound], knownAccounts: [trAccount, inbound.account])
+        precondition(waiting.deferredByBank["Bankinter"] == 1 && waiting.feeds[1].movements.isEmpty)
+        let released = try PersonalBankingDownloadSelection.prepare([trFeed, inbound], knownAccounts: [trAccount, inbound.account],
+            referenceLessAccounts: ["tr"])
+        precondition(released.deferredByBank.isEmpty && released.feeds[1].movements.count == 1)
+        precondition(released.feeds[1].movements[0].counterpartyKey == nil && released.feeds[1].movements[0].transferKey == nil)
+        precondition(released.ownTransferHints == ["savings": ["from-tr"]], "The bank's own-account hint is kept for pairing")
+        let releasedPlan = try PersonalBankingPlan.build(feeds: released.feeds, links: ["tr": daily, "savings": savings], ledger: [])
+        precondition(releasedPlan.items.map(\.kind).sorted() == ["expense", "income"], "Both legs import; pairing joins them afterwards")
         // A CSV or form record at Spanish midnight is the previous UTC day, but the same booking day.
         let madrid = TimeZone(identifier: "Europe/Madrid")!
         var madridCalendar = Calendar(identifier: .gregorian); madridCalendar.timeZone = madrid
