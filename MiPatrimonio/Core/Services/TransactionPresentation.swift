@@ -170,3 +170,48 @@ struct CompanionMemory: Codable, Equatable {
     }
     mutating func forget(except activeIDs: Set<String>) { dismissed.formIntersection(activeIDs) }
 }
+
+/// Where Don Bigotes points when the person taps «Ver». Written by the companion and consumed once by the
+/// destination screen, which then filters, scrolls to and highlights the element.
+enum CompanionFocus: String {
+    case holds, review, stale, recurring
+
+    /// Stored as "kind|timestamp" so tapping the same note twice still triggers a change.
+    static func request(_ focus: CompanionFocus, at date: Date = .now) -> String {
+        "\(focus.rawValue)|\(date.timeIntervalSince1970)"
+    }
+    static func parse(_ stored: String) -> CompanionFocus? {
+        stored.split(separator: "|").first.flatMap { CompanionFocus(rawValue: String($0)) }
+    }
+}
+
+/// The hours at which the app is usually opened, kept on this device. Don Bigotes saves what is not
+/// urgent for those hours; until it has seen enough openings it treats every hour as usual.
+struct UsageHours: Codable, Equatable {
+    var counts: [Int: Int] = [:]
+    var lastRecorded: Date?
+
+    static let minimumOpenings = 10
+
+    init() {}
+    init(serialized: String) {
+        self = (try? JSONDecoder().decode(Self.self, from: Data(serialized.utf8))) ?? Self()
+    }
+    var serialized: String { (try? String(decoding: JSONEncoder().encode(self), as: UTF8.self)) ?? "" }
+    var total: Int { counts.values.reduce(0, +) }
+
+    /// One opening per half hour, so quick app switches do not skew the pattern.
+    mutating func record(_ date: Date, calendar: Calendar = .current) {
+        if let lastRecorded, date.timeIntervalSince(lastRecorded) < 1800 { return }
+        counts[calendar.component(.hour, from: date), default: 0] += 1
+        lastRecorded = date
+    }
+
+    /// An hour is usual when it, or an hour next to it, holds at least a tenth of the openings.
+    func isUsual(_ date: Date, calendar: Calendar = .current) -> Bool {
+        guard total >= Self.minimumOpenings else { return true }
+        let hour = calendar.component(.hour, from: date)
+        let threshold = max(2, total / 10)
+        return [hour - 1, hour, hour + 1].contains { counts[($0 + 24) % 24, default: 0] >= threshold }
+    }
+}

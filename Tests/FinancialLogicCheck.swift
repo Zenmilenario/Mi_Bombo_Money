@@ -504,6 +504,22 @@ struct FinancialLogicCheck {
         precondition(restored == memory && CompanionMemory(serialized: "") == CompanionMemory())
         memory.forget(except: ["review:3"])
         precondition(memory.dismissed == ["review:3"] && memory.isMuted("review"), "Forgetting old notes keeps what was muted")
+        // «Ver» leaves a one-off focus request for the destination screen.
+        let request = CompanionFocus.request(.holds, at: morning)
+        precondition(CompanionFocus.parse(request) == .holds && CompanionFocus.parse("") == nil && CompanionFocus.parse("otro|1") == nil)
+        precondition(CompanionFocus.request(.holds, at: morning) != CompanionFocus.request(.holds, at: evening),
+            "Tapping the same note again is still a new request")
+        // Usage hours: every hour is usual until enough openings; then only the person's own hours.
+        var usage = UsageHours()
+        precondition(usage.isUsual(madrid.date(from: DateComponents(year: 2026, month: 11, day: 9, hour: 3))!, calendar: madrid))
+        for day in 1...12 {
+            usage.record(madrid.date(from: DateComponents(year: 2026, month: 11, day: day, hour: 21, minute: 10))!, calendar: madrid)
+            usage.record(madrid.date(from: DateComponents(year: 2026, month: 11, day: day, hour: 21, minute: 20))!, calendar: madrid)
+        }
+        precondition(usage.total == 12, "Openings within half an hour count once")
+        precondition(usage.isUsual(madrid.date(from: DateComponents(year: 2026, month: 11, day: 13, hour: 22))!, calendar: madrid))
+        precondition(!usage.isUsual(madrid.date(from: DateComponents(year: 2026, month: 11, day: 13, hour: 9))!, calendar: madrid))
+        precondition(UsageHours(serialized: usage.serialized) == usage)
         precondition(TransactionPresentation.indicatesTransfer("/TXT/D|TRANS INM/ Persona Ficticia"))
         precondition(!TransactionPresentation.indicatesTransfer("/TXT/Z|TRANS INM/ Persona Ficticia"))
         precondition(!TransactionPresentation.indicatesTransfer("/TXT/H|PAGO BIZUM DE PRUEBA"))

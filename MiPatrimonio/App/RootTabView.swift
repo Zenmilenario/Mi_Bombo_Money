@@ -64,9 +64,15 @@ struct RootTabView: View {
         .task(id: "\(modelContext.container.configurations.first?.url.absoluteString ?? "")|\(scenePhase == .active)") {
             await listenForCorrectionEvents()
         }
-        .onAppear(perform: postDueMovements)
+        .onAppear {
+            postDueMovements()
+            recordOpening()
+        }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { postDueMovements() }
+            if phase == .active {
+                postDueMovements()
+                recordOpening()
+            }
         }
         .alert("No se pudo registrar un movimiento periódico", isPresented: Binding(
             get: { recurrenceError != nil },
@@ -165,6 +171,16 @@ struct RootTabView: View {
                 .scale.combined(with: .opacity)
             )
         }
+    }
+
+    @AppStorage("companionUsageV1") private var companionUsage = ""
+
+    /// Don Bigotes learns at which hours the app is opened, on this device only.
+    private func recordOpening() {
+        var usage = UsageHours(serialized: companionUsage)
+        usage.record(.now)
+        let serialized = usage.serialized
+        if serialized != companionUsage { companionUsage = serialized }
     }
 
     private func postDueMovements() {
@@ -303,6 +319,9 @@ private struct CompanionNote: Identifiable {
     let detail: String
     let systemImage: String
     let tab: AppTab
+    let focus: CompanionFocus
+    /// Urgent notes wake him at any hour; the rest wait for the hours the app is usually opened.
+    let urgent: Bool
 }
 
 /// Lives in a corner. Asleep and tucked into the edge when it has nothing to say; awake with a
@@ -315,6 +334,8 @@ private struct CompanionView: View {
     @AppStorage("companionEnabled") private var enabled = true
     @AppStorage("companionLevel") private var level = "discreto"
     @AppStorage("companionMemoryV1") private var memoryJSON = ""
+    @AppStorage("companionUsageV1") private var usageJSON = ""
+    @AppStorage("companionFocus") private var focusRequest = ""
     @State private var showingNotes = false
 
     let currentTab: AppTab
@@ -329,21 +350,22 @@ private struct CompanionView: View {
             notes.append(CompanionNote(id: "holds:" + holds.map(\.id).sorted().joined(separator: ","), kind: "holds",
                 title: holds.count == 1 ? "1 cargo en camino" : "\(holds.count) cargos en camino",
                 detail: "Retenidos por el banco · \(MoneyFormatter.string(minorUnits: total))",
-                systemImage: "hourglass", tab: .transactions))
+                systemImage: "hourglass", tab: .transactions, focus: .holds, urgent: true))
         }
         let review = transactions.filter { !TransactionReviewService.issues(for: $0).isEmpty }
         if !review.isEmpty {
             notes.append(CompanionNote(id: "review:\(review.count):" + (review.map(\.id.uuidString).max() ?? ""), kind: "review",
                 title: review.count == 1 ? "1 movimiento por revisar" : "\(review.count) movimientos por revisar",
                 detail: "Posibles duplicados o sin categoría",
-                systemImage: "checklist", tab: .transactions))
+                systemImage: "checklist", tab: .transactions, focus: .review, urgent: false))
         }
         let soon = Date.now.addingTimeInterval(3 * 86_400)
         if let next = recurring.first(where: { $0.isActive && $0.nextDueDate >= Calendar.current.startOfDay(for: .now) && $0.nextDueDate <= soon }) {
             notes.append(CompanionNote(id: "recurring:\(next.id.uuidString):\(next.nextDueDate.timeIntervalSince1970)", kind: "recurring",
                 title: "Cargo previsto: \(next.name)",
                 detail: "\(next.nextDueDate.formatted(.dateTime.weekday(.wide).day())) · \(MoneyFormatter.string(minorUnits: next.amountMinor))",
-                systemImage: "calendar", tab: .settings))
+                systemImage: "calendar", tab: .accounts, focus: .recurring,
+                urgent: next.nextDueDate <= Date.now.addingTimeInterval(86_400)))
         }
         let limit = Date.now.addingTimeInterval(-30 * 86_400)
         let stale = accounts.filter { !$0.isArchived && $0.bankIdentityKey == nil && $0.lastUpdatedAt < limit }
@@ -351,7 +373,7 @@ private struct CompanionView: View {
             notes.append(CompanionNote(id: "stale:" + stale.map(\.id.uuidString).sorted().joined(separator: ","), kind: "stale",
                 title: stale.count == 1 ? "1 cuenta sin actualizar" : "\(stale.count) cuentas sin actualizar",
                 detail: "Más de 30 días con el mismo saldo",
-                systemImage: "clock", tab: .accounts))
+                systemImage: "clock", tab: .accounts, focus: .stale, urgent: false))
         }
         return notes
     }
@@ -364,7 +386,9 @@ private struct CompanionView: View {
     var body: some View {
         if enabled {
             let current = notes
-            let awake = !current.isEmpty
+            // Asleep unless something is urgent or it is one of the hours the app is usually opened.
+            let awake = current.contains(where: \.urgent)
+                || (!current.isEmpty && UsageHours(serialized: usageJSON).isUsual(.now))
             HStack(spacing: 8) {
                 if awake && level != "callado" {
                     Button { showingNotes = true } label: {
@@ -402,7 +426,7 @@ private struct CompanionView: View {
                         .offset(x: awake ? 0 : 30)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel(awake ? "Don Bigotes tiene \(current.count == 1 ? "algo" : "\(current.count) cosas") que contarte" : "Don Bigotes, sin novedades")
+                .accessibilityLabel(!current.isEmpty ? "Don Bigotes tiene \(current.count == 1 ? "algo" : "\(current.count) cosas") que contarte" : "Don Bigotes, sin novedades")
             }
             .padding(.trailing, awake ? 16 : 0)
             .padding(.bottom, bottomInset)
@@ -410,6 +434,7 @@ private struct CompanionView: View {
             .sheet(isPresented: $showingNotes) {
                 CompanionNotesSheet(notes: current) { note in
                     showingNotes = false
+                    focusRequest = CompanionFocus.request(note.focus)
                     open(note.tab)
                 } dismiss: { note in
                     var memory = CompanionMemory(serialized: memoryJSON)

@@ -87,6 +87,9 @@ struct TransactionsView: View {
     @Environment(\.bankAccountActivity) private var bankActivity
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @State private var inspectedID: UUID?
+    @AppStorage("companionFocus") private var companionFocus = ""
+    @State private var highlightedHolds = false
+    @State private var highlightedID: UUID?
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
@@ -414,6 +417,7 @@ struct TransactionsView: View {
     }
 
     private var movementsList: some View {
+      ScrollViewReader { proxy in
         List {
           // Rows without their own background take the card colour, never the system grey.
           Group {
@@ -470,7 +474,7 @@ struct TransactionsView: View {
             }
 
             let holds = visibleHolds
-            if !holds.isEmpty { BankHoldsSection(holds: holds) }
+            if !holds.isEmpty { BankHoldsSection(holds: holds, highlighted: highlightedHolds) }
 
             transactionSections
           }
@@ -478,6 +482,35 @@ struct TransactionsView: View {
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
+        .onAppear { followCompanion(proxy) }
+        .onChange(of: companionFocus) { _, _ in followCompanion(proxy) }
+      }
+    }
+
+    /// Don Bigotes pointed here: show what he meant, scroll to it and highlight it for a moment.
+    private func followCompanion(_ proxy: ScrollViewProxy) {
+        guard let focus = CompanionFocus.parse(companionFocus), focus == .holds || focus == .review else { return }
+        companionFocus = ""
+        resetFilters()
+        searchText = ""
+        if focus == .review { showOnlyReview = true }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            withAnimation(.easeInOut(duration: 0.35)) {
+                if focus == .holds, let first = visibleHolds.first {
+                    highlightedHolds = true
+                    proxy.scrollTo(first.id, anchor: .top)
+                } else if focus == .review, let first = filteredTransactions.first {
+                    highlightedID = first.id
+                    proxy.scrollTo(first.id, anchor: .center)
+                }
+            }
+            try? await Task.sleep(for: .seconds(2.5))
+            withAnimation(.easeOut(duration: 0.6)) {
+                highlightedHolds = false
+                highlightedID = nil
+            }
+        }
     }
 
     @ViewBuilder
@@ -516,6 +549,7 @@ struct TransactionsView: View {
                     transaction: transaction,
                     isSelecting: isSelecting,
                     isSelected: selectedIDs.contains(transaction.id),
+                    highlighted: highlightedID == transaction.id,
                     onTap: { tapTransaction(transaction) },
                     onCategorize: {
                         categorySelection = TransactionCategorySelection(transactionIDs: Set([transaction.id]))
@@ -862,6 +896,7 @@ private struct TransactionPeriodSummaryCard: View {
 /// Bank holds shown above the movements: they already reduce the money available at the bank.
 private struct BankHoldsSection: View {
     let holds: [BankHold]
+    var highlighted = false
 
     private var total: Int64 { holds.reduce(0) { $0 + $1.movement.signedAmountMinor } }
     private var consulted: String {
@@ -887,7 +922,8 @@ private struct BankHoldsSection: View {
                     }
                 }
                 .padding(.vertical, 2)
-                .listRowBackground(AppDesign.warningSurface)
+                .listRowBackground(highlighted ? AppDesign.warning.opacity(0.28) : AppDesign.warningSurface)
+                .id(hold.id)
                 .accessibilityElement(children: .combine)
             }
         } header: {
@@ -907,6 +943,7 @@ private struct TransactionActionRow: View {
     let transaction: FinancialTransaction
     let isSelecting: Bool
     let isSelected: Bool
+    var highlighted = false
     let onTap: () -> Void
     let onCategorize: () -> Void
     let onDelete: () -> Void
@@ -925,7 +962,7 @@ private struct TransactionActionRow: View {
             rowLabel
         }
         .buttonStyle(.plain)
-        .listRowBackground(AppDesign.cardBackground)
+        .listRowBackground(highlighted ? AppDesign.warningSurface : AppDesign.cardBackground)
         .accessibilityHint(Text(hint))
         .accessibilityValue(Text(selectionValue))
         .swipeActions(edge: .leading, allowsFullSwipe: false) {

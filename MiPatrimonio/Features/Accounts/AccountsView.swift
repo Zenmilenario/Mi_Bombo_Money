@@ -71,6 +71,25 @@ struct AccountsView: View {
         accounts.filter(\.isArchived).count + cards.filter(\.isArchived).count
     }
 
+    @AppStorage("companionFocus") private var companionFocus = ""
+
+    /// Don Bigotes pointed here: accounts without a recent balance, or the upcoming periodic charge.
+    private func followCompanion() {
+        switch CompanionFocus.parse(companionFocus) {
+        case .stale:
+            companionFocus = ""
+            selectedCollection = .accounts
+            searchText = ""
+            showOnlyStale = true
+        case .recurring:
+            // Opens the periodic charges tool, where the upcoming one is listed first.
+            companionFocus = ""
+            managementTool = .recurring
+        default:
+            break
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -135,6 +154,8 @@ struct AccountsView: View {
                     }
                     .listStyle(.insetGrouped)
                     .contentMargins(.horizontal, 16, for: .scrollContent)
+                    .onAppear(perform: followCompanion)
+                    .onChange(of: companionFocus) { _, _ in followCompanion() }
                 }
             }
             .frame(maxWidth: .infinity)

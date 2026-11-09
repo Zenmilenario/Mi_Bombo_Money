@@ -325,6 +325,11 @@ struct SettingsView: View {
                         routeRow(.privacy)
                     }
                 }
+                if !isSearching || matches("acerca de doblón don bigotes versión gato") {
+                    NavigationLink { AboutDoblonView(version: appVersion) } label: {
+                        SettingsRouteLabel(title: "Acerca de Doblón", subtitle: "Versión \(appVersion) · conoce a Don Bigotes", systemImage: "info.circle")
+                    }
+                }
             } footer: {
                 HStack(spacing: 10) {
                     DonBigotesMark(awake: true, size: 34)
@@ -567,3 +572,43 @@ private struct HelpStepRow: View {
         .padding(.vertical, 4)
     }
 }
+
+/// About screen: the version, Don Bigotes and the picture that inspired him.
+private struct AboutDoblonView: View {
+    let version: String
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Image("DonBigotesFoto")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 320)
+                    .clipShape(RoundedRectangle(cornerRadius: AppDesign.heroRadius, style: .continuous))
+                    .accessibilityLabel("Un gato con traje y corbata señalando, el meme que inspiró a Don Bigotes")
+                HStack(spacing: 14) {
+                    DonBigotesMark(awake: true, size: 56)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Don Bigotes").font(.title2.bold())
+                        Text("Vigila tus cuentas con traje y sin prisas.").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                }
+                Text("Se esconde cuando no tiene nada que contar y despierta cuando ve algo tuyo: un cargo retenido, un movimiento por revisar o un recibo que se acerca. Nunca te dice qué hacer con tu dinero; solo te señala dónde mirar.")
+                    .font(.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                DailyQuoteCard()
+                LabeledContent("Versión", value: version)
+                    .padding(14)
+                    .financeCardSurface()
+            }
+            .padding(20)
+            .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)
+        }
+        .background(AppDesign.pageBackground)
+        .navigationTitle("Acerca de Doblón")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+

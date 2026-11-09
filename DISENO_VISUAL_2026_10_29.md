@@ -145,6 +145,21 @@ Preparado el 9 de noviembre de 2026 a petición del usuario («haz todo y cuando
   - Ajustes: activarlo o desactivarlo, cuánto habla (Callado, Discreto, Más hablador) y volver a mostrar lo descartado.
   - Todo se calcula en el dispositivo.
 
-**Diferencias con la maqueta.** Esta versión no resalta el elemento concreto dentro de la lista al pulsar al gato: lleva a la sección correspondiente. Tampoco aprende las horas de uso. La foto original del gato no se incluye en el repositorio, que es público; solo la mascota dibujada.
+**Diferencias con la maqueta.** La 0.7.1 llevaba a la sección pero no resaltaba el elemento ni aprendía las horas de uso; ambas cosas llegan en la 0.7.2. La foto original del gato no se incluyó en la 0.7.1; se añadió en la 0.7.2 a petición del usuario.
 
 **Verificación.** Pruebas con datos ficticios en `FinancialLogicCheck`: frase del día estable por día y distinta al día siguiente, autores presentes, y memoria de descartes del compañero. Escrito sin compilador Swift en el equipo: pendientes los checks, el IPA y la revisión completa en el iPad y el iPhone.
+
+## Doblón 0.7.2 (43) · Don Bigotes señala y aprende tus horas
+
+Preparado el 9 de noviembre de 2026 a petición del usuario, completando lo que faltaba de la maqueta.
+
+**Implementado.**
+- **Señalar.** «Ver» en «Lo que he visto» deja un aviso de un solo uso para la pantalla de destino:
+  - **Retenidos:** Movimientos limpia filtros, se desplaza a «Pendientes del banco» y los resalta unos segundos.
+  - **Por revisar:** muestra solo esos movimientos y resalta el primero.
+  - **Cuentas sin actualizar:** Cuentas filtra las que llevan más de 30 días.
+  - **Cargo periódico próximo:** abre la herramienta de cargos periódicos desde Cuentas.
+- **Horas de uso.** La app anota en el dispositivo a qué horas se abre, contando como mucho una apertura cada media hora. Lo urgente (retenidos, o un cargo en menos de 24 horas) despierta a Don Bigotes a cualquier hora; lo demás espera a las horas habituales. Hasta acumular 10 aperturas, todas las horas cuentan como habituales. Fuera de esas horas sigue durmiendo, pero al tocarlo enseña lo pendiente.
+- **Foto del gato.** El usuario indica que es un meme generado con IA y que la quiere en la app. Está en «Ajustes › Acerca de Doblón», junto a la mascota, la versión y la frase del día (recurso `DonBigotesFoto`).
+
+**Verificación.** Pruebas con datos ficticios en `FinancialLogicCheck` para la petición de foco y el aprendizaje de horas. Pendientes los checks, el IPA y la prueba en el dispositivo.
