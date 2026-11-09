@@ -11,37 +11,31 @@ enum AppDesign {
     static let cardPadding: CGFloat = 16
     static let sectionSpacing: CGFloat = 18
     static let itemSpacing: CGFloat = 12
-    /// Lists keep a readable line length on wide iPad windows instead of stretching rows edge to edge.
-    static let listContentWidth: CGFloat = 760
 
-    /// Horizontal margin that centers list content at `listContentWidth` on wide windows.
-    static func listMargin(for width: CGFloat) -> CGFloat {
-        max(16, (width - listContentWidth) / 2)
-    }
-
+    // «Pulso» palette (Doblón): one set per appearance, shared by every surface so no row falls back to system grey.
     static var pageBackground: Color {
-        adaptiveColor(light: 0xF7F5F0, dark: 0x111D2B, elevated: 0x1A293A)
+        adaptiveColor(light: 0xF4F2ED, dark: 0x0D1620, elevated: 0x15212D)
     }
 
     static var cardBackground: Color {
-        adaptiveColor(light: 0xFFFFFF, dark: 0x203145, elevated: 0x2A3D53)
+        adaptiveColor(light: 0xFFFFFF, dark: 0x15212D, elevated: 0x1C2B3A)
     }
 
     static var tertiaryBackground: Color {
-        adaptiveColor(light: 0xEEECE5, dark: 0x2B4056, elevated: 0x354D65)
+        adaptiveColor(light: 0xF1EFEA, dark: 0x1C2B3A, elevated: 0x24364A)
     }
 
-    static var accent: Color { adaptiveColor(light: 0x0F766E, dark: 0x68CFD0) }
-    static var income: Color { adaptiveColor(light: 0x176746, dark: 0x91E8BC) }
-    static var expense: Color { adaptiveColor(light: 0xA72C40, dark: 0xFFB0BA) }
-    static var savings: Color { adaptiveColor(light: 0x275D9E, dark: 0xAFD0FF) }
-    static var investment: Color { adaptiveColor(light: 0x714698, dark: 0xD7BDFF) }
-    static var warning: Color { adaptiveColor(light: 0x865000, dark: 0xFFD08A) }
+    static var accent: Color { adaptiveColor(light: 0x0F766E, dark: 0x5ED3C9) }
+    static var income: Color { adaptiveColor(light: 0x1E7A4C, dark: 0x7BE0A8) }
+    static var expense: Color { adaptiveColor(light: 0xB3263E, dark: 0xFF9AA8) }
+    static var savings: Color { adaptiveColor(light: 0x2457A6, dark: 0x8DB8FF) }
+    static var investment: Color { adaptiveColor(light: 0x6B3FA0, dark: 0xC6A6FF) }
+    static var warning: Color { adaptiveColor(light: 0x8A5A00, dark: 0xF5C66B) }
     // Semantic surfaces behind metrics, from the Stitch palettes (light: Clara cercana, dark: Grafito sereno).
-    static var incomeSurface: Color { adaptiveColor(light: 0xE5F3EB, dark: 0x193D32) }
-    static var expenseSurface: Color { adaptiveColor(light: 0xFBE9EC, dark: 0x452936) }
-    static var savingsSurface: Color { adaptiveColor(light: 0xE6EEF9, dark: 0x1B365B) }
-    static var warningSurface: Color { adaptiveColor(light: 0xFBF1DC, dark: 0x423B27) }
+    static var incomeSurface: Color { adaptiveColor(light: 0xE8F2EC, dark: 0x1A3530) }
+    static var expenseSurface: Color { adaptiveColor(light: 0xF8E8EB, dark: 0x35242F) }
+    static var savingsSurface: Color { adaptiveColor(light: 0xE8EEF7, dark: 0x1C2D44) }
+    static var warningSurface: Color { adaptiveColor(light: 0xF8EFDC, dark: 0x2E2C25) }
     // Keep filled actions dark enough for their white labels in both appearances.
     static let actionFill = Color(hex: "#0F766E")
     static var cardOutline: Color {
@@ -116,20 +110,6 @@ extension View {
         } else {
             self
         }
-    }
-
-    /// Centers a List at a readable width on wide windows; phones keep the usual 16-point margin.
-    func readableListWidth() -> some View {
-        modifier(ReadableListWidth())
-    }
-}
-
-private struct ReadableListWidth: ViewModifier {
-    @State private var width: CGFloat = 0
-    func body(content: Content) -> some View {
-        content
-            .contentMargins(.horizontal, AppDesign.listMargin(for: width), for: .scrollContent)
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
     }
 }
 

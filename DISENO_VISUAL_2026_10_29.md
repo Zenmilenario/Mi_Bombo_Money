@@ -98,3 +98,18 @@ Preparado el 9 de noviembre de 2026 a petición del usuario («lavado de cara»)
 - **Formularios en iPad**: el alta, la edición y el detalle de un movimiento se abren como hoja de formulario centrada (iPadOS 18 o posterior). La fila Categoría se dibuja como una fila simple: era la que crecía hasta dejar el hueco de la captura.
 
 **Verificación.** Pruebas con datos ficticios de los títulos legibles en `FinancialLogicCheck`. La apariencia no se puede comprobar sin compilar en macOS: pendientes los checks, el IPA y la revisión en el iPad (claro, oscuro, texto grande, Split View).
+
+## Doblón 0.7.0 (41) · lote 1 del rediseño «Pulso»
+
+Preparado el 9 de noviembre de 2026, después de que el usuario rechazara la 0.6.23 y aprobara la propuesta «Pulso» y el nombre «Doblón». La versión pasa a 0.7 a petición del usuario, por el cambio de nombre y de diseño. Este primer lote pone la base visual y corrige los fallos observados en la 0.6.23; la navegación nueva, Inicio, Movimientos en dos paneles, Cuentas, Ajustes, el acceso y el compañero Don Bigotes llegarán en lotes posteriores.
+
+**Implementado.**
+- **Nombre visible «Doblón»:** bajo el icono (`CFBundleDisplayName`), en el acceso, en Mi nube, en el pie de Ajustes y en los avisos. El identificador del paquete, los esquemas de URL, el proyecto y el repositorio no cambian, para no romper la instalación, la sincronización ni el retorno de los bancos. El icono del perro se mantiene.
+- **Paleta «Pulso»:** un único juego de colores para claro y otro para oscuro (fondo, tarjetas, superficie secundaria, acento, ingresos, gastos, ahorro, inversión y aviso).
+- **Fondos de fila iguales:** en Ajustes y Movimientos, todas las filas (selectores, interruptores, grupos desplegables y accesos) usan el color de tarjeta. Antes algunas se quedaban con el gris del sistema y el modo oscuro se veía desigual.
+- **Sin ancho fijo:** se retira el ancho de lectura de 760 puntos de la 0.6.23, que dejaba huecos; Cuentas recupera su margen de 16 puntos.
+- **Tarjeta «Por revisar» compacta:** fila simple que nunca crece más que su contenido.
+- **Resumen del mes:** sin periodo elegido, el resumen de Movimientos muestra el mes actual, con su nombre como título, en lugar de todo el historial.
+- **Retenidos legibles:** a los conceptos en bruto («/TXT/COMERCIO 09/11/26|referencia») se les quitan la marca, la fecha pegada y la referencia.
+
+**Verificación.** Prueba de títulos con datos ficticios en `FinancialLogicCheck`. Sin compilador Swift en el equipo: pendientes los checks, el IPA y la revisión en el iPad (claro y oscuro).

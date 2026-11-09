@@ -172,16 +172,15 @@ struct TransactionsView: View {
             .map { TransactionDayGroup(date: $0.key, transactions: $0.value) }
     }
 
-    private var filteredIncomeMinor: Int64 {
-        filteredTransactions
-            .filter { $0.type.countsAsIncome }
-            .reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
+    /// With no period chosen the summary describes the current month, not the whole history.
+    private var summaryTransactions: [FinancialTransaction] {
+        guard dateFilter == .all else { return filteredTransactions }
+        let calendar = Calendar.autoupdatingCurrent
+        return filteredTransactions.filter { calendar.isDate($0.date, equalTo: .now, toGranularity: .month) }
     }
 
-    private var filteredExpenseMinor: Int64 {
-        filteredTransactions
-            .filter { $0.type.countsAsExpense }
-            .reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
+    private var summaryTitle: String {
+        dateFilter == .all ? Date.now.formatted(.dateTime.month(.wide).year()).capitalized : dateFilter.title
     }
 
     /// Holds follow the account, type and search filters. Filters that only make sense for recorded
@@ -375,12 +374,15 @@ struct TransactionsView: View {
 
     private var movementsList: some View {
         List {
+          // Rows without their own background take the card colour, never the system grey.
+          Group {
             if isSelecting { selectionControls }
             Section {
                 TransactionPeriodSummaryCard(
-                    transactionCount: filteredTransactions.count,
-                    incomeMinor: filteredIncomeMinor,
-                    expenseMinor: filteredExpenseMinor
+                    title: summaryTitle,
+                    transactionCount: summaryTransactions.count,
+                    incomeMinor: summaryTransactions.filter { $0.type.countsAsIncome }.reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) },
+                    expenseMinor: summaryTransactions.filter { $0.type.countsAsExpense }.reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
@@ -424,10 +426,11 @@ struct TransactionsView: View {
             if !holds.isEmpty { BankHoldsSection(holds: holds) }
 
             transactionSections
+          }
+          .listRowBackground(AppDesign.cardBackground)
         }
         .listStyle(.insetGrouped)
         .listSectionSpacing(.compact)
-        .readableListWidth()
     }
 
     @ViewBuilder
@@ -540,7 +543,7 @@ struct TransactionsView: View {
     }
 
     private var reviewSummaryContent: some View {
-            AdaptiveValueRow {
+            HStack(spacing: 12) {
                 HStack(spacing: 12) {
                     Image(systemName: reviewCount == 0 ? "checkmark.circle" : "checklist")
                         .font(.title3).foregroundStyle(reviewCount == 0 ? AppDesign.income : AppDesign.warning)
@@ -556,12 +559,16 @@ struct TransactionsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-            } value: {
+                Spacer(minLength: 8)
                 if reviewAction != .none {
-                    Label(showOnlyReview ? "Ver todos" : "Ver pendientes", systemImage: "chevron.right")
-                        .font(.caption.weight(.semibold)).foregroundStyle(AppDesign.accent)
+                    HStack(spacing: 4) {
+                        Text(showOnlyReview ? "Ver todos" : "Ver pendientes")
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(.caption.weight(.semibold)).foregroundStyle(AppDesign.accent)
                 }
             }
+            .fixedSize(horizontal: false, vertical: true)
             .padding(AppDesign.cardPadding)
             .financeCardSurface()
     }
@@ -737,6 +744,7 @@ private struct BankDownloadReviewLink: View {
 }
 
 private struct TransactionPeriodSummaryCard: View {
+    let title: String
     let transactionCount: Int
     let incomeMinor: Int64
     let expenseMinor: Int64
@@ -748,7 +756,7 @@ private struct TransactionPeriodSummaryCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                Text("Resumen").font(.headline)
+                Text(title).font(.headline)
                 Spacer()
                 Text(transactionCount == 1 ? "1 movimiento" : "\(transactionCount) movimientos")
                     .font(.caption).foregroundStyle(.secondary)

@@ -134,7 +134,7 @@ struct AccountsView: View {
                         }
                     }
                     .listStyle(.insetGrouped)
-                    .readableListWidth()
+                    .contentMargins(.horizontal, 16, for: .scrollContent)
                 }
             }
             .frame(maxWidth: .infinity)

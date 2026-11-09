@@ -124,16 +124,20 @@ struct SettingsView: View {
                 if !hasResults {
                     ContentUnavailableView.search(text: searchText)
                 } else {
-                    connectionSection
-                    organizationSection
-                    preferencesSection
-                    dataSection
-                    advancedSection
-                    helpSection
+                    // Every row, including pickers, toggles and disclosure groups, uses the card colour:
+                    // without it those rows keep the system grey and the dark theme looks patchy.
+                    Group {
+                        connectionSection
+                        organizationSection
+                        preferencesSection
+                        dataSection
+                        advancedSection
+                        helpSection
+                    }
+                    .listRowBackground(AppDesign.cardBackground)
                 }
             }
             .listStyle(.insetGrouped)
-            .readableListWidth()
             .cloudSyncToolbar()
             .scrollContentBackground(.hidden)
             .background(AppDesign.pageBackground)
@@ -268,7 +272,7 @@ struct SettingsView: View {
                         routeRow(.privacy)
                     }
                 }
-            } footer: { Text("Mi Bombo Money · \(appVersion)") }
+            } footer: { Text("Doblón · \(appVersion)") }
         }
     }
 

@@ -471,6 +471,9 @@ struct FinancialLogicCheck {
             ("/TXT/D|TRANS INM/ Persona Ficticia", "Transferencia inmediata · Persona Ficticia"),
             ("Comercio Mixto 12", "Comercio Mixto 12"),
             ("Movimiento bancario", "Movimiento bancario"),
+            // Pending card holds: marker, glued date and reference are dropped.
+            ("/TXT/SUSCRIPCION FICTICIA* SUB09/11/26|20261116", "Suscripcion Ficticia* Sub"),
+            ("/TXT/COMEDOR CAMPUS NORTE07/11/26|20261114", "Comedor Campus Norte"),
             ("ABC", "ABC")
         ] {
             precondition(TransactionPresentation.listTitle(raw, isBanking: true) == expected,

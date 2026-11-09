@@ -197,7 +197,7 @@ struct PersonalBankConnectionsView: View {
                           systemImage: "1.circle.fill")
                     Label("Deja abierta esa página y escanea el QR con la cámara del móvil. Confirma en la app de Trade Republic que quieres compartir tu cuenta con Enable Banking.",
                           systemImage: "2.circle.fill")
-                    Label("Vuelve a Mis bancos y asocia la cuenta de efectivo con la que ya usas en Mi Bombo Money.",
+                    Label("Vuelve a Mis bancos y asocia la cuenta de efectivo con la que ya usas en Doblón.",
                           systemImage: "3.circle.fill")
                     Text("La cámara que necesitas es la del móvil que escanea el QR. Si la verificación se bloquea también allí, contacta con atención al cliente desde Ayuda en Trade Republic.")
                         .font(.footnote)

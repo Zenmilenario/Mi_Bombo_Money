@@ -46,7 +46,7 @@ struct CloudSignInView: View {
         NavigationStack {
             Form {
                 Section {
-                    Label("Mi Bombo Money", systemImage: "cloud")
+                    Label("Doblón", systemImage: "cloud")
                         .font(.title2.bold())
                     Text("Tus finanzas, en tus dispositivos")
                         .font(.headline)

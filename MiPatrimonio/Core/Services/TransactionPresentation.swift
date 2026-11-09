@@ -23,7 +23,7 @@ enum TransactionPresentation {
     /// Title for lists and headers only. Beyond `title`, it names common bank operations and turns
     /// all-capital bank concepts into readable text. Never used for rules, learning or matching.
     static func listTitle(_ original: String, isBanking: Bool) -> String {
-        let base = title(original, isBanking: isBanking)
+        let base = title(isBanking ? stripBankNoise(original) : original, isBanking: isBanking)
         guard isBanking else { return base }
         let segments = base.components(separatedBy: "//").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         var text = base
@@ -38,6 +38,17 @@ enum TransactionPresentation {
             }
         }
         return readableCase(text)
+    }
+
+    /// Pending card postings arrive as "/TXT/MERCHANT DD/MM/YY|REFERENCE": drop the marker, the glued date
+    /// and the trailing reference. The "/TXT/D|" and "/TXT/H|" envelopes are left to `title`.
+    private static func stripBankNoise(_ text: String) -> String {
+        var value = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        value = value.replacingOccurrences(of: #"^/TXT/(?![A-Z]\|)"#, with: "", options: [.regularExpression, .caseInsensitive])
+        value = value.replacingOccurrences(of: #"\|\d{6,}$"#, with: "", options: .regularExpression)
+        value = value.replacingOccurrences(of: #"\s*\d{2}/\d{2}/\d{2,4}$"#, with: "", options: .regularExpression)
+        value = value.trimmingCharacters(in: .whitespaces)
+        return value.isEmpty ? text : value
     }
 
     /// Converts shouting bank text ("COMERCIO DEL NORTE, S.L.") to "Comercio del Norte, S.L.".

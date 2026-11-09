@@ -94,7 +94,7 @@ private struct BankingWorkspaceContent: View {
                 AppDesign.pageBackground.ignoresSafeArea()
                 if scenePhase == .active {
                     VStack(spacing: 20) {
-                        Label("Mi Patrimonio está bloqueado", systemImage: "lock.shield.fill")
+                        Label("Doblón está bloqueado", systemImage: "lock.shield.fill")
                         Button("Desbloquear") { Task { await lockManager.authenticate() } }
                             .disabled(lockManager.isAuthenticating || lockManager.protectedActionInProgress)
                         if lockManager.isAuthenticating { ProgressView() }

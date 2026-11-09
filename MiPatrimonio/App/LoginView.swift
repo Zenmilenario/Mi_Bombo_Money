@@ -114,7 +114,7 @@ struct LoginView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                Text("Mi Bombo Money")
+                Text("Doblón")
                     .font(.headline)
                 Text("Finanzas personales")
                     .font(.caption)
