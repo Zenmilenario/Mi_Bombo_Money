@@ -107,13 +107,10 @@ enum PersonalBankingError: LocalizedError {
     case invalidData, accountNotLinked, needsReview, changed, incompleteTransfer, wrongWorkspace, transferAlreadyRecorded
     case unavailableBookedBalance(String), invalidMovement(String), missingMovementReference(String)
     case contributionNeedsTransferReview
-    /// A bank row already in the ledger no longer matches it. Only that bank is held back.
-    case editedMovement(bank: String, bookingDate: String)
     /// Bank whose own feed caused the error, so the other banks of a download can continue.
     var bank: String? {
         switch self {
-        case .unavailableBookedBalance(let bank), .invalidMovement(let bank), .missingMovementReference(let bank),
-             .editedMovement(let bank, _): bank
+        case .unavailableBookedBalance(let bank), .invalidMovement(let bank), .missingMovementReference(let bank): bank
         default: nil
         }
     }
@@ -123,8 +120,6 @@ enum PersonalBankingError: LocalizedError {
         case .unavailableBookedBalance(let bank): "\(bank) no ha enviado un saldo contable en euros que se pueda verificar."
         case .invalidMovement(let bank): "\(bank) ha enviado un movimiento con fecha, importe, moneda o concepto no válido."
         case .missingMovementReference(let bank): "\(bank) ha enviado un movimiento sin una referencia que permita identificarlo."
-        case .editedMovement(let bank, let bookingDate):
-            "\(bank) ha vuelto a enviar el apunte del \(Self.displayDate(bookingDate)), que en tus movimientos tiene otro importe, tipo o cuenta. Revisa ese movimiento. Los demás bancos se incorporan por separado."
         case .contributionNeedsTransferReview: "Hay un ingreso del mismo importe y día en la cuenta de inversión. Revisa ambos apuntes como transferencia antes de reconocer esta aportación."
         case .accountNotLinked: "Asocia primero las cuentas bancarias con las cuentas de la app."
         case .needsReview: "Revisa las posibles coincidencias antes de incorporar los movimientos."
@@ -134,10 +129,23 @@ enum PersonalBankingError: LocalizedError {
         case .transferAlreadyRecorded: "Ya hay una transferencia con esas cuentas, importe y fecha. Comprueba ese movimiento antes de unir los apuntes."
         }
     }
-    private static func displayDate(_ value: String) -> String {
+    static func displayDate(_ value: String) -> String {
         let parts = value.split(separator: "-")
         guard parts.count == 3, let day = Int(parts[2]), let month = Int(parts[1]) else { return value }
         return "\(day)/\(month)/\(parts[0])"
+    }
+}
+
+extension PersonalBankingPlan {
+    /// Status line for each bank with postings the user edited after importing them.
+    func keptEditsSummary() -> [String: String] {
+        Dictionary(grouping: keptEdits, by: \.bank).mapValues { edits in
+            let dates = Array(Set(edits.map(\.bookingDate))).sorted().map(PersonalBankingError.displayDate)
+            let count = edits.count
+            return count == 1
+                ? "Se conserva tu versión del apunte del \(dates[0]), que editaste después de importarlo."
+                : "Se conserva tu versión de \(count) apuntes que editaste después de importarlos (\(dates.joined(separator: ", ")))."
+        }
     }
 }
 
@@ -203,13 +211,18 @@ struct PersonalBankingPlan {
         var automaticMatch: UUID?
         var suggestedMatch: UUID?
         var suggestionReason: String?
+        /// Records holding an outdated generated key of this account: matching one replaces that key.
+        var rekeyCandidates: Set<UUID> = []
     }
     struct Balance { let account: UUID; let amount: Int64 }
     struct BalanceGap: Identifiable { let id: UUID; let diagnostics: String }
+    /// A bank posting already stored that the user edited (amount, type or account). The user's version is kept.
+    struct KeptEdit: Equatable { let bank: String; let bookingDate: String }
     let items: [Item]
     let balances: [Balance]
     let balanceGaps: [BalanceGap]
     let alreadyImported: Int
+    var keptEdits: [KeptEdit] = []
     var requiresReferenceReview: Bool { items.contains(where: \.hasLocalReference) }
     var requiresBalanceReview: Bool { !balanceGaps.isEmpty && !items.isEmpty }
 
@@ -306,7 +319,7 @@ struct PersonalBankingPlan {
                 guard knownRows.updateValue(entry, forKey: key) == nil else { throw PersonalBankingError.invalidData }
             }
         }
-        var used = Set<String>(); var items: [Item] = []; var skipped = 0
+        var used = Set<String>(); var items: [Item] = []; var skipped = 0; var keptEdits: [KeptEdit] = []
         for leg in legs.sorted(by: { $0.key < $1.key }) where !used.contains(leg.key) {
             let ownOther = leg.row.counterpartyKey.flatMap { ownership[$0] }
             if let other = ownOther, other != leg.local {
@@ -338,10 +351,10 @@ struct PersonalBankingPlan {
                     amount: abs(leg.row.signedAmountMinor), source: leg.local, destination: nil, text: leg.row.description,
                     hasLocalReference: leg.hasLocalReference)
                 if let old = knownRows[leg.key] {
-                    // A generated reference includes the original account, date and signed amount.
-                    // A local edit can change the ledger fields without changing that bank identity.
-                    guard leg.hasLocalReference || compatible(old, with: item) else {
-                        throw PersonalBankingError.editedMovement(bank: leg.bank, bookingDate: leg.row.bookingDate)
+                    // The posting is already stored. If the user changed its amount, type or account, their
+                    // version wins: it is kept as is and reported, without holding back the rest of the bank.
+                    if !leg.hasLocalReference && !compatible(old, with: item) {
+                        keptEdits.append(KeptEdit(bank: leg.bank, bookingDate: leg.row.bookingDate))
                     }
                     skipped += 1; continue
                 }
@@ -352,6 +365,14 @@ struct PersonalBankingPlan {
         func family(_ kind: String) -> String { kind == "fee" ? "expense" : (kind == "interest" ? "income" : kind) }
         let candidateIndex = Dictionary(grouping: ledger.filter { $0.externalID == nil }) {
             CandidateKey(source: $0.source, destination: $0.destination, kind: family($0.kind), amount: $0.amount)
+        }
+        // Trade Republic sends no reference, so its key is built from the booking date. If the bank later moves a
+        // posting to another date, the new key no longer matches. A stored record whose generated keys of this
+        // account are all absent from the download is the same posting under its old key.
+        func staleLocalKeys(_ entry: BankingLedgerEntry, prefix: String) throws -> [String]? {
+            let own = try keys(entry.externalID).filter { $0.hasPrefix(prefix) }
+            guard !own.isEmpty, own.allSatisfy({ $0.hasPrefix(prefix + "local-occurrence:") && !seen.contains($0) }) else { return nil }
+            return own
         }
         for i in items.indices {
             let item = items[i]
@@ -368,6 +389,16 @@ struct PersonalBankingPlan {
                 return references.count < 2 && !references.contains { $0.hasPrefix(prefix) }
             }
             candidates.append(contentsOf: transfers.filter { transfer in !candidates.contains { $0.id == transfer.id } })
+            var rekeyed: [BankingLedgerEntry] = []
+            if item.hasLocalReference, let prefix = accountPrefixes[item.source] {
+                rekeyed = try ledger.filter { entry in
+                    guard entry.externalID != nil, compatible(entry, with: item),
+                          abs(entry.date.timeIntervalSince(item.date)) <= 3 * 86400,
+                          try staleLocalKeys(entry, prefix: prefix) != nil else { return false }
+                    return true
+                }
+                candidates.append(contentsOf: rekeyed.filter { entry in !candidates.contains { $0.id == entry.id } })
+            }
             // Keep the best textual match first, with stable ordering for equal scores.
             candidates.sort {
                 let left = Self.conceptScore($0.text, item.text), right = Self.conceptScore($1.text, item.text)
@@ -392,6 +423,11 @@ struct PersonalBankingPlan {
                         : "Único registro de la misma cuenta, importe y día. El concepto es distinto: compruébalo."
                 }
             }
+            items[i].rekeyCandidates = Set(rekeyed.map(\.id))
+            if rekeyed.count == 1 {
+                items[i].suggestedMatch = rekeyed[0].id
+                items[i].suggestionReason = "El banco ha cambiado la fecha de este apunte: es el mismo que ya tenías."
+            }
         }
         let proposedItems = items
         for i in items.indices {
@@ -412,7 +448,7 @@ struct PersonalBankingPlan {
             }
         }
         return Self(items: items.sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }, balances: balances,
-                    balanceGaps: balanceGaps, alreadyImported: skipped)
+                    balanceGaps: balanceGaps, alreadyImported: skipped, keptEdits: keptEdits)
     }
 
     func resolutions(_ choices: [String: Choice]) throws -> [String: Choice] {

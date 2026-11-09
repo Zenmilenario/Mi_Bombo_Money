@@ -1,5 +1,19 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Apuntes editados y fechas que cambian — iOS 0.6.22 (39)
+
+Preparado el 9 de noviembre de 2026 tras probar la 0.6.20 en el iPad. Se observaron dos problemas: un banco quedaba apartado en cada consulta porque el usuario había editado uno de sus apuntes ya importados, y un apunte de Trade Republic volvía a aparecer como duplicado sin que se pudiera unir.
+
+**Tu versión se conserva.** Si un apunte con referencia del banco ya está guardado y el usuario le cambió el importe, el tipo o la cuenta, la descarga ya no se detiene: se conserva la versión del usuario, el resto del banco se incorpora y **Mis bancos** indica la fecha del apunte conservado. Antes (0.6.20) el banco quedaba apartado hasta que se deshiciera la edición.
+
+**Fechas que cambia Trade Republic.** Trade Republic no envía referencia, así que la clave de cada apunte se genera con su fecha contable. Si el banco mueve un apunte a otro día, la clave cambia y el apunte llegaba como nuevo. Ahora, si un registro guardado tiene claves generadas de esa cuenta que ya no aparecen en la descarga, con el mismo importe y sentido y a tres días como máximo, se propone como el mismo apunte en la revisión («El banco ha cambiado la fecha de este apunte»). Nunca se une automáticamente. Al aceptar, el registro recibe la clave nueva en lugar de las antiguas y conserva su tipo, categoría y notas.
+
+**Unir duplicados que ya son transferencias.** «¿Ya lo tenías registrado?» aparece también en apuntes del banco convertidos en transferencia hacia una cuenta no vinculada (por ejemplo, la cuenta de valores). Para los duplicados ya creados por un cambio de fecha de Trade Republic se permite unir dos registros con claves generadas de la misma cuenta; el registro conservado guarda ambas claves y ninguna de las dos fechas se vuelve a importar. Dos apuntes con referencia propia del banco en la misma cuenta siguen siendo dos operaciones y no se ofrecen.
+
+**Texto corregido.** La tarjeta «Posible duplicado» ya no aconseja eliminar un apunte del banco, que volvería en la próxima descarga: remite a «¿Ya lo tenías registrado?».
+
+**Verificación.** Pruebas con datos ficticios: el plan conserva la versión editada y lo indica; el cambio de fecha se propone y no se confunde con dos apuntes reales del mismo importe en días consecutivos; con un almacén en memoria se reproduce el duplicado convertido en transferencia, se une, ninguna de las dos fechas vuelve, y un tercer cambio de fecha sustituye las claves antiguas. En el coordinador, un banco con un apunte editado se incorpora junto a los demás. Escrito sin compilador Swift disponible; pendientes los checks, el IPA y la prueba en el dispositivo.
+
 ## Transferencias entre tus bancos — iOS 0.6.21 (38)
 
 Preparado el 9 de noviembre de 2026 a partir del caso observado ese día: una transferencia de Trade Republic a Bankinter aparecía como gasto en Trade Republic. Trade Republic no envía contraparte ni referencia, de modo que nunca se aplicaba el emparejamiento por IBAN, y la unión manual exigía la misma fecha exacta. Además, si Bankinter informaba de la cuenta de Trade Republic como origen, su apunte quedaba en espera de una pareja con referencia que nunca llegaría. Propuesta y criterio en la nota «Saldo real — retenciones y transferencias propias» de Obsidian.

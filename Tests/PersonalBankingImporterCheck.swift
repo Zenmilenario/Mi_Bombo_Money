@@ -154,6 +154,7 @@ struct PersonalBankingImporterCheck {
         try checkTradeRepublicWithoutBookedBalance(server: server, in: context, day: day, observed: observed)
         try checkSplitContributions(server: server, in: context, day: day, observed: observed)
         try checkMergeDuplicateBankEntry(server: server, schema: schema, day: day, observed: observed)
+        try checkTradeRepublicShiftedDate(server: server, schema: schema, day: day, observed: observed)
         try checkOwnTransfers(server: server, schema: schema, day: day, observed: observed)
         // Live financial imports can never write to the separate sandbox workspace.
         let isolated = try ModelContainer(for: schema, configurations: ModelConfiguration("BankingTests", schema: schema, isStoredInMemoryOnly: true))
@@ -335,6 +336,64 @@ struct PersonalBankingImporterCheck {
         let afterRepeat = try context.fetch(FetchDescriptor<FinancialTransaction>())
         precondition(repeated.inserted == 0 && repeated.skipped == 1 && afterRepeat.count == 2,
             "A merged bank posting must not be imported again")
+    }
+
+    /// Trade Republic sends no reference: when it moves a posting to another date, the generated key changes.
+    /// The resulting duplicate, already turned into a transfer, can be merged; and the next shift is proposed
+    /// as the same posting instead of being imported again.
+    @MainActor private static func checkTradeRepublicShiftedDate(server: URL, schema: Schema, day: Date, observed: Date) throws {
+        let container = try ModelContainer(for: schema, configurations: ModelConfiguration("CloudFinance", schema: schema, isStoredInMemoryOnly: true))
+        let context = container.mainContext
+        let broker = FinancialAccount(name: "Inversión ficticia", type: .checking, openingDate: day.addingTimeInterval(-86400))
+        let securities = FinancialAccount(name: "Valores ficticios", type: .investment, openingDate: day.addingTimeInterval(-86400))
+        context.insert(broker); context.insert(securities)
+        try context.save()
+        let remote = ConnectedBankAccount(id: "shift-account", name: "Prueba", currency: "EUR", lastFour: "0000")
+        try PersonalBankingImporter.link(remote, bank: "Trade Republic", server: server, to: broker, in: context)
+        func feed(_ date: String) -> BankingAccountFeed {
+            BankingAccountFeed(connection: .init(id: UUID().uuidString, bank: "Trade Republic", validUntil: "2026-11-01", accounts: [remote]),
+                account: remote, balances: [.init(amountMinor: 40000, currency: "EUR", type: "CLBD")], movements: [
+                    .init(id: nil, bookingDate: date, signedAmountMinor: -350, currency: "EUR", description: "Movimiento bancario")])
+        }
+        func rows() throws -> [FinancialTransaction] { try context.fetch(FetchDescriptor<FinancialTransaction>()) }
+        func toTransfer(_ transaction: FinancialTransaction) throws {
+            transaction.type = .transfer; transaction.destinationAccount = securities; transaction.updatedAt = .now
+            try context.save()
+        }
+        _ = try PersonalBankingImporter.apply([feed("2026-10-15")], server: server, in: context, observedAt: observed)
+        let first = try rows()[0]
+        try toTransfer(first)
+        // Before this version the shifted posting was imported as new: reproduce that duplicate.
+        let shifted = try PersonalBankingImporter.plan([feed("2026-10-16")], server: server, in: context)
+        precondition(shifted.items.count == 1 && shifted.items[0].suggestedMatch == first.id)
+        _ = try PersonalBankingImporter.apply([feed("2026-10-16")], server: server, choices: [shifted.items[0].id: .new],
+            in: context, observedAt: observed)
+        let duplicate = try rows().first { $0.id != first.id }!
+        try toTransfer(duplicate)
+        duplicate.duplicateState = .possible; try context.save()
+        let beforeMerge = try rows()
+        precondition(PersonalBankingImporter.mergeCandidates(for: duplicate, in: beforeMerge).map(\.id) == [first.id],
+            "A transfer that duplicates another one can be merged")
+        try PersonalBankingImporter.mergeBankEntry(duplicate, into: first, in: context)
+        let mergedKeys = try PersonalBankingPlan.keys(first.bankEntryKey)
+        let afterMerge = try rows()
+        precondition(afterMerge.count == 1 && mergedKeys.count == 2 && first.duplicateState == .none)
+        precondition(first.type == .transfer && first.destinationAccount?.id == securities.id)
+        for date in ["2026-10-15", "2026-10-16"] {
+            let again = try PersonalBankingImporter.apply([feed(date)], server: server, in: context, observedAt: observed)
+            let count = try rows().count
+            precondition(again.inserted == 0 && again.skipped == 1 && count == 1, "Neither date is imported again")
+        }
+        // A further shift: the stored record takes the new key in place of its outdated ones.
+        let later = try PersonalBankingImporter.plan([feed("2026-10-17")], server: server, in: context)
+        precondition(later.items.count == 1 && later.items[0].rekeyCandidates == [first.id])
+        let result = try PersonalBankingImporter.apply([feed("2026-10-17")], server: server,
+            choices: later.acceptingSuggestions([:]), in: context, observedAt: observed)
+        let afterRekey = try rows().count
+        precondition(result.inserted == 0 && result.matched == 1 && afterRekey == 1)
+        precondition(first.bankEntryKey == later.items[0].id && first.type == .transfer, "Only the new key remains; the user's transfer is kept")
+        let repeated = try PersonalBankingImporter.apply([feed("2026-10-17")], server: server, in: context, observedAt: observed)
+        precondition(repeated.inserted == 0 && repeated.skipped == 1)
     }
 
     @MainActor private static func checkTradeRepublicWithoutBookedBalance(server: URL, in context: ModelContext,

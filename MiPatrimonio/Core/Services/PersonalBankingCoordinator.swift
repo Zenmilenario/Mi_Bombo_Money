@@ -162,12 +162,12 @@ final class PersonalBankingCoordinator: ObservableObject {
         let active = Set(connections.flatMap(\.accounts).map { PersonalBankingImporter.identity(server: server, accountID: $0.id) })
         accountActivity = accountActivity.filter { active.contains($0.key) }
     }
-    private func imported(_ feeds: [BankingAccountFeed], deferred: [String: Int]) {
+    private func imported(_ feeds: [BankingAccountFeed], deferred: [String: Int], keptEdits: [String: String] = [:]) {
         for bank in Set(feeds.map(\.connection.bank)) {
             schedules[bank, default: BankingBankSchedule()].lastImportedAt = .now
             schedules[bank, default: BankingBankSchedule()].awaitingReview = false
-            bankStatus[bank] = BankingBankSyncStatus(summary: "Descarga incorporada a tus finanzas.",
-                deferredTransfers: deferred[bank, default: 0])
+            let summary = ["Descarga incorporada a tus finanzas.", keptEdits[bank]].compactMap { $0 }.joined(separator: " ")
+            bankStatus[bank] = BankingBankSyncStatus(summary: summary, deferredTransfers: deferred[bank, default: 0])
         }
         if let owner { saveSchedules(user: owner) }
     }
@@ -345,7 +345,7 @@ final class PersonalBankingCoordinator: ObservableObject {
             }
             let result = try PersonalBankingImporter.apply(feeds, server: download.server, ownTransferHints: selection.ownTransferHints,
                 in: context, observedAt: download.observedAt)
-            imported(feeds, deferred: selection.deferredByBank)
+            imported(feeds, deferred: selection.deferredByBank, keptEdits: plan.keptEditsSummary())
             message = "\(names): \(result.inserted) movimientos nuevos · \(result.matched) coincidencias reconocidas."
             errorMessage = excludedDescription(excluded)
             return true
@@ -379,7 +379,7 @@ final class PersonalBankingCoordinator: ObservableObject {
         let result = try PersonalBankingImporter.apply(pendingFeeds, server: server, choices: choices,
             manualBalances: manualBalances, reviewedBalances: reviewedBalances, ownTransferHints: pendingHints,
             in: context, observedAt: observedAt)
-        imported(pendingFeeds, deferred: pendingDeferred)
+        imported(pendingFeeds, deferred: pendingDeferred, keptEdits: pendingPlan?.keptEditsSummary() ?? [:])
         clearReview()
         message = "\(result.inserted) movimientos nuevos · \(result.matched) coincidencias conservadas."
         errorMessage = nil

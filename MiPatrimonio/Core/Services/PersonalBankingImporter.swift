@@ -211,23 +211,45 @@ enum PersonalBankingImporter {
     @MainActor static func canMergeBankEntry(_ duplicate: FinancialTransaction, into kept: FinancialTransaction) -> Bool {
         guard duplicate.id != kept.id, duplicate.amountMinor == kept.amountMinor,
               abs(kept.date.timeIntervalSince(duplicate.date)) <= 7 * 86400,
-              duplicate.type != .transfer, duplicate.destinationAccount == nil,
               duplicate.reservedFundID == nil, duplicate.reservedAmountMinor == nil, duplicate.recurringMovementID == nil,
-              let source = duplicate.sourceAccount, kept.sourceAccount != nil,
+              let bankSide = bankSide(of: duplicate), kept.sourceAccount != nil,
               let duplicateKeys = try? PersonalBankingPlan.keys(duplicate.bankEntryKey), duplicateKeys.count == 1,
-              let keptKeys = try? PersonalBankingPlan.keys(kept.bankEntryKey) else { return false }
-        if !keptKeys.isEmpty {
-            // Only an own transfer may already hold one reference: the other bank account's leg.
-            guard kept.type == .transfer, keptKeys.count == 1,
-                  accountPrefix(keptKeys[0]) != accountPrefix(duplicateKeys[0]) else { return false }
+              let keptKeys = try? PersonalBankingPlan.keys(kept.bankEntryKey),
+              (try? PersonalBankingPlan.encodedKeys(keptKeys + duplicateKeys)) != nil else { return false }
+        let prefix = accountPrefix(duplicateKeys[0])
+        for key in keptKeys where accountPrefix(key) == prefix {
+            // Two references of the same account are two postings, unless both are keys generated from the
+            // booking date (Trade Republic): the bank moved the posting to another date and sent it again.
+            guard key != duplicateKeys[0], isGeneratedKey(key), isGeneratedKey(duplicateKeys[0]) else { return false }
+        }
+        if keptKeys.contains(where: { accountPrefix($0) != prefix }) {
+            // Only an own transfer may already hold the other bank account's leg.
+            guard kept.type == .transfer else { return false }
         }
         let entry = BankingLedgerEntry(id: kept.id, date: kept.date, kind: kept.typeRaw, amount: kept.amountMinor,
             source: kept.sourceAccount?.id, destination: kept.destinationAccount?.id, text: kept.descriptionText,
             externalID: kept.bankEntryKey)
         let item = PersonalBankingPlan.Item(id: duplicateKeys[0], date: duplicate.date,
-            kind: duplicate.type.countsAsIncome ? "income" : "expense", amount: duplicate.amountMinor,
-            source: source.id, destination: nil, text: duplicate.descriptionText)
+            kind: bankSide.debit ? "expense" : "income", amount: duplicate.amountMinor,
+            source: bankSide.account.id, destination: nil, text: duplicate.descriptionText)
         return PersonalBankingPlan.compatible(entry, with: item)
+    }
+    /// The linked bank account that sent a single posting, and whether it was a debit there.
+    /// A posting the user turned into a transfer keeps the bank on one side and an unlinked account on the other.
+    @MainActor private static func bankSide(of transaction: FinancialTransaction) -> (account: FinancialAccount, debit: Bool)? {
+        guard let source = transaction.sourceAccount else { return nil }
+        guard transaction.type == .transfer else {
+            return transaction.destinationAccount == nil ? (source, !transaction.type.countsAsIncome) : nil
+        }
+        guard let destination = transaction.destinationAccount else { return nil }
+        switch (source.bankIdentityKey != nil, destination.bankIdentityKey != nil) {
+        case (true, false): return (source, true)
+        case (false, true): return (destination, false)
+        default: return nil
+        }
+    }
+    private static func isGeneratedKey(_ key: String) -> Bool {
+        key.split(separator: ":", maxSplits: 3, omittingEmptySubsequences: false).last?.hasPrefix("local-occurrence:") == true
     }
 
     @MainActor static func mergeCandidates(for duplicate: FinancialTransaction,
@@ -254,6 +276,7 @@ enum PersonalBankingImporter {
             }
             kept.bankEntryKey = bankKey
             kept.isReconciled = true
+            if kept.duplicateState == .possible { kept.duplicateState = .none }
             kept.updatedAt = .now
             context.delete(duplicate)
             try context.save()
@@ -537,9 +560,17 @@ enum PersonalBankingImporter {
                 guard let choice = decisions[item.id] else { throw PersonalBankingError.needsReview }
                 switch choice {
                 case .match(let id):
-                    guard let transaction = existing[id], transaction.bankEntryKey == nil || transaction.type == .transfer else { throw PersonalBankingError.changed }
+                    let rekey = item.rekeyCandidates.contains(id)
+                    guard let transaction = existing[id],
+                          transaction.bankEntryKey == nil || transaction.type == .transfer || rekey else { throw PersonalBankingError.changed }
+                    var keys = try PersonalBankingPlan.keys(transaction.bankEntryKey)
+                    if rekey {
+                        // The bank moved this posting to another date: its outdated generated key is replaced.
+                        let prefix = String(item.id.prefix(upTo: item.id.range(of: "local-occurrence:")?.lowerBound ?? item.id.endIndex))
+                        keys.removeAll { $0.hasPrefix(prefix + "local-occurrence:") }
+                    }
                     // Preserve the user's category, notes, reserve allocation, recurring provenance and date.
-                    transaction.bankEntryKey = try PersonalBankingPlan.encodedKeys(PersonalBankingPlan.keys(transaction.bankEntryKey) + PersonalBankingPlan.keys(item.id))
+                    transaction.bankEntryKey = try PersonalBankingPlan.encodedKeys(keys + PersonalBankingPlan.keys(item.id))
                     transaction.isReconciled = true; transaction.updatedAt = observedAt
                     matched += 1
                 case .new:

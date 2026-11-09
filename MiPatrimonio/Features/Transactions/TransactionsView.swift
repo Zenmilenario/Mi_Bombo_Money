@@ -1302,7 +1302,9 @@ private struct TransactionReviewActions: View {
             }
             .buttonStyle(.bordered)
                 .controlSize(.large)
-            Text("Esta opción conserva los movimientos. Si sobra uno, elimínalo desde la lista de Movimientos.")
+            Text(transaction.bankEntryKey == nil
+                 ? "Esta opción conserva los movimientos. Si sobra uno, elimínalo desde la lista de Movimientos."
+                 : "Esta opción conserva los movimientos. Si sobra uno, únelo con «¿Ya lo tenías registrado?», más abajo: si lo eliminas, el banco lo volverá a enviar.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -1641,8 +1643,9 @@ private struct TransactionDetailView: View {
                             }
                         } else {
                             OwnTransferProposalCard(transaction: transaction, onPair: onPairOwnTransfer)
-                            BankEntryMergeCard(transaction: transaction, onMerge: onMergeBankEntry)
                         }
+                        // Also for a posting the user turned into a transfer: it can duplicate another one.
+                        BankEntryMergeCard(transaction: transaction, onMerge: onMergeBankEntry)
                     }
                 }
                 .padding(.horizontal, 16)

@@ -183,16 +183,26 @@ struct PersonalBankingPlanCheck {
         let stable = try PersonalBankingPlan.build(feeds: [stableFeed], links: links, ledger: [])
         let changed = BankingLedgerEntry(id: UUID(), date: day, kind: "expense", amount: 1200,
             source: daily, destination: nil, text: "Compra", externalID: stable.items[0].id)
-        do {
-            _ = try PersonalBankingPlan.build(feeds: [stableFeed], links: links, ledger: [changed])
-            preconditionFailure("A conflicting provider reference must still fail validation")
-        } catch PersonalBankingError.editedMovement(let bank, let bookingDate) {
-            // The error names its bank so the coordinator can hold back only that feed.
-            let error = PersonalBankingError.editedMovement(bank: bank, bookingDate: bookingDate)
-            precondition(bank == "Trade Republic" && error.bank == "Trade Republic")
-            precondition(bookingDate == stableFeed.movements[0].bookingDate)
-            precondition(error.errorDescription?.contains("Trade Republic") == true && error.errorDescription?.contains("/") == true)
-        }
+        // A posting the user edited after importing it keeps the user's version and no longer blocks the bank.
+        let keptEdit = try PersonalBankingPlan.build(feeds: [stableFeed], links: links, ledger: [changed])
+        precondition(keptEdit.items.isEmpty && keptEdit.alreadyImported == 1)
+        precondition(keptEdit.keptEdits == [.init(bank: "Trade Republic", bookingDate: stableFeed.movements[0].bookingDate)])
+        precondition(keptEdit.keptEditsSummary()["Trade Republic"]?.contains("15/10/2026") == true)
+        precondition(stable.keptEdits.isEmpty && stable.keptEditsSummary().isEmpty)
+        // Trade Republic moved a posting to the next day: its generated key changed. The stored record is
+        // proposed under the new key, never matched automatically.
+        let original = try PersonalBankingPlan.build(feeds: [feed(rows: [debit], bank: "Trade Republic")], links: links, ledger: [])
+        let stored = BankingLedgerEntry(id: UUID(), date: day, kind: "transfer", amount: 1000, source: daily,
+            destination: savings, text: "Aportación ficticia", externalID: original.items[0].id)
+        let shifted = BankingPreview.Movement(id: nil, bookingDate: "2026-10-16", signedAmountMinor: -1000, currency: "EUR",
+            description: "Movimiento bancario", counterpartyKey: nil, transferKey: nil)
+        let moved = try PersonalBankingPlan.build(feeds: [feed(rows: [shifted], bank: "Trade Republic")], links: links, ledger: [stored])
+        precondition(moved.items.count == 1 && moved.items[0].rekeyCandidates == [stored.id])
+        precondition(moved.items[0].suggestedMatch == stored.id && moved.items[0].automaticMatch == nil)
+        _ = try moved.resolutions(moved.acceptingSuggestions([:]))
+        // Two real postings of the same amount on consecutive days: the stored key is still sent, so no rekey.
+        let both = try PersonalBankingPlan.build(feeds: [feed(rows: [debit, shifted], bank: "Trade Republic")], links: links, ledger: [stored])
+        precondition(both.alreadyImported == 1 && both.items.count == 1 && both.items[0].rekeyCandidates.isEmpty)
         precondition(PersonalBankingError.changed.bank == nil && PersonalBankingError.incompleteTransfer.bank == nil,
             "Errors that are not tied to one bank's feed must still stop the whole download")
         // Trade Republic names no counterparty: a credit pointing to it would wait forever for a referenced peer.

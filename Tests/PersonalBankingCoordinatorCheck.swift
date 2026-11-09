@@ -270,16 +270,16 @@ enum PersonalBankingImporter {
         let isolated = PersonalBankingCoordinator()
         try await isolated.configure(server: server.absoluteString, account: isolatedAccount)
         let isolatedApplied = await isolated.synchronize(account: isolatedAccount, context: isolatedContext, force: true)
-        precondition(isolatedApplied && isolatedContext.appliedBanks == ["Sabadell"],
-            "Another bank's edited movement must not block this bank's download")
+        precondition(isolatedApplied && isolatedContext.appliedBanks == ["BBVA", "Sabadell"],
+            "A movement the user edited no longer holds back its own bank or another one")
         precondition(isolatedContext.ledger.count == 2 && isolatedContext.ledger.contains { $0.amount == 120000 })
         precondition(isolatedContext.ledger.contains { $0.amount == 999 }, "The user's edited movement is preserved")
         precondition(isolated.bankStatus["Sabadell"]?.summary == "Descarga incorporada a tus finanzas.")
-        precondition(isolated.bankStatus["BBVA"]?.errorMessage?.contains("BBVA") == true
-            && isolated.errorMessage?.contains("BBVA") == true, "The held-back bank and its movement are named")
+        precondition(isolated.bankStatus["BBVA"]?.summary.contains("Se conserva tu versión") == true
+            && isolated.bankStatus["BBVA"]?.errorMessage == nil, "The kept edit is reported, not treated as an error")
         let onlyEdited = await isolated.synchronize(account: isolatedAccount, context: isolatedContext, force: true, onlyBank: "BBVA")
-        precondition(!onlyEdited && isolatedContext.ledger.count == 2 && isolated.errorMessage?.contains("BBVA") == true,
-            "A single bank with an edited movement still stops safely with a specific message")
+        precondition(onlyEdited && isolatedContext.ledger.count == 2 && isolatedContext.ledger.contains { $0.amount == 999 },
+            "A single bank with an edited movement is incorporated without overwriting the user's version")
         print("Banking coordinator passed: independent banks, reopen limits, deferred application, first-download review and transfer recovery.")
     }
 }
