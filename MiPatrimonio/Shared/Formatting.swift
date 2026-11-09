@@ -17,18 +17,6 @@ enum MoneyFormatter {
         )
     }
 
-    static func compactString(
-        minorUnits: Int64,
-        currencyCode: String = "EUR",
-        locale: Locale = .autoupdatingCurrent
-    ) -> String {
-        (Double(minorUnits) / 100).formatted(
-            .currency(code: currencyCode)
-                .locale(locale)
-                .precision(.fractionLength(0...1))
-        )
-    }
-
     static func percent(_ value: Double?) -> String {
         guard let value else { return "—" }
         return value.formatted(.percent.precision(.fractionLength(1)))

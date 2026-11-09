@@ -13,7 +13,7 @@ Si ya tienes este repositorio clonado, utiliza esta sección para las actualizac
 3. Pulsa **Push origin**.
 4. Abre una **pull request en borrador** si la rama aún no tiene una. Localiza las ejecuciones del último commit en **Checks** o **Actions**.
 5. Espera a que pasen los cuatro workflows: **Validar app iOS** (Debug para simulador y Release para dispositivo), **Comprobar datos y cálculos**, **Comprobar conexión bancaria de prueba** y **Comprobar almacenamiento cloud**.
-6. Haz el merge cuando todos los checks del último commit estén en verde y hayas revisado el aspecto en los dispositivos que usas. La lista visual está en `PRUEBAS_REDISENO.md`.
+6. Haz el merge cuando todos los checks del último commit estén en verde y hayas revisado el aspecto en los dispositivos que usas. La lista visual está en `docs/historico/PRUEBAS_REDISENO.md`.
 
 Con una PR abierta, cada push de la rama ejecuta todas las comprobaciones una vez por workflow: no hace falta hacer merge para probarla. Una rama sin PR requiere abrirla o ejecutar los cuatro workflows manualmente. Si una prueba falla, abre su trabajo y consulta el mensaje concreto, no solo el código de salida 65.
 

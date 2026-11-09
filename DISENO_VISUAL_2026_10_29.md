@@ -163,3 +163,20 @@ Preparado el 9 de noviembre de 2026 a petición del usuario, completando lo que 
 - **Foto del gato.** El usuario indica que es un meme generado con IA y que la quiere en la app. Está en «Ajustes › Acerca de Doblón», junto a la mascota, la versión y la frase del día (recurso `DonBigotesFoto`).
 
 **Verificación.** Pruebas con datos ficticios en `FinancialLogicCheck` para la petición de foco y el aprendizaje de horas. Pendientes los checks, el IPA y la prueba en el dispositivo.
+
+## Doblón 0.7.3 (44) · limpieza tras la auditoría
+
+Aplicada el 9 de noviembre de 2026, a petición del usuario, a partir de la auditoría de la 0.7.2. Sin cambios funcionales salvo los colores.
+
+- **Código muerto retirado:**
+  - Restos del rediseño en Inicio, Cuentas y el acceso.
+  - `BankingProviderContracts.swift`, el contrato PSD2 previsto antes del Worker, también quitado del proyecto.
+  - `monthlySummaries`, `hasMixedCurrencies`, `compactString`, `EmptyStateCard`, `overviewContentWidth`, `itemSpacing` y un color sin uso en Seguridad.
+  - `suggestedReservedPaymentAmount`, que solo usaban las pruebas; ahora la prueba comprueba directamente el cálculo real de la reserva disponible.
+- **Una sola huella SHA-256** (`StableDigest`, en `Models.swift`) en lugar de siete copias, más el UUID derivado de dos de ellas. Una prueba fija los bytes exactos. El identificador de los movimientos periódicos se mantiene aparte, porque marca la versión del UUID y cambiarlo alteraría identificadores guardados.
+- **Alertas:** 31 enlaces repetidos sustituidos por `Binding(isPresent:)`.
+- **Colores:** 71 usos de verde, rojo, azul y naranja del sistema pasan a la paleta (ingresos, gastos, ahorro y aviso), para que claro y oscuro sean coherentes.
+- **Imagen del acceso:** copia de 256 px (110 KB) en lugar del icono duplicado de 1,9 MB.
+- **Documentación:** los README antiguos, las notas de la 0.2.1, las del rediseño de octubre y `SHA256SUMS_PARCHE.txt` pasan a `docs/historico/`. El README presenta Doblón 0.7.
+
+**No aplicado (decisión del usuario):** sacar la clave `.pem` de la carpeta del repositorio, mantener o retirar el laboratorio bancario, dividir `TransactionsView.swift` y la optimización de filtros.

@@ -27,8 +27,7 @@ enum DuplicateDetectionService {
             normalizedDescription,
         ].joined(separator: "|")
 
-        let digest = SHA256.hash(data: Data(payload.utf8))
-        return digest.map { String(format: "%02x", $0) }.joined()
+        return StableDigest.hex(payload)
     }
 
     static func candidates(

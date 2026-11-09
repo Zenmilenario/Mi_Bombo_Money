@@ -185,7 +185,7 @@ private struct CloudFinanceWorkspaceView: View {
                             Text("¿Cómo quieres empezar?").font(.title2.bold())
                             Text("En este dispositivo hay \(sync.migrationRecordCount) registros. Puedes copiarlos a tu cuenta cloud o empezar con un espacio vacío. Los originales permanecen en el modo local.")
                         }
-                        if let error = sync.errorMessage { Section { Text(error).foregroundStyle(.red) } }
+                        if let error = sync.errorMessage { Section { Text(error).foregroundStyle(AppDesign.expense) } }
                         Section {
                             Button("Copiar mis datos a mi cuenta cloud") { Task { await sync.chooseMigration(copyLocal: true, account: account) } }
                             Button("Empezar sin copiar datos") { Task { await sync.chooseMigration(copyLocal: false, account: account) } }
@@ -321,7 +321,7 @@ struct CloudAccountSettingsView: View {
                 Text("Los cambios se guardan en este dispositivo y se sincronizan al abrir la app y mientras la utilizas. Sin conexión, permanecen pendientes.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
-            if let message = sync.errorMessage { Section { Text(message).foregroundStyle(.red) } }
+            if let message = sync.errorMessage { Section { Text(message).foregroundStyle(AppDesign.expense) } }
             if let message = account.message { Section { Text(message) } }
             if sync.conflict != nil {
                 Section("Cambios que requieren revisión") {

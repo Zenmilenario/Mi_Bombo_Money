@@ -74,17 +74,12 @@ struct RootTabView: View {
                 recordOpening()
             }
         }
-        .alert("No se pudo registrar un movimiento periódico", isPresented: Binding(
-            get: { recurrenceError != nil },
-            set: { if !$0 { recurrenceError = nil } }
-        )) {
+        .alert("No se pudo registrar un movimiento periódico", isPresented: Binding(isPresent: $recurrenceError)) {
             Button("Aceptar", role: .cancel) { recurrenceError = nil }
         } message: {
             Text(recurrenceError ?? "Error desconocido")
         }
-        .alert("Correcciones aprendidas", isPresented: Binding(
-            get: { correctionError != nil }, set: { if !$0 { correctionError = nil } }
-        )) { Button("Aceptar", role: .cancel) { correctionError = nil } }
+        .alert("Correcciones aprendidas", isPresented: Binding(isPresent: $correctionError)) { Button("Aceptar", role: .cancel) { correctionError = nil } }
         message: { Text(correctionError ?? "") }
     }
 

@@ -47,7 +47,7 @@ struct PersonalBankConnectionsView: View {
                 Text("Recibe saldos y movimientos. La conexión solo consulta información; no permite realizar pagos.")
                     .foregroundStyle(.secondary)
                 Text(banking.message).font(.callout)
-                if let message = banking.errorMessage { Text(message).foregroundStyle(.red) }
+                if let message = banking.errorMessage { Text(message).foregroundStyle(AppDesign.expense) }
                 if banking.pendingPlan != nil {
                     Button("Revisar e incorporar la descarga recibida") {
                         withAnimation { scroll.scrollTo("personal-bank-review", anchor: .top) }
@@ -76,7 +76,7 @@ struct PersonalBankConnectionsView: View {
                 Section(connection.bank) {
                     if let status = banking.bankStatus[connection.bank] {
                         Text(status.summary).font(.callout)
-                        if let error = status.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
+                        if let error = status.errorMessage { Text(error).font(.caption).foregroundStyle(AppDesign.expense) }
                         if let retry = status.retryAt, retry > .now {
                             Label("\(status.retryIsAutomatic ? "Próxima consulta automática" : "Próximo intento"): \(retry.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
                                 .font(.caption).foregroundStyle(.secondary)
@@ -215,9 +215,7 @@ struct PersonalBankConnectionsView: View {
             .background(AppDesign.pageBackground)
             .presentationDetents([.medium, .large])
         }
-        .confirmationDialog("¿Desconectar este banco? Se revocará el permiso; tus movimientos guardados se conservan.", isPresented: Binding(
-            get: { disconnecting != nil }, set: { if !$0 { disconnecting = nil } }
-        ), titleVisibility: .visible) {
+        .confirmationDialog("¿Desconectar este banco? Se revocará el permiso; tus movimientos guardados se conservan.", isPresented: Binding(isPresent: $disconnecting), titleVisibility: .visible) {
             if let connection = disconnecting {
                 Button("Desconectar", role: .destructive) { run(protected: true) {
                     let client = try await banking.client(account: account)
@@ -226,7 +224,7 @@ struct PersonalBankConnectionsView: View {
                 } }
             }
         }
-        .alert("Conexión bancaria", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+        .alert("Conexión bancaria", isPresented: Binding(isPresent: $error)) {
             Button("Aceptar", role: .cancel) { error = nil }
         } message: { Text(error ?? "") }
     }

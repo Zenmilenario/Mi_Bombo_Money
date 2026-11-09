@@ -187,14 +187,16 @@ struct FinancialLogicCheck {
         fee.type = .income
         precondition(FinanceCalculator.reservedExpenseAmount(for: fee) == 0 && FinanceCalculator.budgetExpenseAmount(for: fee) == 0)
 
-        precondition(FinanceCalculator.suggestedReservedPaymentAmount(for: fund, transactionAmountMinor: 30_000, transactions: transactions) == 20_000)
-        precondition(FinanceCalculator.suggestedReservedPaymentAmount(for: fund, transactionAmountMinor: 10_000, transactions: transactions) == 10_000)
-        precondition(FinanceCalculator.suggestedReservedPaymentAmount(for: fund, transactionAmountMinor: 30_000,
-            transactions: transactions, excluding: payment.id) == 30_000, "Editing releases the previous allocation")
+        // What a new payment can still take from the reserve, counting committed (future) payments.
+        func reserveLeft(_ items: [FinancialTransaction], excluding id: UUID? = nil) -> Int64 {
+            FinanceCalculator.remainingReservedAmount(for: fund, transactions: items, at: .distantFuture, excluding: id)
+        }
+        precondition(min(30_000, reserveLeft(transactions)) == 20_000)
+        precondition(min(10_000, reserveLeft(transactions)) == 10_000)
+        precondition(min(30_000, reserveLeft(transactions, excluding: payment.id)) == 30_000, "Editing releases the previous allocation")
         let future = FinancialTransaction(date: .now.addingTimeInterval(86_400), type: .expense, amountMinor: 15_000,
             descriptionText: "Pago comprometido", reservedFundID: fund.id, reservedAmountMinor: 15_000, sourceAccount: account)
-        precondition(FinanceCalculator.suggestedReservedPaymentAmount(for: fund, transactionAmountMinor: 30_000,
-            transactions: transactions + [future]) == 5_000, "Suggested funding must respect future commitments")
+        precondition(min(30_000, reserveLeft(transactions + [future])) == 5_000, "Suggested funding must respect future commitments")
         fund.amountMinor = 40_000
         precondition(progress(transactions).spentMinor == 15_000,
                      "Exhausting a reserve must not change the funding history of its earlier payments")
@@ -520,6 +522,10 @@ struct FinancialLogicCheck {
         precondition(usage.isUsual(madrid.date(from: DateComponents(year: 2026, month: 11, day: 13, hour: 22))!, calendar: madrid))
         precondition(!usage.isUsual(madrid.date(from: DateComponents(year: 2026, month: 11, day: 13, hour: 9))!, calendar: madrid))
         precondition(UsageHours(serialized: usage.serialized) == usage)
+        // Stored fingerprints and generated ids depend on these exact bytes.
+        precondition(StableDigest.hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        precondition(StableDigest.hex(Data("abc".utf8)) == StableDigest.hex("abc"))
+        precondition(StableDigest.uuid("abc").uuidString == "BA7816BF-8F01-CFEA-4141-40DE5DAE2223")
         precondition(TransactionPresentation.indicatesTransfer("/TXT/D|TRANS INM/ Persona Ficticia"))
         precondition(!TransactionPresentation.indicatesTransfer("/TXT/Z|TRANS INM/ Persona Ficticia"))
         precondition(!TransactionPresentation.indicatesTransfer("/TXT/H|PAGO BIZUM DE PRUEBA"))

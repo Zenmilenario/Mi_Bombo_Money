@@ -161,9 +161,7 @@ private struct BankingSandboxConnectionsView: View {
             NavigationStack { BankAccountPreviewView(selection: selection) }
         }
         .fullScreenCover(isPresented: $showingWorkspace) { BankingWorkspaceView() }
-        .confirmationDialog("¿Desconectar esta cuenta de prueba?", isPresented: Binding(
-            get: { disconnecting != nil }, set: { if !$0 { disconnecting = nil } }
-        ), titleVisibility: .visible) {
+        .confirmationDialog("¿Desconectar esta cuenta de prueba?", isPresented: Binding(isPresent: $disconnecting), titleVisibility: .visible) {
             if let connection = disconnecting {
                 Button("Desconectar", role: .destructive) {
                     run(protected: true) {
@@ -182,9 +180,7 @@ private struct BankingSandboxConnectionsView: View {
                 }
             }
         }
-        .alert("Conexión bancaria", isPresented: Binding(
-            get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
-        )) { Button("Aceptar", role: .cancel) { errorMessage = nil } } message: {
+        .alert("Conexión bancaria", isPresented: Binding(isPresent: $errorMessage)) { Button("Aceptar", role: .cancel) { errorMessage = nil } } message: {
             Text(errorMessage ?? "")
         }
         .onChange(of: scenePhase) { _, phase in
@@ -284,7 +280,7 @@ private struct BankAccountPreviewView: View {
             }
             if busy { ProgressView("Consultando…") }
             if let errorMessage {
-                Text(errorMessage).foregroundStyle(.red)
+                Text(errorMessage).foregroundStyle(AppDesign.expense)
                 Button("Reintentar") { Task { await loadNext() } }.disabled(busy)
             }
         }

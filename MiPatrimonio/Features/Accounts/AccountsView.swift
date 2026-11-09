@@ -236,14 +236,7 @@ struct AccountsView: View {
             }
             .alert(
                 "No se pudo completar la operación",
-                isPresented: Binding(
-                    get: { errorMessage != nil },
-                    set: { isPresented in
-                        if !isPresented {
-                            errorMessage = nil
-                        }
-                    }
-                )
+                isPresented: Binding(isPresent: $errorMessage)
             ) {
                 Button("Aceptar", role: .cancel) {
                     errorMessage = nil
@@ -355,14 +348,6 @@ struct AccountsView: View {
         .buttonStyle(.plain)
     }
 
-    private func managementShortcut(_ title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .padding(12)
-            .background(AppDesign.tertiaryBackground, in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
-    }
-
     private var balanceAccountSelector: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
@@ -443,7 +428,7 @@ struct AccountsView: View {
                         } label: {
                             Label("Editar", systemImage: "pencil")
                         }
-                        .tint(.blue)
+                        .tint(AppDesign.savings)
                     }
                     .swipeActions(edge: .trailing) {
                         Button {
@@ -453,7 +438,7 @@ struct AccountsView: View {
                         } label: {
                             Label("Archivar", systemImage: "archivebox")
                         }
-                        .tint(.orange)
+                        .tint(AppDesign.warning)
 
                         Button(role: .destructive) {
                             delete(account)
@@ -571,7 +556,7 @@ struct AccountsView: View {
                         } label: {
                             Label("Editar", systemImage: "pencil")
                         }
-                        .tint(.blue)
+                        .tint(AppDesign.savings)
                     }
                     .swipeActions(edge: .trailing) {
                         Button {
@@ -581,7 +566,7 @@ struct AccountsView: View {
                         } label: {
                             Label("Archivar", systemImage: "archivebox")
                         }
-                        .tint(.orange)
+                        .tint(AppDesign.warning)
 
                         Button(role: .destructive) {
                             delete(card)
@@ -890,7 +875,7 @@ struct PaymentCardFormView: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppDesign.expense)
                     }
                 }
             }
@@ -1226,7 +1211,7 @@ private struct AccountDetailView: View {
                     if reservedAmount > balance {
                         Text("La reserva supera el saldo actual de esta cuenta.")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(AppDesign.warning)
                     }
                     Button {
                         showingAddReservation = true
@@ -1400,7 +1385,7 @@ struct AccountFormView: View {
                 }
 
                 if let errorMessage {
-                    Section { Text(errorMessage).foregroundStyle(.red) }
+                    Section { Text(errorMessage).foregroundStyle(AppDesign.expense) }
                 }
             }
             .navigationTitle(account == nil ? "Nueva cuenta" : "Editar cuenta")
@@ -1650,7 +1635,7 @@ private struct BalanceSnapshotFormView: View {
                 TextField("Notas", text: $notes, axis: .vertical)
                     .lineLimit(2...4)
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppDesign.expense)
                 }
             }
             .navigationTitle("Registrar valoración")

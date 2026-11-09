@@ -2,7 +2,6 @@ import SwiftUI
 
 struct LoginView: View {
     @EnvironmentObject private var lockManager: AppLockManager
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -178,10 +177,10 @@ struct LoginView: View {
                 if let message = errorMessage ?? lockManager.lastErrorMessage {
                     Label(message, systemImage: "exclamationmark.circle.fill")
                         .font(.callout)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(AppDesign.expense)
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                        .background(AppDesign.expense.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                         .accessibilityFocused($errorIsFocused)
                 }
 

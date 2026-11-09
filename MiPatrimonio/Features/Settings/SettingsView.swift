@@ -145,9 +145,7 @@ struct SettingsView: View {
                 ? "Se eliminarán los datos de esta cuenta cloud al sincronizar, también en tus otros dispositivos. Las categorías comunes volverán a aparecer. Exporta una copia antes de continuar."
                 : "Se eliminarán cuentas, movimientos, categorías personalizadas, presupuestos y demás datos locales. Las categorías comunes volverán a aparecer. Esta acción no se puede deshacer.")
         }
-        .alert("No se pudieron eliminar los datos", isPresented: Binding(
-            get: { resetError != nil }, set: { if !$0 { resetError = nil } }
-        )) {
+        .alert("No se pudieron eliminar los datos", isPresented: Binding(isPresent: $resetError)) {
             Button("Aceptar", role: .cancel) { resetError = nil }
         } message: { Text(resetError ?? "Error desconocido") }
     }

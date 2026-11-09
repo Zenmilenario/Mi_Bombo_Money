@@ -3,14 +3,12 @@ import UIKit
 
 enum AppDesign {
     static let readableContentWidth: CGFloat = 840
-    static let overviewContentWidth: CGFloat = 1_200
     // Stitch system (Grafito sereno / Clara cercana): radius 12 for cards, 8 for compact controls.
     static let compactRadius: CGFloat = 10
     static let cardRadius: CGFloat = 14
     static let heroRadius: CGFloat = 20
     static let cardPadding: CGFloat = 16
     static let sectionSpacing: CGFloat = 18
-    static let itemSpacing: CGFloat = 12
 
     // «Pulso» palette (Doblón): one set per appearance, shared by every surface so no row falls back to system grey.
     static var pageBackground: Color {
@@ -99,6 +97,14 @@ private struct FinanceCardSurface: ViewModifier {
                     .strokeBorder(AppDesign.cardOutline, lineWidth: 1)
                     .allowsHitTesting(false)
             }
+    }
+}
+
+extension Binding where Value == Bool {
+    /// True while the optional holds a value; dismissing (false) clears it. For alerts and dialogs
+    /// driven by an optional message or item.
+    init<Wrapped>(isPresent value: Binding<Wrapped?>) {
+        self.init(get: { value.wrappedValue != nil }, set: { if !$0 { value.wrappedValue = nil } })
     }
 }
 
@@ -274,22 +280,6 @@ struct MetricCard: View {
                     .strokeBorder(tint.opacity(0.35), lineWidth: 1)
             }
         }
-    }
-}
-
-struct EmptyStateCard: View {
-    let title: String
-    let message: String
-    let systemImage: String
-
-    var body: some View {
-        ContentUnavailableView(
-            title,
-            systemImage: systemImage,
-            description: Text(message)
-        )
-        .frame(maxWidth: .infinity, minHeight: 170)
-        .financeCardSurface()
     }
 }
 

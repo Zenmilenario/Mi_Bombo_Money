@@ -235,7 +235,7 @@ struct BudgetsView: View {
                                 .background(Color(hex: category.colorHex).opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
                                 .overlay(alignment: .topTrailing) {
                                     if categoriesWithSpending.contains(category.id) {
-                                        Circle().fill(Color.orange).frame(width: 7, height: 7).padding(4)
+                                        Circle().fill(AppDesign.warning).frame(width: 7, height: 7).padding(4)
                                     }
                                 }
                         }
@@ -248,7 +248,7 @@ struct BudgetsView: View {
                 if unbudgetedSpentMinor > 0 {
                     Label("El punto naranja indica gasto sin presupuesto.", systemImage: "circle.fill")
                         .font(.caption)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(AppDesign.warning)
                 }
             }
         }
@@ -421,8 +421,8 @@ private struct BudgetOverviewCard: View {
     let pacingText: String
 
     private var tint: Color {
-        if fraction > 1 { return .red }
-        if fraction >= 0.85 { return .orange }
+        if fraction > 1 { return AppDesign.expense }
+        if fraction >= 0.85 { return AppDesign.warning }
         return .accentColor
     }
 
@@ -441,7 +441,7 @@ private struct BudgetOverviewCard: View {
                     firstTint: .primary,
                     secondTitle: "Gastado",
                     secondAmount: spentMinor,
-                    secondTint: fraction > 1 ? .red : .primary
+                    secondTint: fraction > 1 ? AppDesign.expense : .primary
                 )
 
                 Divider()
@@ -456,7 +456,7 @@ private struct BudgetOverviewCard: View {
                         weight: .semibold,
                         signed: true
                     )
-                    .foregroundStyle(availableMinor >= 0 ? .green : .red)
+                    .foregroundStyle(availableMinor >= 0 ? AppDesign.income : AppDesign.expense)
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -488,7 +488,7 @@ private struct BudgetOverviewCard: View {
                         Image(systemName: "exclamationmark.circle")
                     }
                     .font(.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppDesign.warning)
                 }
             } else {
                 VStack(alignment: .leading, spacing: 10) {
@@ -582,7 +582,7 @@ private struct BudgetRow: View {
                         : "Toca para definir un presupuesto mensual"
                 )
                 .font(.caption)
-                .foregroundStyle(item.spentMinor > 0 ? Color.orange : Color.secondary)
+                .foregroundStyle(item.spentMinor > 0 ? AppDesign.warning : Color.secondary)
             }
         }
         .padding(.vertical, 5)
@@ -590,8 +590,8 @@ private struct BudgetRow: View {
 
     private var statusColor: Color {
         if item.limitMinor == 0 { return .secondary }
-        if item.spentMinor > item.limitMinor { return .red }
-        if item.fraction >= 0.85 { return .orange }
+        if item.spentMinor > item.limitMinor { return AppDesign.expense }
+        if item.fraction >= 0.85 { return AppDesign.warning }
         return Color(hex: category.colorHex)
     }
 
@@ -695,11 +695,11 @@ private struct BudgetAnalysisView: View {
                                             weight: .semibold,
                                             signed: true
                                         )
-                                        .foregroundStyle(item.availableMinor >= 0 ? .green : .red)
+                                        .foregroundStyle(item.availableMinor >= 0 ? AppDesign.income : AppDesign.expense)
                                     }
 
                                     ProgressView(value: Swift.min(item.fraction, 1))
-                                        .tint(item.spentMinor > item.limitMinor ? .red : Color(hex: item.category.colorHex))
+                                        .tint(item.spentMinor > item.limitMinor ? AppDesign.expense : Color(hex: item.category.colorHex))
                                 }
                                 .padding(.vertical, 10)
 
@@ -864,7 +864,7 @@ private struct BudgetEditorView: View {
                 }
 
                 if let errorMessage {
-                    Section { Text(errorMessage).foregroundStyle(.red) }
+                    Section { Text(errorMessage).foregroundStyle(AppDesign.expense) }
                 }
             }
             .navigationTitle("Presupuesto")

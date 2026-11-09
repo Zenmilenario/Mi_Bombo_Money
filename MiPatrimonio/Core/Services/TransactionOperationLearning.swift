@@ -89,7 +89,7 @@ enum TransactionOperationLearning {
         return try JSONDecoder().decode(History.self, from: Data(contentsOf: url))
     }
     private static func hash(_ value: String) -> String {
-        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+        StableDigest.hex(value)
     }
     private static func input(_ transaction: FinancialTransaction, terms: TransactionOperationModel.CardTerms? = nil) -> TransactionOperationModel.Input? {
         guard let account = transaction.sourceAccount, transaction.bankEntryKey != nil,

@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="docs/assets/repository-cover.svg" alt="Mi Bombo Money. Tu dinero, con perspectiva. Aplicación para iPhone y iPad." width="100%">
+  <img src="docs/assets/repository-cover.svg" alt="Doblón (antes Mi Bombo Money). Tu dinero, con perspectiva. Aplicación para iPhone y iPad." width="100%">
 </p>
 
-<h1 align="center">Mi Bombo Money</h1>
+<h1 align="center">Doblón</h1>
 
 <p align="center">
-  Tus cuentas, tus objetivos y tus decisiones, en un mismo lugar.<br>
+  Tus cuentas, tus objetivos y tus decisiones, en un mismo lugar. Antes <em>Mi Bombo Money</em>.<br>
   Una app de finanzas personales para iPhone y iPad, construida con SwiftUI.
 </p>
 
@@ -36,6 +36,7 @@
 | **Apartar dinero con un propósito** | Reservas asociadas a tus cuentas que pueden acompañar a una transferencia propia. |
 | **Reducir tareas repetidas** | Cargos periódicos, reglas de categorías y propuestas de clasificación mediante aprendizaje automático. |
 | **Continuar en otro dispositivo** | Sincronización con Supabase y copia local para trabajar sin conexión. |
+| **Que algo te avise sin molestar** | Don Bigotes, un gato con traje, señala cargos retenidos, movimientos por revisar o recibos próximos; se esconde cuando no hay nada. |
 
 La interfaz se adapta al espacio disponible y al tamaño de letra. Incluye apariencia clara, oscura o del sistema, bloqueo con la autenticación del dispositivo y ocultación de importes.
 
@@ -45,7 +46,7 @@ La interfaz se adapta al espacio disponible y al tamaño de letra. Incluye apari
 
 **IA de categorías.** Un clasificador local aprende de ejemplos y de las confirmaciones del usuario para proponer categorías. Las propuestas requieren revisión; no equivalen a una contabilidad autónoma.
 
-**0.6.17 (34), preparada localmente.** Además de identificar operaciones, aprende de tus cambios de tipo, categoría y destino. Cuando supera comprobaciones con ejemplos de meses posteriores al entrenamiento, puede categorizar nuevos apuntes y convertir gastos bancarios reconocidos en transferencias a inversión. Permite pausar y deshacer; los casos ambiguos mantienen revisión manual. El aprendizaje es local, sin llamadas a una IA externa. Compilación iOS y prueba física pendientes; alcance y límites en la documentación.
+**Versión actual: Doblón 0.7.x.** Rediseño completo («Pulso»): navegación con raíl lateral en iPad, Inicio con el disponible tras retenciones y el ritmo del mes, Movimientos y Ajustes en dos paneles, cuentas en tarjetas, retenidos del banco visibles y el compañero Don Bigotes. El aprendizaje sigue siendo local, sin llamadas a una IA externa. Detalle en [DISENO_VISUAL_2026_10_29.md](DISENO_VISUAL_2026_10_29.md).
 
 Consulta el [alcance y la evaluación de los modelos](CloudBackend/APRENDIZAJE_CATEGORIAS.md) y la [integración bancaria personal](BankingBackend/INTEGRACION_PERSONAL.md).
 

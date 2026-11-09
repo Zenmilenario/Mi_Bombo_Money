@@ -622,9 +622,8 @@ enum PersonalBankingImporter {
     private static func requireCloud(_ context: ModelContext) throws {
         guard context.container.configurations.allSatisfy({ $0.name == "CloudFinance" }) else { throw PersonalBankingError.wrongWorkspace }
     }
-    private static func hash(_ text: String) -> String { SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined() }
+    private static func hash(_ text: String) -> String { StableDigest.hex(text) }
     private static func uuid(_ text: String) -> UUID {
-        let b = Array(SHA256.hash(data: Data(text.utf8)))
-        return UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
+        StableDigest.uuid(text)
     }
 }

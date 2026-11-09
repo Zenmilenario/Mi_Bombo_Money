@@ -75,7 +75,7 @@ private struct BankingWorkspaceContent: View {
                         HStack { title; Spacer(); actions }
                         VStack(alignment: .leading, spacing: 10) { title; actions }
                     }
-                    Text(errorMessage ?? summary).font(.caption).foregroundStyle(errorMessage == nil ? Color.secondary : .red)
+                    Text(errorMessage ?? summary).font(.caption).foregroundStyle(errorMessage == nil ? Color.secondary : AppDesign.expense)
                     if !warnings.isEmpty {
                         DisclosureGroup("\(warnings.count) cuentas requieren atención") {
                             ForEach(Array(warnings.enumerated()), id: \.offset) { _, warning in Text(warning).font(.caption) }
@@ -84,7 +84,7 @@ private struct BankingWorkspaceContent: View {
                     Text("Almacenamiento de prueba separado. Tus cuentas reales no cambian.").font(.caption)
                 }
                 .padding().frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.orange.opacity(0.14))
+                .background(AppDesign.warning.opacity(0.14))
                 RootTabView()
             }
             .opacity(canAccessContent ? 1 : 0)

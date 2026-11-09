@@ -1,5 +1,20 @@
+import CryptoKit
 import Foundation
 import SwiftData
+
+/// SHA-256 helpers shared by fingerprints, generated keys and identifiers. Their output is stored,
+/// so the algorithm and the byte layout must never change.
+enum StableDigest {
+    static func hex(_ data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+    static func hex(_ text: String) -> String { hex(Data(text.utf8)) }
+    /// The first 16 bytes of the SHA-256 of `text` as a UUID, without version bits.
+    static func uuid(_ text: String) -> UUID {
+        let b = Array(SHA256.hash(data: Data(text.utf8)))
+        return UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7], b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
+    }
+}
 
 extension FinancialAccount {
     var bankDisplayName: String {

@@ -69,7 +69,7 @@ struct CategoriesView: View {
                                     category.updatedAt = .now
                                     saveContext()
                                 }
-                                .tint(.blue)
+                                .tint(AppDesign.savings)
                             }
                     }
                 }
@@ -103,10 +103,7 @@ struct CategoriesView: View {
         .sheet(item: $editingCategory) { category in
             CategoryFormView(category: category)
         }
-        .alert("No se pudo completar la operación", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
+        .alert("No se pudo completar la operación", isPresented: Binding(isPresent: $errorMessage)) {
             Button("Aceptar", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "Error desconocido")
@@ -129,7 +126,7 @@ struct CategoriesView: View {
                     } label: {
                         Label("Archivar", systemImage: "archivebox")
                     }
-                    .tint(.orange)
+                    .tint(AppDesign.warning)
 
                     Button(role: .destructive) {
                         delete(category)
@@ -348,7 +345,7 @@ private struct CategoryFormView: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppDesign.expense)
                     }
                 }
             }

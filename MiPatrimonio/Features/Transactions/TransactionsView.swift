@@ -348,10 +348,7 @@ struct TransactionsView: View {
             }
             .alert(
                 "Exportar movimientos",
-                isPresented: Binding(
-                    get: { csvExportMessage != nil },
-                    set: { if !$0 { csvExportMessage = nil } }
-                )
+                isPresented: Binding(isPresent: $csvExportMessage)
             ) {
                 Button("Aceptar", role: .cancel) {
                     csvExportMessage = nil
@@ -361,14 +358,7 @@ struct TransactionsView: View {
             }
             .alert(
                 "No se pudo eliminar",
-                isPresented: Binding(
-                    get: { deletionError != nil },
-                    set: { isPresented in
-                        if !isPresented {
-                            deletionError = nil
-                        }
-                    }
-                )
+                isPresented: Binding(isPresent: $deletionError)
             ) {
                 Button("Aceptar", role: .cancel) {
                     deletionError = nil
@@ -747,7 +737,7 @@ struct TransactionsView: View {
                     FilterChip(
                         title: "Posibles duplicados",
                         systemImage: "doc.on.doc",
-                        tint: .orange,
+                        tint: AppDesign.warning,
                         onRemove: { showOnlyDuplicates = false }
                     )
                 }
@@ -793,11 +783,11 @@ struct TransactionsView: View {
     }
 
     private var showingBankDeletion: Binding<Bool> {
-        Binding(get: { bankDeletionCandidate != nil }, set: { if !$0 { bankDeletionCandidate = nil } })
+        Binding(isPresent: $bankDeletionCandidate)
     }
 
     private var showingMergeError: Binding<Bool> {
-        Binding(get: { mergeError != nil }, set: { if !$0 { mergeError = nil } })
+        Binding(isPresent: $mergeError)
     }
 
     private func requestDelete(_ transaction: FinancialTransaction) {
@@ -1133,7 +1123,7 @@ private struct BulkCategoryView: View {
                     }
                     if selected.count != transactionIDs.count {
                         Text("La selección ha cambiado o algún movimiento ya no existe. Cierra y vuelve a seleccionarlos.")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppDesign.expense)
                     }
                     DisclosureGroup("Ver movimientos seleccionados") {
                         ForEach(selected) { transaction in
@@ -1179,7 +1169,7 @@ private struct BulkCategoryView: View {
                             TextField("Comercio o frase a reconocer", text: $rulePhrase)
                                 .textInputAutocapitalization(.never)
                             if let learningIssue {
-                                Text(learningIssue).font(.footnote).foregroundStyle(.red)
+                                Text(learningIssue).font(.footnote).foregroundStyle(AppDesign.expense)
                             }
                         }
                     } footer: {
@@ -1207,9 +1197,7 @@ private struct BulkCategoryView: View {
                     rulePhrase = first.displayDescription
                 }
             }
-            .alert("No se pudo guardar la categoría", isPresented: Binding(
-                get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
-            )) { Button("Aceptar", role: .cancel) { errorMessage = nil } }
+            .alert("No se pudo guardar la categoría", isPresented: Binding(isPresent: $errorMessage)) { Button("Aceptar", role: .cancel) { errorMessage = nil } }
             message: { Text(errorMessage ?? "") }
         }
     }
@@ -1276,8 +1264,7 @@ private struct InvestmentContributionReviewView: View {
             ForEach(proposals) { proposal in contributionSection(proposal) }
         }
         .navigationTitle("Aportaciones detectadas")
-        .confirmationDialog("¿Confirmar estos cargos como aportación a inversión?", isPresented: Binding(
-            get: { confirming != nil }, set: { if !$0 { confirming = nil } }), titleVisibility: .visible,
+        .confirmationDialog("¿Confirmar estos cargos como aportación a inversión?", isPresented: Binding(isPresent: $confirming), titleVisibility: .visible,
             presenting: confirming) { proposal in
                 Button("Confirmar aportación") {
                     do {
@@ -1290,8 +1277,7 @@ private struct InvestmentContributionReviewView: View {
                 let rule = recurring.first { $0.id == proposal.recurringID }
                 Text("\(MoneyFormatter.string(minorUnits: proposal.remaining)) hacia \(rule?.destinationAccount?.bankAndAccountDisplayName ?? "la cuenta de inversión"). Los cargos se convertirán en transferencias.\(proposal.planned.isEmpty ? "" : " Se sustituirá la previsión de este periodo por los cargos seleccionados.")")
             }
-        .alert("No se pudo reconocer la aportación", isPresented: Binding(
-            get: { error != nil }, set: { if !$0 { error = nil } })) {
+        .alert("No se pudo reconocer la aportación", isPresented: Binding(isPresent: $error)) {
                 Button("Aceptar", role: .cancel) { error = nil }
             } message: { Text(error ?? "") }
     }
@@ -1412,14 +1398,10 @@ private struct TransactionReviewActions: View {
                 type: transaction.type, categories: allowedCategories, in: modelContext)
             if !Task.isCancelled { learnedCategoryID = prediction }
         }
-        .alert("No se pudo guardar la revisión", isPresented: Binding(
-            get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
-        )) {
+        .alert("No se pudo guardar la revisión", isPresented: Binding(isPresent: $errorMessage)) {
             Button("Aceptar", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
-        .confirmationDialog("¿Unir los dos apuntes como transferencia propia?", isPresented: Binding(
-            get: { transferPartner != nil }, set: { if !$0 { transferPartner = nil } }
-        ), titleVisibility: .visible, presenting: transferPartner) { partner in
+        .confirmationDialog("¿Unir los dos apuntes como transferencia propia?", isPresented: Binding(isPresent: $transferPartner), titleVisibility: .visible, presenting: transferPartner) { partner in
             Button("Unir como transferencia") {
                 do { try PersonalBankingImporter.pairImportedTransfer(transaction, with: partner, in: modelContext) }
                 catch { errorMessage = error.localizedDescription }
@@ -1650,7 +1632,7 @@ private struct TransactionOperationReviewCard: View {
                     .font(.caption).foregroundStyle(.secondary)
                 if let termsMessage { Text(termsMessage).font(.caption).foregroundStyle(.secondary) }
             }
-            if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
+            if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(AppDesign.expense) }
         }
         .task(id: "\(transaction.updatedAt.timeIntervalSince1970)|\(refresh)") {
             review = nil
@@ -1754,9 +1736,7 @@ private struct OwnTransferSeparationCard: View {
         } message: {
             Text("Vuelven los dos apuntes del banco tal como llegaron y no se unirán automáticamente otra vez.")
         }
-        .alert("No se pudo separar", isPresented: Binding(
-            get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
-        )) {
+        .alert("No se pudo separar", isPresented: Binding(isPresent: $errorMessage)) {
             Button("Aceptar", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
     }
@@ -1793,9 +1773,7 @@ private struct BankEntryMergeCard: View {
                     }
                 }
             }
-            .confirmationDialog("¿Unir con este movimiento?", isPresented: Binding(
-                get: { chosen != nil }, set: { if !$0 { chosen = nil } }
-            ), titleVisibility: .visible, presenting: chosen) { kept in
+            .confirmationDialog("¿Unir con este movimiento?", isPresented: Binding(isPresent: $chosen), titleVisibility: .visible, presenting: chosen) { kept in
                 Button("Unir con este movimiento") {
                     chosen = nil
                     onMerge(kept)
@@ -2033,9 +2011,9 @@ private struct TransactionDetailView: View {
 
     private var amountColor: Color {
         switch transaction.type {
-        case .income, .interest: .green
+        case .income, .interest: AppDesign.income
         case .expense, .fee: .primary
-        case .transfer: .blue
+        case .transfer: AppDesign.savings
         }
     }
 }
@@ -2226,14 +2204,14 @@ private struct SpendingAnalysisView: View {
                         title: "Gastos",
                         value: hidden(MoneyFormatter.string(minorUnits: summary.expenseMinor)),
                         systemImage: "arrow.up",
-                        tint: .red
+                        tint: AppDesign.expense
                     )
 
                     MetricCard(
                         title: "Categorías activas",
                         value: "\(spending.count)",
                         systemImage: "tag",
-                        tint: .blue
+                        tint: AppDesign.savings
                     )
                 }
                 .frame(maxWidth: 420)
@@ -2536,7 +2514,7 @@ struct TransactionFormView: View {
                 if let validationMessage {
                     Section {
                         Text(validationMessage)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppDesign.expense)
                     }
                 }
             }
@@ -2544,10 +2522,7 @@ struct TransactionFormView: View {
             .navigationTitle(transaction == nil ? "Nuevo movimiento" : "Editar movimiento")
             .navigationBarTitleDisplayMode(.inline)
             .formSheetSizing()
-            .alert("Revisa el movimiento", isPresented: Binding(
-                get: { validationMessage != nil },
-                set: { if !$0 { validationMessage = nil } }
-            )) {
+            .alert("Revisa el movimiento", isPresented: Binding(isPresent: $validationMessage)) {
                 Button("Aceptar", role: .cancel) {
                     if descriptionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         descriptionIsFocused = true

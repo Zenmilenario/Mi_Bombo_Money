@@ -68,12 +68,6 @@ enum FinanceCalculator {
         return Swift.abs(transaction.amountMinor) - reservedExpenseAmount(for: transaction)
     }
 
-    static func suggestedReservedPaymentAmount(for fund: ReservedFund, transactionAmountMinor: Int64,
-                                               transactions: [FinancialTransaction], excluding transactionID: UUID? = nil) -> Int64 {
-        Swift.min(Swift.max(0, transactionAmountMinor), remainingReservedAmount(for: fund,
-            transactions: transactions, at: .distantFuture, excluding: transactionID))
-    }
-
     static func spentReservedAmount(for fund: ReservedFund, transactions: [FinancialTransaction],
                                     at date: Date = .now, excluding transactionID: UUID? = nil) -> Int64 {
         transactions.filter {
@@ -327,19 +321,6 @@ enum FinanceCalculator {
                               reservedExpenseMinor: reservedExpense)
     }
 
-    static func monthlySummaries(
-        endingAt month: Date,
-        count: Int,
-        transactions: [FinancialTransaction],
-        calendar: Calendar = .autoupdatingCurrent
-    ) -> [MonthlySummary] {
-        let endMonth = month.startOfMonth(calendar: calendar)
-        return (0..<Swift.max(0, count)).reversed().map { offset in
-            let target = calendar.date(byAdding: .month, value: -offset, to: endMonth) ?? endMonth
-            return monthlySummary(for: target, transactions: transactions, calendar: calendar)
-        }
-    }
-
     static func spendingByCategory(
         for month: Date,
         categories: [FinanceCategory],
@@ -540,10 +521,6 @@ enum FinanceCalculator {
 
             return NetWorthPoint(date: monthStart, valueMinor: total)
         }
-    }
-
-    static func hasMixedCurrencies(accounts: [FinancialAccount], primaryCurrency: String = "EUR") -> Bool {
-        accounts.contains { !$0.isArchived && $0.includeInNetWorth && $0.currencyCode != primaryCurrency }
     }
 
     static func estimatedAnnualInterestMinor(

@@ -155,10 +155,6 @@ struct DashboardView: View {
         return Double(currentMonthChange) / Double(Swift.abs(previousMonthNetWorth))
     }
 
-    private var latestAccountUpdate: Date? {
-        activeAccounts.map(\.lastUpdatedAt).max()
-    }
-
     private var budgetItems: [BudgetProgress] {
         FinanceCalculator.budgetProgress(
             for: selectedMonth,
@@ -276,7 +272,7 @@ struct DashboardView: View {
                     : "Has superado \(overBudgetCount) presupuestos",
                 detail: "Revisa las categorías que necesitan atención.",
                 systemImage: "exclamationmark.triangle.fill",
-                tint: .red,
+                tint: AppDesign.expense,
                 destination: .budgets,
                 priority: 0
             ))
@@ -291,7 +287,7 @@ struct DashboardView: View {
                     : "Hay \(duplicateCount) posibles movimientos duplicados",
                 detail: "Comprueba los registros antes de conservarlos.",
                 systemImage: "doc.on.doc.fill",
-                tint: .orange,
+                tint: AppDesign.warning,
                 destination: .transactions,
                 priority: 1
             ))
@@ -306,7 +302,7 @@ struct DashboardView: View {
                     : "\(staleAccountCount) cuentas llevan más de 30 días sin actualizarse",
                 detail: "Actualiza el saldo para mantener fiable el patrimonio.",
                 systemImage: "clock.badge.exclamationmark.fill",
-                tint: .orange,
+                tint: AppDesign.warning,
                 destination: .accounts,
                 priority: 2
             ))
@@ -321,7 +317,7 @@ struct DashboardView: View {
                     : "Tienes \(dueRecurringCount) movimientos recurrentes próximos",
                 detail: "Consulta las próximas suscripciones y cargos.",
                 systemImage: "calendar.badge.clock",
-                tint: .blue,
+                tint: AppDesign.savings,
                 destination: .settings,
                 priority: 3
             ))
@@ -709,49 +705,6 @@ struct DashboardView: View {
         }
     }
 
-    private func fundingTile(title: String, amount: Int64, systemImage: String, tint: Color,
-                             note held: Int64? = nil) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(tint)
-                .fixedSize(horizontal: false, vertical: true)
-            PrivacyAmountText(minorUnits: amount, font: .title3, weight: .semibold)
-                .foregroundStyle(.primary)
-                .lineLimit(1).minimumScaleFactor(0.7)
-            if let held {
-                HStack(spacing: 4) {
-                    Image(systemName: "hourglass")
-                    PrivacyAmountText(minorUnits: held, font: .caption, weight: .semibold, signed: true)
-                    Text("retenido por el banco")
-                }
-                .font(.caption)
-                .foregroundStyle(AppDesign.warning)
-                .accessibilityElement(children: .combine)
-            }
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
-        .overlay {
-            RoundedRectangle(cornerRadius: AppDesign.compactRadius)
-                .strokeBorder(tint.opacity(0.25), lineWidth: 1).allowsHitTesting(false)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: AppDesign.compactRadius))
-    }
-
-    private var netWorthTitle: some View {
-        Label("Patrimonio total", systemImage: "sum")
-            .font(.headline)
-            .foregroundStyle(.secondary)
-    }
-
-    private var lastUpdateLabel: some View {
-        Text(lastUpdateText)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-    }
-
     private var monthSelector: some View {
         HStack(spacing: 14) {
             Button {
@@ -987,10 +940,10 @@ struct DashboardView: View {
                     AdaptiveSummaryPair(
                         firstTitle: "Gastado",
                         firstAmount: totalBudgetSpentMinor,
-                        firstTint: totalBudgetFraction > 1 ? .red : .primary,
+                        firstTint: totalBudgetFraction > 1 ? AppDesign.expense : .primary,
                         secondTitle: "Disponible",
                         secondAmount: totalBudgetAvailableMinor,
-                        secondTint: totalBudgetAvailableMinor >= 0 ? .green : .red
+                        secondTint: totalBudgetAvailableMinor >= 0 ? AppDesign.income : AppDesign.expense
                     )
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -1158,18 +1111,6 @@ struct DashboardView: View {
             .accessibilityLabel("Datos del gráfico ocultos")
     }
 
-    private var lastUpdateText: String {
-        guard let latestAccountUpdate else { return "Sin actualizar" }
-        let calendar = Calendar.autoupdatingCurrent
-        if calendar.isDateInToday(latestAccountUpdate) {
-            return "Hoy, \(latestAccountUpdate.formatted(.dateTime.hour().minute()))"
-        }
-        if calendar.isDateInYesterday(latestAccountUpdate) {
-            return "Ayer"
-        }
-        return latestAccountUpdate.formatted(.dateTime.day().month(.abbreviated))
-    }
-
     private var changeSummaryText: String {
         let amount = MoneyFormatter.string(minorUnits: Swift.abs(currentMonthChange))
         let sign = currentMonthChange >= 0 ? "+" : "−"
@@ -1191,7 +1132,7 @@ struct DashboardView: View {
 
     private var budgetOverallTint: Color {
         if totalBudgetFraction > 1 { return AppDesign.expense }
-        if totalBudgetFraction >= 0.85 { return .orange }
+        if totalBudgetFraction >= 0.85 { return AppDesign.warning }
         return AppDesign.accent
     }
 

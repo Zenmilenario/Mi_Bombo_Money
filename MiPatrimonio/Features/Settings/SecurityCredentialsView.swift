@@ -29,10 +29,6 @@ struct SecurityCredentialsView: View {
     @State private var errorMessage: String?
     @State private var showingDeleteConfirmation = false
 
-    private var accentColor: Color {
-        Color(hex: "#176B87")
-    }
-
     var body: some View {
         Form {
             if isConfigured {
@@ -133,13 +129,13 @@ struct SecurityCredentialsView: View {
             if let error = errorMessage {
                 Text(error)
                     .font(.footnote)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(AppDesign.expense)
             }
 
             if let message = statusMessage {
                 Text(message)
                     .font(.footnote)
-                    .foregroundStyle(.green)
+                    .foregroundStyle(AppDesign.income)
             }
 
             Button {
@@ -196,7 +192,7 @@ struct SecurityCredentialsView: View {
             if let error = errorMessage {
                 Text(error)
                     .font(.footnote)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(AppDesign.expense)
             }
 
             Button {
