@@ -112,6 +112,10 @@ enum PersonalBankingImporter {
             balances: [.init(amountMinor: 10000, currency: "EUR", type: "CLBD")], movements: rows)
     }
     @MainActor static func main() async throws {
+        let activityDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mibombo-activity-" + UUID().uuidString, isDirectory: true)
+        BankingActivityStore.directoryOverride = activityDirectory
+        defer { try? FileManager.default.removeItem(at: activityDirectory) }
         var bbva = feed(bank: "BBVA", id: "bbva", other: "bankinter")
         bbva.pendingMovements = [.init(id: nil, date: String(day), signedAmountMinor: -1250,
             currency: "EUR", description: "Fictitious hold", status: "HOLD")]
@@ -133,7 +137,14 @@ enum PersonalBankingImporter {
         let bankKey = context.accounts[0].bankIdentityKey!
         let owner = account.session!.user.id
         precondition(coordinator.activity(for: owner)[bankKey]?.pendingMovements?.count == 1)
+        precondition(coordinator.activity(for: owner)[bankKey]?.pendingTotal == -1250)
         precondition(coordinator.activity(for: UUID()).isEmpty)
+        // A later launch shows the saved holds before contacting the bank, only to the same owner.
+        let relaunched = PersonalBankingCoordinator()
+        precondition(relaunched.activity(for: owner)[bankKey]?.pendingMovements?.first?.description == "Fictitious hold")
+        precondition(relaunched.activity(for: UUID()).isEmpty, "Holds are never shown to another user")
+        let expired = BankingActivityStore.load(owner: owner, now: Date.now.addingTimeInterval(BankingActivityStore.maximumAge + 60))
+        precondition(expired.isEmpty, "Old holds are dropped instead of being shown as current")
         precondition(coordinator.bankStatus["BBVA"]?.deferredTransfers == 1)
         precondition(coordinator.bankStatus["Bankinter"]?.retryAt != nil)
         precondition(BankingConnectionClient.manual.allSatisfy { $0 })

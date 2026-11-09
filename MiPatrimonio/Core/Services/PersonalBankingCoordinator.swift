@@ -15,7 +15,11 @@ final class PersonalBankingCoordinator: ObservableObject {
     @Published private(set) var banks: [ConnectedBank] = []
     @Published private(set) var pendingPlan: PersonalBankingPlan?
     @Published private(set) var catalogueErrorMessage: String?
-    @Published private var accountActivity: [String: BankingAccountActivity] = [:]
+    @Published private var accountActivity: [String: BankingAccountActivity] = [:] {
+        didSet { if let owner { BankingActivityStore.save(accountActivity, owner: owner) } }
+    }
+    /// Holds saved by a previous launch, shown before this session's first bank query.
+    private var restoredActivity: (owner: UUID, value: [String: BankingAccountActivity])?
     private var pendingFeeds: [BankingAccountFeed] = []
     private var pendingLedger: [UUID: BankingLedgerEntry]?
     private var observedAt: Date?
@@ -34,8 +38,17 @@ final class PersonalBankingCoordinator: ObservableObject {
     private var owner: UUID?
 
     func activity(for user: UUID?) -> [String: BankingAccountActivity] {
-        guard let user, user == owner else { return [:] }
-        return accountActivity
+        guard let user else { return [:] }
+        if user == owner { return accountActivity }
+        if restoredActivity?.owner != user { restoredActivity = (user, BankingActivityStore.load(owner: user)) }
+        return restoredActivity?.value ?? [:]
+    }
+    /// Adopts the holds saved on this device when the coordinator starts serving this owner.
+    private func adoptOwner(_ user: UUID) {
+        guard owner != user else { return }
+        owner = user
+        accountActivity = BankingActivityStore.load(owner: user)
+        restoredActivity = nil
     }
 
     func nextAutomaticRefresh(for bank: String) -> Date? {
@@ -79,11 +92,11 @@ final class PersonalBankingCoordinator: ObservableObject {
         guard account.session?.user.id == expectedOwner else { throw CancellationError() }
         if self.owner != expectedOwner {
             bankStatus = [:]
-            accountActivity = [:]
             waitingDownload = nil
             clearReview()
+            if let expectedOwner { adoptOwner(expectedOwner) } else { owner = nil; accountActivity = [:] }
         }
-        self.connections = connections; self.owner = expectedOwner
+        self.connections = connections
         if let expectedOwner, let server = URL(string: savedServer(owner: expectedOwner)) {
             keepActivity(for: connections, server: server)
         }
@@ -177,11 +190,10 @@ final class PersonalBankingCoordinator: ObservableObject {
                      onlyBank: String? = nil, mayApply: @MainActor () -> Bool = { true }) async -> Bool {
         guard !busy, !Task.isCancelled, let user = account.session?.user.id else { return false }
         if owner != user {
-            accountActivity = [:]
             bankStatus = [:]
             waitingDownload = nil
             clearReview()
-            owner = user
+            adoptOwner(user)
         }
         let now = Date.now
         if let observedAt, now.timeIntervalSince(observedAt) >= Self.reviewLifetime {

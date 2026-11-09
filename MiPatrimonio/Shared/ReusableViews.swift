@@ -4,12 +4,20 @@ import UIKit
 enum AppDesign {
     static let readableContentWidth: CGFloat = 840
     static let overviewContentWidth: CGFloat = 1_200
-    static let compactRadius: CGFloat = 12
-    static let cardRadius: CGFloat = 18
-    static let heroRadius: CGFloat = 24
+    // Stitch system (Grafito sereno / Clara cercana): radius 12 for cards, 8 for compact controls.
+    static let compactRadius: CGFloat = 10
+    static let cardRadius: CGFloat = 14
+    static let heroRadius: CGFloat = 20
     static let cardPadding: CGFloat = 16
-    static let sectionSpacing: CGFloat = 20
+    static let sectionSpacing: CGFloat = 18
     static let itemSpacing: CGFloat = 12
+    /// Lists keep a readable line length on wide iPad windows instead of stretching rows edge to edge.
+    static let listContentWidth: CGFloat = 760
+
+    /// Horizontal margin that centers list content at `listContentWidth` on wide windows.
+    static func listMargin(for width: CGFloat) -> CGFloat {
+        max(16, (width - listContentWidth) / 2)
+    }
 
     static var pageBackground: Color {
         adaptiveColor(light: 0xF7F5F0, dark: 0x111D2B, elevated: 0x1A293A)
@@ -29,6 +37,11 @@ enum AppDesign {
     static var savings: Color { adaptiveColor(light: 0x275D9E, dark: 0xAFD0FF) }
     static var investment: Color { adaptiveColor(light: 0x714698, dark: 0xD7BDFF) }
     static var warning: Color { adaptiveColor(light: 0x865000, dark: 0xFFD08A) }
+    // Semantic surfaces behind metrics, from the Stitch palettes (light: Clara cercana, dark: Grafito sereno).
+    static var incomeSurface: Color { adaptiveColor(light: 0xE5F3EB, dark: 0x193D32) }
+    static var expenseSurface: Color { adaptiveColor(light: 0xFBE9EC, dark: 0x452936) }
+    static var savingsSurface: Color { adaptiveColor(light: 0xE6EEF9, dark: 0x1B365B) }
+    static var warningSurface: Color { adaptiveColor(light: 0xFBF1DC, dark: 0x423B27) }
     // Keep filled actions dark enough for their white labels in both appearances.
     static let actionFill = Color(hex: "#0F766E")
     static var cardOutline: Color {
@@ -94,6 +107,71 @@ private struct FinanceCardSurface: ViewModifier {
 extension View {
     func financeCardSurface(radius: CGFloat = AppDesign.cardRadius) -> some View {
         modifier(FinanceCardSurface(radius: radius))
+    }
+
+    /// On iPad, forms open as a centered form sheet sized to their content instead of a near full-screen page.
+    @ViewBuilder func formSheetSizing() -> some View {
+        if #available(iOS 18.0, *) {
+            presentationSizing(.form)
+        } else {
+            self
+        }
+    }
+
+    /// Centers a List at a readable width on wide windows; phones keep the usual 16-point margin.
+    func readableListWidth() -> some View {
+        modifier(ReadableListWidth())
+    }
+}
+
+private struct ReadableListWidth: ViewModifier {
+    @State private var width: CGFloat = 0
+    func body(content: Content) -> some View {
+        content
+            .contentMargins(.horizontal, AppDesign.listMargin(for: width), for: .scrollContent)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+    }
+}
+
+/// A compact metric on a semantic surface: label, icon and amount (Stitch metric card).
+struct SemanticMetricTile: View {
+    let title: String
+    let minorUnits: Int64
+    let systemImage: String
+    let tint: Color
+    let surface: Color
+    var signed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage).font(.caption.weight(.bold))
+                Text(title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(tint)
+            PrivacyAmountText(minorUnits: minorUnits, font: .headline, weight: .bold, signed: signed)
+                .foregroundStyle(tint)
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(surface, in: RoundedRectangle(cornerRadius: AppDesign.compactRadius, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Category or state icon on a tinted rounded square, shared by movement rows.
+struct RowGlyph: View {
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(tint)
+            .frame(width: 34, height: 34)
+            .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: AppDesign.compactRadius, style: .continuous))
+            .accessibilityHidden(true)
     }
 }
 

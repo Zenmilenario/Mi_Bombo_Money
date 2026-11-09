@@ -83,3 +83,18 @@ Los dos registros muestran que el ejecutable de prueba no encuentra `CGRect.zero
 Verificación: las 576 combinaciones vuelven a pasar localmente en Linux y `git diff --check` no informa problemas. La corrección de importación debe publicarse y volver a ejecutarse en macOS para confirmar el resultado; todavía no existe un check remoto de esta corrección. Se mantiene la versión 0.6.4, porque el cambio solo corrige la prueba.
 
 Registros revisados: [pull_request](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41636047831/job/125917406014?pr=23) y [push](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41635998853/job/125917233069?pr=23).
+
+## Movimientos con el sistema Stitch · 0.6.23
+
+Preparado el 9 de noviembre de 2026 a petición del usuario («lavado de cara»), extendiendo a Movimientos el sistema elegido el 3 de noviembre (Grafito sereno en oscuro, Clara cercana en claro; `.stitch/oscuro/DESIGN.md`). El usuario observó en el iPad tarjetas y filas demasiado grandes, conceptos bancarios en mayúsculas y un formulario de edición con un hueco enorme.
+
+**Implementado.**
+- **Medidas del sistema.** Radio de tarjeta 14 (antes 18), compacto 10 y destacado 20; separación entre secciones 18. Nuevas superficies semánticas de Stitch: ingresos, gastos, ahorro y aviso, en claro y oscuro.
+- **Ancho de lectura en iPad.** Movimientos, Cuentas y Ajustes centran su lista en 760 puntos cuando la ventana es más ancha; en iPhone conservan el margen de 16. Presupuestos e Inicio mantienen el ancho completo decidido el 29 de octubre.
+- **Resumen de Movimientos.** Tres métricas compactas sobre superficie semántica (ingresos, gastos y balance) en una fila; pasan a columna si no caben.
+- **Filas.** Icono de categoría sobre un cuadrado redondeado de su color, título legible, cuenta en una línea e importe con cifras tabulares. Ingresos en verde y transferencias en azul del sistema; los gastos siguen en el color de texto para no llenar la lista de rojo.
+- **Títulos legibles** (solo presentación): los conceptos bancarios en mayúsculas pasan a mayúsculas iniciales («Comercio del Norte, S.L.»), los recibos SEPA muestran «Recibo · acreedor» sin la referencia del mandato y las retiradas en cajero se titulan «Retirada de efectivo». Reglas, aprendizaje, conciliación y búsqueda siguen usando el texto original.
+- **Cabeceras de día** sin el año en curso y con el resultado neto del día.
+- **Formularios en iPad**: el alta, la edición y el detalle de un movimiento se abren como hoja de formulario centrada (iPadOS 18 o posterior). La fila Categoría se dibuja como una fila simple: era la que crecía hasta dejar el hueco de la captura.
+
+**Verificación.** Pruebas con datos ficticios de los títulos legibles en `FinancialLogicCheck`. La apariencia no se puede comprobar sin compilar en macOS: pendientes los checks, el IPA y la revisión en el iPad (claro, oscuro, texto grande, Split View).

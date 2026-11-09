@@ -21,12 +21,17 @@ struct BankingAccountFeed {
     var pendingMovements: [BankingPreview.PendingMovement]? = nil
 }
 
-struct BankingAccountActivity {
+struct BankingAccountActivity: Codable {
     let observedAt: Date
     let currency: String
     let bookedBalance: Int64?
     let availableBalance: Int64?
     let pendingMovements: [BankingPreview.PendingMovement]?
+
+    /// Sum of the provisional amounts (holds are negative). They are not in the ledger yet.
+    var pendingTotal: Int64 { (pendingMovements ?? []).reduce(0) { $0 + $1.signedAmountMinor } }
+    /// Only the charges held (negative): pending credits are not money available yet.
+    var heldTotal: Int64 { (pendingMovements ?? []).reduce(0) { $0 + min(0, $1.signedAmountMinor) } }
 
     init(feed: BankingAccountFeed, observedAt: Date) {
         self.observedAt = observedAt
@@ -51,6 +56,42 @@ struct BankingAccountActivity {
         }
     }
 }
+/// Last bank activity per linked account, kept on this device only: outside accounting, cloud and backups.
+/// Holds stay visible after reopening the app until the next download replaces them.
+enum BankingActivityStore {
+    static var directoryOverride: URL?
+    static let maximumAge: TimeInterval = 7 * 86_400
+
+    private static func url(owner: UUID) -> URL? {
+        let base = directoryOverride
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+                .appendingPathComponent("BankingActivity", isDirectory: true)
+        return base?.appendingPathComponent(owner.uuidString.lowercased() + ".json")
+    }
+    static func load(owner: UUID, now: Date = .now) -> [String: BankingAccountActivity] {
+        guard let url = url(owner: owner), let data = try? Data(contentsOf: url),
+              let saved = try? JSONDecoder().decode([String: BankingAccountActivity].self, from: data) else { return [:] }
+        return saved.filter { now.timeIntervalSince($0.value.observedAt) < maximumAge }
+    }
+    static func save(_ activity: [String: BankingAccountActivity], owner: UUID) {
+        guard let url = url(owner: owner) else { return }
+        guard !activity.isEmpty else { try? FileManager.default.removeItem(at: url); return }
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            #if os(iOS)
+            try JSONEncoder().encode(activity).write(to: url, options: [.atomic, .completeFileProtection])
+            #else
+            try JSONEncoder().encode(activity).write(to: url, options: .atomic)
+            #endif
+            var destination = url, values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? destination.setResourceValues(values)
+        } catch {
+            // Losing this cache only hides holds until the next download; accounting is unaffected.
+        }
+    }
+}
+
 struct ConnectedBank: Decodable, Identifiable {
     let name: String
     let country: String
@@ -96,7 +137,7 @@ struct BankingPreview: Decodable {
             self.currency = currency; self.description = description; self.counterpartyKey = counterpartyKey; self.transferKey = transferKey
         }
     }
-    struct PendingMovement: Decodable {
+    struct PendingMovement: Codable {
         let id: String?
         let date: String?
         let signedAmountMinor: Int64

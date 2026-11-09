@@ -134,7 +134,7 @@ struct AccountsView: View {
                         }
                     }
                     .listStyle(.insetGrouped)
-                    .contentMargins(.horizontal, 16, for: .scrollContent)
+                    .readableListWidth()
                 }
             }
             .frame(maxWidth: .infinity)
@@ -466,11 +466,17 @@ struct AccountsView: View {
                         .foregroundStyle(AppDesign.warning)
                 }
 
-                if !account.isArchived, let key = account.bankIdentityKey,
-                   let count = bankActivity[key]?.pendingMovements?.count, count > 0 {
-                    Label(count == 1 ? "1 pendiente del banco" : "\(count) pendientes del banco", systemImage: "hourglass")
-                        .font(.caption)
-                        .foregroundStyle(AppDesign.warning)
+                if !account.isArchived, let key = account.bankIdentityKey, let activity = bankActivity[key],
+                   let count = activity.pendingMovements?.count, count > 0 {
+                    HStack(spacing: 4) {
+                        Image(systemName: "hourglass")
+                        Text(count == 1 ? "1 retenido" : "\(count) retenidos")
+                        Text("·")
+                        PrivacyAmountText(minorUnits: activity.pendingTotal, font: .caption, signed: true)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(AppDesign.warning)
+                    .accessibilityElement(children: .combine)
                 }
 
                 let linkedCardCount = activeCards.filter { $0.linkedAccount?.id == account.id }.count
@@ -1100,7 +1106,11 @@ private struct AccountDetailView: View {
                     }
                 }
                 if !pending.isEmpty {
-                    Text("Importes provisionales. Los cargos se reflejan en el historial y el presupuesto cuando el banco los contabiliza.")
+                    LabeledContent("Saldo tras retenciones") {
+                        PrivacyAmountText(minorUnits: balance + activity.heldTotal, currencyCode: activity.currency,
+                                          weight: .semibold)
+                    }
+                    Text("Importes provisionales. Los cargos se reflejan en el historial y el presupuesto cuando el banco los contabiliza; también los ves en Movimientos.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else {

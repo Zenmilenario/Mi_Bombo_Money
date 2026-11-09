@@ -1,5 +1,17 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Retenidos en Movimientos e Inicio — iOS 0.6.23 (40)
+
+Preparado el 9 de noviembre de 2026. Con el Worker desplegado, la 0.6.22 mostró en el detalle de la cuenta los dos retenidos de Bankinter. El usuario prefiere verlos en Movimientos, porque ya le restan dinero.
+
+**En el dispositivo.** La última lista de retenidos de cada cuenta se guarda solo en el dispositivo (Application Support, protección completa, fuera de la copia de iCloud, de la nube y de la contabilidad), por propietario. Se muestra al abrir la app antes de la primera consulta y se sustituye con cada descarga. Las listas de más de siete días se descartan.
+
+**Movimientos.** Encima de los días aparece «Pendientes del banco», con el total, cada cargo con su cuenta, fecha y la etiqueta «Retenido» o «Pendiente», y la hora de consulta. Siguen los filtros de cuenta, tipo y búsqueda; se ocultan con los filtros de categoría, revisión o duplicados. No se pueden editar ni entran en presupuestos, resúmenes ni aprendizaje.
+
+**Inicio y Cuentas.** «Disponible para usar» pasa a «Disponible tras retenciones» cuando hay cargos retenidos en cuentas de gasto, e indica lo retenido. En Cuentas, cada fila muestra el número de retenidos y su importe; el detalle añade «Saldo tras retenciones». Los abonos pendientes no se suman: todavía no son dinero disponible.
+
+**Verificación.** Pruebas con datos ficticios: la actividad se conserva al codificarla, un abono pendiente no aumenta lo disponible, otro arranque del coordinador muestra los retenidos guardados solo al mismo usuario y las listas antiguas se descartan. Pendientes los checks, el IPA y la prueba en el dispositivo.
+
 ## Apuntes editados y fechas que cambian — iOS 0.6.22 (39)
 
 Preparado el 9 de noviembre de 2026 tras probar la 0.6.20 en el iPad. Se observaron dos problemas: un banco quedaba apartado en cada consulta porque el usuario había editado uno de sus apuntes ya importados, y un apunte de Trade Republic volvía a aparecer como duplicado sin que se pudiera unir.

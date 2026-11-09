@@ -33,6 +33,19 @@ struct PersonalBankingPlanCheck {
         let activity = BankingAccountActivity(feed: mixedFeed, observedAt: day)
         precondition(activity.availableBalance == 8500 && activity.bookedBalance == 9000)
         precondition(activity.pendingMovements?.map(\.signedAmountMinor) == [-500], "A booked reference supersedes its pending entry")
+        precondition(activity.pendingTotal == -500 && activity.heldTotal == -500)
+        let roundTrip = try JSONDecoder().decode(BankingAccountActivity.self, from: JSONEncoder().encode(activity))
+        precondition(roundTrip.pendingMovements?.first?.description == "Retención ficticia" && roundTrip.observedAt == activity.observedAt,
+                     "Holds survive being saved on the device")
+        let credit = try JSONDecoder().decode(BankingPreview.self, from: Data("""
+        {"balances":[],"transactions":[],"pendingTransactions":[
+            {"id":"in","date":"2026-10-15","signedAmountMinor":700,"currency":"EUR","description":"Abono ficticio","status":"PDNG"},
+            {"id":"out","date":"2026-10-15","signedAmountMinor":-300,"currency":"EUR","description":"Cargo ficticio","status":"HOLD"}]}
+        """.utf8))
+        let creditActivity = BankingAccountActivity(feed: BankingAccountFeed(connection: existingFeed.connection,
+            account: existingFeed.account, balances: [], movements: [], pendingMovements: credit.pendingTransactions), observedAt: day)
+        precondition(creditActivity.pendingTotal == 400 && creditActivity.heldTotal == -300,
+                     "A pending credit is not money available yet; only held charges reduce the available amount")
         let mixedPlan = try PersonalBankingPlan.build(feeds: [mixedFeed], links: links, ledger: [])
         precondition(mixedPlan.items.count == 1 && mixedPlan.balances[0].amount == 9000,
                      "Bank holds and available balances cannot enter accounting")

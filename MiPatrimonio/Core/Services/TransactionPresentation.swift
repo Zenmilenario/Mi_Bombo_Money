@@ -20,6 +20,46 @@ enum TransactionPresentation {
         return text
     }
 
+    /// Title for lists and headers only. Beyond `title`, it names common bank operations and turns
+    /// all-capital bank concepts into readable text. Never used for rules, learning or matching.
+    static func listTitle(_ original: String, isBanking: Bool) -> String {
+        let base = title(original, isBanking: isBanking)
+        guard isBanking else { return base }
+        let segments = base.components(separatedBy: "//").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        var text = base
+        if let head = segments.first?.uppercased(), segments.count > 1 {
+            if head.hasPrefix("RET. EFECTIVO") || head.hasPrefix("RETIRADA") || head.contains("CAJERO") {
+                text = "Retirada de efectivo"
+            } else if head.hasPrefix("ADEUDO") || head.hasPrefix("RECIBO"), let creditor = segments.last {
+                // SEPA direct debits end with the creditor, sometimes after a mandate reference ("N 123…").
+                let name = creditor.replacingOccurrences(of: #"^N\s*\d+\s+"#, with: "", options: .regularExpression)
+                text = "Recibo · " + readableCase(name)
+                return text
+            }
+        }
+        return readableCase(text)
+    }
+
+    /// Converts shouting bank text ("COMERCIO DEL NORTE, S.L.") to "Comercio del Norte, S.L.".
+    /// Mixed-case text, codes with digits and dotted abbreviations are left as they are.
+    static func readableCase(_ text: String) -> String {
+        let letters = text.unicodeScalars.filter { CharacterSet.letters.contains($0) }
+        guard letters.count >= 4, text == text.uppercased(), text != text.lowercased() else { return text }
+        let spanish = Locale(identifier: "es_ES")
+        let connectors: Set<String> = ["de", "del", "la", "las", "el", "los", "y", "e", "en", "a", "al", "con", "por", "para"]
+        var isFirst = true
+        return text.components(separatedBy: " ").map { word -> String in
+            defer { if !word.isEmpty { isFirst = false } }
+            guard !word.isEmpty else { return word }
+            if word.contains(where: \.isNumber) { return word }
+            if word.range(of: #"^(?:[A-ZÑ]\.){1,3}[A-ZÑ]?\.?,?$"#, options: .regularExpression) != nil { return word }
+            let lower = word.lowercased(with: spanish)
+            if !isFirst && connectors.contains(lower) { return lower }
+            guard let index = lower.firstIndex(where: \.isLetter) else { return lower }
+            return lower.replacingCharacters(in: index...index, with: String(lower[index]).uppercased(with: spanish))
+        }.joined(separator: " ")
+    }
+
     static func indicatesTransfer(_ original: String) -> Bool {
         transferMarker(in: bankBody(original)) != nil
     }
@@ -47,8 +87,16 @@ extension FinancialTransaction {
     }
 
     var displayDescription: String {
-        TransactionPresentation.title(descriptionText,
-            isBanking: bankEntryKey != nil || externalID?.hasPrefix("bank-test:") == true
-                || externalID?.hasPrefix("bank-test-transfer:") == true)
+        TransactionPresentation.title(descriptionText, isBanking: isBankPosting)
+    }
+
+    /// Readable title for lists and headers; logic keeps using `displayDescription`.
+    var listTitle: String {
+        TransactionPresentation.listTitle(descriptionText, isBanking: isBankPosting)
+    }
+
+    private var isBankPosting: Bool {
+        bankEntryKey != nil || externalID?.hasPrefix("bank-test:") == true
+            || externalID?.hasPrefix("bank-test-transfer:") == true
     }
 }

@@ -461,6 +461,23 @@ struct FinancialLogicCheck {
             precondition(TransactionPresentation.title(raw, isBanking: false) == raw,
                 "A manually entered or CSV concept must not be rewritten by display cleaning")
         }
+        // List titles only: readable bank operations, never applied to manual or CSV concepts.
+        for (raw, expected) in [
+            ("/TXT/D|MERCADO FICTICIO", "Mercado Ficticio"),
+            ("ADEUDO A SU CARGO // PAGO DE ADEUDO DIRECTO SEPA // N 2026000000000001 COLEGIO FICTICIO DEL NORTE, S.L.",
+             "Recibo · Colegio Ficticio del Norte, S.L."),
+            ("RET. EFECTIVO A DEBITO CON TARJ. EN CAJERO. AUT. // OTROS // 0000", "Retirada de efectivo"),
+            ("PAGO CON TARJETA // TIENDA FICTICIA* ABC123", "Tienda Ficticia* ABC123"),
+            ("/TXT/D|TRANS INM/ Persona Ficticia", "Transferencia inmediata · Persona Ficticia"),
+            ("Comercio Mixto 12", "Comercio Mixto 12"),
+            ("Movimiento bancario", "Movimiento bancario"),
+            ("ABC", "ABC")
+        ] {
+            precondition(TransactionPresentation.listTitle(raw, isBanking: true) == expected,
+                "List title for \(raw): \(TransactionPresentation.listTitle(raw, isBanking: true))")
+        }
+        precondition(TransactionPresentation.listTitle("MERCADO FICTICIO", isBanking: false) == "MERCADO FICTICIO",
+            "A concept the user typed is shown exactly as written")
         precondition(TransactionPresentation.indicatesTransfer("/TXT/D|TRANS INM/ Persona Ficticia"))
         precondition(!TransactionPresentation.indicatesTransfer("/TXT/Z|TRANS INM/ Persona Ficticia"))
         precondition(!TransactionPresentation.indicatesTransfer("/TXT/H|PAGO BIZUM DE PRUEBA"))

@@ -133,6 +133,7 @@ struct SettingsView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .readableListWidth()
             .cloudSyncToolbar()
             .scrollContentBackground(.hidden)
             .background(AppDesign.pageBackground)

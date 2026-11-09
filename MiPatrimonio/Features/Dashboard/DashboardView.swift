@@ -59,6 +59,7 @@ struct DashboardView: View {
     @Query private var reservedFunds: [ReservedFund]
 
     @AppStorage("hideAmounts") private var hideAmounts = false
+    @Environment(\.bankAccountActivity) private var bankActivity
     @AppStorage("dashboardReviewedAlertsV1") private var reviewedAlertsJSON = ""
 
     @Binding var selectedMonth: Date
@@ -100,6 +101,14 @@ struct DashboardView: View {
             transactions: transactions,
             snapshots: snapshots
         )
+    }
+
+    /// Charges the bank has already held on spendable accounts but not booked yet (negative).
+    private var heldMinor: Int64 {
+        activeAccounts
+            .filter { $0.includeInNetWorth && $0.type != .investment && !$0.type.isLiability }
+            .compactMap { $0.bankIdentityKey.flatMap { bankActivity[$0] }?.heldTotal }
+            .reduce(0, +)
     }
 
     private var reservedCash: Int64 {
@@ -473,8 +482,11 @@ struct DashboardView: View {
 
             AdaptiveCardGrid(minimumColumnWidth: 145, maximumColumns: 2, spacing: 12) {
                 Button(action: onOpenAccounts) {
-                    fundingTile(title: "Disponible para usar", amount: spendableCash,
-                        systemImage: "wallet.bifold", tint: spendableCash >= 0 ? AppDesign.accent : AppDesign.expense)
+                    let available = spendableCash + heldMinor
+                    fundingTile(title: heldMinor == 0 ? "Disponible para usar" : "Disponible tras retenciones",
+                        amount: available, systemImage: "wallet.bifold",
+                        tint: available >= 0 ? AppDesign.accent : AppDesign.expense,
+                        note: heldMinor == 0 ? nil : heldMinor)
                 }
                 .buttonStyle(.plain)
                 .accessibilityHint("Abre tus cuentas")
@@ -498,8 +510,9 @@ struct DashboardView: View {
         .financeCardSurface(radius: AppDesign.heroRadius)
     }
 
-    private func fundingTile(title: String, amount: Int64, systemImage: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private func fundingTile(title: String, amount: Int64, systemImage: String, tint: Color,
+                             note held: Int64? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             Label(title, systemImage: systemImage)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(tint)
@@ -507,6 +520,16 @@ struct DashboardView: View {
             PrivacyAmountText(minorUnits: amount, font: .title3, weight: .semibold)
                 .foregroundStyle(.primary)
                 .lineLimit(1).minimumScaleFactor(0.7)
+            if let held {
+                HStack(spacing: 4) {
+                    Image(systemName: "hourglass")
+                    PrivacyAmountText(minorUnits: held, font: .caption, weight: .semibold, signed: true)
+                    Text("retenido por el banco")
+                }
+                .font(.caption)
+                .foregroundStyle(AppDesign.warning)
+                .accessibilityElement(children: .combine)
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)

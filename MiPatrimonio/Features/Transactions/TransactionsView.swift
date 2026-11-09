@@ -56,9 +56,35 @@ private enum TransactionDateFilter: String, CaseIterable, Identifiable {
     }
 }
 
+/// A provisional charge or credit the bank reported but has not booked yet. Never part of accounting.
+struct BankHold: Identifiable {
+    let id: String
+    let account: FinancialAccount
+    let movement: BankingPreview.PendingMovement
+    let observedAt: Date
+
+    var title: String { TransactionPresentation.listTitle(movement.description, isBanking: true) }
+    var dateText: String? { movement.date.map(PersonalBankingError.displayDate) }
+
+    /// Holds of active linked accounts, newest first.
+    static func all(accounts: [FinancialAccount], activity: [String: BankingAccountActivity]) -> [BankHold] {
+        accounts.filter { !$0.isArchived }.flatMap { account -> [BankHold] in
+            guard let key = account.bankIdentityKey, let entry = activity[key], let pending = entry.pendingMovements else { return [] }
+            return pending.enumerated().map { index, movement in
+                BankHold(id: "\(key)#\(index)", account: account, movement: movement, observedAt: entry.observedAt)
+            }
+        }
+        .sorted { lhs, rhs in
+            let left = lhs.movement.date ?? "", right = rhs.movement.date ?? ""
+            return left == right ? lhs.id < rhs.id : left > right
+        }
+    }
+}
+
 struct TransactionsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.isCloudWorkspace) private var isCloudWorkspace
+    @Environment(\.bankAccountActivity) private var bankActivity
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
@@ -156,6 +182,23 @@ struct TransactionsView: View {
         filteredTransactions
             .filter { $0.type.countsAsExpense }
             .reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
+    }
+
+    /// Holds follow the account, type and search filters. Filters that only make sense for recorded
+    /// movements (category, review, duplicates) hide them. They are current, so any date filter keeps them.
+    private var visibleHolds: [BankHold] {
+        guard selectedCategoryID == nil, !showOnlyDuplicates, !showOnlyReview else { return [] }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return BankHold.all(accounts: accounts, activity: bankActivity).filter { hold in
+            if let selectedAccountID, hold.account.id != selectedAccountID { return false }
+            if let selectedType {
+                guard selectedType == .expense || selectedType == .income,
+                      (selectedType == .income) == (hold.movement.signedAmountMinor > 0) else { return false }
+            }
+            guard !query.isEmpty else { return true }
+            return [hold.movement.description, hold.title, hold.account.bankAndAccountDisplayName]
+                .contains { $0.localizedCaseInsensitiveContains(query) }
+        }
     }
 
     private var reviewCount: Int {
@@ -377,9 +420,14 @@ struct TransactionsView: View {
                 }
             }
 
+            let holds = visibleHolds
+            if !holds.isEmpty { BankHoldsSection(holds: holds) }
+
             transactionSections
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
+        .readableListWidth()
     }
 
     @ViewBuilder
@@ -403,7 +451,15 @@ struct TransactionsView: View {
     }
 
     private func transactionSection(_ group: TransactionDayGroup) -> some View {
-        let heading = group.date.formatted(.dateTime.weekday(.wide).day().month(.wide).year())
+        let calendar = Calendar.autoupdatingCurrent
+        let heading = calendar.isDate(group.date, equalTo: .now, toGranularity: .year)
+            ? group.date.formatted(.dateTime.weekday(.wide).day().month(.wide))
+            : group.date.formatted(.dateTime.weekday(.wide).day().month(.wide).year())
+        let net = group.transactions.reduce(Int64.zero) { total, transaction in
+            if transaction.type.countsAsIncome { return total + transaction.amountMinor }
+            if transaction.type.countsAsExpense { return total - transaction.amountMinor }
+            return total
+        }
         return Section {
             ForEach(group.transactions) { transaction in
                 TransactionActionRow(
@@ -418,7 +474,15 @@ struct TransactionsView: View {
                 )
             }
         } header: {
-            Text(heading)
+            HStack(alignment: .firstTextBaseline) {
+                Text(heading)
+                Spacer()
+                if net != 0 {
+                    PrivacyAmountText(minorUnits: net, font: .caption, weight: .semibold, signed: true)
+                        .foregroundStyle(net > 0 ? AppDesign.income : .secondary)
+                        .accessibilityLabel("Resultado del día")
+                }
+            }
         }
     }
 
@@ -682,45 +746,74 @@ private struct TransactionPeriodSummaryCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Resumen del periodo")
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Resumen").font(.headline)
                 Spacer()
-                Text("\(transactionCount) movimientos")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(transactionCount == 1 ? "1 movimiento" : "\(transactionCount) movimientos")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-
-            AdaptiveSummaryPair(
-                firstTitle: "Ingresos",
-                firstAmount: incomeMinor,
-                firstTint: .green,
-                secondTitle: "Gastos",
-                secondAmount: expenseMinor,
-                secondTint: .red
-            )
-
-            Divider()
-
-            HStack {
-                Label("Balance del periodo", systemImage: "equal.circle")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                PrivacyAmountText(
-                    minorUnits: netMinor,
-                    font: .headline,
-                    weight: .semibold,
-                    signed: true
-                )
-                .foregroundStyle(netMinor >= 0 ? .blue : .red)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { tiles }
+                VStack(spacing: 8) { tiles }
             }
         }
         .padding(AppDesign.cardPadding)
-        .background(
-            AppDesign.cardBackground,
-            in: RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
-        )
+        .financeCardSurface()
+    }
+
+    @ViewBuilder private var tiles: some View {
+        SemanticMetricTile(title: "Ingresos", minorUnits: incomeMinor, systemImage: "arrow.down.left",
+                           tint: AppDesign.income, surface: AppDesign.incomeSurface)
+        SemanticMetricTile(title: "Gastos", minorUnits: expenseMinor, systemImage: "arrow.up.right",
+                           tint: AppDesign.expense, surface: AppDesign.expenseSurface)
+        SemanticMetricTile(title: "Balance", minorUnits: netMinor, systemImage: "equal",
+                           tint: netMinor >= 0 ? AppDesign.savings : AppDesign.expense,
+                           surface: netMinor >= 0 ? AppDesign.savingsSurface : AppDesign.expenseSurface, signed: true)
+    }
+}
+
+/// Bank holds shown above the movements: they already reduce the money available at the bank.
+private struct BankHoldsSection: View {
+    let holds: [BankHold]
+
+    private var total: Int64 { holds.reduce(0) { $0 + $1.movement.signedAmountMinor } }
+    private var consulted: String {
+        holds.map(\.observedAt).max()?.formatted(date: .abbreviated, time: .shortened) ?? ""
+    }
+
+    var body: some View {
+        Section {
+            ForEach(holds) { hold in
+                HStack(spacing: 12) {
+                    RowGlyph(systemImage: "hourglass", tint: AppDesign.warning)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(hold.title).font(.subheadline.weight(.medium)).lineLimit(1)
+                        Text([hold.account.bankAndAccountDisplayName, hold.dateText].compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 3) {
+                        PrivacyAmountText(minorUnits: hold.movement.signedAmountMinor,
+                                          currencyCode: hold.movement.currency,
+                                          font: .subheadline, weight: .semibold, signed: true)
+                        StatusPill(text: hold.movement.status == "HOLD" ? "Retenido" : "Pendiente", tint: AppDesign.warning)
+                    }
+                }
+                .padding(.vertical, 2)
+                .listRowBackground(AppDesign.warningSurface)
+                .accessibilityElement(children: .combine)
+            }
+        } header: {
+            HStack(alignment: .firstTextBaseline) {
+                Label("Pendientes del banco", systemImage: "hourglass")
+                Spacer()
+                PrivacyAmountText(minorUnits: total, font: .caption, weight: .semibold, signed: true)
+                    .foregroundStyle(AppDesign.warning)
+            }
+        } footer: {
+            Text("Tu banco ya los ha retenido y aún no los ha contabilizado (consulta del \(consulted)). Pasarán a tus movimientos cuando el banco los cierre; mientras tanto no cuentan en los presupuestos.")
+        }
     }
 }
 
@@ -784,21 +877,19 @@ private struct TransactionRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: transaction.category?.systemImage ?? transaction.type.systemImage)
-                .foregroundStyle(Color(hex: transaction.category?.colorHex ?? "#4D7C8A"))
-                .frame(width: 38, height: 38)
-                .background(Color.secondary.opacity(0.09), in: Circle())
+            RowGlyph(systemImage: transaction.category?.systemImage ?? transaction.type.systemImage,
+                     tint: transaction.category.map { Color(hex: $0.colorHex) } ?? glyphTint)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(transaction.displayDescription)
+                    Text(transaction.listTitle)
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
 
                     if transaction.duplicateState == .possible {
                         Image(systemName: "doc.on.doc.fill")
                             .font(.caption2)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(AppDesign.warning)
                             .accessibilityLabel("Posible duplicado")
                     }
                 }
@@ -806,7 +897,7 @@ private struct TransactionRow: View {
                 Text(accountSubtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
                 if let issue = TransactionReviewService.issues(for: transaction).first(where: { $0 != .possibleDuplicate }) {
                     Label(issue.title, systemImage: issue.systemImage)
                         .font(.caption2).foregroundStyle(AppDesign.warning)
@@ -815,24 +906,27 @@ private struct TransactionRow: View {
 
             Spacer(minLength: 8)
 
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: 3) {
                 Text(displayAmount)
                     .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
                     .foregroundStyle(amountColor)
 
-                if transaction.type != .transfer {
-                    Text(transaction.category?.name ?? transaction.type.title)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                } else {
-                    Text(transaction.date.formatted(date: .omitted, time: .shortened))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                Text(transaction.type == .transfer ? "Transferencia" : (transaction.category?.name ?? transaction.type.title))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
+    }
+
+    private var glyphTint: Color {
+        switch transaction.type {
+        case .income, .interest: AppDesign.income
+        case .expense, .fee: AppDesign.expense
+        case .transfer: AppDesign.savings
+        }
     }
 
     private var accountSubtitle: String {
@@ -862,9 +956,9 @@ private struct TransactionRow: View {
 
     private var amountColor: Color {
         switch transaction.type {
-        case .income, .interest: .green
+        case .income, .interest: AppDesign.income
         case .expense, .fee: .primary
-        case .transfer: .blue
+        case .transfer: AppDesign.savings
         }
     }
 }
@@ -1312,7 +1406,7 @@ private struct TransactionReviewActions: View {
     private func similarRow(_ other: FinancialTransaction) -> some View {
         AdaptiveValueRow {
             VStack(alignment: .leading, spacing: 4) {
-                Text(other.displayDescription).font(.subheadline.weight(.medium))
+                Text(other.listTitle).font(.subheadline.weight(.medium))
                 Text("\(other.sourceAccount?.bankAndAccountDisplayName ?? "Sin cuenta") · \(other.type.title) · \(other.date.formatted(date: .abbreviated, time: .omitted))")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -1566,7 +1660,7 @@ private struct BankEntryMergeCard: View {
                     ForEach(candidates.prefix(5)) { candidate in
                         Button { chosen = candidate } label: {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(candidate.displayDescription)
+                                Text(candidate.listTitle)
                                 Text("\(candidate.date.formatted(date: .abbreviated, time: .omitted)) · \(candidate.sourceAccount?.bankAndAccountDisplayName ?? "Cuenta")")
                                     .font(.caption).foregroundStyle(.secondary)
                             }
@@ -1613,7 +1707,7 @@ private struct TransactionDetailView: View {
                     if TransactionOperationLearning.supports(transaction) {
                         TransactionOperationReviewCard(transaction: transaction)
                     }
-                    if transaction.displayDescription != transaction.descriptionText {
+                    if transaction.listTitle != transaction.descriptionText {
                         SectionCard("Concepto guardado", subtitle: "Descripción conservada tal como está registrada") {
                             Text(transaction.descriptionText)
                                 .font(.subheadline).textSelection(.enabled)
@@ -1654,6 +1748,7 @@ private struct TransactionDetailView: View {
             .background(AppDesign.pageBackground)
             .navigationTitle("Detalle del movimiento")
             .navigationBarTitleDisplayMode(.inline)
+            .formSheetSizing()
             .sheet(isPresented: $reviewingTransfer) {
                 TransactionFormView(transaction: transaction, asBankTransfer: true)
             }
@@ -1687,7 +1782,7 @@ private struct TransactionDetailView: View {
                 .frame(width: 56, height: 56)
                 .background(accentColor.opacity(0.12), in: Circle())
 
-            Text(transaction.displayDescription)
+            Text(transaction.listTitle)
                 .font(.headline)
                 .multilineTextAlignment(.center)
 
@@ -1832,10 +1927,13 @@ struct TransactionCategoryPickerLink: View {
                 onSelect()
             }
         } label: {
-            LabeledContent("Categoría") {
+            // A plain row: a LabeledContent with a Label value could grow far taller than its text on iPad.
+            HStack(spacing: 8) {
+                Text("Categoría")
+                Spacer(minLength: 12)
                 if let category = categories.first(where: { $0.id == selection }) {
-                    Label(category.name, systemImage: category.systemImage)
-                        .foregroundStyle(.secondary)
+                    Image(systemName: category.systemImage).foregroundStyle(Color(hex: category.colorHex))
+                    Text(category.name).foregroundStyle(.secondary).lineLimit(1)
                 } else {
                     Text("Elegir").foregroundStyle(.secondary)
                 }
@@ -2320,6 +2418,7 @@ struct TransactionFormView: View {
             .onChange(of: destinationAccountID) { _, _ in updateSuggestedReservedAmount() }
             .navigationTitle(transaction == nil ? "Nuevo movimiento" : "Editar movimiento")
             .navigationBarTitleDisplayMode(.inline)
+            .formSheetSizing()
             .alert("Revisa el movimiento", isPresented: Binding(
                 get: { validationMessage != nil },
                 set: { if !$0 { validationMessage = nil } }
