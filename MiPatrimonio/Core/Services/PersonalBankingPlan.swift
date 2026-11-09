@@ -211,8 +211,19 @@ struct PersonalBankingPlan {
         }
     }
 
-    static func build(feeds: [BankingAccountFeed], links: [String: UUID], ledger: [BankingLedgerEntry], namespace: String = "test") throws -> Self {
+    static func build(feeds: [BankingAccountFeed], links: [String: UUID], ledger: [BankingLedgerEntry], namespace: String = "test",
+                      timeZone: TimeZone = .current) throws -> Self {
+        // Booking dates stay UTC so existing keys and stored bank dates are unchanged.
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withFullDate]
+        let localFormatter = ISO8601DateFormatter(); localFormatter.formatOptions = [.withFullDate]
+        localFormatter.timeZone = timeZone
+        // Imported bank rows are stored at UTC midnight. A local record (form, CSV, recurrence) uses the device's
+        // calendar day: at local midnight it is the previous UTC day in Spain, but the same booking day.
+        func sameBookingDay(_ entry: BankingLedgerEntry, _ item: Item) -> Bool {
+            let storedAtUTCMidnight = entry.date.timeIntervalSince1970.truncatingRemainder(dividingBy: 86400) == 0
+            let entryDay = storedAtUTCMidnight ? formatter.string(from: entry.date) : localFormatter.string(from: entry.date)
+            return entryDay == formatter.string(from: item.date)
+        }
         struct Leg { let key: String; let row: BankingPreview.Movement; let local: UUID; let own: String?; let date: Date; let hasLocalReference: Bool; let bank: String }
         var legs: [Leg] = []; var seen = Set<String>(); var balances: [Balance] = []
         var balanceGaps: [BalanceGap] = []
@@ -354,14 +365,14 @@ struct PersonalBankingPlan {
             }
             items[i].candidates = candidates.map(\.id)
             items[i].transferCandidates = Set(transfers.map(\.id))
-            let exact = candidates.filter { formatter.string(from: $0.date) == formatter.string(from: item.date)
+            let exact = candidates.filter { sameBookingDay($0, item)
                 && !normalized(item.text).isEmpty && normalized($0.text) == normalized(item.text) }
             // Ambiguous repeated purchases and two bank rows competing for one local row require review.
             if !item.hasLocalReference, candidates.count == 1, exact.count == 1 { items[i].automaticMatch = exact[0].id }
             if items[i].automaticMatch == nil, let best = candidates.first {
                 let score = Self.conceptScore(best.text, item.text)
                 let distinctConcept = score > 0 && (candidates.count == 1 || score > Self.conceptScore(candidates[1].text, item.text))
-                let sameDay = formatter.string(from: best.date) == formatter.string(from: item.date)
+                let sameDay = sameBookingDay(best, item)
                 if distinctConcept || (candidates.count == 1 && sameDay) {
                     items[i].suggestedMatch = best.id
                     items[i].suggestionReason = distinctConcept

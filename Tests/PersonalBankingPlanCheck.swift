@@ -195,6 +195,20 @@ struct PersonalBankingPlanCheck {
         }
         precondition(PersonalBankingError.changed.bank == nil && PersonalBankingError.incompleteTransfer.bank == nil,
             "Errors that are not tied to one bank's feed must still stop the whole download")
+        // A CSV or form record at Spanish midnight is the previous UTC day, but the same booking day.
+        let madrid = TimeZone(identifier: "Europe/Madrid")!
+        var madridCalendar = Calendar(identifier: .gregorian); madridCalendar.timeZone = madrid
+        let localMidnight = madridCalendar.date(from: DateComponents(year: 2026, month: 10, day: 15))!
+        let csvEntry = BankingLedgerEntry(id: UUID(), date: localMidnight, kind: "expense", amount: 4321, source: daily,
+            destination: nil, text: "Librería Ficticia", externalID: nil)
+        let csvFeed = feed(rows: [row("csv-match", amount: -4321, text: "Librería Ficticia")])
+        let madridPlan = try PersonalBankingPlan.build(feeds: [csvFeed], links: links, ledger: [csvEntry], timeZone: madrid)
+        precondition(madridPlan.items[0].automaticMatch == csvEntry.id, "A local-midnight record matches its own booking day")
+        let nextDay = BankingLedgerEntry(id: UUID(), date: localMidnight.addingTimeInterval(86400), kind: "expense", amount: 4321,
+            source: daily, destination: nil, text: "Librería Ficticia", externalID: nil)
+        let laterPlan = try PersonalBankingPlan.build(feeds: [csvFeed], links: links, ledger: [nextDay], timeZone: madrid)
+        precondition(laterPlan.items[0].automaticMatch == nil && laterPlan.items[0].candidates == [nextDay.id],
+            "Another day is still only a candidate for review")
 
         do {
             _ = try PersonalBankingPlan.build(feeds: [feed(rows: [debit])], links: links, ledger: [])

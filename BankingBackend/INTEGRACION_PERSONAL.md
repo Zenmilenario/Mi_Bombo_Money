@@ -1,5 +1,13 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Coincidencias del mismo día con registros locales — iOS 0.6.20 (37)
+
+Preparado el 9 de noviembre de 2026 a partir de la la revisión técnica de la 0.6.19 (hallazgo 3). El emparejamiento comparaba los días en UTC. Los movimientos importados por CSV, y cualquier registro guardado a medianoche local, caen en España en el día UTC anterior, de modo que nunca se reconocían como del mismo día que su apunte bancario: no había coincidencia automática ni sugerencia de «mismo día», y aumentaban las revisiones manuales.
+
+Ahora las fechas del banco se siguen interpretando en UTC, sin cambiar claves ni registros guardados. Un registro del libro guardado exactamente a medianoche UTC (los apuntes bancarios ya importados) se compara en UTC; el resto, por su día del calendario del dispositivo. No se amplía la tolerancia: un registro del día siguiente sigue siendo solo candidato para revisión.
+
+**Verificación.** Prueba con datos ficticios en `PersonalBankingPlanCheck`, fijando la zona Europe/Madrid: el registro de medianoche local coincide automáticamente con su día y el del día siguiente queda como candidato. Pendientes los checks de GitHub Actions y la prueba en el dispositivo.
+
 ## Unir un apunte bancario con un movimiento existente — iOS 0.6.20 (37)
 
 Preparado el 9 de noviembre de 2026 a partir de la la revisión técnica de la 0.6.19 (hallazgo 2). Eliminar un apunte que viene del banco no deja ninguna marca, así que la siguiente descarga lo vuelve a crear mientras siga dentro de los 89 días consultados. Cuando el apunte duplica un movimiento que ya habías registrado, lo correcto es unirlos.
