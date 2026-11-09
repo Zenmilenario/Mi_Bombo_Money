@@ -440,7 +440,8 @@ struct PersonalBankingPlan {
         if unique.count == 1 { return unique[0] }
         return "enable-keys:" + String(decoding: try JSONEncoder().encode(unique), as: UTF8.self)
     }
-    private static func compatible(_ entry: BankingLedgerEntry, with item: Item) -> Bool {
+    /// Shared with manual merges so a merged movement passes the next download's identity check.
+    static func compatible(_ entry: BankingLedgerEntry, with item: Item) -> Bool {
         guard entry.amount == item.amount else { return false }
         if item.kind == "transfer" { return entry.kind == "transfer" && entry.source == item.source && entry.destination == item.destination }
         if entry.kind == "transfer" { return item.kind == "expense" ? entry.source == item.source : entry.destination == item.source }

@@ -76,6 +76,9 @@ struct TransactionsView: View {
     @State private var categorySelection: TransactionCategorySelection?
     @State private var selectedTransaction: FinancialTransaction?
     @State private var deletionError: String?
+    @State private var bankDeletionCandidate: FinancialTransaction?
+    @State private var pendingBankMerge: (duplicate: FinancialTransaction, kept: FinancialTransaction)?
+    @State private var mergeError: String?
 
     @State private var showingCSVExporter = false
     @State private var csvExportDocument: TransactionCSVDocument?
@@ -238,8 +241,12 @@ struct TransactionsView: View {
                     )
                 }
             }
-            .sheet(item: $selectedTransaction) { transaction in
-                TransactionDetailView(transaction: transaction)
+            .sheet(item: $selectedTransaction, onDismiss: performPendingBankMerge) { transaction in
+                // The detail closes before the duplicate is deleted, so it never renders a removed movement.
+                TransactionDetailView(transaction: transaction) { kept in
+                    pendingBankMerge = (transaction, kept)
+                    selectedTransaction = nil
+                }
             }
             .sheet(item: $categorySelection) { selection in
                 BulkCategoryView(transactionIDs: selection.transactionIDs) {
@@ -278,6 +285,28 @@ struct TransactionsView: View {
                 }
             } message: {
                 Text(deletionError ?? "Error desconocido")
+            }
+            .confirmationDialog(
+                "Este movimiento viene de tu banco",
+                isPresented: showingBankDeletion,
+                titleVisibility: .visible,
+                presenting: bankDeletionCandidate
+            ) { transaction in
+                Button("Eliminar de todos modos", role: .destructive) {
+                    bankDeletionCandidate = nil
+                    delete(transaction)
+                }
+                Button("Cancelar", role: .cancel) { bankDeletionCandidate = nil }
+            } message: { _ in
+                Text("Si lo eliminas, volverá en la próxima descarga del banco. Si duplica otro movimiento, ábrelo y elige «Unir con este movimiento»: se conserva el tuyo y el banco no lo repetirá.")
+            }
+            .alert(
+                "No se pudieron unir los movimientos",
+                isPresented: showingMergeError
+            ) {
+                Button("Aceptar", role: .cancel) { mergeError = nil }
+            } message: {
+                Text(mergeError ?? "")
             }
         }
     }
@@ -381,7 +410,7 @@ struct TransactionsView: View {
                     onCategorize: {
                         categorySelection = TransactionCategorySelection(transactionIDs: Set([transaction.id]))
                     },
-                    onDelete: { delete(transaction) }
+                    onDelete: { requestDelete(transaction) }
                 )
             }
         } header: {
@@ -574,6 +603,29 @@ struct TransactionsView: View {
         dateFilter = .all
         showOnlyDuplicates = false
         showOnlyReview = false
+    }
+
+    private var showingBankDeletion: Binding<Bool> {
+        Binding(get: { bankDeletionCandidate != nil }, set: { if !$0 { bankDeletionCandidate = nil } })
+    }
+
+    private var showingMergeError: Binding<Bool> {
+        Binding(get: { mergeError != nil }, set: { if !$0 { mergeError = nil } })
+    }
+
+    private func requestDelete(_ transaction: FinancialTransaction) {
+        if isCloudWorkspace && transaction.bankEntryKey != nil {
+            bankDeletionCandidate = transaction
+        } else {
+            delete(transaction)
+        }
+    }
+
+    private func performPendingBankMerge() {
+        guard let merge = pendingBankMerge else { return }
+        pendingBankMerge = nil
+        do { try PersonalBankingImporter.mergeBankEntry(merge.duplicate, into: merge.kept, in: modelContext) }
+        catch { mergeError = error.localizedDescription }
     }
 
     private func delete(_ transaction: FinancialTransaction) {
@@ -1414,12 +1466,60 @@ private struct TransactionOperationReviewCard: View {
     }
 }
 
+/// Lets a bank posting hand its reference to a movement the user already recorded.
+private struct BankEntryMergeCard: View {
+    @Query private var transactions: [FinancialTransaction]
+    @State private var chosen: FinancialTransaction?
+    let transaction: FinancialTransaction
+    let onMerge: (FinancialTransaction) -> Void
+
+    private var candidates: [FinancialTransaction] {
+        PersonalBankingImporter.mergeCandidates(for: transaction, in: transactions)
+    }
+
+    var body: some View {
+        let candidates = candidates
+        if !candidates.isEmpty {
+            SectionCard("¿Ya lo tenías registrado?", subtitle: "Une este apunte del banco con tu movimiento") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Se conserva tu movimiento, con su categoría, notas y vínculos. Recibe la referencia del banco y este apunte se elimina; la próxima descarga no lo repetirá.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(candidates.prefix(5)) { candidate in
+                        Button { chosen = candidate } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(candidate.displayDescription)
+                                Text("\(candidate.date.formatted(date: .abbreviated, time: .omitted)) · \(candidate.sourceAccount?.bankAndAccountDisplayName ?? "Cuenta")")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+            .confirmationDialog("¿Unir con este movimiento?", isPresented: Binding(
+                get: { chosen != nil }, set: { if !$0 { chosen = nil } }
+            ), titleVisibility: .visible, presenting: chosen) { kept in
+                Button("Unir con este movimiento") {
+                    chosen = nil
+                    onMerge(kept)
+                }
+                Button("Cancelar", role: .cancel) { chosen = nil }
+            } message: { kept in
+                Text("Se conservará «\(kept.displayDescription)» y se eliminará este apunte del banco.")
+            }
+        }
+    }
+}
+
 private struct TransactionDetailView: View {
     @Query private var reservedFunds: [ReservedFund]
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.isCloudWorkspace) private var isCloudWorkspace
     @AppStorage("hideAmounts") private var hideAmounts = false
 
     let transaction: FinancialTransaction
+    let onMergeBankEntry: (FinancialTransaction) -> Void
 
     @State private var showingEdit = false
     @State private var reviewingTransfer = false
@@ -1454,6 +1554,10 @@ private struct TransactionDetailView: View {
                         TransactionReviewActions(transaction: transaction) {
                             reviewingTransfer = true
                         }
+                    }
+
+                    if isCloudWorkspace && transaction.bankEntryKey != nil {
+                        BankEntryMergeCard(transaction: transaction, onMerge: onMergeBankEntry)
                     }
                 }
                 .padding(.horizontal, 16)

@@ -206,6 +206,63 @@ enum PersonalBankingImporter {
         } catch { context.rollback(); throw error }
     }
 
+    /// A single bank posting that duplicates an existing movement can hand its bank reference to it.
+    /// The kept movement must pass the same identity check as the next download, so it is not imported again.
+    @MainActor static func canMergeBankEntry(_ duplicate: FinancialTransaction, into kept: FinancialTransaction) -> Bool {
+        guard duplicate.id != kept.id, duplicate.amountMinor == kept.amountMinor,
+              abs(kept.date.timeIntervalSince(duplicate.date)) <= 7 * 86400,
+              duplicate.type != .transfer, duplicate.destinationAccount == nil,
+              duplicate.reservedFundID == nil, duplicate.reservedAmountMinor == nil, duplicate.recurringMovementID == nil,
+              let source = duplicate.sourceAccount, kept.sourceAccount != nil,
+              let duplicateKeys = try? PersonalBankingPlan.keys(duplicate.bankEntryKey), duplicateKeys.count == 1,
+              let keptKeys = try? PersonalBankingPlan.keys(kept.bankEntryKey) else { return false }
+        if !keptKeys.isEmpty {
+            // Only an own transfer may already hold one reference: the other bank account's leg.
+            guard kept.type == .transfer, keptKeys.count == 1,
+                  accountPrefix(keptKeys[0]) != accountPrefix(duplicateKeys[0]) else { return false }
+        }
+        let entry = BankingLedgerEntry(id: kept.id, date: kept.date, kind: kept.typeRaw, amount: kept.amountMinor,
+            source: kept.sourceAccount?.id, destination: kept.destinationAccount?.id, text: kept.descriptionText,
+            externalID: kept.bankEntryKey)
+        let item = PersonalBankingPlan.Item(id: duplicateKeys[0], date: duplicate.date,
+            kind: duplicate.type.countsAsIncome ? "income" : "expense", amount: duplicate.amountMinor,
+            source: source.id, destination: nil, text: duplicate.descriptionText)
+        return PersonalBankingPlan.compatible(entry, with: item)
+    }
+
+    @MainActor static func mergeCandidates(for duplicate: FinancialTransaction,
+                                          in transactions: [FinancialTransaction]) -> [FinancialTransaction] {
+        guard duplicate.bankEntryKey != nil else { return [] }
+        return transactions.filter { canMergeBankEntry(duplicate, into: $0) }.sorted {
+            let left = abs($0.date.timeIntervalSince(duplicate.date)), right = abs($1.date.timeIntervalSince(duplicate.date))
+            return left == right ? $0.id.uuidString < $1.id.uuidString : left < right
+        }
+    }
+
+    /// Keeps the user's movement (category, notes, reserve, recurrence) and deletes only the duplicate bank row.
+    @MainActor static func mergeBankEntry(_ duplicate: FinancialTransaction, into kept: FinancialTransaction,
+                                         in context: ModelContext) throws {
+        try requireCloud(context)
+        guard !context.hasChanges, duplicate.modelContext === context, kept.modelContext === context,
+              canMergeBankEntry(duplicate, into: kept) else { throw PersonalBankingError.changed }
+        let bankKey = try PersonalBankingPlan.encodedKeys(PersonalBankingPlan.keys(kept.bankEntryKey)
+            + PersonalBankingPlan.keys(duplicate.bankEntryKey))
+        let concept = duplicate.descriptionText.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            if concept != kept.descriptionText && concept != "Movimiento bancario" && !kept.notes.contains(concept) {
+                kept.notes = [kept.notes, "Concepto bancario: \(concept)"].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            }
+            kept.bankEntryKey = bankKey
+            kept.isReconciled = true
+            kept.updatedAt = .now
+            context.delete(duplicate)
+            try context.save()
+        } catch { context.rollback(); throw error }
+    }
+    private static func accountPrefix(_ key: String) -> String {
+        key.split(separator: ":", maxSplits: 3, omittingEmptySubsequences: false).prefix(3).joined(separator: ":")
+    }
+
     @MainActor static func plan(_ feeds: [BankingAccountFeed], server: URL, in context: ModelContext) throws -> PersonalBankingPlan {
         try requireCloud(context)
         let accounts = try context.fetch(FetchDescriptor<FinancialAccount>())

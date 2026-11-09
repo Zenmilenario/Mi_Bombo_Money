@@ -153,6 +153,7 @@ struct PersonalBankingImporterCheck {
         precondition(repeatPlain.inserted == 0 && repeatPlain.skipped == 2)
         try checkTradeRepublicWithoutBookedBalance(server: server, in: context, day: day, observed: observed)
         try checkSplitContributions(server: server, in: context, day: day, observed: observed)
+        try checkMergeDuplicateBankEntry(server: server, schema: schema, day: day, observed: observed)
         // Live financial imports can never write to the separate sandbox workspace.
         let isolated = try ModelContainer(for: schema, configurations: ModelConfiguration("BankingTests", schema: schema, isStoredInMemoryOnly: true))
         do { _ = try PersonalBankingImporter.apply([feed], server: server, in: isolated.mainContext, observedAt: observed); preconditionFailure("Sandbox accepted real-account import") }
@@ -207,6 +208,46 @@ struct PersonalBankingImporterCheck {
         let automaticallyPosted = try RecurringMovementService.postDueMovements(in: context, through: observed)
         precondition(automaticallyPosted == 0 && rule.nextDueDate > observed,
                      "Recognized split contributions must not be generated again after disconnecting the bank")
+    }
+
+    /// A bank posting imported next to the user's own record can be merged into it, and stays merged.
+    @MainActor private static func checkMergeDuplicateBankEntry(server: URL, schema: Schema, day: Date, observed: Date) throws {
+        let container = try ModelContainer(for: schema, configurations: ModelConfiguration("CloudFinance", schema: schema, isStoredInMemoryOnly: true))
+        let context = container.mainContext
+        let local = FinancialAccount(name: "Cuenta ficticia para unir", type: .checking, openingDate: day.addingTimeInterval(-86400))
+        let category = FinanceCategory(name: "Restaurantes ficticios", kind: .expense)
+        let manual = FinancialTransaction(date: day, type: .expense, amountMinor: 3500, descriptionText: "Cena con amigos",
+            notes: "Mi nota", sourceAccount: local, category: category)
+        let other = FinancialTransaction(date: day, type: .expense, amountMinor: 1200, descriptionText: "Otra compra ficticia",
+            sourceAccount: local)
+        context.insert(local); context.insert(category); context.insert(manual); context.insert(other)
+        try context.save()
+        let remote = ConnectedBankAccount(id: "merge-account", name: "Cuenta •••• 0000", currency: "EUR", lastFour: "0000")
+        try PersonalBankingImporter.link(remote, bank: "BBVA", server: server, to: local, in: context)
+        let feed = BankingAccountFeed(connection: .init(id: UUID().uuidString, bank: "BBVA", validUntil: "2026-11-01", accounts: [remote]),
+            account: remote, balances: [.init(amountMinor: 50000, currency: "EUR", type: "CLBD")], movements: [
+                .init(id: "dinner", bookingDate: "2026-10-16", signedAmountMinor: -3500, currency: "EUR", description: "COMPRA RESTAURANTE FICTICIO")])
+        // The bank row is incorporated separately instead of being matched, leaving a visible duplicate.
+        let plan = try PersonalBankingImporter.plan([feed], server: server, in: context)
+        precondition(plan.items.count == 1 && plan.items[0].candidates == [manual.id])
+        _ = try PersonalBankingImporter.apply([feed], server: server, choices: [plan.items[0].id: .new], in: context, observedAt: observed)
+        let rows = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        let duplicate = rows.first { $0.bankEntryKey != nil }!
+        precondition(rows.count == 3 && duplicate.id != manual.id)
+        precondition(PersonalBankingImporter.canMergeBankEntry(duplicate, into: manual))
+        precondition(!PersonalBankingImporter.canMergeBankEntry(manual, into: duplicate), "Only the bank posting hands over its reference")
+        precondition(!PersonalBankingImporter.canMergeBankEntry(duplicate, into: other), "A different amount would fail the next download")
+        precondition(PersonalBankingImporter.mergeCandidates(for: duplicate, in: rows).map(\.id) == [manual.id])
+        let bankKey = duplicate.bankEntryKey
+        try PersonalBankingImporter.mergeBankEntry(duplicate, into: manual, in: context)
+        let merged = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        precondition(merged.count == 2 && manual.bankEntryKey == bankKey && manual.isReconciled)
+        precondition(manual.category?.id == category.id && manual.descriptionText == "Cena con amigos")
+        precondition(manual.notes.contains("Mi nota") && manual.notes.contains("COMPRA RESTAURANTE FICTICIO"))
+        let repeated = try PersonalBankingImporter.apply([feed], server: server, in: context, observedAt: observed.addingTimeInterval(60))
+        let afterRepeat = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        precondition(repeated.inserted == 0 && repeated.skipped == 1 && afterRepeat.count == 2,
+            "A merged bank posting must not be imported again")
     }
 
     @MainActor private static func checkTradeRepublicWithoutBookedBalance(server: URL, in context: ModelContext,

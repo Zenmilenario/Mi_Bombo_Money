@@ -1,5 +1,17 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Unir un apunte bancario con un movimiento existente — iOS 0.6.20 (37)
+
+Preparado el 9 de noviembre de 2026 a partir de la la revisión técnica de la 0.6.19 (hallazgo 2). Eliminar un apunte que viene del banco no deja ninguna marca, así que la siguiente descarga lo vuelve a crear mientras siga dentro de los 89 días consultados. Cuando el apunte duplica un movimiento que ya habías registrado, lo correcto es unirlos.
+
+**Unir.** En el detalle de un apunte bancario aparece «¿Ya lo tenías registrado?» con los movimientos compatibles: misma cuenta, mismo importe y tipo, y fecha a menos de siete días. También aparece una transferencia propia que todavía no tenga la referencia de esa cuenta. Al confirmar, se conserva tu movimiento con su categoría, notas, reserva y recurrencia; recibe la referencia del banco, queda conciliado y guarda el concepto bancario en sus notas. El apunte duplicado se elimina. La compatibilidad se comprueba con la misma regla que aplica la descarga, de modo que la siguiente consulta lo reconoce como ya importado. No se ofrecen apuntes con reserva o recurrencia propias: hay que desvincularlos antes.
+
+**Aviso al eliminar.** En el espacio cloud, eliminar desde la lista un apunte con referencia bancaria pide confirmación y explica que volverá en la próxima descarga y que, si es un duplicado, conviene unirlo. La eliminación sigue siendo posible.
+
+**Sin cambios de esquema.** No hay migración de Supabase ni de copias: se reutiliza la referencia bancaria existente. Ocultar apuntes no deseados («Ignorar») queda para un lote posterior, porque exige excluirlos de todos los cálculos y pantallas.
+
+**Verificación.** Prueba con datos ficticios en SwiftData en memoria: un movimiento manual y su duplicado bancario incorporado aparte; solo se ofrece el movimiento compatible, la unión conserva categoría y notas, y otra descarga no lo repite. La interfaz se ha escrito sin compilador Swift disponible; pendientes los checks de GitHub Actions, la compilación iOS y la prueba en el dispositivo.
+
 ## Incorporación aislada por banco — iOS 0.6.20 (37)
 
 Preparado el 9 de noviembre de 2026 a partir de la la revisión técnica de la 0.6.19 (hallazgo 1). Antes, una descarga con varios bancos se preparaba como un único plan. Si un apunte con referencia del banco ya estaba guardado con otro importe, tipo o cuenta (por ejemplo, tras corregirlo a mano), el plan fallaba con «Tus datos han cambiado» y ningún banco se incorporaba, aunque su descarga hubiera llegado.
