@@ -249,6 +249,36 @@ enum PersonalBankingImporter {
         let resumed = await waiting.synchronize(account: freshAccount, context: freshContext)
         precondition(resumed && freshContext.ledger.count == 1 && BankingConnectionClient.attempts.count == beforeWaiting + 1,
                      "Closing an editor must import the complete saved download without a second bank request")
+        // A movement edited locally in one bank must not hold back another bank's download.
+        let isolatedAccount = CloudAccountManager()
+        let isolatedStorage = "banking-live-origin-v1-" + isolatedAccount.session!.user.id.uuidString.lowercased()
+        defer { for suffix in ["", "-bank-schedules-v2", "-next-discovery-v1"] { UserDefaults.standard.removeObject(forKey: isolatedStorage + suffix) } }
+        let isolatedBBVA = feed(bank: "BBVA", id: "iso-bbva")
+        let sabadellRemote = ConnectedBankAccount(id: "iso-sabadell", name: "Synthetic", currency: "EUR", lastFour: "0000", ownershipKey: "iso-sabadell")
+        let sabadell = BankingAccountFeed(connection: .init(id: UUID().uuidString, bank: "Sabadell", validUntil: "2099-01-01", accounts: [sabadellRemote]),
+            account: sabadellRemote, balances: [.init(amountMinor: 20000, currency: "EUR", type: "CLBD")],
+            movements: [.init(id: "salary", bookingDate: String(day), signedAmountMinor: 120000, currency: "EUR", description: "Synthetic salary")])
+        let isolatedContext = ModelContext()
+        isolatedContext.accounts = [isolatedBBVA, sabadell].map { FinancialAccount(remote: $0.account, server: server) }
+        isolatedContext.snapshots = isolatedContext.accounts.map { BalanceSnapshot(account: $0) }
+        isolatedContext.ledger = [.init(id: UUID(), date: .now, kind: "expense", amount: 999, source: isolatedContext.accounts[0].id,
+            destination: nil, text: "Synthetic purchase edited by the user", externalID: "enable-entry:test:iso-bbva:purchase")]
+        BankingConnectionClient.available = [isolatedBBVA.connection, sabadell.connection]
+        BankingConnectionClient.values = ["BBVA": [isolatedBBVA], "Sabadell": [sabadell]]
+        BankingConnectionClient.limitedBank = nil; BankingConnectionClient.feedDelay = 0
+        let isolated = PersonalBankingCoordinator()
+        try await isolated.configure(server: server.absoluteString, account: isolatedAccount)
+        let isolatedApplied = await isolated.synchronize(account: isolatedAccount, context: isolatedContext, force: true)
+        precondition(isolatedApplied && isolatedContext.appliedBanks == ["Sabadell"],
+            "Another bank's edited movement must not block this bank's download")
+        precondition(isolatedContext.ledger.count == 2 && isolatedContext.ledger.contains { $0.amount == 120000 })
+        precondition(isolatedContext.ledger.contains { $0.amount == 999 }, "The user's edited movement is preserved")
+        precondition(isolated.bankStatus["Sabadell"]?.summary == "Descarga incorporada a tus finanzas.")
+        precondition(isolated.bankStatus["BBVA"]?.errorMessage?.contains("BBVA") == true
+            && isolated.errorMessage?.contains("BBVA") == true, "The held-back bank and its movement are named")
+        let onlyEdited = await isolated.synchronize(account: isolatedAccount, context: isolatedContext, force: true, onlyBank: "BBVA")
+        precondition(!onlyEdited && isolatedContext.ledger.count == 2 && isolated.errorMessage?.contains("BBVA") == true,
+            "A single bank with an edited movement still stops safely with a specific message")
         print("Banking coordinator passed: independent banks, reopen limits, deferred application, first-download review and transfer recovery.")
     }
 }

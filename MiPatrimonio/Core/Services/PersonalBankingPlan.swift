@@ -95,12 +95,24 @@ enum PersonalBankingError: LocalizedError {
     case invalidData, accountNotLinked, needsReview, changed, incompleteTransfer, wrongWorkspace, transferAlreadyRecorded
     case unavailableBookedBalance(String), invalidMovement(String), missingMovementReference(String)
     case contributionNeedsTransferReview
+    /// A bank row already in the ledger no longer matches it. Only that bank is held back.
+    case editedMovement(bank: String, bookingDate: String)
+    /// Bank whose own feed caused the error, so the other banks of a download can continue.
+    var bank: String? {
+        switch self {
+        case .unavailableBookedBalance(let bank), .invalidMovement(let bank), .missingMovementReference(let bank),
+             .editedMovement(let bank, _): bank
+        default: nil
+        }
+    }
     var errorDescription: String? {
         switch self {
         case .invalidData: "Los datos bancarios no son compatibles o están incompletos. No se ha guardado la importación."
         case .unavailableBookedBalance(let bank): "\(bank) no ha enviado un saldo contable en euros que se pueda verificar."
         case .invalidMovement(let bank): "\(bank) ha enviado un movimiento con fecha, importe, moneda o concepto no válido."
         case .missingMovementReference(let bank): "\(bank) ha enviado un movimiento sin una referencia que permita identificarlo."
+        case .editedMovement(let bank, let bookingDate):
+            "\(bank) ha vuelto a enviar el apunte del \(Self.displayDate(bookingDate)), que en tus movimientos tiene otro importe, tipo o cuenta. Revisa ese movimiento. Los demás bancos se incorporan por separado."
         case .contributionNeedsTransferReview: "Hay un ingreso del mismo importe y día en la cuenta de inversión. Revisa ambos apuntes como transferencia antes de reconocer esta aportación."
         case .accountNotLinked: "Asocia primero las cuentas bancarias con las cuentas de la app."
         case .needsReview: "Revisa las posibles coincidencias antes de incorporar los movimientos."
@@ -109,6 +121,11 @@ enum PersonalBankingError: LocalizedError {
         case .wrongWorkspace: "Las cuentas reales solo se incorporan a tu espacio personal cloud, nunca al sandbox."
         case .transferAlreadyRecorded: "Ya hay una transferencia con esas cuentas, importe y fecha. Comprueba ese movimiento antes de unir los apuntes."
         }
+    }
+    private static func displayDate(_ value: String) -> String {
+        let parts = value.split(separator: "-")
+        guard parts.count == 3, let day = Int(parts[2]), let month = Int(parts[1]) else { return value }
+        return "\(day)/\(month)/\(parts[0])"
     }
 }
 
@@ -196,7 +213,7 @@ struct PersonalBankingPlan {
 
     static func build(feeds: [BankingAccountFeed], links: [String: UUID], ledger: [BankingLedgerEntry], namespace: String = "test") throws -> Self {
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withFullDate]
-        struct Leg { let key: String; let row: BankingPreview.Movement; let local: UUID; let own: String?; let date: Date; let hasLocalReference: Bool }
+        struct Leg { let key: String; let row: BankingPreview.Movement; let local: UUID; let own: String?; let date: Date; let hasLocalReference: Bool; let bank: String }
         var legs: [Leg] = []; var seen = Set<String>(); var balances: [Balance] = []
         var balanceGaps: [BalanceGap] = []
         var localAccounts = Set<UUID>(); var ownership: [String: UUID] = [:]
@@ -256,7 +273,8 @@ struct PersonalBankingPlan {
                 }
                 guard seen.insert(key).inserted else { throw PersonalBankingError.invalidData }
                 pageRows[key] = row
-                legs.append(Leg(key: key, row: row, local: local, own: feed.account.ownershipKey, date: date, hasLocalReference: hasLocalReference))
+                legs.append(Leg(key: key, row: row, local: local, own: feed.account.ownershipKey, date: date,
+                    hasLocalReference: hasLocalReference, bank: feed.connection.bank))
             }
         }
         var knownRows: [String: BankingLedgerEntry] = [:]
@@ -299,7 +317,9 @@ struct PersonalBankingPlan {
                 if let old = knownRows[leg.key] {
                     // A generated reference includes the original account, date and signed amount.
                     // A local edit can change the ledger fields without changing that bank identity.
-                    guard leg.hasLocalReference || compatible(old, with: item) else { throw PersonalBankingError.changed }
+                    guard leg.hasLocalReference || compatible(old, with: item) else {
+                        throw PersonalBankingError.editedMovement(bank: leg.bank, bookingDate: leg.row.bookingDate)
+                    }
                     skipped += 1; continue
                 }
                 items.append(item)

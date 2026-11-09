@@ -186,7 +186,15 @@ struct PersonalBankingPlanCheck {
         do {
             _ = try PersonalBankingPlan.build(feeds: [stableFeed], links: links, ledger: [changed])
             preconditionFailure("A conflicting provider reference must still fail validation")
-        } catch PersonalBankingError.changed { }
+        } catch PersonalBankingError.editedMovement(let bank, let bookingDate) {
+            // The error names its bank so the coordinator can hold back only that feed.
+            let error = PersonalBankingError.editedMovement(bank: bank, bookingDate: bookingDate)
+            precondition(bank == "Trade Republic" && error.bank == "Trade Republic")
+            precondition(bookingDate == stableFeed.movements[0].bookingDate)
+            precondition(error.errorDescription?.contains("Trade Republic") == true && error.errorDescription?.contains("/") == true)
+        }
+        precondition(PersonalBankingError.changed.bank == nil && PersonalBankingError.incompleteTransfer.bank == nil,
+            "Errors that are not tied to one bank's feed must still stop the whole download")
 
         do {
             _ = try PersonalBankingPlan.build(feeds: [feed(rows: [debit])], links: links, ledger: [])

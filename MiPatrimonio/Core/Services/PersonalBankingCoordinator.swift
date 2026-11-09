@@ -296,11 +296,28 @@ final class PersonalBankingCoordinator: ObservableObject {
     }
 
     private func incorporate(_ download: Download, user: UUID, context: ModelContext) -> Bool {
+        var excluded: [String: Error] = [:]
         do {
-            let selection = try PersonalBankingDownloadSelection.prepare(download.feeds, knownAccounts: download.knownAccounts)
+            // A problem in one bank's own feed must not hold back the others. Selecting again
+            // defers own transfers whose peer bank was excluded; they are never imported as expenses.
+            var remaining = download.feeds
+            var prepared: (selection: PersonalBankingDownloadSelection, plan: PersonalBankingPlan)?
+            while prepared == nil {
+                let candidate = try PersonalBankingDownloadSelection.prepare(remaining, knownAccounts: download.knownAccounts)
+                do {
+                    prepared = (candidate, try PersonalBankingImporter.plan(candidate.feeds, server: download.server, in: context))
+                } catch let error as PersonalBankingError {
+                    guard let bank = error.bank, remaining.contains(where: { $0.connection.bank != bank }) else { throw error }
+                    excluded[bank] = error
+                    remaining.removeAll { $0.connection.bank == bank }
+                }
+            }
+            guard let ready = prepared else { return false }
+            let selection = ready.selection
+            let plan = ready.plan
             let feeds = selection.feeds
             for (bank, count) in selection.deferredByBank { bankStatus[bank]?.deferredTransfers = count }
-            let plan = try PersonalBankingImporter.plan(feeds, server: download.server, in: context)
+            reportExcluded(excluded)
             let snapshots = try context.fetch(FetchDescriptor<BalanceSnapshot>())
             let firstImport = plan.balances.contains { balance in
                 !snapshots.contains { $0.account?.id == balance.account && $0.source == .bankAPI && $0.notes == "Saldo contable de Enable Banking" }
@@ -318,21 +335,33 @@ final class PersonalBankingCoordinator: ObservableObject {
                 pendingFeeds = feeds; pendingPlan = plan; observedAt = download.observedAt; pendingDeferred = selection.deferredByBank
                 pendingLedger = Dictionary(uniqueKeysWithValues: ledger.map { ($0.id, $0) })
                 message = "Descarga preparada de \(names): revisa e incorpora los movimientos. El estado de los demás bancos se muestra por separado."
+                errorMessage = excludedDescription(excluded)
                 return false
             }
             let result = try PersonalBankingImporter.apply(feeds, server: download.server, in: context, observedAt: download.observedAt)
             imported(feeds, deferred: selection.deferredByBank)
             message = "\(names): \(result.inserted) movimientos nuevos · \(result.matched) coincidencias reconocidas."
-            errorMessage = nil
+            errorMessage = excludedDescription(excluded)
             return true
         } catch {
-            for bank in Set(download.feeds.map(\.connection.bank)) {
+            for bank in Set(download.feeds.map(\.connection.bank)) where excluded[bank] == nil {
                 bankStatus[bank]?.summary = "Descarga recibida, pero no se ha podido incorporar."
+                bankStatus[bank]?.errorMessage = error.localizedDescription
             }
+            reportExcluded(excluded)
             message = "No se ha incorporado esta descarga. Tus datos guardados se conservan."
-            errorMessage = error.localizedDescription
+            errorMessage = [excludedDescription(excluded), error.localizedDescription].compactMap { $0 }.joined(separator: "\n")
         }
         return false
+    }
+    private func reportExcluded(_ excluded: [String: Error]) {
+        for (bank, error) in excluded {
+            bankStatus[bank] = BankingBankSyncStatus(summary: "Descarga recibida, pero no se ha podido incorporar.",
+                errorMessage: error.localizedDescription, deferredTransfers: bankStatus[bank]?.deferredTransfers ?? 0)
+        }
+    }
+    private func excludedDescription(_ excluded: [String: Error]) -> String? {
+        excluded.isEmpty ? nil : excluded.keys.sorted().compactMap { excluded[$0]?.localizedDescription }.joined(separator: "\n")
     }
     func confirm(choices: [String: PersonalBankingPlan.Choice], manualBalances: [UUID: PersonalBankingImporter.ManualBalance] = [:],
                  reviewedBalances: [PersonalBankingImporter.BalanceReview] = [], account: CloudAccountManager, context: ModelContext) throws {

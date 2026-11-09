@@ -1,5 +1,15 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Incorporación aislada por banco — iOS 0.6.20 (37)
+
+Preparado el 9 de noviembre de 2026 a partir de la la revisión técnica de la 0.6.19 (hallazgo 1). Antes, una descarga con varios bancos se preparaba como un único plan. Si un apunte con referencia del banco ya estaba guardado con otro importe, tipo o cuenta (por ejemplo, tras corregirlo a mano), el plan fallaba con «Tus datos han cambiado» y ningún banco se incorporaba, aunque su descarga hubiera llegado.
+
+Ahora ese caso produce un error que nombra el banco y la fecha del apunte. El coordinador aparta solo ese banco y vuelve a preparar la selección con el resto. Las transferencias propias cuya otra parte pertenece al banco apartado quedan en espera, como cuando un banco no responde, y no se importan como gasto ni como ingreso. El registro editado por el usuario se conserva. También se aíslan los errores que ya identificaban su banco: saldo contable ausente, movimiento no válido y apunte sin referencia. Los errores generales (datos incoherentes o transferencias incompletas) siguen deteniendo toda la descarga.
+
+En **Mis bancos**, el banco apartado muestra «Descarga recibida, pero no se ha podido incorporar» con el motivo; los demás muestran su incorporación habitual.
+
+**Verificación.** Pruebas añadidas con datos ficticios: el error del plan conserva banco y fecha, y en el coordinador una edición local en BBVA no impide incorporar Sabadell, mientras que BBVA solo se detiene con un mensaje que lo nombra. Escritas sin compilador Swift disponible; pendientes de los checks de GitHub Actions, la compilación iOS y la prueba en el dispositivo. La revisión de las coincidencias sigue siendo conjunta para los bancos de una misma descarga.
+
 ## Repetición de descargas de Trade Republic — iOS 0.6.19 (36)
 
 El 7 de noviembre de 2026, Mis bancos indicó que la descarga de Trade Republic había llegado y que la app no podía incorporarla. Se reprodujo el mismo aviso con un apunte antiguo sin referencia bancaria cuyo importe y tipo habían cambiado en el registro local. La captura no permite identificar el apunte que disparó el fallo ni confirmar si la descarga incluía la aportación buscada.
