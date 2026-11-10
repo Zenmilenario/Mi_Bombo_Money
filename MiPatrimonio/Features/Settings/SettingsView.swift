@@ -321,6 +321,9 @@ struct SettingsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     routeRow(.sandbox)
+                    NavigationLink { HitchListView() } label: {
+                        SettingsRouteLabel(title: "Fluidez de la app", subtitle: "Pausas recientes al usar la app", systemImage: "speedometer")
+                    }
                     if showsReset {
                         Button(role: .destructive) { showingResetConfirmation = true } label: {
                             Label(isBankingTestWorkspace ? "Eliminar datos de prueba" : "Eliminar todos los datos financieros", systemImage: "trash")

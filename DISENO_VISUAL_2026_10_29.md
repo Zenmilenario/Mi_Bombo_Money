@@ -1,5 +1,26 @@
 # Mejora visual y navegación — 29 de octubre de 2026
 
+## Doblón 0.7.9 (50) · saldos por índice y medidor de pausas
+
+Preparado el 10 de noviembre de 2026. Con la 0.7.8 el iPhone seguía tardando como medio segundo en entrar en cada menú.
+
+**Causa probable** (leída en el código, no medida): cada saldo se calculaba leyendo todos los movimientos, con su cuenta de origen y de destino. Se hacía una vez por cuenta y varias veces por pantalla:
+- Cuentas: patrimonio, disponible y cada tarjeta.
+- Inicio: el patrimonio, el disponible y el gráfico.
+
+Con miles de movimientos son cientos de miles de lecturas a la base de datos en cada pintado.
+
+**Implementado.**
+- **`AccountBalanceIndex`:** recorre los movimientos una sola vez y guarda, por cuenta, los efectos ordenados por fecha con su total acumulado. Un saldo pasa a ser dos búsquedas binarias. Aplica las mismas reglas: último saldo conocido, apertura y transferencias entre cuentas propias.
+- **`BalanceIndexCache`:** comparte el índice entre todas las pantallas. Se rehace tras cada guardado de la base de datos y al volver a la app. Solo lo activa la app; las pruebas usan el cálculo original salvo cuando lo comparan.
+- **Historial de patrimonio:** usa el mismo índice.
+- **Medidor de pausas** en Ajustes › Opciones avanzadas › Fluidez de la app:
+  - Anota cada momento en que la app deja de responder más de 0,2 s, con la pantalla y si estaba sincronizando.
+  - Solo en memoria y en el dispositivo.
+  - Sirve para medir en el iPhone sin Mac: si sigue habiendo retardo, sus datos dirán dónde.
+
+**Verificación.** `FinancialLogicCheck` compara índice y cálculo original en tres cuentas y ocho fechas, incluidos los bordes de apertura y saldo conocido. También comprueba que el índice se rehace tras un cambio, que otra lista no lo reutiliza y que el historial da los mismos valores. Pendientes los checks, el IPA y la prueba en el iPhone.
+
 ## Doblón 0.7.8 (49) · fluidez en el iPhone
 
 Preparado el 10 de noviembre de 2026. Al probar la 0.7.7 en el iPhone, el usuario notó retardo al abrir la app y en cada toque por los menús.
@@ -19,7 +40,7 @@ Preparado el 10 de noviembre de 2026. Al probar la 0.7.7 en el iPhone, el usuari
 - **Animación de cambio de pestaña** solo en el fundido del iPad.
 - **Sugerencias de categoría** preparadas 3 segundos después de abrir.
 
-**Verificación.** Prueba del memo en `FinancialLogicCheck`. Pendientes los checks, el IPA y comprobar la fluidez en el iPhone.
+**Verificación.** Prueba del memo en `FinancialLogicCheck`. Checks en verde; en el iPhone mejoró poco: seguía el retardo al entrar en cada menú (de ahí la 0.7.9).
 
 ## Problema observado
 

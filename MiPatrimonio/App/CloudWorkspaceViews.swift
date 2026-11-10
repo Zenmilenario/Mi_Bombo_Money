@@ -236,6 +236,8 @@ private struct CloudFinanceWorkspaceView: View {
                 sync.setAutomaticPauseReason(paused ? "Se reanudará al cerrar la ventana abierta." : nil)
                 return !paused
             } synchronize: {
+                HitchMonitor.shared.activity = "sincronizando"
+                defer { HitchMonitor.shared.activity = nil }
                 await sync.synchronize(account: account)
                 if !Task.isCancelled, !sync.busy, sync.conflict == nil, !hasPresentedWindow,
                    let context = sync.container?.mainContext {

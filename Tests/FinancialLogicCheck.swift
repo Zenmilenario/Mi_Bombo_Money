@@ -42,11 +42,67 @@ struct FinancialLogicCheck {
         precondition(exportedCSV.contains("2024-02-14") && exportedCSV.contains("Gasto") && exportedCSV.contains("25,50") && exportedCSV.contains("\"Cena; San Valentín\""),
                      "CSV export must correctly format date, type, amount with European comma, and escape delimiters")
 
+        checkBalanceIndex()
         print("Financial checks passed: reservations, transfers, dated history, budget remainders, reviewed alerts, bank identity, automatic subscriptions/income/fees, categories, CSV input and CSV export.")
     }
 
     private static func date(_ month: Int, _ day: Int = 1) -> Date {
         calendar.date(from: DateComponents(year: 2024, month: month, day: day, hour: 12))!
+    }
+
+    /// The balance index used by the screens gives exactly the scanned balance, and its cache is rebuilt
+    /// after every save (here, `invalidate()`).
+    private static func checkBalanceIndex() {
+        let current = FinancialAccount(name: "Corriente ficticia", type: .checking, openingBalanceMinor: 50_000, openingDate: date(1, 10))
+        let savings = FinancialAccount(name: "Ahorro ficticio", type: .savings, openingBalanceMinor: 0, openingDate: date(1))
+        let investing = FinancialAccount(name: "Inversión ficticia", type: .investment, openingDate: date(2))
+        var transactions: [FinancialTransaction] = []
+        let kinds: [TransactionType] = [.expense, .income, .transfer, .fee, .interest, .transfer]
+        for index in 0..<60 {
+            let kind = kinds[index % kinds.count]
+            let source = [current, savings, investing][index % 3]
+            let destination = kind == .transfer ? [savings, investing, current, source][index % 4] : nil
+            transactions.append(FinancialTransaction(date: date(1 + index % 6, 1 + index % 27), type: kind,
+                amountMinor: Int64(100 + index * 37), descriptionText: "Movimiento ficticio \(index)",
+                sourceAccount: source, destinationAccount: destination))
+        }
+        // Same date as the opening and as a snapshot: the edges of each rule.
+        transactions.append(FinancialTransaction(date: date(1, 10), type: .expense, amountMinor: 999, descriptionText: "Borde",
+            sourceAccount: current))
+        let snapshots = [BalanceSnapshot(date: date(3, 15), balanceMinor: 12_345, account: savings),
+                         BalanceSnapshot(date: date(5, 2), balanceMinor: 20_000, account: savings),
+                         BalanceSnapshot(date: date(4, 1), balanceMinor: 7_000, account: investing)]
+        transactions.append(FinancialTransaction(date: date(3, 15), type: .income, amountMinor: 555, descriptionText: "Mismo día",
+            sourceAccount: savings))
+        let index = AccountBalanceIndex(transactions: transactions, snapshots: snapshots)
+        let dates = [date(1), date(1, 10), date(2, 14), date(3, 15), date(4, 20), date(5, 2), date(7), Date.distantPast]
+        for account in [current, savings, investing] {
+            for when in dates {
+                let scanned = FinanceCalculator.scannedBalance(of: account, at: when, transactions: transactions, snapshots: snapshots)
+                precondition(index.balance(of: account, at: when) == scanned, "Index and scan must agree")
+            }
+        }
+        BalanceIndexCache.enable()
+        defer { BalanceIndexCache.disable() }
+        let before = FinanceCalculator.balance(of: current, transactions: transactions, snapshots: snapshots)
+        precondition(before == FinanceCalculator.scannedBalance(of: current, transactions: transactions, snapshots: snapshots))
+        transactions[0].amountMinor += 1_000
+        BalanceIndexCache.invalidate()
+        let after = FinanceCalculator.balance(of: current, transactions: transactions, snapshots: snapshots)
+        precondition(after == FinanceCalculator.scannedBalance(of: current, transactions: transactions, snapshots: snapshots),
+                     "After a save the index is rebuilt with the new amount")
+        let subset = Array(transactions.prefix(10))
+        precondition(FinanceCalculator.balance(of: current, transactions: subset)
+            == FinanceCalculator.scannedBalance(of: current, transactions: subset), "Another array never reuses the index")
+        let history = FinanceCalculator.netWorthHistory(endingAt: date(6), months: 6, accounts: [current, savings, investing],
+            transactions: transactions, snapshots: snapshots, calendar: calendar)
+        let expected = history.map { point -> Int64 in
+            let end = Swift.min(point.date.endOfMonth(calendar: calendar), date(6))
+            return [current, savings, investing].reduce(Int64.zero) {
+                $0 + FinanceCalculator.scannedBalance(of: $1, at: end, transactions: transactions, snapshots: snapshots)
+            }
+        }
+        precondition(history.map(\.valueMinor) == expected, "Net worth history keeps its values")
     }
 
     private static func checkReservedPayments() {

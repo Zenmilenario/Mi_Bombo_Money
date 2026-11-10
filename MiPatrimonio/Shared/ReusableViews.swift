@@ -734,3 +734,85 @@ struct DailyQuoteCard: View {
         .accessibilityHint("Muestra otra frase")
     }
 }
+
+/// Notes every moment the app stopped responding for more than 0.2 s, and what was on screen then. Only in
+/// memory on this device, to find where the iPhone stutters without a computer attached.
+@MainActor final class HitchMonitor {
+    static let shared = HitchMonitor()
+    struct Hitch: Identifiable {
+        let id = UUID()
+        let date: Date
+        let milliseconds: Int
+        let context: String
+    }
+    private(set) var hitches: [Hitch] = []
+    /// The screen in use, or the one just opened.
+    var context = "Inicio"
+    /// Work in progress that may explain a pause, such as a sync.
+    var activity: String?
+    private var timer: Timer?
+    private var last = CFAbsoluteTimeGetCurrent()
+    private static let tick: TimeInterval = 0.05
+
+    func start() {
+        resetClock()
+        guard timer == nil else { return }
+        let timer = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.check() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    /// After the app comes back from the background the timer was paused: that gap is not a hitch.
+    func resetClock() { last = CFAbsoluteTimeGetCurrent() }
+
+    func clear() { hitches.removeAll() }
+
+    private func check() {
+        let now = CFAbsoluteTimeGetCurrent()
+        let gap = now - last
+        last = now
+        guard gap > 0.2, gap < 10 else { return }
+        let label = activity.map { "\(context) · \($0)" } ?? context
+        hitches.insert(Hitch(date: .now, milliseconds: Int((gap - Self.tick) * 1000), context: label), at: 0)
+        if hitches.count > 40 { hitches.removeLast() }
+    }
+}
+
+/// Ajustes › Opciones avanzadas › Fluidez de la app.
+struct HitchListView: View {
+    @State private var hitches: [HitchMonitor.Hitch] = []
+
+    var body: some View {
+        List {
+            Section {
+                Text("Cada fila es un momento en que la app dejó de responder más de 0,2 segundos, con la pantalla en la que estabas. Se guarda solo en memoria y se borra al cerrar la app.")
+                    .font(.subheadline)
+            }
+            Section("Pausas recientes") {
+                if hitches.isEmpty {
+                    Text("Sin pausas desde que se abrió la app.").foregroundStyle(.secondary)
+                }
+                ForEach(hitches) { hitch in
+                    LabeledContent {
+                        Text("\(hitch.milliseconds) ms").monospacedDigit()
+                            .foregroundStyle(hitch.milliseconds >= 400 ? AppDesign.expense : AppDesign.warning)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(hitch.context)
+                            Text(hitch.date.formatted(date: .omitted, time: .standard))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            Section {
+                Button("Actualizar") { hitches = HitchMonitor.shared.hitches }
+                Button("Borrar", role: .destructive) { HitchMonitor.shared.clear(); hitches = [] }
+            }
+        }
+        .navigationTitle("Fluidez de la app")
+        .onAppear { hitches = HitchMonitor.shared.hitches }
+    }
+}

@@ -66,12 +66,24 @@ struct RootTabView: View {
             await listenForCorrectionEvents()
         }
         .onAppear {
+            HitchMonitor.shared.start()
             postDueMovements()
             fileCardPayments()
             recordOpening()
         }
+        .onChange(of: selectedTab) { _, tab in
+            // A pause right after the tap belongs to opening that screen; later ones, to using it.
+            let opening = "Abriendo " + tab.title
+            HitchMonitor.shared.context = opening
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(1))
+                if HitchMonitor.shared.context == opening { HitchMonitor.shared.context = tab.title }
+            }
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
+                HitchMonitor.shared.resetClock()
+                BalanceIndexCache.invalidate()
                 postDueMovements()
                 fileCardPayments()
                 recordOpening()
