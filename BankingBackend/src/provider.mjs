@@ -98,6 +98,11 @@ export async function verifySandbox(env, transport = fetch) {
   if (mode(env) === 'demo') return;
   const app = await api('/application', env, {}, transport);
   const production = mode(env) === 'production';
+  // The pilot application is inactive until its first accounts are linked in the control panel:
+  // invited people get their own message instead of a configuration error.
+  if (env.GUEST_APPLICATION && app.kid === env.ENABLE_APP_ID && app.environment === 'PRODUCTION' && app.active !== true) {
+    throw new Fault(503, 'guest_application_inactive');
+  }
   if (app.environment !== (production ? 'PRODUCTION' : 'SANDBOX') || app.kid !== env.ENABLE_APP_ID || app.active !== true
       || (production && app.services?.length !== 1)
       || !app.services?.includes('AIS') || !app.redirect_urls?.includes(`${origin(env)}/v1/callback`)) {
@@ -157,6 +162,9 @@ export async function exchange(code, bank, env, transport = fetch) {
     };
   }));
   if (accounts.length > 30 || accounts.some(a => !/^[a-f0-9-]{36}$/i.test(a.uid ?? '') || !/^[A-Z]{3}$/.test(a.currency ?? ''))) throw new Fault(502, 'invalid_provider_data');
+  // A restricted application only returns accounts linked in its control panel. A session without any
+  // is not stored (the provider session is revoked below) instead of leaving an empty bank behind.
+  if (mode(env) === 'production' && accounts.length === 0) throw new Fault(409, 'no_linked_accounts');
   const testScenario = accounts.length === 3 && new Set(accounts.map(a => a.testRole).filter(Boolean)).size === 3 ? SCENARIO_ID : undefined;
   return { bank, sessionID: data.session_id, validUntil: data.access.valid_until, accounts, testScenario };
   } catch (error) {

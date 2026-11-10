@@ -199,3 +199,17 @@ test('pending and held entries are read alongside bookings and kept out of the b
   assert.deepEqual(odd.ignoredStatuses, { NONE: 1, OTHER: 1, OTHR: 1 });
   assert.equal(odd.transactions.length, 1);
 });
+
+test('a restricted session without linked accounts is revoked and never stored', async () => {
+  const session = crypto.randomUUID();
+  const calls = [];
+  const transport = async (url, options) => {
+    calls.push(`${options.method ?? 'GET'} ${new URL(url).pathname}`);
+    if (url.endsWith('/application')) return Response.json(application);
+    if (options.method === 'DELETE') return new Response(null, { status: 204 });
+    return Response.json({ session_id: session, aspsp: { name: 'Bankinter', country: 'ES' }, psu_type: 'personal',
+      access: { valid_until: new Date(Date.now() + 86400000).toISOString() }, accounts: [] });
+  };
+  await assert.rejects(exchange('fixture', 'Bankinter', env, transport), { code: 'no_linked_accounts' });
+  assert.ok(calls.includes(`DELETE /sessions/${session}`), 'The provider session is not left behind');
+});

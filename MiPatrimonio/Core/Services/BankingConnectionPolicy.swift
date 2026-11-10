@@ -141,6 +141,9 @@ enum BankingConnectionError: LocalizedError {
             switch code {
             case "unauthorized": "La clave de acceso no es válida o ha sido revocada."
             case "owner_required": "Tu cuenta no tiene acceso a la conexión bancaria. Pide al responsable de Doblón que te invite."
+            case "guest_banking_not_configured": "La conexión bancaria para personas invitadas aún no está preparada. Avisa al responsable de Doblón."
+            case "guest_application_inactive": "La conexión bancaria para personas invitadas aún no está activa: el responsable de Doblón tiene que vincular primero tus cuentas en Enable Banking."
+            case "no_linked_accounts": "El banco no ha compartido ninguna cuenta que Doblón pueda leer. Comprueba con el responsable de Doblón que tu cuenta está vinculada."
             case "identity_unavailable": "No se ha podido verificar tu sesión cloud. Inténtalo más tarde."
             case "production_configuration_required": "El servidor necesita una aplicación de Enable Banking de producción activa, con acceso AIS y el retorno correcto."
             case "stable_account_identity_required": "El banco no devuelve una identificación estable de la cuenta. No se importará para evitar duplicados al renovar el permiso."

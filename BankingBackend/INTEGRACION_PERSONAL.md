@@ -1,5 +1,40 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Doblón 0.7.14 (55) y servidor · aplicación piloto para personas invitadas
+
+Decidido el 10 de noviembre de 2026. El usuario creó en Enable Banking una segunda aplicación de producción, «Doblón Piloto», solo para las cuentas de las personas invitadas. Usa el mismo servidor y la misma dirección de retorno. Su propia aplicación personal sigue aparte, de modo que un problema con la piloto no afecta a sus bancos.
+
+**Implementado (sin desplegar).**
+- **Credenciales por persona** (`providerEnvironment` en `security.mjs`):
+  - El dueño firma con su aplicación personal (`ENABLE_APP_ID`/`ENABLE_PRIVATE_KEY`).
+  - Las personas invitadas firman con la piloto (`ENABLE_GUEST_APP_ID`/`ENABLE_GUEST_PRIVATE_KEY`).
+  - Afecta al catálogo de bancos, la autorización, el canje del código al volver del banco, la descarga y la desconexión.
+  - Una persona invitada nunca usa la aplicación personal: sin piloto configurada recibe `guest_banking_not_configured`.
+- **Piloto inactiva:** mientras no tenga cuentas vinculadas, las personas invitadas reciben `guest_application_inactive`, con un mensaje claro en la app. El dueño mantiene su mensaje de siempre.
+- **Sesión sin cuentas vinculadas:** si el banco no comparte ninguna cuenta vinculada, la sesión se revoca y no se guarda (`no_linked_accounts`), para no dejar un banco vacío.
+- **Herramientas** (`BankingBackend`):
+  - `npm run pilot-app -- --app-id <id> --pem <ruta>`: valida la clave (RSA ≥ 4096, distinta de la personal) y la sube a Cloudflare como secreto por la entrada estándar, sin mostrarla ni guardarla en el repositorio.
+  - `npm run guests -- list | add <id> | remove <id>`: gestiona `SUPABASE_GUEST_IDS` en `.personal/wrangler.jsonc` (fuera de Git) con validación.
+- **App 0.7.14:** mensajes para «conexión de invitados no preparada», «aún no activa» y «sin cuentas vinculadas».
+
+**Pruebas.**
+- `multiuser.test.mjs`: firma con la aplicación de cada persona (comprobando el `kid` del JWT), sin recurso a la personal, piloto inactiva y validación de las herramientas.
+- `personal.test.mjs`: sesión sin cuentas revocada.
+- En local: 34 unitarias y 23 de integración en verde.
+
+**Dar de alta a una persona invitada.**
+1. **Una sola vez:**
+   - En el panel, «Doblón Piloto» › «Activate by linking accounts». La persona, delante, entra en su banco y autoriza. Con eso la aplicación queda activa.
+   - Generar o descargar su clave `.pem` y ejecutar `npm run pilot-app`.
+   - Desplegar el servidor (requiere confirmación).
+2. **Cada persona:**
+   - vincula sus cuentas en «Doblón Piloto» (después, con «Link accounts»);
+   - instala Doblón y crea su cuenta en la nube;
+   - el dueño copia su «User UID» de Supabase › Authentication › Users, ejecuta `npm run guests -- add <id>` y vuelve a desplegar;
+   - la persona conecta su banco desde Mis bancos en el iPhone.
+
+**Límite actual.** La app Android aún no conecta bancos: las personas invitadas necesitan el iPhone para conectar su banco y pueden consultar sus datos en Android.
+
 ## Doblón 0.7.13 (54) · bandeja de Apple Pay sin pérdidas
 
 Corrección del 10 de noviembre de 2026, a partir de una revisión externa.
