@@ -74,7 +74,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             VALIDATE_PRODUCT=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            "${EXTRA[@]}" \
+            ${EXTRA[@]+"${EXTRA[@]}"} \
             clean build | tee xcodebuild.log
 
       - name: Comprimir la aplicacion del simulador

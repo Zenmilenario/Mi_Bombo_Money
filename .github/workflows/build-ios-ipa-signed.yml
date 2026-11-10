@@ -177,7 +177,7 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            "${EXTRA[@]}" \
+            ${EXTRA[@]+"${EXTRA[@]}"} \
             clean build | tee build/xcodebuild-signed.log
 
       - name: Verificar firma y crear IPA

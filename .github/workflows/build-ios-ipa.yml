@@ -78,7 +78,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             VALIDATE_PRODUCT=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
-            "${EXTRA[@]}" \
+            ${EXTRA[@]+"${EXTRA[@]}"} \
             clean build | tee build/xcodebuild-iphoneos.log
 
       - name: Crear el archivo IPA

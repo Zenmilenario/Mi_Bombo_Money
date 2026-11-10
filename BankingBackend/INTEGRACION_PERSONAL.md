@@ -14,6 +14,8 @@ Decidido el 10 de noviembre de 2026. El mismo código genera dos ediciones, que 
 
 **Pendiente.** La edición pública aún usa el servidor personal, que solo admite al creador. Para que otras personas conecten sus bancos hace falta lo descrito en «Conexión bancaria para otras personas» (Obsidian): acuerdo con Enable Banking, servidor para varios usuarios y consentimiento.
 
+**Corrección de CI.** En el primer intento fallaron las dos compilaciones de la edición personal. Con `set -u`, el bash 3.2 de los Mac de GitHub falla al expandir la lista vacía de opciones extra; la pública, que sí la llena, pasaba. Ahora se usa `${EXTRA[@]+"${EXTRA[@]}"}` en los tres workflows; también afectaba a «Generar IPA» en edición personal.
+
 **Verificación.** Pendientes los checks, el IPA y la prueba.
 
 ## Doblón 0.7.7 (48) · pagos con Apple Pay apuntados al momento
