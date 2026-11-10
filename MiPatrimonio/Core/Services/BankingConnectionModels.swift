@@ -19,6 +19,7 @@ struct BankingAccountFeed {
     let balances: [BankingPreview.Balance]
     let movements: [BankingPreview.Movement]
     var pendingMovements: [BankingPreview.PendingMovement]? = nil
+    var ignoredStatuses: [String: Int]? = nil
 }
 
 struct BankingAccountActivity: Codable {
@@ -32,6 +33,8 @@ struct BankingAccountActivity: Codable {
     var recentMovements: [RecentMovement]? = nil
     /// How many booked postings the bank sent in this query.
     var receivedCount: Int? = nil
+    /// Entries sent with a status the app does not import (cancelled, informative, none…), by status.
+    var ignoredStatuses: [String: Int]? = nil
 
     struct RecentMovement: Codable, Equatable {
         let bookingDate: String
@@ -61,6 +64,7 @@ struct BankingAccountActivity: Codable {
             .map { RecentMovement(bookingDate: $0.bookingDate, signedAmountMinor: $0.signedAmountMinor,
                                   currency: $0.currency, description: $0.description) }
         receivedCount = feed.movements.count
+        ignoredStatuses = feed.ignoredStatuses
         bookedBalance = balance(preferred: "ITBD", fallback: "CLBD")
         availableBalance = balance(preferred: "ITAV", fallback: "CLAV")
         if let pending = feed.pendingMovements {
@@ -166,6 +170,8 @@ struct BankingPreview: Decodable {
     let balances: [Balance]
     let transactions: [Movement]
     let pendingTransactions: [PendingMovement]?
+    /// Entries the bank sent with a status the app does not import, counted by status (diagnostic only).
+    let ignoredStatuses: [String: Int]?
     let continuation: String?
 
     init(balances: [Balance], transactions: [Movement], continuation: String?) {
@@ -173,5 +179,6 @@ struct BankingPreview: Decodable {
         self.transactions = transactions
         self.continuation = continuation
         pendingTransactions = nil
+        ignoredStatuses = nil
     }
 }

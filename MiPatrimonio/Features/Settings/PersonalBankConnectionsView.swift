@@ -121,6 +121,14 @@ struct PersonalBankConnectionsView: View {
                                                           font: .caption, weight: .semibold, signed: true)
                                     }
                                 }
+                                if let ignored = activity.ignoredStatuses, !ignored.isEmpty {
+                                    Label {
+                                        Text("El banco también envió " + ignored.sorted { $0.key < $1.key }
+                                            .map { "\($0.value) \(Self.statusName($0.key))" }.joined(separator: ", ")
+                                            + ". La app no los incorpora porque el banco no los da por contabilizados.")
+                                    } icon: { Image(systemName: "exclamationmark.circle") }
+                                    .font(.caption).foregroundStyle(AppDesign.warning)
+                                }
                                 Text("Es lo que envió el banco en la consulta del \(activity.observedAt.formatted(date: .abbreviated, time: .shortened)), contabilizado y sin retenidos. Si un pago de tu banco no aparece aquí, el banco aún no lo ha comunicado.")
                                     .font(.caption2).foregroundStyle(.secondary)
                             } label: {
@@ -501,6 +509,18 @@ struct PersonalBankConnectionsView: View {
             selection = nil
         } catch { self.error = error.localizedDescription; selection = nil }
     }
+    /// Readable name of a bank entry status the app does not import.
+    static func statusName(_ code: String) -> String {
+        switch code {
+        case "CNCL": "cancelados"
+        case "RJCT": "rechazados"
+        case "INFO": "informativos"
+        case "SCHD": "programados"
+        case "NONE": "sin estado"
+        default: "con estado \(code)"
+        }
+    }
+
     private func run(protected: Bool = false, _ action: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }
         busy = true

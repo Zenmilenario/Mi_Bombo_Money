@@ -43,6 +43,13 @@ struct PersonalBankingPlanCheck {
             }), observedAt: day)
         precondition(several.receivedCount == 12 && several.recentMovements?.count == 8
             && several.recentMovements?.first?.bookingDate == "2026-10-12", "Only the newest postings are kept")
+        let withIgnored = BankingAccountActivity(feed: BankingAccountFeed(connection: existingFeed.connection, account: existingFeed.account,
+            balances: [], movements: [], pendingMovements: [], ignoredStatuses: ["CNCL": 2, "NONE": 1]), observedAt: day)
+        precondition(withIgnored.ignoredStatuses == ["CNCL": 2, "NONE": 1] && withIgnored.recentMovements == [],
+            "Entries the bank sent with other statuses are reported, never imported")
+        let decodedPreview = try JSONDecoder().decode(BankingPreview.self, from: Data(
+            #"{"balances":[],"transactions":[],"ignoredStatuses":{"OTHR":3},"continuation":null}"#.utf8))
+        precondition(decodedPreview.ignoredStatuses == ["OTHR": 3])
         let legacyActivity = try JSONDecoder().decode(BankingAccountActivity.self, from: Data(
             #"{"observedAt":0,"currency":"EUR","bookedBalance":null,"availableBalance":null,"pendingMovements":null}"#.utf8))
         precondition(legacyActivity.recentMovements == nil, "Activity saved by 0.7.3 still loads")

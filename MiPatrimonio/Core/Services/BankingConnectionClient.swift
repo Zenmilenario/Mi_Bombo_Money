@@ -87,6 +87,7 @@ final class BankingConnectionClient {
             for account in connection.accounts {
                 var rows: [BankingPreview.Movement] = []; var balances: [BankingPreview.Balance] = []
                 var pendingRows: [BankingPreview.PendingMovement]?
+                var ignored: [String: Int]?
                 var cursor: String?; var visited = Set<String>(); var complete = false
                 for page in 0..<50 {
                     try Task.checkCancellation()
@@ -94,6 +95,9 @@ final class BankingConnectionClient {
                                                  userInitiated: userInitiated)
                     if page == 0 { balances = data.balances }
                     rows.append(contentsOf: data.transactions)
+                    if let counts = data.ignoredStatuses {
+                        ignored = (ignored ?? [:]).merging(counts, uniquingKeysWith: +)
+                    }
                     if let pending = data.pendingTransactions {
                         if pendingRows == nil { pendingRows = [] }
                         pendingRows?.append(contentsOf: pending)
@@ -106,7 +110,7 @@ final class BankingConnectionClient {
                 }
                 guard complete else { throw BankingWorkspaceError.incompleteHistory }
                 result.append(BankingAccountFeed(connection: connection, account: account, balances: balances,
-                    movements: rows, pendingMovements: pendingRows))
+                    movements: rows, pendingMovements: pendingRows, ignoredStatuses: ignored))
             }
         }
         return result

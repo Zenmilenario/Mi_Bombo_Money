@@ -1,5 +1,19 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Doblón 0.7.6 (47) y servidor · apuntes descartados por su estado
+
+Preparado el 10 de noviembre de 2026. Seguía sin llegar un pago con tarjeta de Trade Republic del día anterior. Al revisarlo se vio que el servidor solo acepta apuntes con estado contabilizado (BOOK), pendiente (PDNG) o retenido (HOLD): cualquier otro estado, o la ausencia de estado, se descartaba sin dejar rastro.
+
+**Implementado (pendiente de desplegar el servidor).**
+- **Servidor:** cuenta los apuntes descartados por estado (CNCL, RJCT, INFO, sin estado…), los devuelve como `ignoredStatuses` y deja una línea en el registro. Solo el estado y el número, nunca el apunte.
+- **App:** el diagnóstico de Mis bancos indica, por cuenta, «El banco también envió N … que la app no incorpora».
+- Así se distingue si el banco no ha enviado el pago o si lo envió con un estado que no se importa.
+
+**Verificación.**
+- Servidor: 25 pruebas en local, incluida la nueva con estados variados.
+- App: pruebas con datos ficticios en `PersonalBankingPlanCheck`.
+- Pendientes los checks, el despliegue del servidor (requiere confirmación) y la prueba.
+
 ## Doblón 0.7.5 (46) · Don Bigotes actualiza tus bancos
 
 Idea del usuario del 10 de noviembre de 2026: actualizar los bancos desde Mis bancos exigía demasiados toques.
