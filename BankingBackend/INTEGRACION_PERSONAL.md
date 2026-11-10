@@ -20,7 +20,21 @@ Decidido el 10 de noviembre de 2026. El usuario dará de alta a personas de conf
 - `test/multiuser.test.mjs`: SQLite real con las tres migraciones, usuarios ficticios. Cubre admisión de invitados y rechazo de desconocidos, aislamiento y cifrado por usuario, conexiones antiguas del dueño, retorno de la autorización y límites por usuario.
 - 30 pruebas del servidor en verde en local. `wrangler deploy --dry-run` correcto.
 
-**Para activarlo (requiere confirmación del usuario).**
+**Desplegado el 10 de noviembre de 2026** con confirmación del usuario:
+- Migración `0003` aplicada en la base personal.
+- En la base sandbox se aplicaron `0002` y `0003`: la `0002` nunca se había aplicado allí. Se comprobó antes el esquema; la `0002` conserva las filas.
+- Servidor personal: versión `768ffa37` (anterior para *rollback*: `71b61550`).
+- Servidor sandbox: versión `fcf49ebd`.
+- `/health` correcto en ambos; una llamada sin sesión recibe 401.
+
+**Corrección previa al despliegue (`cc7ba10`).**
+- El modo sandbox no tiene usuarios: sigue con un único espacio compartido.
+- El check «banking» falló porque las pruebas de integración aplicaban una lista fija de migraciones. Ahora aplican todas en orden.
+- En local: 31 pruebas unitarias y 23 de integración en verde.
+
+**Pendiente.** Comprobar en la app que tus bancos siguen actualizándose (tus conexiones previas deben verse sin reconectar). Añadir a las personas invitadas.
+
+**Pasos de activación (hechos los dos primeros).**
 1. Aplicar la migración `0003` en las dos bases D1, personal y sandbox, antes de desplegar: el código nuevo escribe la columna `owner`.
 2. Desplegar los dos Workers.
 3. Por cada persona:
