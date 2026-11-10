@@ -71,10 +71,7 @@ struct CategoryRulesView: View {
         }
         .sheet(isPresented: $showingAdd) { CategoryRuleFormView() }
         .sheet(item: $editingRule) { CategoryRuleFormView(rule: $0) }
-        .alert("No se pudo guardar", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
+        .alert("No se pudo guardar", isPresented: Binding(isPresent: $errorMessage)) {
             Button("Aceptar", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "Error desconocido")
@@ -135,7 +132,7 @@ private struct CategoryRuleFormView: View {
                 }
 
                 if let errorMessage {
-                    Section { Text(errorMessage).foregroundStyle(.red) }
+                    Section { Text(errorMessage).foregroundStyle(AppDesign.expense) }
                 }
             }
             .navigationTitle(rule == nil ? "Nueva regla" : "Editar regla")

@@ -128,6 +128,6 @@ Estas pruebas nuevas **todavía no se han ejecutado**: este equipo Windows no di
 
 1. En GitHub Desktop, hacer commit de todos los cambios y pulsar **Push origin** en la rama de trabajo.
 2. En Actions, comprobar que el último commit supera las dos compilaciones de **Validar app iOS** y los dos trabajos de **Comprobar datos y cálculos**. No hace falta hacer merge para ejecutarlos.
-3. Revisar el aspecto siguiendo `PRUEBAS_REDISENO.md`, especialmente iPhone pequeño, iPad vertical/horizontal, pantalla dividida y texto de accesibilidad.
+3. Revisar el aspecto siguiendo `docs/historico/PRUEBAS_REDISENO.md`, especialmente iPhone pequeño, iPad vertical/horizontal, pantalla dividida y texto de accesibilidad.
 
 Esta configuración añade comprobaciones, pero no modifica la protección de `main`: por sí sola no impide pulsar Merge cuando un trabajo falla. Tampoco sustituye las pruebas de interacción y aspecto en un simulador o dispositivo real.

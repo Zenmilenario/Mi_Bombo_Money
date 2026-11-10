@@ -13,6 +13,7 @@ VALIDATIONS = (
     "test-backup.yml",
     "test-banking.yml",
     "test-cloud.yml",
+    "test-android.yml",
 )
 CONCURRENCY = "ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}"
 
@@ -85,7 +86,7 @@ class CIWorkflowCheck(unittest.TestCase):
                     for step in job.get("steps", []):
                         self.assertFalse(step.get("continue-on-error", False))
                         command = step.get("run", "")
-                        if "Tests/" in command or "npm test" in command:
+                        if "Tests/" in command or "npm test" in command or "flutter test" in command:
                             self.assertNotIn("if", step, "No saltar pasos de pruebas")
                         commands.append(command)
         all_commands = "\n".join(commands)
@@ -96,7 +97,8 @@ class CIWorkflowCheck(unittest.TestCase):
                 self.assertTrue(any(command.strip().splitlines()[-1].strip().startswith("build/") for command in containing),
                                 "Compilar una suite no basta: debe ejecutarse")
         for command in ("python3 Tests/check_adaptive_layout.py", "python supabase/tests/test_finance.py",
-                        "npm test", "npm run test:integration", "npm audit --audit-level=high", "npm run check"):
+                        "npm test", "npm run test:integration", "npm audit --audit-level=high", "npm run check",
+                        "flutter test", "flutter analyze"):
             with self.subTest(command=command):
                 self.assertIn(command, all_commands)
 

@@ -132,7 +132,7 @@ Esta entrega incorpora un rediseño completo de la experiencia de uso sin cambia
 - El botón de añadir movimiento se coloca en el área segura de la pantalla, respetando la posición de la barra de pestañas.
 - Sistema visual común, modo oscuro y mejoras de accesibilidad.
 
-Consulta `CAMBIOS_REDISENO.md` para el detalle y `PRUEBAS_REDISENO.md` para una lista práctica de comprobaciones en Appetize o en un dispositivo iOS.
+Consulta `docs/historico/CAMBIOS_REDISENO.md` para el detalle y `docs/historico/PRUEBAS_REDISENO.md` para una lista práctica de comprobaciones en Appetize o en un dispositivo iOS.
 
 ## Requisitos
 
@@ -219,9 +219,9 @@ La revisión de navegación cloud, paletas clara/oscura y distribución adaptabl
 
 ## Verificación antes del merge
 
-La revisión local del 5 de octubre de 2026 ha comprobado la sintaxis de los 31 archivos Swift de la app y los dos archivos de pruebas, las referencias del proyecto Xcode, el esquema compartido, `Info.plist`, los recursos del icono y los cuatro workflows con actionlint. Los detalles y las correcciones están en `REVISION_PRE_MERGE.md`.
+La revisión local del 5 de octubre de 2026 ha comprobado la sintaxis de los 31 archivos Swift de la app y los dos archivos de pruebas, las referencias del proyecto Xcode, el esquema compartido, `Info.plist`, los recursos del icono y los cuatro workflows con actionlint. Los detalles y las correcciones están en `docs/historico/REVISION_PRE_MERGE.md`.
 
-Estas comprobaciones locales no equivalen a compilar con el SDK de iOS. GitHub Actions compila la app completa en Debug para simulador y en Release para dispositivo; también ejecuta pruebas de exportación/restauración, reservas, transferencias, presupuestos repetidos, reglas, CSV, servidor bancario y política de conexión del cliente. Hay que esperar a que todas las comprobaciones del último commit terminen correctamente antes del merge. La revisión visual en dispositivos sigue la lista de `PRUEBAS_REDISENO.md`.
+Estas comprobaciones locales no equivalen a compilar con el SDK de iOS. GitHub Actions compila la app completa en Debug para simulador y en Release para dispositivo; también ejecuta pruebas de exportación/restauración, reservas, transferencias, presupuestos repetidos, reglas, CSV, servidor bancario y política de conexión del cliente. Hay que esperar a que todas las comprobaciones del último commit terminen correctamente antes del merge. La revisión visual en dispositivos sigue la lista de `docs/historico/PRUEBAS_REDISENO.md`.
 
 Consulta `ESPECIFICACION_FUNCIONAL_Y_TECNICA.md` para el análisis completo, el diseño de pantallas, el modelo, las fórmulas, la arquitectura y el plan por fases.
 

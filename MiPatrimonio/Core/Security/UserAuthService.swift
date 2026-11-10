@@ -132,7 +132,7 @@ enum UserAuthService {
             return PasswordKeyDerivation.matches(key.base64EncodedString(), String(parts[2]))
         }
         // Read existing credentials once, then upgrade after a successful login.
-        let legacy = SHA256.hash(data: Data("\(password)|\(profile.salt)".utf8)).map { String(format: "%02x", $0) }.joined()
+        let legacy = StableDigest.hex("\(password)|\(profile.salt)")
         return PasswordKeyDerivation.matches(legacy, profile.passwordHash)
     }
 }

@@ -1,14 +1,17 @@
+import AppIntents
+import Combine
 import SwiftData
 import SwiftUI
 
 private enum SettingsRoute: CaseIterable, Equatable {
-    case cloud, banks, categories, rules, recurring, institutions, goals, reserves
+    case cloud, banks, cardPayments, categories, rules, recurring, institutions, goals, reserves
     case backup, csv, credentials, sandbox, privacy, help
 
     private var details: (String, String, String) {
         switch self {
         case .cloud: ("Mi nube", "Cuenta y sincronización", "cloud")
         case .banks: ("Mis bancos", "Conectar, actualizar y revisar movimientos", "building.columns.circle")
+        case .cardPayments: ("Pagos con Apple Pay", "Apunta cada pago al momento con Atajos", "creditcard")
         case .categories: ("Categorías", "", "tag")
         case .rules: ("Categorización automática", "Reglas para reconocer conceptos habituales", "text.magnifyingglass")
         case .recurring: ("Cargos y aportaciones periódicas", "Suscripciones, ingresos y transferencias", "repeat.circle")
@@ -31,6 +34,7 @@ private enum SettingsRoute: CaseIterable, Equatable {
         switch self {
         case .cloud: aliases = "cloud correo sesión sincronizar conexión activar nube"
         case .banks: aliases = "enable banking conectar banco permisos conciliación cuentas movimientos automáticos"
+        case .cardPayments: aliases = "atajos shortcuts siri wallet tarjeta transacción automatización pendiente trade republic"
         case .rules: aliases = "reglas categorías categorizar"
         case .recurring: aliases = "movimientos recurrentes mensual recibos suscripción"
         case .backup: aliases = "copia seguridad JSON cifrada contraseña recuperar respaldo"
@@ -73,9 +77,14 @@ struct SettingsView: View {
     @Environment(\.isCloudWorkspace) private var isCloudWorkspace
     @AppStorage("cloudAccountModeEnabled") private var cloudMode = false
     @AppStorage("hideAmounts") private var hideAmounts = false
+    @AppStorage("companionEnabled") private var companionEnabled = true
+    @AppStorage("companionLevel") private var companionLevel = "discreto"
+    @AppStorage("companionMemoryV1") private var companionMemory = ""
     @AppStorage("appLockEnabled") private var appLockEnabled = true
     @AppStorage("autoPromptBiometrics") private var autoPromptBiometrics = false
     @AppStorage("appearanceMode") private var appearanceMode = AppAppearance.system.rawValue
+    @AppStorage("companionFocus") private var companionFocus = ""
+    @State private var showingCardPayments = false
 
     @Query private var accounts: [FinancialAccount]
     @Query private var transactions: [FinancialTransaction]
@@ -93,7 +102,9 @@ struct SettingsView: View {
     private var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     private var availableRoutes: [SettingsRoute] {
         SettingsRoute.allCases.filter { route in
-            if isBankingTestWorkspace && [.cloud, .banks, .backup, .csv, .sandbox].contains(route) { return false }
+            if isBankingTestWorkspace && [.cloud, .banks, .cardPayments, .backup, .csv, .sandbox].contains(route) { return false }
+            // The banking lab is a developer tool: only in the personal edition.
+            if !AppEdition.isPersonal && route == .sandbox { return false }
             return true
         }
     }
@@ -107,7 +118,11 @@ struct SettingsView: View {
         availableRoutes.contains(route) && matches(route.searchTerms)
     }
     private func showsAny(_ routes: [SettingsRoute]) -> Bool { routes.contains(where: shows) }
-    private var showsPreferences: Bool { matches("apariencia tema claro oscuro automático") || matches("privacidad ocultar importes cantidades") }
+    private var showsPreferences: Bool {
+        matches("apariencia tema claro oscuro automático") || matches("privacidad ocultar importes cantidades")
+            || matches(Self.companionKeywords)
+    }
+    private static let companionKeywords = "don bigotes gato compañero avisos asistente"
     private var showsSecurity: Bool { matches("seguridad bloqueo desbloqueo biometría Face ID Touch ID huella") || shows(.credentials) }
     private var showsStorage: Bool { matches("almacenamiento datos guardados dispositivo cuentas movimientos tarjetas entidades") }
     private var showsReset: Bool { matches("eliminar borrar restablecer empezar desde cero datos") }
@@ -118,27 +133,10 @@ struct SettingsView: View {
         Binding(get: { isSearching || stored.wrappedValue }, set: { stored.wrappedValue = $0 })
     }
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+
     var body: some View {
-        NavigationStack {
-            List {
-                if !hasResults {
-                    ContentUnavailableView.search(text: searchText)
-                } else {
-                    connectionSection
-                    organizationSection
-                    preferencesSection
-                    dataSection
-                    advancedSection
-                    helpSection
-                }
-            }
-            .listStyle(.insetGrouped)
-            .cloudSyncToolbar()
-            .scrollContentBackground(.hidden)
-            .background(AppDesign.pageBackground)
-            .navigationTitle("Ajustes")
-            .searchable(text: $searchText, prompt: "Buscar en ajustes")
-        }
+        container
         .confirmationDialog(
             isBankingTestWorkspace ? "Eliminar datos de prueba" : "Eliminar todos los datos financieros",
             isPresented: $showingResetConfirmation,
@@ -155,11 +153,66 @@ struct SettingsView: View {
                 ? "Se eliminarán los datos de esta cuenta cloud al sincronizar, también en tus otros dispositivos. Las categorías comunes volverán a aparecer. Exporta una copia antes de continuar."
                 : "Se eliminarán cuentas, movimientos, categorías personalizadas, presupuestos y demás datos locales. Las categorías comunes volverán a aparecer. Esta acción no se puede deshacer.")
         }
-        .alert("No se pudieron eliminar los datos", isPresented: Binding(
-            get: { resetError != nil }, set: { if !$0 { resetError = nil } }
-        )) {
+        .alert("No se pudieron eliminar los datos", isPresented: Binding(isPresent: $resetError)) {
             Button("Aceptar", role: .cancel) { resetError = nil }
         } message: { Text(resetError ?? "Error desconocido") }
+    }
+
+    /// iPad: the sections on the left and the chosen one on the right. iPhone: a single stack.
+    @ViewBuilder private var container: some View {
+        if horizontalSizeClass == .regular {
+            NavigationSplitView {
+                settingsList
+                    .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 440)
+            } detail: {
+                VStack(spacing: 14) {
+                    DonBigotesMark(awake: false, size: 64)
+                    Text("Elige un ajuste").font(.title3.weight(.semibold))
+                    Text("Aquí verás su detalle.").font(.subheadline).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(AppDesign.pageBackground)
+            }
+            .navigationSplitViewStyle(.balanced)
+        } else {
+            NavigationStack { settingsList }
+        }
+    }
+
+    private var settingsList: some View {
+            List {
+                if !hasResults {
+                    ContentUnavailableView.search(text: searchText)
+                } else {
+                    // Every row, including pickers, toggles and disclosure groups, uses the card colour:
+                    // without it those rows keep the system grey and the dark theme looks patchy.
+                    Group {
+                        connectionSection
+                        organizationSection
+                        preferencesSection
+                        dataSection
+                        advancedSection
+                        helpSection
+                    }
+                    .listRowBackground(AppDesign.cardBackground)
+                }
+            }
+            .listStyle(.insetGrouped)
+            .cloudSyncToolbar()
+            .scrollContentBackground(.hidden)
+            .background(AppDesign.pageBackground)
+            .navigationTitle("Ajustes")
+            .searchable(text: $searchText, prompt: "Buscar en ajustes")
+            .navigationDestination(isPresented: $showingCardPayments) { CardPaymentSettingsView() }
+            .onAppear(perform: followCompanion)
+            .onChange(of: companionFocus) { _, _ in followCompanion() }
+    }
+
+    /// Don Bigotes opens «Pagos con Apple Pay» when a payment is waiting for its account.
+    private func followCompanion() {
+        guard CompanionFocus.parse(companionFocus) == .cardPayments, !isBankingTestWorkspace else { return }
+        companionFocus = ""
+        showingCardPayments = true
     }
 
     @ViewBuilder private var connectionSection: some View {
@@ -170,10 +223,11 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-        if showsAny([.cloud, .banks]) {
+        if showsAny([.cloud, .banks, .cardPayments]) {
             Section("Cuenta y bancos") {
                 routeRow(.cloud)
                 routeRow(.banks)
+                routeRow(.cardPayments)
             }
         }
     }
@@ -207,6 +261,27 @@ struct SettingsView: View {
                 }
                 if matches("privacidad ocultar importes cantidades") {
                     Toggle(isOn: $hideAmounts) { Label("Ocultar importes", systemImage: "eye.slash") }
+                }
+                if matches(Self.companionKeywords) {
+                    Toggle(isOn: $companionEnabled) {
+                        HStack(spacing: 10) {
+                            DonBigotesMark(awake: companionEnabled, size: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Don Bigotes")
+                                Text("Te señala cosas tuyas sin interrumpir").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    if companionEnabled {
+                        Picker("Cuánto habla", selection: $companionLevel) {
+                            Text("Callado").tag("callado")
+                            Text("Discreto").tag("discreto")
+                            Text("Más hablador").tag("hablador")
+                        }
+                        if !companionMemory.isEmpty {
+                            Button("Volver a mostrar los avisos descartados") { companionMemory = "" }
+                        }
+                    }
                 }
                 if showsSecurity {
                     DisclosureGroup(isExpanded: expansion($securityExpanded)) {
@@ -248,6 +323,11 @@ struct SettingsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     routeRow(.sandbox)
+                    if AppEdition.isPersonal {
+                        NavigationLink { HitchListView() } label: {
+                            SettingsRouteLabel(title: "Fluidez de la app", subtitle: "Pausas recientes al usar la app", systemImage: "speedometer")
+                        }
+                    }
                     if showsReset {
                         Button(role: .destructive) { showingResetConfirmation = true } label: {
                             Label(isBankingTestWorkspace ? "Eliminar datos de prueba" : "Eliminar todos los datos financieros", systemImage: "trash")
@@ -267,7 +347,21 @@ struct SettingsView: View {
                         routeRow(.privacy)
                     }
                 }
-            } footer: { Text("Mi Bombo Money · \(appVersion)") }
+                if !isSearching || matches("acerca de doblón don bigotes versión gato") {
+                    NavigationLink { AboutDoblonView(version: appVersion) } label: {
+                        SettingsRouteLabel(title: "Acerca de Doblón", subtitle: "Versión \(appVersion) · conoce a Don Bigotes", systemImage: "info.circle")
+                    }
+                }
+            } footer: {
+                HStack(spacing: 10) {
+                    DonBigotesMark(awake: true, size: 34)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Doblón · \(appVersion)").font(.footnote.weight(.semibold))
+                        Text("Con Don Bigotes, que vigila tus cuentas con traje y sin prisas.").font(.caption)
+                    }
+                }
+                .padding(.top, 8)
+            }
         }
     }
 
@@ -292,6 +386,7 @@ struct SettingsView: View {
         switch route {
         case .cloud: CloudAccountSettingsView()
         case .banks: BankConnectionsView()
+        case .cardPayments: CardPaymentSettingsView()
         case .categories: CategoriesView()
         case .rules: CategoryRulesView()
         case .recurring: RecurringMovementsView()
@@ -498,5 +593,170 @@ private struct HelpStepRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// About screen: the version, Don Bigotes and the picture that inspired him.
+private struct AboutDoblonView: View {
+    let version: String
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Image("DonBigotesFoto")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 320)
+                    .clipShape(RoundedRectangle(cornerRadius: AppDesign.heroRadius, style: .continuous))
+                    .accessibilityLabel("Un gato con traje y corbata señalando, el meme que inspiró a Don Bigotes")
+                HStack(spacing: 14) {
+                    DonBigotesMark(awake: true, size: 56)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Don Bigotes").font(.title2.bold())
+                        Text("Vigila tus cuentas con traje y sin prisas.").font(.subheadline).foregroundStyle(.secondary)
+                    }
+                }
+                Text("Se esconde cuando no tiene nada que contar y despierta cuando ve algo tuyo: un cargo retenido, un movimiento por revisar o un recibo que se acerca. Nunca te dice qué hacer con tu dinero; solo te señala dónde mirar.")
+                    .font(.body)
+                    .fixedSize(horizontal: false, vertical: true)
+                DailyQuoteCard()
+                LabeledContent("Versión", value: version)
+                    .padding(14)
+                    .financeCardSurface()
+            }
+            .padding(20)
+            .frame(maxWidth: 640)
+            .frame(maxWidth: .infinity)
+        }
+        .background(AppDesign.pageBackground)
+        .navigationTitle("Acerca de Doblón")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+
+/// Apple Pay payments recorded through the Shortcuts «Transacción» automation: the account of each card
+/// and the steps to create the automation.
+struct CardPaymentSettingsView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \FinancialAccount.name) private var accounts: [FinancialAccount]
+    @AppStorage(CardPaymentInbox.defaultAccountKey) private var defaultAccount = ""
+    @AppStorage(CardPaymentInbox.cardAccountsKey) private var cardAccountsJSON = ""
+    @State private var waiting: [CardPayment] = []
+    @State private var cards: [String] = []
+
+    private var activeAccounts: [FinancialAccount] {
+        accounts.filter { !$0.isArchived && !$0.type.isLiability }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                Text("Cada vez que pagas con Apple Pay, Atajos puede apuntar el pago en Doblón al momento. Aparece en Movimientos como «Pendiente del banco» y ya cuenta en tu saldo. Cuando el banco envía ese apunte, Doblón los une solo, sin duplicarlo.")
+                    .font(.subheadline)
+            }
+            Section {
+                Picker("Cuenta por defecto", selection: $defaultAccount) {
+                    Text("Sin elegir").tag("")
+                    ForEach(activeAccounts) { account in
+                        Text(account.bankAndAccountDisplayName).tag(account.id.uuidString)
+                    }
+                }
+                ForEach(cards, id: \.self) { card in
+                    Picker(card, selection: cardBinding(card)) {
+                        Text("La cuenta por defecto").tag("")
+                        ForEach(activeAccounts) { account in
+                            Text(account.bankAndAccountDisplayName).tag(account.id.uuidString)
+                        }
+                    }
+                }
+            } header: {
+                Text("Cuenta de cada tarjeta")
+            } footer: {
+                Text(cards.isEmpty
+                     ? "Las tarjetas aparecerán aquí tras su primer pago, para que elijas su cuenta."
+                     : "Elige la cuenta de la que sale el dinero de cada tarjeta, por ejemplo la de Trade Republic.")
+            }
+            if !waiting.isEmpty {
+                Section {
+                    ForEach(waiting) { payment in
+                        LabeledContent {
+                            PrivacyAmountText(minorUnits: -payment.amountMinor, currencyCode: "EUR", signed: true)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(payment.merchant.isEmpty ? "Pago con tarjeta" : payment.merchant)
+                                Text([payment.card, payment.date.formatted(date: .abbreviated, time: .shortened)]
+                                    .filter { !$0.isEmpty }.joined(separator: " · "))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    Button("Apuntar ahora", action: fileNow)
+                } header: {
+                    Text("En espera")
+                } footer: {
+                    Text("Se apuntan cuando su tarjeta tiene cuenta, la suya propia o la cuenta por defecto.")
+                }
+            }
+            Section {
+                step(1, "Abre Atajos › Automatización › Nueva automatización y elige «Transacción».")
+                step(2, "Marca las tarjetas que quieras, por ejemplo la de Trade Republic, y elige «Ejecutar inmediatamente».")
+                step(3, "Añade la acción «Apuntar pago con tarjeta» de Doblón.")
+                step(4, "En Importe, Comercio y Tarjeta elige las variables Importe, Comercio y Tarjeta de la transacción.")
+                step(5, "Guarda la automatización. Tras tu próximo pago con Apple Pay, el pago aparecerá en Doblón.")
+                ShortcutsLink()
+                    .shortcutsLinkStyle(.automaticOutline)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+            } header: {
+                Text("Crear la automatización")
+            } footer: {
+                Text("Solo los pagos con Apple Pay o Wallet activan la automatización. Un pago escribiendo los datos de la tarjeta en una web no la activa; puedes apuntarlo diciendo a Siri «Apuntar un pago en Doblón». El pago se guarda solo en este dispositivo hasta que Doblón lo apunta.")
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(AppDesign.pageBackground)
+        .navigationTitle("Pagos con Apple Pay")
+        .onAppear(perform: reload)
+        .onReceive(NotificationCenter.default.publisher(for: CardPaymentInbox.didChange).receive(on: RunLoop.main)) { _ in reload() }
+        .onChange(of: defaultAccount) { _, _ in fileNow() }
+        .onChange(of: cardAccountsJSON) { _, _ in fileNow() }
+    }
+
+    private func step(_ number: Int, _ text: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text("\(number)").font(.subheadline.weight(.bold)).foregroundStyle(AppDesign.accent)
+            Text(text).font(.subheadline)
+        }
+    }
+
+    private func cardBinding(_ card: String) -> Binding<String> {
+        Binding {
+            CardPaymentInbox.decodeRules(cardAccountsJSON)[CardPaymentInbox.normalizedCard(card)]?.uuidString ?? ""
+        } set: { value in
+            var rules = CardPaymentInbox.decodeRules(cardAccountsJSON)
+            rules[CardPaymentInbox.normalizedCard(card)] = UUID(uuidString: value)
+            cardAccountsJSON = CardPaymentInbox.encodeRules(rules)
+        }
+    }
+
+    private func reload() {
+        waiting = CardPaymentInbox.load().sorted { $0.date > $1.date }
+        var unique: [String] = []
+        for card in CardPaymentInbox.seenCards() + waiting.map(\.card) where !card.isEmpty
+            && !unique.contains(where: { CardPaymentInbox.normalizedCard($0) == CardPaymentInbox.normalizedCard(card) }) {
+            unique.append(card)
+        }
+        cards = unique
+    }
+
+    /// Files what is waiting once a card has an account. Not while another form holds unsaved changes.
+    private func fileNow() {
+        guard !modelContext.hasChanges else { return }
+        CardPaymentFiler.file(into: modelContext)
+        reload()
+        NotificationCenter.default.post(name: CardPaymentInbox.didChange, object: nil)
     }
 }

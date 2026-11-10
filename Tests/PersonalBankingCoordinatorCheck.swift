@@ -85,7 +85,8 @@ enum PersonalBankingImporter {
     }
     @MainActor static func apply(_ feeds: [BankingAccountFeed], server: URL,
                                 choices: [String: PersonalBankingPlan.Choice] = [:], manualBalances: [UUID: ManualBalance] = [:],
-                                reviewedBalances: [BalanceReview]? = nil, in context: ModelContext, observedAt: Date) throws -> Result {
+                                reviewedBalances: [BalanceReview]? = nil, ownTransferHints: [String: Set<String>] = [:],
+                                in context: ModelContext, observedAt: Date) throws -> Result {
         let plan = try plan(feeds, server: server, in: context)
         let decisions = try plan.resolutions(choices)
         for item in plan.items {
@@ -111,6 +112,10 @@ enum PersonalBankingImporter {
             balances: [.init(amountMinor: 10000, currency: "EUR", type: "CLBD")], movements: rows)
     }
     @MainActor static func main() async throws {
+        let activityDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("mibombo-activity-" + UUID().uuidString, isDirectory: true)
+        BankingActivityStore.directoryOverride = activityDirectory
+        defer { try? FileManager.default.removeItem(at: activityDirectory) }
         var bbva = feed(bank: "BBVA", id: "bbva", other: "bankinter")
         bbva.pendingMovements = [.init(id: nil, date: String(day), signedAmountMinor: -1250,
             currency: "EUR", description: "Fictitious hold", status: "HOLD")]
@@ -132,7 +137,14 @@ enum PersonalBankingImporter {
         let bankKey = context.accounts[0].bankIdentityKey!
         let owner = account.session!.user.id
         precondition(coordinator.activity(for: owner)[bankKey]?.pendingMovements?.count == 1)
+        precondition(coordinator.activity(for: owner)[bankKey]?.pendingTotal == -1250)
         precondition(coordinator.activity(for: UUID()).isEmpty)
+        // A later launch shows the saved holds before contacting the bank, only to the same owner.
+        let relaunched = PersonalBankingCoordinator()
+        precondition(relaunched.activity(for: owner)[bankKey]?.pendingMovements?.first?.description == "Fictitious hold")
+        precondition(relaunched.activity(for: UUID()).isEmpty, "Holds are never shown to another user")
+        let expired = BankingActivityStore.load(owner: owner, now: Date.now.addingTimeInterval(BankingActivityStore.maximumAge + 60))
+        precondition(expired.isEmpty, "Old holds are dropped instead of being shown as current")
         precondition(coordinator.bankStatus["BBVA"]?.deferredTransfers == 1)
         precondition(coordinator.bankStatus["Bankinter"]?.retryAt != nil)
         precondition(BankingConnectionClient.manual.allSatisfy { $0 })
@@ -249,6 +261,36 @@ enum PersonalBankingImporter {
         let resumed = await waiting.synchronize(account: freshAccount, context: freshContext)
         precondition(resumed && freshContext.ledger.count == 1 && BankingConnectionClient.attempts.count == beforeWaiting + 1,
                      "Closing an editor must import the complete saved download without a second bank request")
+        // A movement edited locally in one bank must not hold back another bank's download.
+        let isolatedAccount = CloudAccountManager()
+        let isolatedStorage = "banking-live-origin-v1-" + isolatedAccount.session!.user.id.uuidString.lowercased()
+        defer { for suffix in ["", "-bank-schedules-v2", "-next-discovery-v1"] { UserDefaults.standard.removeObject(forKey: isolatedStorage + suffix) } }
+        let isolatedBBVA = feed(bank: "BBVA", id: "iso-bbva")
+        let sabadellRemote = ConnectedBankAccount(id: "iso-sabadell", name: "Synthetic", currency: "EUR", lastFour: "0000", ownershipKey: "iso-sabadell")
+        let sabadell = BankingAccountFeed(connection: .init(id: UUID().uuidString, bank: "Sabadell", validUntil: "2099-01-01", accounts: [sabadellRemote]),
+            account: sabadellRemote, balances: [.init(amountMinor: 20000, currency: "EUR", type: "CLBD")],
+            movements: [.init(id: "salary", bookingDate: String(day), signedAmountMinor: 120000, currency: "EUR", description: "Synthetic salary")])
+        let isolatedContext = ModelContext()
+        isolatedContext.accounts = [isolatedBBVA, sabadell].map { FinancialAccount(remote: $0.account, server: server) }
+        isolatedContext.snapshots = isolatedContext.accounts.map { BalanceSnapshot(account: $0) }
+        isolatedContext.ledger = [.init(id: UUID(), date: .now, kind: "expense", amount: 999, source: isolatedContext.accounts[0].id,
+            destination: nil, text: "Synthetic purchase edited by the user", externalID: "enable-entry:test:iso-bbva:purchase")]
+        BankingConnectionClient.available = [isolatedBBVA.connection, sabadell.connection]
+        BankingConnectionClient.values = ["BBVA": [isolatedBBVA], "Sabadell": [sabadell]]
+        BankingConnectionClient.limitedBank = nil; BankingConnectionClient.feedDelay = 0
+        let isolated = PersonalBankingCoordinator()
+        try await isolated.configure(server: server.absoluteString, account: isolatedAccount)
+        let isolatedApplied = await isolated.synchronize(account: isolatedAccount, context: isolatedContext, force: true)
+        precondition(isolatedApplied && isolatedContext.appliedBanks == ["BBVA", "Sabadell"],
+            "A movement the user edited no longer holds back its own bank or another one")
+        precondition(isolatedContext.ledger.count == 2 && isolatedContext.ledger.contains { $0.amount == 120000 })
+        precondition(isolatedContext.ledger.contains { $0.amount == 999 }, "The user's edited movement is preserved")
+        precondition(isolated.bankStatus["Sabadell"]?.summary == "Descarga incorporada a tus finanzas.")
+        precondition(isolated.bankStatus["BBVA"]?.summary.contains("Se conserva tu versión") == true
+            && isolated.bankStatus["BBVA"]?.errorMessage == nil, "The kept edit is reported, not treated as an error")
+        let onlyEdited = await isolated.synchronize(account: isolatedAccount, context: isolatedContext, force: true, onlyBank: "BBVA")
+        precondition(onlyEdited && isolatedContext.ledger.count == 2 && isolatedContext.ledger.contains { $0.amount == 999 },
+            "A single bank with an edited movement is incorporated without overwriting the user's version")
         print("Banking coordinator passed: independent banks, reopen limits, deferred application, first-download review and transfer recovery.")
     }
 }

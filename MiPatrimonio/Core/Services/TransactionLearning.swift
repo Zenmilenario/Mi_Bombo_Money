@@ -49,7 +49,7 @@ enum TransactionLearning {
 
     private static func signature(_ transaction: FinancialTransaction, category: FinanceCategory) -> String {
         let value = [transaction.type.rawValue, category.id.uuidString, transaction.descriptionText].joined(separator: "|")
-        return SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+        return StableDigest.hex(value)
     }
 
     /// Record only after the financial save has succeeded.

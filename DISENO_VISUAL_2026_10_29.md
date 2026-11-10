@@ -1,5 +1,66 @@
 # Mejora visual y navegación — 29 de octubre de 2026
 
+## Doblón 0.7.10 (51) · Presupuestos sin bloquear la app
+
+Preparado el 10 de noviembre de 2026, con los datos del medidor de la 0.7.9 en el iPhone:
+- Cada cambio de pestaña costaba unos 0,5 s, también al ir a Ajustes, que no calcula nada.
+- Abrir Presupuestos costaba entre 1,7 y 1,9 s.
+- Había pausas de 0,6 a 1,1 s sin tocar nada, durante la sincronización.
+
+**Causa.**
+- El límite de cada categoría recorría todos los movimientos, una vez por categoría (`budgetLimit`).
+- La pantalla pedía la lista de presupuestos unas diez veces por pintado.
+- Presupuestos se pintaba de nuevo en cada cambio de pestaña y con cada aviso de la sincronización, aunque no estuviera a la vista.
+
+**Implementado.**
+- **`budgetProgress`:** lee el gasto de todas las categorías por mes en una sola pasada y calcula cada límite con ese dato. Mismas reglas de arrastre y de pagos con reservas.
+- **Presupuestos e Inicio:** guardan la lista de presupuestos (`ViewMemo`) y solo la rehacen si cambia el mes o se guardan datos.
+- **Presupuestos:** desde fuera solo se repinta si cambia el mes elegido (`Equatable`), igual que Inicio.
+
+**Verificación.** `FinancialLogicCheck` comprueba que la pasada única da los mismos límites y arrastres que el cálculo categoría a categoría. Pendientes los checks, el IPA y volver a mirar el medidor en el iPhone.
+
+## Doblón 0.7.9 (50) · saldos por índice y medidor de pausas
+
+Preparado el 10 de noviembre de 2026. Con la 0.7.8 el iPhone seguía tardando como medio segundo en entrar en cada menú.
+
+**Causa probable** (leída en el código, no medida): cada saldo se calculaba leyendo todos los movimientos, con su cuenta de origen y de destino. Se hacía una vez por cuenta y varias veces por pantalla:
+- Cuentas: patrimonio, disponible y cada tarjeta.
+- Inicio: el patrimonio, el disponible y el gráfico.
+
+Con miles de movimientos son cientos de miles de lecturas a la base de datos en cada pintado.
+
+**Implementado.**
+- **`AccountBalanceIndex`:** recorre los movimientos una sola vez y guarda, por cuenta, los efectos ordenados por fecha con su total acumulado. Un saldo pasa a ser dos búsquedas binarias. Aplica las mismas reglas: último saldo conocido, apertura y transferencias entre cuentas propias.
+- **`BalanceIndexCache`:** comparte el índice entre todas las pantallas. Se rehace tras cada guardado de la base de datos y al volver a la app. Solo lo activa la app; las pruebas usan el cálculo original salvo cuando lo comparan.
+- **Historial de patrimonio:** usa el mismo índice.
+- **Medidor de pausas** en Ajustes › Opciones avanzadas › Fluidez de la app:
+  - Anota cada momento en que la app deja de responder más de 0,2 s, con la pantalla y si estaba sincronizando.
+  - Solo en memoria y en el dispositivo.
+  - Sirve para medir en el iPhone sin Mac: si sigue habiendo retardo, sus datos dirán dónde.
+
+**Verificación.** `FinancialLogicCheck` compara índice y cálculo original en tres cuentas y ocho fechas, incluidos los bordes de apertura y saldo conocido. También comprueba que el índice se rehace tras un cambio, que otra lista no lo reutiliza y que el historial da los mismos valores. Probado en el iPhone: el medidor señaló Presupuestos (de ahí la 0.7.10).
+
+## Doblón 0.7.8 (49) · fluidez en el iPhone
+
+Preparado el 10 de noviembre de 2026. Al probar la 0.7.7 en el iPhone, el usuario notó retardo al abrir la app y en cada toque por los menús.
+
+**Causas encontradas en el código** (no medidas en el dispositivo):
+- **Don Bigotes** recalculaba sus avisos en cada cambio de pestaña. Para ello recorría todos los movimientos y su categoría.
+- **Inicio** se recalculaba entero en cada cambio de pestaña, aunque no estuviera a la vista: saldos, patrimonio e historial. La pantalla principal le pasa acciones nuevas cada vez y SwiftUI no puede saber que nada ha cambiado.
+- **Movimientos** repetía el filtrado completo y la cuenta de «por revisar» unas diez veces por cada toque.
+- **Cambio de pestaña animado sobre todo el árbol de vistas**, heredado de la 0.2.0.
+- **Al abrir**, la preparación de las sugerencias de categoría competía con la primera pantalla.
+
+**Implementado.**
+- `ViewMemo`: guarda el último resultado mientras no cambian los datos (número de movimientos y cada guardado de la base de datos) ni los filtros.
+  - **Movimientos:** la lista, los días y la cuenta de revisión se calculan una sola vez por cambio.
+  - **Don Bigotes:** los avisos se recalculan solo si cambian los datos, los bancos o la hora.
+- **Inicio** solo se recalcula desde fuera si cambia el mes elegido (`Equatable`). Sus propios datos lo siguen actualizando.
+- **Animación de cambio de pestaña** solo en el fundido del iPad.
+- **Sugerencias de categoría** preparadas 3 segundos después de abrir.
+
+**Verificación.** Prueba del memo en `FinancialLogicCheck`. Checks en verde; en el iPhone mejoró poco: seguía el retardo al entrar en cada menú (de ahí la 0.7.9).
+
 ## Problema observado
 
 La captura del usuario muestra una franja de sincronización por encima del `TabView` que cubre la navegación de iPadOS. La pantalla de inicio combina negro puro con tarjetas de alturas distintas dentro de filas compartidas: la tarjeta más alta obliga a dejar un hueco debajo de su vecina. Cuatro métricas pueden terminar en una distribución 3+1 y truncar el título de inversión.
@@ -83,3 +144,100 @@ Los dos registros muestran que el ejecutable de prueba no encuentra `CGRect.zero
 Verificación: las 576 combinaciones vuelven a pasar localmente en Linux y `git diff --check` no informa problemas. La corrección de importación debe publicarse y volver a ejecutarse en macOS para confirmar el resultado; todavía no existe un check remoto de esta corrección. Se mantiene la versión 0.6.4, porque el cambio solo corrige la prueba.
 
 Registros revisados: [pull_request](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41636047831/job/125917406014?pr=23) y [push](https://github.com/Zenmilenario/Mi_Bombo_Money/actions/runs/41635998853/job/125917233069?pr=23).
+
+## Movimientos con el sistema Stitch · 0.6.23
+
+Preparado el 9 de noviembre de 2026 a petición del usuario («lavado de cara»), extendiendo a Movimientos el sistema elegido el 3 de noviembre (Grafito sereno en oscuro, Clara cercana en claro; `.stitch/oscuro/DESIGN.md`). El usuario observó en el iPad tarjetas y filas demasiado grandes, conceptos bancarios en mayúsculas y un formulario de edición con un hueco enorme.
+
+**Implementado.**
+- **Medidas del sistema.** Radio de tarjeta 14 (antes 18), compacto 10 y destacado 20; separación entre secciones 18. Nuevas superficies semánticas de Stitch: ingresos, gastos, ahorro y aviso, en claro y oscuro.
+- **Ancho de lectura en iPad.** Movimientos, Cuentas y Ajustes centran su lista en 760 puntos cuando la ventana es más ancha; en iPhone conservan el margen de 16. Presupuestos e Inicio mantienen el ancho completo decidido el 29 de octubre.
+- **Resumen de Movimientos.** Tres métricas compactas sobre superficie semántica (ingresos, gastos y balance) en una fila; pasan a columna si no caben.
+- **Filas.** Icono de categoría sobre un cuadrado redondeado de su color, título legible, cuenta en una línea e importe con cifras tabulares. Ingresos en verde y transferencias en azul del sistema; los gastos siguen en el color de texto para no llenar la lista de rojo.
+- **Títulos legibles** (solo presentación): los conceptos bancarios en mayúsculas pasan a mayúsculas iniciales («Comercio del Norte, S.L.»), los recibos SEPA muestran «Recibo · acreedor» sin la referencia del mandato y las retiradas en cajero se titulan «Retirada de efectivo». Reglas, aprendizaje, conciliación y búsqueda siguen usando el texto original.
+- **Cabeceras de día** sin el año en curso y con el resultado neto del día.
+- **Formularios en iPad**: el alta, la edición y el detalle de un movimiento se abren como hoja de formulario centrada (iPadOS 18 o posterior). La fila Categoría se dibuja como una fila simple: era la que crecía hasta dejar el hueco de la captura.
+
+**Verificación.** Pruebas con datos ficticios de los títulos legibles en `FinancialLogicCheck`. La apariencia no se puede comprobar sin compilar en macOS: pendientes los checks, el IPA y la revisión en el iPad (claro, oscuro, texto grande, Split View).
+
+## Doblón 0.7.0 (41) · lote 1 del rediseño «Pulso»
+
+Preparado el 9 de noviembre de 2026, después de que el usuario rechazara la 0.6.23 y aprobara la propuesta «Pulso» y el nombre «Doblón». La versión pasa a 0.7 a petición del usuario, por el cambio de nombre y de diseño. Este primer lote pone la base visual y corrige los fallos observados en la 0.6.23; la navegación nueva, Inicio, Movimientos en dos paneles, Cuentas, Ajustes, el acceso y el compañero Don Bigotes llegarán en lotes posteriores.
+
+**Implementado.**
+- **Nombre visible «Doblón»:** bajo el icono (`CFBundleDisplayName`), en el acceso, en Mi nube, en el pie de Ajustes y en los avisos. El identificador del paquete, los esquemas de URL, el proyecto y el repositorio no cambian, para no romper la instalación, la sincronización ni el retorno de los bancos. El icono del perro se mantiene.
+- **Paleta «Pulso»:** un único juego de colores para claro y otro para oscuro (fondo, tarjetas, superficie secundaria, acento, ingresos, gastos, ahorro, inversión y aviso).
+- **Fondos de fila iguales:** en Ajustes y Movimientos, todas las filas (selectores, interruptores, grupos desplegables y accesos) usan el color de tarjeta. Antes algunas se quedaban con el gris del sistema y el modo oscuro se veía desigual.
+- **Sin ancho fijo:** se retira el ancho de lectura de 760 puntos de la 0.6.23, que dejaba huecos; Cuentas recupera su margen de 16 puntos.
+- **Tarjeta «Por revisar» compacta:** fila simple que nunca crece más que su contenido.
+- **Resumen del mes:** sin periodo elegido, el resumen de Movimientos muestra el mes actual, con su nombre como título, en lugar de todo el historial.
+- **Retenidos legibles:** a los conceptos en bruto («/TXT/COMERCIO 09/11/26|referencia») se les quitan la marca, la fecha pegada y la referencia.
+
+**Verificación.** Prueba de títulos con datos ficticios en `FinancialLogicCheck`. Sin compilador Swift en el equipo: pendientes los checks, el IPA y la revisión en el iPad (claro y oscuro).
+
+## Doblón 0.7.1 (42) · rediseño «Pulso» completo
+
+Preparado el 9 de noviembre de 2026 a petición del usuario («haz todo y cuando instale la versión al completo vamos corrigiendo»). Traslada a la app las pantallas aprobadas en el lienzo, sobre la base de la 0.7.0.
+
+**Implementado.**
+- **Navegación.** En iPad (ancho regular), un raíl lateral propio con el logotipo «D», las cinco secciones y el botón de añadir; ya no tapa el contenido como la barra lateral del sistema. Las cinco pantallas siguen vivas al cambiar de sección. En iPhone se mantiene la barra inferior.
+- **Inicio.**
+  - Protagonista: «Disponible para usar», o «Disponible tras retenciones» si hay cargos retenidos.
+  - Barra de reparto (disponible, reservado, retenido, inversión) con su leyenda.
+  - «Tu margen de hoy»: presupuesto restante dividido entre los días que quedan del mes. Es un dato, no un consejo.
+  - Patrimonio total y su cambio del mes en el pie.
+  - Tarjetas nuevas: «Ritmo del mes» (gasto frente a presupuesto, con la marca del reparto uniforme y la proyección a fin de mes) y «Tu mes, día a día» (calendario coloreado según el gasto diario).
+- **Movimientos.**
+  - En iPad, lista a la izquierda y detalle del movimiento a la derecha, sin hojas encima.
+  - Filtros rápidos: Todo, Gastos, Ingresos, Transferencias y Por revisar.
+- **Cuentas.**
+  - Resumen superior con cuatro métricas: patrimonio, disponible, reservado e invertido.
+  - Accesos compactos en forma de chips.
+  - Cada cuenta como tarjeta: banco, saldo grande, barra libre/reservado/retenido, retenidos, estado («Al día» o «Sin actualizar») y tarjetas asociadas.
+- **Ajustes.**
+  - En iPad, dos paneles: la lista a la izquierda y el detalle a la derecha.
+  - Nuevo apartado de Don Bigotes en «A tu gusto».
+  - Pie con la mascota y la versión.
+- **Acceso y desbloqueo.** Ningún dato personal antes de desbloquear: ilustración del bombo con monedas, lema «Tu dinero, con calma» y la frase, refrán o curiosidad del día (12 en rotación, cambian al tocar). La conexión bancaria «solo lee».
+- **Don Bigotes, el compañero.**
+  - Esquina inferior derecha. Escondido y dormido en el borde cuando no tiene nada que contar; despierto con «Púlsame…» cuando sí.
+  - Al pulsarlo, «Lo que he visto» lista hechos de los datos: cargos retenidos, movimientos por revisar, cargo periódico en los próximos 3 días y cuentas manuales sin actualizar en 30 días. Cada uno tiene «Ver» (abre la sección) y «Ahora no».
+  - Tres descartes de un mismo tipo silencian ese tipo.
+  - Ajustes: activarlo o desactivarlo, cuánto habla (Callado, Discreto, Más hablador) y volver a mostrar lo descartado.
+  - Todo se calcula en el dispositivo.
+
+**Diferencias con la maqueta.** La 0.7.1 llevaba a la sección pero no resaltaba el elemento ni aprendía las horas de uso; ambas cosas llegan en la 0.7.2. La foto original del gato no se incluyó en la 0.7.1; se añadió en la 0.7.2 a petición del usuario.
+
+**Verificación.** Pruebas con datos ficticios en `FinancialLogicCheck`: frase del día estable por día y distinta al día siguiente, autores presentes, y memoria de descartes del compañero. Escrito sin compilador Swift en el equipo: pendientes los checks, el IPA y la revisión completa en el iPad y el iPhone.
+
+## Doblón 0.7.2 (43) · Don Bigotes señala y aprende tus horas
+
+Preparado el 9 de noviembre de 2026 a petición del usuario, completando lo que faltaba de la maqueta.
+
+**Implementado.**
+- **Señalar.** «Ver» en «Lo que he visto» deja un aviso de un solo uso para la pantalla de destino:
+  - **Retenidos:** Movimientos limpia filtros, se desplaza a «Pendientes del banco» y los resalta unos segundos.
+  - **Por revisar:** muestra solo esos movimientos y resalta el primero.
+  - **Cuentas sin actualizar:** Cuentas filtra las que llevan más de 30 días.
+  - **Cargo periódico próximo:** abre la herramienta de cargos periódicos desde Cuentas.
+- **Horas de uso.** La app anota en el dispositivo a qué horas se abre, contando como mucho una apertura cada media hora. Lo urgente (retenidos, o un cargo en menos de 24 horas) despierta a Don Bigotes a cualquier hora; lo demás espera a las horas habituales. Hasta acumular 10 aperturas, todas las horas cuentan como habituales. Fuera de esas horas sigue durmiendo, pero al tocarlo enseña lo pendiente.
+- **Foto del gato.** El usuario indica que es un meme generado con IA y que la quiere en la app. Está en «Ajustes › Acerca de Doblón», junto a la mascota, la versión y la frase del día (recurso `DonBigotesFoto`).
+
+**Verificación.** Pruebas con datos ficticios en `FinancialLogicCheck` para la petición de foco y el aprendizaje de horas. Pendientes los checks, el IPA y la prueba en el dispositivo.
+
+## Doblón 0.7.3 (44) · limpieza tras la auditoría
+
+Aplicada el 9 de noviembre de 2026, a petición del usuario, a partir de la auditoría de la 0.7.2. Sin cambios funcionales salvo los colores.
+
+- **Código muerto retirado:**
+  - Restos del rediseño en Inicio, Cuentas y el acceso.
+  - `BankingProviderContracts.swift`, el contrato PSD2 previsto antes del Worker, también quitado del proyecto.
+  - `monthlySummaries`, `hasMixedCurrencies`, `compactString`, `EmptyStateCard`, `overviewContentWidth`, `itemSpacing` y un color sin uso en Seguridad.
+  - `suggestedReservedPaymentAmount`, que solo usaban las pruebas; ahora la prueba comprueba directamente el cálculo real de la reserva disponible.
+- **Una sola huella SHA-256** (`StableDigest`, en `Models.swift`) en lugar de siete copias, más el UUID derivado de dos de ellas. Una prueba fija los bytes exactos. El identificador de los movimientos periódicos se mantiene aparte, porque marca la versión del UUID y cambiarlo alteraría identificadores guardados.
+- **Alertas:** 31 enlaces repetidos sustituidos por `Binding(isPresent:)`.
+- **Colores:** 71 usos de verde, rojo, azul y naranja del sistema pasan a la paleta (ingresos, gastos, ahorro y aviso), para que claro y oscuro sean coherentes.
+- **Imagen del acceso:** copia de 256 px (110 KB) en lugar del icono duplicado de 1,9 MB.
+- **Documentación:** los README antiguos, las notas de la 0.2.1, las del rediseño de octubre y `SHA256SUMS_PARCHE.txt` pasan a `docs/historico/`. El README presenta Doblón 0.7.
+
+**No aplicado (decisión del usuario):** sacar la clave `.pem` de la carpeta del repositorio, mantener o retirar el laboratorio bancario, dividir `TransactionsView.swift` y la optimización de filtros.

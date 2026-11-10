@@ -33,6 +33,38 @@ struct PersonalBankingPlanCheck {
         let activity = BankingAccountActivity(feed: mixedFeed, observedAt: day)
         precondition(activity.availableBalance == 8500 && activity.bookedBalance == 9000)
         precondition(activity.pendingMovements?.map(\.signedAmountMinor) == [-500], "A booked reference supersedes its pending entry")
+        precondition(activity.pendingTotal == -500 && activity.heldTotal == -500)
+        // Diagnostic in Mis bancos: what the bank actually sent, newest first.
+        precondition(activity.receivedCount == 1 && activity.recentMovements?.map(\.signedAmountMinor) == [-1000])
+        let several = BankingAccountActivity(feed: BankingAccountFeed(connection: existingFeed.connection, account: existingFeed.account,
+            balances: [], movements: (1...12).map { day in
+                BankingPreview.Movement(id: "m\(day)", bookingDate: String(format: "2026-10-%02d", day), signedAmountMinor: -Int64(day),
+                    currency: "EUR", description: "Compra ficticia", counterpartyKey: nil, transferKey: nil)
+            }), observedAt: day)
+        precondition(several.receivedCount == 12 && several.recentMovements?.count == 8
+            && several.recentMovements?.first?.bookingDate == "2026-10-12", "Only the newest postings are kept")
+        let withIgnored = BankingAccountActivity(feed: BankingAccountFeed(connection: existingFeed.connection, account: existingFeed.account,
+            balances: [], movements: [], pendingMovements: [], ignoredStatuses: ["CNCL": 2, "NONE": 1]), observedAt: day)
+        precondition(withIgnored.ignoredStatuses == ["CNCL": 2, "NONE": 1] && withIgnored.recentMovements == [],
+            "Entries the bank sent with other statuses are reported, never imported")
+        let decodedPreview = try JSONDecoder().decode(BankingPreview.self, from: Data(
+            #"{"balances":[],"transactions":[],"ignoredStatuses":{"OTHR":3},"continuation":null}"#.utf8))
+        precondition(decodedPreview.ignoredStatuses == ["OTHR": 3])
+        let legacyActivity = try JSONDecoder().decode(BankingAccountActivity.self, from: Data(
+            #"{"observedAt":0,"currency":"EUR","bookedBalance":null,"availableBalance":null,"pendingMovements":null}"#.utf8))
+        precondition(legacyActivity.recentMovements == nil, "Activity saved by 0.7.3 still loads")
+        let roundTrip = try JSONDecoder().decode(BankingAccountActivity.self, from: JSONEncoder().encode(activity))
+        precondition(roundTrip.pendingMovements?.first?.description == "Retención ficticia" && roundTrip.observedAt == activity.observedAt,
+                     "Holds survive being saved on the device")
+        let credit = try JSONDecoder().decode(BankingPreview.self, from: Data("""
+        {"balances":[],"transactions":[],"pendingTransactions":[
+            {"id":"in","date":"2026-10-15","signedAmountMinor":700,"currency":"EUR","description":"Abono ficticio","status":"PDNG"},
+            {"id":"out","date":"2026-10-15","signedAmountMinor":-300,"currency":"EUR","description":"Cargo ficticio","status":"HOLD"}]}
+        """.utf8))
+        let creditActivity = BankingAccountActivity(feed: BankingAccountFeed(connection: existingFeed.connection,
+            account: existingFeed.account, balances: [], movements: [], pendingMovements: credit.pendingTransactions), observedAt: day)
+        precondition(creditActivity.pendingTotal == 400 && creditActivity.heldTotal == -300,
+                     "A pending credit is not money available yet; only held charges reduce the available amount")
         let mixedPlan = try PersonalBankingPlan.build(feeds: [mixedFeed], links: links, ledger: [])
         precondition(mixedPlan.items.count == 1 && mixedPlan.balances[0].amount == 9000,
                      "Bank holds and available balances cannot enter accounting")
@@ -134,6 +166,7 @@ struct PersonalBankingPlanCheck {
         do { _ = try PersonalBankingPlan.build(feeds: [feed()], links: [:], ledger: []); preconditionFailure("Unlinked account accepted") }
         catch PersonalBankingError.accountNotLinked { }
         try checkTradeRepublicWithoutReferences(links: links)
+        try checkApplePayPayments(links: links)
         checkContributionCombinations()
         try await checkIndependentDownloads()
         print("Personal banking plan passed: technical prefixes, explicit bulk proposals, repeated purchases, candidate conflicts, renewal, account scoping, transfers and stable IDs.")
@@ -152,6 +185,106 @@ struct PersonalBankingPlanCheck {
         precondition(ContributionRecognition.match(split, remaining: 0) == .none)
         let many = (0..<61).map { _ in ContributionRecognition.Posting(id: UUID(), amount: 100) }
         precondition(ContributionRecognition.match(many, remaining: 40000) == .requiresSelection)
+    }
+    /// Payments recorded with Apple Pay through Shortcuts wait for the bank posting and pair with it.
+    private static func checkApplePayPayments(links: [String: UUID]) throws {
+        // What Shortcuts may pass as the amount.
+        precondition(CardPaymentInbox.amount(from: "4,50 €") == 450)
+        precondition(CardPaymentInbox.amount(from: "€4.50") == 450)
+        precondition(CardPaymentInbox.amount(from: "1.234,56 €") == 123456)
+        precondition(CardPaymentInbox.amount(from: "1,234.56") == 123456)
+        precondition(CardPaymentInbox.amount(from: "12") == 1200)
+        precondition(CardPaymentInbox.amount(from: "1.250") == 125000, "Three digits after one dot are thousands")
+        precondition(CardPaymentInbox.amount(from: "") == nil && CardPaymentInbox.amount(from: "gratis") == nil
+            && CardPaymentInbox.amount(from: "0,00 €") == nil)
+        // Each card goes to its own account, otherwise to the default one.
+        let rules = CardPaymentInbox.decodeRules(CardPaymentInbox.encodeRules(["tarjeta ficticia": savings]))
+        precondition(rules == ["tarjeta ficticia": savings], "Card accounts survive being stored")
+        precondition(CardPaymentInbox.account(for: "  Tarjeta Ficticia ", rules: rules, fallback: daily) == savings)
+        precondition(CardPaymentInbox.account(for: "Otra tarjeta", rules: rules, fallback: daily) == daily)
+        precondition(CardPaymentInbox.account(for: "Otra tarjeta", rules: rules, fallback: nil) == nil)
+        precondition(CardPaymentInbox.decodeRules("no es json").isEmpty)
+        precondition(CardPaymentInbox.isAwaiting("applepay:abc") && !CardPaymentInbox.isAwaiting(nil) && !CardPaymentInbox.isAwaiting("csv-1"))
+        let defaults = UserDefaults(suiteName: "card-payments-check-\(UUID().uuidString)")!
+        CardPaymentInbox.rememberCard("Tarjeta Ficticia", defaults: defaults)
+        CardPaymentInbox.rememberCard(" tarjeta ficticia ", defaults: defaults)
+        CardPaymentInbox.rememberCard("", defaults: defaults)
+        precondition(CardPaymentInbox.seenCards(defaults) == ["Tarjeta Ficticia"], "Each card is listed once")
+
+        // The inbox keeps payments on the device until they are filed.
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("card-inbox-\(UUID().uuidString)")
+        CardPaymentInbox.directoryOverride = folder
+        defer { CardPaymentInbox.directoryOverride = nil; try? FileManager.default.removeItem(at: folder) }
+        let paid = CardPayment(id: UUID(), date: day, amountMinor: 1000, merchant: "Gasolinera ficticia", card: "Tarjeta ficticia")
+        try CardPaymentInbox.add(paid)
+        try CardPaymentInbox.add(paid)
+        precondition(CardPaymentInbox.load() == [paid], "The same payment is stored once")
+        CardPaymentInbox.remove([paid.id])
+        precondition(CardPaymentInbox.load().isEmpty)
+        // 32 automations finishing at the same moment: every payment is kept (one file each).
+        let burst = (0..<32).map { CardPayment(id: UUID(), date: day.addingTimeInterval(Double($0)), amountMinor: Int64(100 + $0),
+                                               merchant: "Comercio ficticio \($0)", card: "Tarjeta ficticia") }
+        DispatchQueue.concurrentPerform(iterations: burst.count) { index in
+            do { try CardPaymentInbox.add(burst[index]) } catch { preconditionFailure("A concurrent payment could not be stored") }
+        }
+        precondition(CardPaymentInbox.load().map(\.id) == burst.map(\.id), "No payment is lost when several arrive at once")
+        CardPaymentInbox.remove(Set(burst.prefix(16).map(\.id)))
+        precondition(CardPaymentInbox.load().map(\.id) == burst.suffix(16).map(\.id), "Filing some keeps the others")
+        CardPaymentInbox.remove(Set(burst.map(\.id)))
+        // A payment left by version 0.7.7 in its single file is moved to the folder, not lost.
+        let legacy = CardPayment(id: UUID(), date: day, amountMinor: 999, merchant: "Pago anterior", card: "")
+        try CardPaymentInbox.writeLegacyForTesting([legacy])
+        precondition(CardPaymentInbox.load() == [legacy])
+        precondition(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("inbox.json").path), "The old file is retired")
+        CardPaymentInbox.remove([legacy.id])
+        precondition(CardPaymentInbox.load().isEmpty)
+
+        // A bank hold for a payment already recorded is not counted twice.
+        func hold(_ amount: Int64, _ date: String?) -> BankingPreview.PendingMovement {
+            .init(id: nil, date: date, signedAmountMinor: amount, currency: "EUR", description: "Retención ficticia", status: "HOLD")
+        }
+        let paymentDay = Calendar.current.date(from: DateComponents(year: 2026, month: 10, day: 15, hour: 12))!
+        let recorded = [(amountMinor: Int64(1000), date: paymentDay)]
+        precondition(CardPaymentInbox.uncoveredHolds([hold(-1000, "2026-10-16")], awaiting: recorded).isEmpty)
+        precondition(CardPaymentInbox.uncoveredHolds([hold(-1000, nil)], awaiting: recorded).isEmpty)
+        precondition(CardPaymentInbox.uncoveredHolds([hold(-1000, "2026-10-16"), hold(-1000, "2026-10-16")], awaiting: recorded).count == 1,
+            "One recorded payment covers one hold")
+        precondition(CardPaymentInbox.uncoveredHolds([hold(-999, "2026-10-16"), hold(1000, "2026-10-16")], awaiting: recorded).count == 2)
+        precondition(CardPaymentInbox.uncoveredHolds([hold(-1000, "2026-10-30")], awaiting: recorded).count == 1, "Too late to be that payment")
+        precondition(CardPaymentInbox.uncoveredHolds([hold(-1000, "2026-10-12")], awaiting: recorded).count == 1, "Before the payment")
+
+        // The bank posting pairs with the recorded payment even when its text differs and it arrives days later.
+        func awaiting(daysBefore: Double, amount: Int64 = 1000) -> BankingLedgerEntry {
+            .init(id: UUID(), date: day.addingTimeInterval(-daysBefore * 86400), kind: "expense", amount: amount, source: daily,
+                  destination: nil, text: "Gasolinera ficticia", externalID: nil, awaitingBank: true)
+        }
+        let bankRow = row("card-1", text: "TXT/PAGO TARJETA 1234")
+        let late = awaiting(daysBefore: 5)
+        let paired = try PersonalBankingPlan.build(feeds: [feed(rows: [bankRow])], links: links, ledger: [late])
+        precondition(paired.items[0].automaticMatch == late.id, "A single recorded payment pairs automatically")
+        let resolved = try paired.resolutions([:])
+        precondition(resolved[paired.items[0].id] == .match(late.id))
+        let local = row(nil, text: "Movimiento bancario")
+        let trade = try PersonalBankingPlan.build(feeds: [feed(rows: [local], bank: "Trade Republic")], links: links, ledger: [late])
+        precondition(trade.items[0].automaticMatch == late.id, "Also without a bank reference; the review shows it already paired")
+        let tooOld = try PersonalBankingPlan.build(feeds: [feed(rows: [bankRow])], links: links, ledger: [awaiting(daysBefore: 9)])
+        precondition(tooOld.items[0].candidates.isEmpty, "Beyond the window it is another purchase")
+        let future = try PersonalBankingPlan.build(feeds: [feed(rows: [bankRow])], links: links, ledger: [awaiting(daysBefore: -3)])
+        precondition(future.items[0].candidates.isEmpty, "The bank never books a payment before it happened")
+        let otherAmount = try PersonalBankingPlan.build(feeds: [feed(rows: [bankRow])], links: links,
+            ledger: [awaiting(daysBefore: 1, amount: 1001)])
+        precondition(otherAmount.items[0].candidates.isEmpty)
+        let twins = try PersonalBankingPlan.build(feeds: [feed(rows: [bankRow])], links: links,
+            ledger: [awaiting(daysBefore: 1), awaiting(daysBefore: 2)])
+        precondition(twins.items[0].automaticMatch == nil && twins.items[0].suggestedMatch != nil
+            && twins.items[0].suggestionReason?.contains("Apple Pay") == true, "Two equal payments are left for the user to choose")
+        let two = try PersonalBankingPlan.build(feeds: [feed(rows: [bankRow, row("card-2", text: "TXT/PAGO TARJETA 1234")])],
+            links: links, ledger: [late])
+        precondition(two.items.filter { $0.automaticMatch == late.id }.count <= 1, "One recorded payment never absorbs two postings")
+        let ordinary = try PersonalBankingPlan.build(feeds: [feed(rows: [row("card-3", text: "Otra cosa")])], links: links,
+            ledger: [BankingLedgerEntry(id: UUID(), date: day.addingTimeInterval(-5 * 86400), kind: "expense", amount: 1000,
+                source: daily, destination: nil, text: "Compra ficticia", externalID: nil)])
+        precondition(ordinary.items[0].candidates.isEmpty, "Ordinary manual records keep the three-day window")
     }
     private static func checkTradeRepublicWithoutReferences(links: [String: UUID]) throws {
         let debit = row(nil, text: "Movimiento bancario")
@@ -183,10 +316,57 @@ struct PersonalBankingPlanCheck {
         let stable = try PersonalBankingPlan.build(feeds: [stableFeed], links: links, ledger: [])
         let changed = BankingLedgerEntry(id: UUID(), date: day, kind: "expense", amount: 1200,
             source: daily, destination: nil, text: "Compra", externalID: stable.items[0].id)
-        do {
-            _ = try PersonalBankingPlan.build(feeds: [stableFeed], links: links, ledger: [changed])
-            preconditionFailure("A conflicting provider reference must still fail validation")
-        } catch PersonalBankingError.changed { }
+        // A posting the user edited after importing it keeps the user's version and no longer blocks the bank.
+        let keptEdit = try PersonalBankingPlan.build(feeds: [stableFeed], links: links, ledger: [changed])
+        precondition(keptEdit.items.isEmpty && keptEdit.alreadyImported == 1)
+        precondition(keptEdit.keptEdits == [.init(bank: "Trade Republic", bookingDate: stableFeed.movements[0].bookingDate)])
+        precondition(keptEdit.keptEditsSummary()["Trade Republic"]?.contains("15/10/2026") == true)
+        precondition(stable.keptEdits.isEmpty && stable.keptEditsSummary().isEmpty)
+        // Trade Republic moved a posting to the next day: its generated key changed. The stored record is
+        // proposed under the new key, never matched automatically.
+        let original = try PersonalBankingPlan.build(feeds: [feed(rows: [debit], bank: "Trade Republic")], links: links, ledger: [])
+        let stored = BankingLedgerEntry(id: UUID(), date: day, kind: "transfer", amount: 1000, source: daily,
+            destination: savings, text: "Aportación ficticia", externalID: original.items[0].id)
+        let shifted = BankingPreview.Movement(id: nil, bookingDate: "2026-10-16", signedAmountMinor: -1000, currency: "EUR",
+            description: "Movimiento bancario", counterpartyKey: nil, transferKey: nil)
+        let moved = try PersonalBankingPlan.build(feeds: [feed(rows: [shifted], bank: "Trade Republic")], links: links, ledger: [stored])
+        precondition(moved.items.count == 1 && moved.items[0].rekeyCandidates == [stored.id])
+        precondition(moved.items[0].suggestedMatch == stored.id && moved.items[0].automaticMatch == nil)
+        _ = try moved.resolutions(moved.acceptingSuggestions([:]))
+        // Two real postings of the same amount on consecutive days: the stored key is still sent, so no rekey.
+        let both = try PersonalBankingPlan.build(feeds: [feed(rows: [debit, shifted], bank: "Trade Republic")], links: links, ledger: [stored])
+        precondition(both.alreadyImported == 1 && both.items.count == 1 && both.items[0].rekeyCandidates.isEmpty)
+        precondition(PersonalBankingError.changed.bank == nil && PersonalBankingError.incompleteTransfer.bank == nil,
+            "Errors that are not tied to one bank's feed must still stop the whole download")
+        // Trade Republic names no counterparty: a credit pointing to it would wait forever for a referenced peer.
+        let trAccount = ConnectedBankAccount(id: "tr", name: "Trade Republic ficticia", currency: "EUR", lastFour: "0000", ownershipKey: "own-tr")
+        let trFeed = BankingAccountFeed(connection: .init(id: UUID().uuidString, bank: "Trade Republic", validUntil: "2026-11-01", accounts: [trAccount]),
+            account: trAccount, balances: [.init(amountMinor: 1000, currency: "EUR", type: "CLBD")],
+            movements: [row(nil, amount: -5000, text: "Movimiento bancario")])
+        let inbound = feed("savings", own: "own-savings", rows: [row("from-tr", amount: 5000, text: "Ingreso", other: "own-tr", reference: "ref-tr")])
+        let waiting = try PersonalBankingDownloadSelection.prepare([trFeed, inbound], knownAccounts: [trAccount, inbound.account])
+        precondition(waiting.deferredByBank["Bankinter"] == 1 && waiting.feeds[1].movements.isEmpty)
+        let released = try PersonalBankingDownloadSelection.prepare([trFeed, inbound], knownAccounts: [trAccount, inbound.account],
+            referenceLessAccounts: ["tr"])
+        precondition(released.deferredByBank.isEmpty && released.feeds[1].movements.count == 1)
+        precondition(released.feeds[1].movements[0].counterpartyKey == nil && released.feeds[1].movements[0].transferKey == nil)
+        precondition(released.ownTransferHints == ["savings": ["from-tr"]], "The bank's own-account hint is kept for pairing")
+        let releasedPlan = try PersonalBankingPlan.build(feeds: released.feeds, links: ["tr": daily, "savings": savings], ledger: [])
+        precondition(releasedPlan.items.map(\.kind).sorted() == ["expense", "income"], "Both legs import; pairing joins them afterwards")
+        // A CSV or form record at Spanish midnight is the previous UTC day, but the same booking day.
+        let madrid = TimeZone(identifier: "Europe/Madrid")!
+        var madridCalendar = Calendar(identifier: .gregorian); madridCalendar.timeZone = madrid
+        let localMidnight = madridCalendar.date(from: DateComponents(year: 2026, month: 10, day: 15))!
+        let csvEntry = BankingLedgerEntry(id: UUID(), date: localMidnight, kind: "expense", amount: 4321, source: daily,
+            destination: nil, text: "Librería Ficticia", externalID: nil)
+        let csvFeed = feed(rows: [row("csv-match", amount: -4321, text: "Librería Ficticia")])
+        let madridPlan = try PersonalBankingPlan.build(feeds: [csvFeed], links: links, ledger: [csvEntry], timeZone: madrid)
+        precondition(madridPlan.items[0].automaticMatch == csvEntry.id, "A local-midnight record matches its own booking day")
+        let nextDay = BankingLedgerEntry(id: UUID(), date: localMidnight.addingTimeInterval(86400), kind: "expense", amount: 4321,
+            source: daily, destination: nil, text: "Librería Ficticia", externalID: nil)
+        let laterPlan = try PersonalBankingPlan.build(feeds: [csvFeed], links: links, ledger: [nextDay], timeZone: madrid)
+        precondition(laterPlan.items[0].automaticMatch == nil && laterPlan.items[0].candidates == [nextDay.id],
+            "Another day is still only a candidate for review")
 
         do {
             _ = try PersonalBankingPlan.build(feeds: [feed(rows: [debit])], links: links, ledger: [])

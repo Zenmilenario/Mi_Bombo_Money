@@ -1,0 +1,25 @@
+name: doblon
+description: Doblón para Android. Consulta tus finanzas con la misma cuenta que en el iPhone.
+publish_to: none
+version: 0.1.1+2
+
+environment:
+  sdk: ">=3.5.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  supabase_flutter: ^2.8.0
+  intl: any
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/don_bigotes.png

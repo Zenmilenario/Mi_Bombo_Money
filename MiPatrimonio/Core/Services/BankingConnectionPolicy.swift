@@ -33,12 +33,25 @@ struct BankingBankSyncStatus {
     var retryIsAutomatic = false
 }
 
+/// Two editions from one code base, chosen when the IPA is built. Both connect to banks. The public one
+/// (`DOBLON_PUBLIC`), for other people, leaves out the developer tools: the banking lab, the pause meter
+/// and the diagnostics of what each bank sent.
+enum AppEdition {
+    #if DOBLON_PUBLIC
+    static let isPersonal = false
+    #else
+    static let isPersonal = true
+    #endif
+}
+
 enum BankingConnectionPolicy {
     enum EntryDestination: Equatable { case personal, sandbox, requiresPersonalWorkspace }
 
-    static func entryDestination(cloud: Bool, testWorkspace: Bool, testOnly: Bool) -> EntryDestination {
+    static func entryDestination(cloud: Bool, testWorkspace: Bool, testOnly: Bool,
+                                 personalEdition: Bool = AppEdition.isPersonal) -> EntryDestination {
         if testWorkspace { return .requiresPersonalWorkspace }
-        if testOnly { return .sandbox }
+        // The banking lab only exists in the personal edition; elsewhere the real connection is shown.
+        if testOnly && personalEdition { return .sandbox }
         return cloud ? .personal : .requiresPersonalWorkspace
     }
 
@@ -127,7 +140,7 @@ enum BankingConnectionError: LocalizedError {
         case .server(let code):
             switch code {
             case "unauthorized": "La clave de acceso no es válida o ha sido revocada."
-            case "owner_required": "Esta conexión bancaria pertenece a otra cuenta cloud."
+            case "owner_required": "Tu cuenta no tiene acceso a la conexión bancaria. Pide al responsable de Doblón que te invite."
             case "identity_unavailable": "No se ha podido verificar tu sesión cloud. Inténtalo más tarde."
             case "production_configuration_required": "El servidor necesita una aplicación de Enable Banking de producción activa, con acceso AIS y el retorno correcto."
             case "stable_account_identity_required": "El banco no devuelve una identificación estable de la cuenta. No se importará para evitar duplicados al renovar el permiso."

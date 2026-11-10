@@ -42,11 +42,142 @@ struct FinancialLogicCheck {
         precondition(exportedCSV.contains("2024-02-14") && exportedCSV.contains("Gasto") && exportedCSV.contains("25,50") && exportedCSV.contains("\"Cena; San Valentín\""),
                      "CSV export must correctly format date, type, amount with European comma, and escape delimiters")
 
+        checkBalanceIndex()
+        checkSharedCases()
         print("Financial checks passed: reservations, transfers, dated history, budget remainders, reviewed alerts, bank identity, automatic subscriptions/income/fees, categories, CSV input and CSV export.")
     }
 
     private static func date(_ month: Int, _ day: Int = 1) -> Date {
         calendar.date(from: DateComponents(year: 2024, month: month, day: day, hour: 12))!
+    }
+
+    /// Cases shared with the Android app (Tests/Fixtures/shared_finance_cases.json): both platforms must
+    /// reach the same hand-calculated results, so a rule changed on one side fails on the other.
+    private static func checkSharedCases() {
+        guard let data = FileManager.default.contents(atPath: "Tests/Fixtures/shared_finance_cases.json"),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            preconditionFailure("Shared cases file missing: run from the repository root")
+        }
+        func list(_ value: Any?) -> [[String: Any]] { value as? [[String: Any]] ?? [] }
+        func int(_ value: Any?) -> Int64 { (value as? NSNumber)?.int64Value ?? 0 }
+        func day(_ text: Any?) -> Date {
+            let parts = (text as? String ?? "").split(separator: "-").compactMap { Int($0) }
+            return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts.count > 2 ? parts[2] : 1, hour: 12))!
+        }
+        var accounts: [String: FinancialAccount] = [:]
+        for row in list(root["accounts"]) {
+            accounts[row["id"] as! String] = FinancialAccount(name: row["id"] as! String, type: AccountType(rawValue: row["type"] as! String)!,
+                currencyCode: row["currency"] as? String ?? "EUR", openingBalanceMinor: int(row["openingBalanceMinor"]),
+                openingDate: day(row["openingDay"]), includeInNetWorth: row["includeInNetWorth"] as? Bool ?? true)
+        }
+        var categories: [String: FinanceCategory] = [:]
+        for row in list(root["categories"]) {
+            categories[row["id"] as! String] = FinanceCategory(name: row["id"] as! String, kind: CategoryKind(rawValue: row["kind"] as! String)!)
+        }
+        var funds: [String: ReservedFund] = [:]
+        for row in list(root["funds"]) {
+            funds[row["id"] as! String] = ReservedFund(name: row["id"] as! String, amountMinor: int(row["amountMinor"]), account: accounts[row["account"] as! String])
+        }
+        let transactions = list(root["transactions"]).map { row in
+            FinancialTransaction(date: day(row["day"]), type: TransactionType(rawValue: row["type"] as! String)!, amountMinor: int(row["amountMinor"]),
+                descriptionText: row["id"] as! String, reservedFundID: (row["fund"] as? String).flatMap { funds[$0]?.id },
+                reservedAmountMinor: row["reservedAmountMinor"] == nil ? nil : int(row["reservedAmountMinor"]),
+                sourceAccount: accounts[row["source"] as! String], destinationAccount: (row["destination"] as? String).flatMap { accounts[$0] },
+                category: (row["category"] as? String).flatMap { categories[$0] })
+        }
+        let snapshots = list(root["snapshots"]).map {
+            BalanceSnapshot(date: day($0["day"]), balanceMinor: int($0["balanceMinor"]), account: accounts[$0["account"] as! String])
+        }
+        let plans = list(root["recurringBudgets"]).map {
+            RecurringBudget(startMonth: day($0["startMonth"]), baseLimitMinor: int($0["baseLimitMinor"]),
+                remainderChoice: BudgetRemainderChoice(rawValue: $0["remainderChoice"] as! String)!, category: categories[$0["category"] as! String])
+        }
+        let budgets = list(root["monthlyBudgets"]).map {
+            MonthlyBudget(monthStart: day($0["month"]), limitMinor: int($0["limitMinor"]), category: categories[$0["category"] as! String])
+        }
+        let expected = root["expected"] as! [String: Any]
+        let allAccounts = Array(accounts.values), allFunds = Array(funds.values)
+        for row in list(expected["balances"]) {
+            let balance = FinanceCalculator.balance(of: accounts[row["account"] as! String]!, at: day(row["day"]), transactions: transactions, snapshots: snapshots)
+            precondition(balance == int(row["minor"]), "Shared case: balance of \(row["account"]!) on \(row["day"]!) is \(balance)")
+        }
+        for row in list(expected["netWorth"]) {
+            let value = FinanceCalculator.netWorth(accounts: allAccounts, transactions: transactions, snapshots: snapshots, at: day(row["day"]))
+            precondition(value == int(row["minor"]), "Shared case: net worth on \(row["day"]!) is \(value)")
+        }
+        for row in list(expected["reserved"]) {
+            let value = FinanceCalculator.reservedAmount(for: accounts[row["account"] as! String]!, funds: allFunds, transactions: transactions)
+            precondition(value == int(row["minor"]), "Shared case: reserved in \(row["account"]!) is \(value)")
+        }
+        let spendable = FinanceCalculator.spendableCash(accounts: allAccounts, funds: allFunds, transactions: transactions, snapshots: snapshots)
+        precondition(spendable == int(expected["spendableCash"]), "Shared case: spendable cash is \(spendable)")
+        for row in list(expected["monthly"]) {
+            let summary = FinanceCalculator.monthlySummary(for: day(row["month"]), transactions: transactions, calendar: calendar)
+            precondition(summary.incomeMinor == int(row["income"]) && summary.expenseMinor == int(row["expense"])
+                && summary.reservedExpenseMinor == int(row["reserved"]), "Shared case: summary of \(row["month"]!)")
+        }
+        for row in list(expected["budgets"]) {
+            let category = categories[row["category"] as! String]!
+            let item = FinanceCalculator.budgetProgress(for: day(row["month"]), categories: Array(categories.values), budgets: budgets,
+                recurringBudgets: plans, transactions: transactions, calendar: calendar).first { $0.category.id == category.id }
+            precondition(item?.limitMinor == int(row["limit"]) && item?.carriedInMinor == int(row["carried"]) && item?.spentMinor == int(row["spent"]),
+                "Shared case: budget of \(row["month"]!) is \(String(describing: item?.limitMinor))/\(String(describing: item?.carriedInMinor))/\(String(describing: item?.spentMinor))")
+        }
+    }
+
+    /// The balance index used by the screens gives exactly the scanned balance, and its cache is rebuilt
+    /// after every save (here, `invalidate()`).
+    private static func checkBalanceIndex() {
+        let current = FinancialAccount(name: "Corriente ficticia", type: .checking, openingBalanceMinor: 50_000, openingDate: date(1, 10))
+        let savings = FinancialAccount(name: "Ahorro ficticio", type: .savings, openingBalanceMinor: 0, openingDate: date(1))
+        let investing = FinancialAccount(name: "Inversión ficticia", type: .investment, openingDate: date(2))
+        var transactions: [FinancialTransaction] = []
+        let kinds: [TransactionType] = [.expense, .income, .transfer, .fee, .interest, .transfer]
+        for index in 0..<60 {
+            let kind = kinds[index % kinds.count]
+            let source = [current, savings, investing][index % 3]
+            let destination = kind == .transfer ? [savings, investing, current, source][index % 4] : nil
+            transactions.append(FinancialTransaction(date: date(1 + index % 6, 1 + index % 27), type: kind,
+                amountMinor: Int64(100 + index * 37), descriptionText: "Movimiento ficticio \(index)",
+                sourceAccount: source, destinationAccount: destination))
+        }
+        // Same date as the opening and as a snapshot: the edges of each rule.
+        transactions.append(FinancialTransaction(date: date(1, 10), type: .expense, amountMinor: 999, descriptionText: "Borde",
+            sourceAccount: current))
+        let snapshots = [BalanceSnapshot(date: date(3, 15), balanceMinor: 12_345, account: savings),
+                         BalanceSnapshot(date: date(5, 2), balanceMinor: 20_000, account: savings),
+                         BalanceSnapshot(date: date(4, 1), balanceMinor: 7_000, account: investing)]
+        transactions.append(FinancialTransaction(date: date(3, 15), type: .income, amountMinor: 555, descriptionText: "Mismo día",
+            sourceAccount: savings))
+        let index = AccountBalanceIndex(transactions: transactions, snapshots: snapshots)
+        let dates = [date(1), date(1, 10), date(2, 14), date(3, 15), date(4, 20), date(5, 2), date(7), Date.distantPast]
+        for account in [current, savings, investing] {
+            for when in dates {
+                let scanned = FinanceCalculator.scannedBalance(of: account, at: when, transactions: transactions, snapshots: snapshots)
+                precondition(index.balance(of: account, at: when) == scanned, "Index and scan must agree")
+            }
+        }
+        BalanceIndexCache.enable()
+        defer { BalanceIndexCache.disable() }
+        let before = FinanceCalculator.balance(of: current, transactions: transactions, snapshots: snapshots)
+        precondition(before == FinanceCalculator.scannedBalance(of: current, transactions: transactions, snapshots: snapshots))
+        transactions[0].amountMinor += 1_000
+        BalanceIndexCache.invalidate()
+        let after = FinanceCalculator.balance(of: current, transactions: transactions, snapshots: snapshots)
+        precondition(after == FinanceCalculator.scannedBalance(of: current, transactions: transactions, snapshots: snapshots),
+                     "After a save the index is rebuilt with the new amount")
+        let subset = Array(transactions.prefix(10))
+        precondition(FinanceCalculator.balance(of: current, transactions: subset)
+            == FinanceCalculator.scannedBalance(of: current, transactions: subset), "Another array never reuses the index")
+        let history = FinanceCalculator.netWorthHistory(endingAt: date(6), months: 6, accounts: [current, savings, investing],
+            transactions: transactions, snapshots: snapshots, calendar: calendar)
+        let expected = history.map { point -> Int64 in
+            let end = Swift.min(point.date.endOfMonth(calendar: calendar), date(6))
+            return [current, savings, investing].reduce(Int64.zero) {
+                $0 + FinanceCalculator.scannedBalance(of: $1, at: end, transactions: transactions, snapshots: snapshots)
+            }
+        }
+        precondition(history.map(\.valueMinor) == expected, "Net worth history keeps its values")
     }
 
     private static func checkReservedPayments() {
@@ -180,6 +311,13 @@ struct FinancialLogicCheck {
             transactions: transactions, asOf: date(2, 15))
         precondition(carried.carriedInMinor == 35_000 && carried.limitMinor == 85_000,
                      "Budget rollover must use the same reserved-payment exclusion")
+        // The budgets screen reads every category's spending in one pass: same limits as one by one.
+        let viaProgress = FinanceCalculator.budgetProgress(for: date(2), categories: [category], budgets: [],
+            recurringBudgets: [plan], transactions: transactions)
+        let oneByOne = FinanceCalculator.budgetLimit(for: category, month: date(2), budgets: [], recurringBudgets: [plan],
+            transactions: transactions)
+        precondition(viaProgress.first?.limitMinor == oneByOne.limitMinor && viaProgress.first?.carriedInMinor == oneByOne.carriedInMinor
+            && viaProgress.first?.isRecurring == oneByOne.isRecurring, "Budget progress keeps the same limits and rollover")
         let fee = FinancialTransaction(date: date(1, 8), type: .fee, amountMinor: 500,
             descriptionText: "Comisión prevista", reservedFundID: fund.id, reservedAmountMinor: 500,
             sourceAccount: account, category: category)
@@ -187,14 +325,16 @@ struct FinancialLogicCheck {
         fee.type = .income
         precondition(FinanceCalculator.reservedExpenseAmount(for: fee) == 0 && FinanceCalculator.budgetExpenseAmount(for: fee) == 0)
 
-        precondition(FinanceCalculator.suggestedReservedPaymentAmount(for: fund, transactionAmountMinor: 30_000, transactions: transactions) == 20_000)
-        precondition(FinanceCalculator.suggestedReservedPaymentAmount(for: fund, transactionAmountMinor: 10_000, transactions: transactions) == 10_000)
-        precondition(FinanceCalculator.suggestedReservedPaymentAmount(for: fund, transactionAmountMinor: 30_000,
-            transactions: transactions, excluding: payment.id) == 30_000, "Editing releases the previous allocation")
+        // What a new payment can still take from the reserve, counting committed (future) payments.
+        func reserveLeft(_ items: [FinancialTransaction], excluding id: UUID? = nil) -> Int64 {
+            FinanceCalculator.remainingReservedAmount(for: fund, transactions: items, at: .distantFuture, excluding: id)
+        }
+        precondition(min(30_000, reserveLeft(transactions)) == 20_000)
+        precondition(min(10_000, reserveLeft(transactions)) == 10_000)
+        precondition(min(30_000, reserveLeft(transactions, excluding: payment.id)) == 30_000, "Editing releases the previous allocation")
         let future = FinancialTransaction(date: .now.addingTimeInterval(86_400), type: .expense, amountMinor: 15_000,
             descriptionText: "Pago comprometido", reservedFundID: fund.id, reservedAmountMinor: 15_000, sourceAccount: account)
-        precondition(FinanceCalculator.suggestedReservedPaymentAmount(for: fund, transactionAmountMinor: 30_000,
-            transactions: transactions + [future]) == 5_000, "Suggested funding must respect future commitments")
+        precondition(min(30_000, reserveLeft(transactions + [future])) == 5_000, "Suggested funding must respect future commitments")
         fund.amountMinor = 40_000
         precondition(progress(transactions).spentMinor == 15_000,
                      "Exhausting a reserve must not change the funding history of its earlier payments")
@@ -461,6 +601,82 @@ struct FinancialLogicCheck {
             precondition(TransactionPresentation.title(raw, isBanking: false) == raw,
                 "A manually entered or CSV concept must not be rewritten by display cleaning")
         }
+        // List titles only: readable bank operations, never applied to manual or CSV concepts.
+        for (raw, expected) in [
+            ("/TXT/D|MERCADO FICTICIO", "Mercado Ficticio"),
+            ("ADEUDO A SU CARGO // PAGO DE ADEUDO DIRECTO SEPA // N 2026000000000001 COLEGIO FICTICIO DEL NORTE, S.L.",
+             "Recibo · Colegio Ficticio del Norte, S.L."),
+            ("RET. EFECTIVO A DEBITO CON TARJ. EN CAJERO. AUT. // OTROS // 0000", "Retirada de efectivo"),
+            ("PAGO CON TARJETA // TIENDA FICTICIA* ABC123", "Tienda Ficticia* ABC123"),
+            ("/TXT/D|TRANS INM/ Persona Ficticia", "Transferencia inmediata · Persona Ficticia"),
+            ("Comercio Mixto 12", "Comercio Mixto 12"),
+            ("Movimiento bancario", "Movimiento bancario"),
+            // Pending card holds: marker, glued date and reference are dropped.
+            ("/TXT/SUSCRIPCION FICTICIA* SUB09/11/26|20261116", "Suscripcion Ficticia* Sub"),
+            ("/TXT/COMEDOR CAMPUS NORTE07/11/26|20261114", "Comedor Campus Norte"),
+            ("ABC", "ABC")
+        ] {
+            precondition(TransactionPresentation.listTitle(raw, isBanking: true) == expected,
+                "List title for \(raw): \(TransactionPresentation.listTitle(raw, isBanking: true))")
+        }
+        precondition(TransactionPresentation.listTitle("MERCADO FICTICIO", isBanking: false) == "MERCADO FICTICIO",
+            "A concept the user typed is shown exactly as written")
+        // Saying of the day: stable for a day, changes with the day and when tapped, never empty.
+        var madrid = Calendar(identifier: .gregorian); madrid.timeZone = TimeZone(identifier: "Europe/Madrid")!
+        let morning = madrid.date(from: DateComponents(year: 2026, month: 11, day: 9, hour: 8))!
+        let evening = madrid.date(from: DateComponents(year: 2026, month: 11, day: 9, hour: 22))!
+        let tomorrow = madrid.date(byAdding: .day, value: 1, to: morning)!
+        precondition(DailyQuote.of(morning, calendar: madrid) == DailyQuote.of(evening, calendar: madrid))
+        precondition(DailyQuote.of(morning, calendar: madrid) != DailyQuote.of(tomorrow, calendar: madrid))
+        precondition(DailyQuote.of(morning, offset: 1, calendar: madrid) == DailyQuote.of(tomorrow, calendar: madrid))
+        precondition(DailyQuote.all.allSatisfy { !$0.text.isEmpty && ($0.kind != .quote || $0.author != nil) },
+            "Every quote names its author")
+        // Don Bigotes: a dismissed note stays hidden; three dismissals of one kind mute that kind.
+        var memory = CompanionMemory()
+        precondition(memory.shows(id: "review:1", kind: "review"))
+        memory.dismiss(id: "review:1", kind: "review")
+        precondition(!memory.shows(id: "review:1", kind: "review") && memory.shows(id: "review:2", kind: "review"))
+        memory.dismiss(id: "review:1", kind: "review")
+        precondition(memory.dismissalsByKind["review"] == 1, "Dismissing the same note twice counts once")
+        memory.dismiss(id: "review:2", kind: "review"); memory.dismiss(id: "review:3", kind: "review")
+        precondition(memory.isMuted("review") && !memory.shows(id: "review:4", kind: "review") && memory.shows(id: "holds:1", kind: "holds"))
+        let restored = CompanionMemory(serialized: memory.serialized)
+        precondition(restored == memory && CompanionMemory(serialized: "") == CompanionMemory())
+        memory.forget(except: ["review:3"])
+        precondition(memory.dismissed == ["review:3"] && memory.isMuted("review"), "Forgetting old notes keeps what was muted")
+        // «Ver» leaves a one-off focus request for the destination screen.
+        let request = CompanionFocus.request(.holds, at: morning)
+        precondition(CompanionFocus.parse(CompanionFocus.request(.bankReview)) == .bankReview)
+        precondition(CompanionFocus.parse(CompanionFocus.request(.awaitingBank)) == .awaitingBank
+            && CompanionFocus.parse(CompanionFocus.request(.cardPayments)) == .cardPayments)
+        // The memo behind Movimientos and Don Bigotes: same inputs, no recomputation; new inputs, a fresh result.
+        let memo = ViewMemo<Int, String>()
+        var computed = 0
+        let firstValue = memo.value(for: 1) { computed += 1; return "uno" }
+        let sameValue = memo.value(for: 1) { computed += 1; return "otro" }
+        precondition(firstValue == "uno" && sameValue == "uno" && computed == 1, "Unchanged inputs reuse the result")
+        let nextValue = memo.value(for: 2) { computed += 1; return "dos" }
+        precondition(nextValue == "dos" && computed == 2, "Changed inputs recompute")
+        let backValue = memo.value(for: 1) { computed += 1; return "uno de nuevo" }
+        precondition(backValue == "uno de nuevo" && computed == 3, "Only the last result is kept")
+        precondition(CompanionFocus.parse(request) == .holds && CompanionFocus.parse("") == nil && CompanionFocus.parse("otro|1") == nil)
+        precondition(CompanionFocus.request(.holds, at: morning) != CompanionFocus.request(.holds, at: evening),
+            "Tapping the same note again is still a new request")
+        // Usage hours: every hour is usual until enough openings; then only the person's own hours.
+        var usage = UsageHours()
+        precondition(usage.isUsual(madrid.date(from: DateComponents(year: 2026, month: 11, day: 9, hour: 3))!, calendar: madrid))
+        for day in 1...12 {
+            usage.record(madrid.date(from: DateComponents(year: 2026, month: 11, day: day, hour: 21, minute: 10))!, calendar: madrid)
+            usage.record(madrid.date(from: DateComponents(year: 2026, month: 11, day: day, hour: 21, minute: 20))!, calendar: madrid)
+        }
+        precondition(usage.total == 12, "Openings within half an hour count once")
+        precondition(usage.isUsual(madrid.date(from: DateComponents(year: 2026, month: 11, day: 13, hour: 22))!, calendar: madrid))
+        precondition(!usage.isUsual(madrid.date(from: DateComponents(year: 2026, month: 11, day: 13, hour: 9))!, calendar: madrid))
+        precondition(UsageHours(serialized: usage.serialized) == usage)
+        // Stored fingerprints and generated ids depend on these exact bytes.
+        precondition(StableDigest.hex("abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+        precondition(StableDigest.hex(Data("abc".utf8)) == StableDigest.hex("abc"))
+        precondition(StableDigest.uuid("abc").uuidString == "BA7816BF-8F01-CFEA-4141-40DE5DAE2223")
         precondition(TransactionPresentation.indicatesTransfer("/TXT/D|TRANS INM/ Persona Ficticia"))
         precondition(!TransactionPresentation.indicatesTransfer("/TXT/Z|TRANS INM/ Persona Ficticia"))
         precondition(!TransactionPresentation.indicatesTransfer("/TXT/H|PAGO BIZUM DE PRUEBA"))

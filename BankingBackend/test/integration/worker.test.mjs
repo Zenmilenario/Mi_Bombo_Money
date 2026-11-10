@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { createHash, randomBytes, generateKeyPairSync } from 'node:crypto';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +21,8 @@ async function boot(overrides = {}, outboundService) {
     outboundService: outboundService ?? (() => { throw new Error('A demonstration must never contact any bank or provider'); })
   }));
   db = await mf.getD1Database('DB');
-  for (const name of ['0001_connections.sql', '0002_production.sql']) {
+  // Every migration, in order: the test database matches the deployed schema.
+  for (const name of (await readdir(new URL('../../migrations/', import.meta.url))).filter(file => file.endsWith('.sql')).sort()) {
     const sql = await readFile(new URL(`../../migrations/${name}`, import.meta.url), 'utf8');
     await db.exec(sql.replace(/^--.*$/gm, '').replaceAll('\n', ' '));
   }

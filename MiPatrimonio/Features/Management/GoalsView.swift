@@ -55,10 +55,7 @@ struct GoalsView: View {
         .sheet(item: $selectedGoal) { goal in
             GoalDetailView(goal: goal)
         }
-        .alert("No se pudo completar la operación", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
+        .alert("No se pudo completar la operación", isPresented: Binding(isPresent: $errorMessage)) {
             Button("Aceptar", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "Error desconocido")
@@ -271,7 +268,7 @@ struct GoalDetailView: View {
                 title: "Objetivo",
                 value: hidden(MoneyFormatter.string(minorUnits: targetAmount)),
                 systemImage: "flag.checkered",
-                tint: .blue
+                tint: AppDesign.savings
             )
 
             MetricCard(
@@ -280,7 +277,7 @@ struct GoalDetailView: View {
                     minorUnits: progress >= 1 ? Swift.max(0, currentAmount - targetAmount) : remainingAmount
                 )),
                 systemImage: progress >= 1 ? "checkmark.circle" : "hourglass",
-                tint: progress >= 1 ? .green : .orange
+                tint: progress >= 1 ? AppDesign.income : AppDesign.warning
             )
 
             MetricCard(
@@ -447,7 +444,7 @@ private struct GoalFormView: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppDesign.expense)
                     }
                 }
             }

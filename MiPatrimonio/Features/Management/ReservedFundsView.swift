@@ -64,7 +64,7 @@ struct ReservedFundsView: View {
                         }
                         .swipeActions {
                             Button("Pagar") { payingFund = fund }
-                                .tint(.green)
+                                .tint(AppDesign.income)
                                 .disabled(FinanceCalculator.remainingReservedAmount(for: fund, transactions: transactions, at: .distantFuture) <= 0)
                             Button("Eliminar", role: .destructive) {
                                 for transaction in transactions where transaction.reservedFundID == fund.id {
@@ -107,10 +107,7 @@ struct ReservedFundsView: View {
         .sheet(isPresented: $showingAdd) { ReservedFundFormView() }
         .sheet(item: $editingFund) { ReservedFundFormView(fund: $0) }
         .sheet(item: $payingFund) { TransactionFormView(preferredReservedFund: $0) }
-        .alert("No se pudo guardar", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
+        .alert("No se pudo guardar", isPresented: Binding(isPresent: $errorMessage)) {
             Button("Aceptar", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "Error desconocido")
@@ -190,7 +187,7 @@ struct ReservedFundFormView: View {
                 }
 
                 if let errorMessage {
-                    Section { Text(errorMessage).foregroundStyle(.red) }
+                    Section { Text(errorMessage).foregroundStyle(AppDesign.expense) }
                 }
             }
             .navigationTitle(fund == nil ? "Reservar dinero" : "Editar reserva")

@@ -3,32 +3,41 @@ import UIKit
 
 enum AppDesign {
     static let readableContentWidth: CGFloat = 840
-    static let overviewContentWidth: CGFloat = 1_200
-    static let compactRadius: CGFloat = 12
-    static let cardRadius: CGFloat = 18
-    static let heroRadius: CGFloat = 24
+    // Stitch system (Grafito sereno / Clara cercana): radius 12 for cards, 8 for compact controls.
+    static let compactRadius: CGFloat = 10
+    static let cardRadius: CGFloat = 14
+    static let heroRadius: CGFloat = 20
     static let cardPadding: CGFloat = 16
-    static let sectionSpacing: CGFloat = 20
-    static let itemSpacing: CGFloat = 12
+    static let sectionSpacing: CGFloat = 18
 
+    // «Pulso» palette (Doblón): one set per appearance, shared by every surface so no row falls back to system grey.
     static var pageBackground: Color {
-        adaptiveColor(light: 0xF7F5F0, dark: 0x111D2B, elevated: 0x1A293A)
+        adaptiveColor(light: 0xF4F2ED, dark: 0x0D1620, elevated: 0x15212D)
     }
 
     static var cardBackground: Color {
-        adaptiveColor(light: 0xFFFFFF, dark: 0x203145, elevated: 0x2A3D53)
+        adaptiveColor(light: 0xFFFFFF, dark: 0x15212D, elevated: 0x1C2B3A)
+    }
+
+    static var railBackground: Color {
+        adaptiveColor(light: 0xFBFAF7, dark: 0x101B27)
     }
 
     static var tertiaryBackground: Color {
-        adaptiveColor(light: 0xEEECE5, dark: 0x2B4056, elevated: 0x354D65)
+        adaptiveColor(light: 0xF1EFEA, dark: 0x1C2B3A, elevated: 0x24364A)
     }
 
-    static var accent: Color { adaptiveColor(light: 0x0F766E, dark: 0x68CFD0) }
-    static var income: Color { adaptiveColor(light: 0x176746, dark: 0x91E8BC) }
-    static var expense: Color { adaptiveColor(light: 0xA72C40, dark: 0xFFB0BA) }
-    static var savings: Color { adaptiveColor(light: 0x275D9E, dark: 0xAFD0FF) }
-    static var investment: Color { adaptiveColor(light: 0x714698, dark: 0xD7BDFF) }
-    static var warning: Color { adaptiveColor(light: 0x865000, dark: 0xFFD08A) }
+    static var accent: Color { adaptiveColor(light: 0x0F766E, dark: 0x5ED3C9) }
+    static var income: Color { adaptiveColor(light: 0x1E7A4C, dark: 0x7BE0A8) }
+    static var expense: Color { adaptiveColor(light: 0xB3263E, dark: 0xFF9AA8) }
+    static var savings: Color { adaptiveColor(light: 0x2457A6, dark: 0x8DB8FF) }
+    static var investment: Color { adaptiveColor(light: 0x6B3FA0, dark: 0xC6A6FF) }
+    static var warning: Color { adaptiveColor(light: 0x8A5A00, dark: 0xF5C66B) }
+    // Semantic surfaces behind metrics, from the Stitch palettes (light: Clara cercana, dark: Grafito sereno).
+    static var incomeSurface: Color { adaptiveColor(light: 0xE8F2EC, dark: 0x1A3530) }
+    static var expenseSurface: Color { adaptiveColor(light: 0xF8E8EB, dark: 0x35242F) }
+    static var savingsSurface: Color { adaptiveColor(light: 0xE8EEF7, dark: 0x1C2D44) }
+    static var warningSurface: Color { adaptiveColor(light: 0xF8EFDC, dark: 0x2E2C25) }
     // Keep filled actions dark enough for their white labels in both appearances.
     static let actionFill = Color(hex: "#0F766E")
     static var cardOutline: Color {
@@ -91,9 +100,68 @@ private struct FinanceCardSurface: ViewModifier {
     }
 }
 
+extension Binding where Value == Bool {
+    /// True while the optional holds a value; dismissing (false) clears it. For alerts and dialogs
+    /// driven by an optional message or item.
+    init<Wrapped>(isPresent value: Binding<Wrapped?>) {
+        self.init(get: { value.wrappedValue != nil }, set: { if !$0 { value.wrappedValue = nil } })
+    }
+}
+
 extension View {
     func financeCardSurface(radius: CGFloat = AppDesign.cardRadius) -> some View {
         modifier(FinanceCardSurface(radius: radius))
+    }
+
+    /// On iPad, forms open as a centered form sheet sized to their content instead of a near full-screen page.
+    @ViewBuilder func formSheetSizing() -> some View {
+        if #available(iOS 18.0, *) {
+            presentationSizing(.form)
+        } else {
+            self
+        }
+    }
+}
+
+/// A compact metric on a semantic surface: label, icon and amount (Stitch metric card).
+struct SemanticMetricTile: View {
+    let title: String
+    let minorUnits: Int64
+    let systemImage: String
+    let tint: Color
+    let surface: Color
+    var signed = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage).font(.caption.weight(.bold))
+                Text(title).font(.caption.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.8)
+            }
+            .foregroundStyle(tint)
+            PrivacyAmountText(minorUnits: minorUnits, font: .headline, weight: .bold, signed: signed)
+                .foregroundStyle(tint)
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(surface, in: RoundedRectangle(cornerRadius: AppDesign.compactRadius, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Category or state icon on a tinted rounded square, shared by movement rows.
+struct RowGlyph: View {
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(tint)
+            .frame(width: 34, height: 34)
+            .background(tint.opacity(0.14), in: RoundedRectangle(cornerRadius: AppDesign.compactRadius, style: .continuous))
+            .accessibilityHidden(true)
     }
 }
 
@@ -212,22 +280,6 @@ struct MetricCard: View {
                     .strokeBorder(tint.opacity(0.35), lineWidth: 1)
             }
         }
-    }
-}
-
-struct EmptyStateCard: View {
-    let title: String
-    let message: String
-    let systemImage: String
-
-    var body: some View {
-        ContentUnavailableView(
-            title,
-            systemImage: systemImage,
-            description: Text(message)
-        )
-        .frame(maxWidth: .infinity, minHeight: 170)
-        .financeCardSurface()
     }
 }
 
@@ -562,5 +614,205 @@ struct AdaptiveSummaryPair: View {
 
     private var secondTile: some View {
         FinancialSummaryTile(title: secondTitle, minorUnits: secondAmount, tint: secondTint)
+    }
+}
+
+// MARK: - Doblón brand pieces
+
+/// Don Bigotes, the app's cat in a suit. Drawn with shapes so it scales and follows the theme.
+struct DonBigotesMark: View {
+    var awake = true
+    var size: CGFloat = 44
+
+    var body: some View {
+        Canvas { context, canvas in
+            let s = min(canvas.width, canvas.height) / 48
+            func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * s, y: y * s) }
+            let fur = Color(red: 0.953, green: 0.933, blue: 0.902)
+            let ear = Color(red: 0.914, green: 0.882, blue: 0.839)
+            let ink = Color(red: 0.078, green: 0.125, blue: 0.173)
+            var ears = Path()
+            ears.move(to: point(10, 20)); ears.addLine(to: point(13, 6)); ears.addLine(to: point(21, 14)); ears.closeSubpath()
+            ears.move(to: point(38, 20)); ears.addLine(to: point(35, 6)); ears.addLine(to: point(27, 14)); ears.closeSubpath()
+            context.fill(ears, with: .color(ear))
+            context.fill(Path(ellipseIn: CGRect(x: 9 * s, y: 10.5 * s, width: 30 * s, height: 27 * s)), with: .color(fur))
+            if awake {
+                context.fill(Path(ellipseIn: CGRect(x: 16 * s, y: 20 * s, width: 6 * s, height: 6 * s)), with: .color(ink))
+                context.fill(Path(ellipseIn: CGRect(x: 26 * s, y: 20 * s, width: 6 * s, height: 6 * s)), with: .color(ink))
+                context.fill(Path(ellipseIn: CGRect(x: 19.5 * s, y: 20.6 * s, width: 1.8 * s, height: 1.8 * s)), with: .color(.white))
+                context.fill(Path(ellipseIn: CGRect(x: 29.5 * s, y: 20.6 * s, width: 1.8 * s, height: 1.8 * s)), with: .color(.white))
+            } else {
+                var lids = Path()
+                lids.move(to: point(16, 24)); lids.addQuadCurve(to: point(22, 24), control: point(19, 26.5))
+                lids.move(to: point(26, 24)); lids.addQuadCurve(to: point(32, 24), control: point(29, 26.5))
+                context.stroke(lids, with: .color(ink), style: StrokeStyle(lineWidth: 1.6 * s, lineCap: .round))
+            }
+            var nose = Path()
+            nose.move(to: point(22.5, 29)); nose.addLine(to: point(25.5, 29)); nose.addLine(to: point(24, 31)); nose.closeSubpath()
+            context.fill(nose, with: .color(Color(red: 0.79, green: 0.55, blue: 0.52)))
+            var tie = Path()
+            tie.move(to: point(24, 37)); tie.addLine(to: point(21, 44)); tie.addLine(to: point(24, 47)); tie.addLine(to: point(27, 44)); tie.closeSubpath()
+            context.fill(tie, with: .color(AppDesign.accent))
+        }
+        .frame(width: size, height: size)
+        .accessibilityHidden(true)
+    }
+}
+
+/// Coins falling into a drum ("bombo"): the illustration of the sign-in and unlock screens.
+struct BomboIllustration: View {
+    var body: some View {
+        Canvas { context, canvas in
+            let s = min(canvas.width / 324, canvas.height / 290)
+            let dx = (canvas.width - 324 * s) / 2 - 70 * s, dy = (canvas.height - 290 * s) / 2
+            func rect(_ x: CGFloat, _ y: CGFloat, _ w: CGFloat, _ h: CGFloat) -> CGRect {
+                CGRect(x: dx + x * s, y: dy + y * s, width: w * s, height: h * s)
+            }
+            func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: dx + x * s, y: dy + y * s) }
+            let accent = AppDesign.accent
+            let coin = AppDesign.warning
+            context.fill(Path(ellipseIn: rect(104, 32, 256, 256)), with: .color(accent.opacity(0.07)))
+            context.fill(Path(ellipseIn: rect(140, 68, 184, 184)), with: .color(accent.opacity(0.07)))
+            let line = StrokeStyle(lineWidth: 3 * s, lineCap: .round)
+            context.stroke(Path(ellipseIn: rect(136, 214, 192, 44)), with: .color(accent), style: line)
+            var sides = Path()
+            sides.move(to: point(136, 168)); sides.addLine(to: point(136, 236))
+            sides.move(to: point(328, 168)); sides.addLine(to: point(328, 236))
+            context.stroke(sides, with: .color(accent), style: line)
+            var cords = Path()
+            for (x1, x2) in [(CGFloat(150), CGFloat(182)), (216, 248), (282, 314)] {
+                cords.move(to: point(x1, 178)); cords.addLine(to: point(x2, 228))
+                cords.move(to: point(x2, 178)); cords.addLine(to: point(x1, 228))
+            }
+            context.stroke(cords, with: .color(accent.opacity(0.45)), style: StrokeStyle(lineWidth: 2 * s, lineCap: .round))
+            context.fill(Path(ellipseIn: rect(136, 146, 192, 44)), with: .color(AppDesign.pageBackground))
+            context.stroke(Path(ellipseIn: rect(136, 146, 192, 44)), with: .color(accent), style: line)
+            context.stroke(Path(ellipseIn: rect(160, 154, 144, 28)), with: .color(accent.opacity(0.5)), style: StrokeStyle(lineWidth: 1.5 * s))
+            for (x, y, r) in [(CGFloat(216), CGFloat(118), CGFloat(17)), (198, 40, 12)] {
+                let circle = Path(ellipseIn: rect(x - r, y - r, r * 2, r * 2))
+                context.fill(circle, with: .color(coin.opacity(0.22)))
+                context.stroke(circle, with: .color(coin), style: StrokeStyle(lineWidth: 3 * s))
+            }
+            let edge = Path(ellipseIn: rect(261, 55, 14, 30))
+            context.fill(edge, with: .color(coin.opacity(0.22)))
+            context.stroke(edge, with: .color(coin), style: StrokeStyle(lineWidth: 3 * s))
+            context.draw(Text("€").font(.system(size: 17 * s, weight: .heavy)).foregroundColor(coin), at: point(216, 119))
+        }
+        .accessibilityElement()
+        .accessibilityLabel("Ilustración: monedas que caen dentro de un bombo")
+    }
+}
+
+struct DailyQuoteCard: View {
+    @State private var offset = 0
+
+    var body: some View {
+        let quote = DailyQuote.of(.now, offset: offset)
+        Button {
+            withAnimation(.easeInOut(duration: 0.2)) { offset += 1 }
+        } label: {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(quote.label).font(.caption.weight(.bold)).tracking(0.6).foregroundStyle(AppDesign.accent)
+                    Spacer()
+                    Text("Otra ›").font(.caption).foregroundStyle(.secondary)
+                }
+                Text(quote.displayText)
+                    .font(quote.kind == .curiosity ? .subheadline.weight(.medium) : .body.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let author = quote.author {
+                    Text("— \(author)").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .financeCardSurface(radius: AppDesign.heroRadius)
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint("Muestra otra frase")
+    }
+}
+
+/// Notes every moment the app stopped responding for more than 0.2 s, and what was on screen then. Only in
+/// memory on this device, to find where the iPhone stutters without a computer attached.
+@MainActor final class HitchMonitor {
+    static let shared = HitchMonitor()
+    struct Hitch: Identifiable {
+        let id = UUID()
+        let date: Date
+        let milliseconds: Int
+        let context: String
+    }
+    private(set) var hitches: [Hitch] = []
+    /// The screen in use, or the one just opened.
+    var context = "Inicio"
+    /// Work in progress that may explain a pause, such as a sync.
+    var activity: String?
+    private var timer: Timer?
+    private var last = CFAbsoluteTimeGetCurrent()
+    private static let tick: TimeInterval = 0.05
+
+    func start() {
+        resetClock()
+        guard timer == nil else { return }
+        let timer = Timer(timeInterval: Self.tick, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.check() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    /// After the app comes back from the background the timer was paused: that gap is not a hitch.
+    func resetClock() { last = CFAbsoluteTimeGetCurrent() }
+
+    func clear() { hitches.removeAll() }
+
+    private func check() {
+        let now = CFAbsoluteTimeGetCurrent()
+        let gap = now - last
+        last = now
+        guard gap > 0.2, gap < 10 else { return }
+        let label = activity.map { "\(context) · \($0)" } ?? context
+        hitches.insert(Hitch(date: .now, milliseconds: Int((gap - Self.tick) * 1000), context: label), at: 0)
+        if hitches.count > 40 { hitches.removeLast() }
+    }
+}
+
+/// Ajustes › Opciones avanzadas › Fluidez de la app.
+struct HitchListView: View {
+    @State private var hitches: [HitchMonitor.Hitch] = []
+
+    var body: some View {
+        List {
+            Section {
+                Text("Cada fila es un momento en que la app dejó de responder más de 0,2 segundos, con la pantalla en la que estabas. Se guarda solo en memoria y se borra al cerrar la app.")
+                    .font(.subheadline)
+            }
+            Section("Pausas recientes") {
+                if hitches.isEmpty {
+                    Text("Sin pausas desde que se abrió la app.").foregroundStyle(.secondary)
+                }
+                ForEach(hitches) { hitch in
+                    LabeledContent {
+                        Text("\(hitch.milliseconds) ms").monospacedDigit()
+                            .foregroundStyle(hitch.milliseconds >= 400 ? AppDesign.expense : AppDesign.warning)
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(hitch.context)
+                            Text(hitch.date.formatted(date: .omitted, time: .standard))
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            Section {
+                Button("Actualizar") { hitches = HitchMonitor.shared.hitches }
+                Button("Borrar", role: .destructive) { HitchMonitor.shared.clear(); hitches = [] }
+            }
+        }
+        .navigationTitle("Fluidez de la app")
+        .onAppear { hitches = HitchMonitor.shared.hitches }
     }
 }

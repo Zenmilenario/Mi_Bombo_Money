@@ -57,7 +57,7 @@ struct InstitutionsView: View {
                     }
                     .swipeActions(edge: .leading) {
                         Button("Editar") { editingInstitution = institution }
-                            .tint(.blue)
+                            .tint(AppDesign.savings)
                     }
                     .swipeActions {
                         Button(role: .destructive) {
@@ -85,10 +85,7 @@ struct InstitutionsView: View {
         .sheet(item: $editingInstitution) { institution in
             InstitutionFormView(institution: institution)
         }
-        .alert("No se pudo eliminar", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
+        .alert("No se pudo eliminar", isPresented: Binding(isPresent: $errorMessage)) {
             Button("Aceptar", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "Error desconocido")
@@ -238,7 +235,7 @@ private struct InstitutionFormView: View {
                     .lineLimit(2...4)
 
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppDesign.expense)
                 }
             }
             .navigationTitle(institution == nil ? "Nueva entidad" : "Editar entidad")

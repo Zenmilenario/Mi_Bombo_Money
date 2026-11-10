@@ -68,12 +68,6 @@ enum FinanceCalculator {
         return Swift.abs(transaction.amountMinor) - reservedExpenseAmount(for: transaction)
     }
 
-    static func suggestedReservedPaymentAmount(for fund: ReservedFund, transactionAmountMinor: Int64,
-                                               transactions: [FinancialTransaction], excluding transactionID: UUID? = nil) -> Int64 {
-        Swift.min(Swift.max(0, transactionAmountMinor), remainingReservedAmount(for: fund,
-            transactions: transactions, at: .distantFuture, excluding: transactionID))
-    }
-
     static func spentReservedAmount(for fund: ReservedFund, transactions: [FinancialTransaction],
                                     at date: Date = .now, excluding transactionID: UUID? = nil) -> Int64 {
         transactions.filter {
@@ -244,6 +238,19 @@ enum FinanceCalculator {
         transactions: [FinancialTransaction],
         snapshots: [BalanceSnapshot] = []
     ) -> Int64 {
+        if let index = BalanceIndexCache.index(transactions: transactions, snapshots: snapshots) {
+            return index.balance(of: account, at: date)
+        }
+        return scannedBalance(of: account, at: date, transactions: transactions, snapshots: snapshots)
+    }
+
+    /// The reference calculation: every movement is read for every account. The index gives the same result.
+    static func scannedBalance(
+        of account: FinancialAccount,
+        at date: Date = .now,
+        transactions: [FinancialTransaction],
+        snapshots: [BalanceSnapshot] = []
+    ) -> Int64 {
         let accountSnapshots = snapshots
             .filter { $0.account?.id == account.id && $0.date <= date }
             .sorted { $0.date > $1.date }
@@ -327,19 +334,6 @@ enum FinanceCalculator {
                               reservedExpenseMinor: reservedExpense)
     }
 
-    static func monthlySummaries(
-        endingAt month: Date,
-        count: Int,
-        transactions: [FinancialTransaction],
-        calendar: Calendar = .autoupdatingCurrent
-    ) -> [MonthlySummary] {
-        let endMonth = month.startOfMonth(calendar: calendar)
-        return (0..<Swift.max(0, count)).reversed().map { offset in
-            let target = calendar.date(byAdding: .month, value: -offset, to: endMonth) ?? endMonth
-            return monthlySummary(for: target, transactions: transactions, calendar: calendar)
-        }
-    }
-
     static func spendingByCategory(
         for month: Date,
         categories: [FinanceCategory],
@@ -374,6 +368,14 @@ enum FinanceCalculator {
         calendar: Calendar = .autoupdatingCurrent
     ) -> [BudgetProgress] {
         let monthStart = month.startOfMonth(calendar: calendar)
+        // Spending of every category by month, read once; each limit then walks its months without a new pass.
+        let nextMonth = monthStart.addingMonths(1, calendar: calendar)
+        var spentByCategory: [UUID: [Date: Int64]] = [:]
+        for transaction in transactions where transaction.type.countsAsExpense && transaction.date < nextMonth {
+            guard let categoryID = transaction.category?.id else { continue }
+            spentByCategory[categoryID, default: [:]][transaction.date.startOfMonth(calendar: calendar), default: 0]
+                += budgetExpenseAmount(for: transaction)
+        }
         let spend = Dictionary(uniqueKeysWithValues: spendingByCategory(
             for: monthStart,
             categories: categories,
@@ -387,8 +389,8 @@ enum FinanceCalculator {
             .map { category in
                 let details = budgetLimit(
                     for: category, month: monthStart, budgets: budgets,
-                    recurringBudgets: recurringBudgets, transactions: transactions,
-                    calendar: calendar
+                    recurringBudgets: recurringBudgets, spentByMonth: spentByCategory[category.id] ?? [:],
+                    calendar: calendar, asOf: .now
                 )
                 return BudgetProgress(
                     category: category,
@@ -432,17 +434,32 @@ enum FinanceCalculator {
         asOf: Date = .now
     ) -> BudgetLimitDetails {
         let target = month.startOfMonth(calendar: calendar)
+        let spentByMonth = transactions
+            .filter { $0.category?.id == category.id && $0.type.countsAsExpense && $0.date < target.addingMonths(1, calendar: calendar) }
+            .reduce(into: [Date: Int64]()) { result, transaction in
+                result[transaction.date.startOfMonth(calendar: calendar), default: 0] += budgetExpenseAmount(for: transaction)
+            }
+        return budgetLimit(for: category, month: month, budgets: budgets, recurringBudgets: recurringBudgets,
+                           spentByMonth: spentByMonth, calendar: calendar, asOf: asOf)
+    }
+
+    /// The limit with the category's spending by month already known.
+    static func budgetLimit(
+        for category: FinanceCategory,
+        month: Date,
+        budgets: [MonthlyBudget],
+        recurringBudgets: [RecurringBudget],
+        spentByMonth: [Date: Int64],
+        calendar: Calendar,
+        asOf: Date
+    ) -> BudgetLimitDetails {
+        let target = month.startOfMonth(calendar: calendar)
         let currentRealMonth = asOf.startOfMonth(calendar: calendar)
         let categoryPlans = recurringBudgets.filter {
             $0.category?.id == category.id && $0.startMonth.startOfMonth(calendar: calendar) <= target
         }
         let categoryBudgets = budgets.filter { $0.category?.id == category.id }
         let firstMonth = categoryPlans.map { $0.startMonth.startOfMonth(calendar: calendar) }.min() ?? target
-        let spentByMonth = transactions
-            .filter { $0.category?.id == category.id && $0.type.countsAsExpense && $0.date < target.addingMonths(1, calendar: calendar) }
-            .reduce(into: [Date: Int64]()) { result, transaction in
-                result[transaction.date.startOfMonth(calendar: calendar), default: 0] += budgetExpenseAmount(for: transaction)
-            }
 
         var current = firstMonth
         var previousLimit: Int64 = 0
@@ -510,22 +527,9 @@ enum FinanceCalculator {
             }
         }
 
-        // Pre-index transactions and snapshots by account ID to avoid repeated O(M*A*N) full scans
-        var txByAccount: [UUID: [FinancialTransaction]] = [:]
-        for tx in transactions {
-            if let src = tx.sourceAccount?.id {
-                txByAccount[src, default: []].append(tx)
-            }
-            if let dest = tx.destinationAccount?.id, dest != tx.sourceAccount?.id {
-                txByAccount[dest, default: []].append(tx)
-            }
-        }
-        var snapsByAccount: [UUID: [BalanceSnapshot]] = [:]
-        for snap in snapshots {
-            if let accId = snap.account?.id {
-                snapsByAccount[accId, default: []].append(snap)
-            }
-        }
+        // One index for every month and account: each balance is then two binary searches.
+        let index = BalanceIndexCache.index(transactions: transactions, snapshots: snapshots)
+            ?? AccountBalanceIndex(transactions: transactions, snapshots: snapshots)
 
         return (0..<Swift.max(0, months)).reversed().map { offset in
             let monthStart = calendar.date(byAdding: .month, value: -offset, to: endMonth) ?? endMonth
@@ -533,17 +537,11 @@ enum FinanceCalculator {
             let evaluationDate = Swift.min(monthEnd, month)
 
             let total = activeAccounts.reduce(Int64.zero) { partial, account in
-                let accTx = txByAccount[account.id] ?? []
-                let accSnaps = snapsByAccount[account.id] ?? []
-                return partial + balance(of: account, at: evaluationDate, transactions: accTx, snapshots: accSnaps)
+                partial + index.balance(of: account, at: evaluationDate)
             }
 
             return NetWorthPoint(date: monthStart, valueMinor: total)
         }
-    }
-
-    static func hasMixedCurrencies(accounts: [FinancialAccount], primaryCurrency: String = "EUR") -> Bool {
-        accounts.contains { !$0.isArchived && $0.includeInNetWorth && $0.currencyCode != primaryCurrency }
     }
 
     static func estimatedAnnualInterestMinor(
@@ -555,5 +553,103 @@ enum FinanceCalculator {
         guard currentBalance != 0, account.annualInterestRate != 0 else { return 0 }
         let estimate = Int64((Double(Swift.abs(currentBalance)) * account.annualInterestRate).rounded())
         return account.type.isLiability ? -Swift.abs(estimate) : estimate
+    }
+}
+
+/// Every movement's effect on each account, sorted by date with running totals, so a balance is two binary
+/// searches instead of a pass over all movements. Built once per data change and shared by every screen.
+struct AccountBalanceIndex {
+    private struct Ledger {
+        var dates: [Date] = []
+        var totals: [Int64] = [] // running total up to and including each date
+        /// Sum of effects dated on or before `date` (`inclusive`) or strictly before it.
+        func sum(through date: Date, inclusive: Bool) -> Int64 {
+            var low = 0, high = dates.count
+            while low < high {
+                let middle = (low + high) / 2
+                if inclusive ? dates[middle] <= date : dates[middle] < date { low = middle + 1 } else { high = middle }
+            }
+            return low == 0 ? 0 : totals[low - 1]
+        }
+    }
+    private var ledgers: [UUID: Ledger] = [:]
+    private var snapshots: [UUID: [(date: Date, balance: Int64)]] = [:] // newest first
+
+    init(transactions: [FinancialTransaction], snapshots: [BalanceSnapshot]) {
+        var effects: [UUID: [(Date, Int64)]] = [:]
+        for transaction in transactions {
+            let amount = Swift.abs(transaction.amountMinor), date = transaction.date
+            let source = transaction.sourceAccount?.id
+            switch transaction.type {
+            case .income, .interest:
+                if let source { effects[source, default: []].append((date, amount)) }
+            case .expense, .fee:
+                if let source { effects[source, default: []].append((date, -amount)) }
+            case .transfer:
+                if let source { effects[source, default: []].append((date, -amount)) }
+                if let destination = transaction.destinationAccount?.id, destination != source {
+                    effects[destination, default: []].append((date, amount))
+                }
+            }
+        }
+        for (account, list) in effects {
+            var ledger = Ledger(), running: Int64 = 0
+            for (date, effect) in list.sorted(by: { $0.0 < $1.0 }) {
+                running += effect
+                ledger.dates.append(date); ledger.totals.append(running)
+            }
+            ledgers[account] = ledger
+        }
+        for snapshot in snapshots {
+            guard let account = snapshot.account?.id else { continue }
+            self.snapshots[account, default: []].append((snapshot.date, snapshot.balanceMinor))
+        }
+        for key in self.snapshots.keys { self.snapshots[key]?.sort { $0.date > $1.date } }
+    }
+
+    /// Same rules as `FinanceCalculator.scannedBalance`.
+    func balance(of account: FinancialAccount, at date: Date = .now) -> Int64 {
+        let ledger = ledgers[account.id] ?? Ledger()
+        if let latest = snapshots[account.id]?.first(where: { $0.date <= date }) {
+            return latest.balance + ledger.sum(through: date, inclusive: true) - ledger.sum(through: latest.date, inclusive: true)
+        }
+        guard account.openingDate <= date else { return 0 }
+        return account.openingBalanceMinor + ledger.sum(through: date, inclusive: true)
+            - ledger.sum(through: account.openingDate, inclusive: false)
+    }
+}
+
+/// Keeps the last index while the data does not change. Off by default (tests and tools change models in
+/// place); the app turns it on and calls `invalidate()` after every save. The key also checks that the
+/// arrays are the same ones, so a fresh fetch never reuses an index built from another.
+enum BalanceIndexCache {
+    private static let lock = NSLock()
+    private static var enabled = false
+    private static var version = 0
+    private static var key: Key?
+    private static var cached: AccountBalanceIndex?
+
+    private struct Key: Equatable {
+        let version: Int
+        let transactions: UnsafeRawPointer?, transactionCount: Int, first: UUID?, last: UUID?
+        let snapshots: UnsafeRawPointer?, snapshotCount: Int
+    }
+
+    static func enable() { lock.lock(); enabled = true; lock.unlock() }
+    static func disable() { lock.lock(); enabled = false; key = nil; cached = nil; lock.unlock() }
+    static func invalidate() { lock.lock(); version &+= 1; key = nil; cached = nil; lock.unlock() }
+
+    static func index(transactions: [FinancialTransaction], snapshots: [BalanceSnapshot]) -> AccountBalanceIndex? {
+        lock.lock(); defer { lock.unlock() }
+        guard enabled else { return nil }
+        let current = Key(version: version,
+                          transactions: transactions.withUnsafeBufferPointer { UnsafeRawPointer($0.baseAddress) },
+                          transactionCount: transactions.count, first: transactions.first?.id, last: transactions.last?.id,
+                          snapshots: snapshots.withUnsafeBufferPointer { UnsafeRawPointer($0.baseAddress) },
+                          snapshotCount: snapshots.count)
+        if current == key, let cached { return cached }
+        let built = AccountBalanceIndex(transactions: transactions, snapshots: snapshots)
+        key = current; cached = built
+        return built
     }
 }

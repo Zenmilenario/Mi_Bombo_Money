@@ -79,7 +79,7 @@ struct CSVImportView: View {
                         ForEach(Array(parseResult.warnings.prefix(20).enumerated()), id: \.offset) { _, warning in
                             Label(warning, systemImage: "exclamationmark.triangle")
                                 .font(.footnote)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(AppDesign.warning)
                         }
                         if parseResult.warnings.count > 20 {
                             Text("Hay \(parseResult.warnings.count - 20) aviso(s) más.")
@@ -190,18 +190,12 @@ struct CSVImportView: View {
         .onAppear {
             if selectedAccountID == nil { selectedAccountID = activeAccounts.first?.id }
         }
-        .alert("No se pudo importar", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
+        .alert("No se pudo importar", isPresented: Binding(isPresent: $errorMessage)) {
             Button("Aceptar", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "Error desconocido")
         }
-        .alert("Importación completada", isPresented: Binding(
-            get: { confirmationMessage != nil },
-            set: { if !$0 { confirmationMessage = nil } }
-        )) {
+        .alert("Importación completada", isPresented: Binding(isPresent: $confirmationMessage)) {
             Button("Aceptar", role: .cancel) { confirmationMessage = nil }
         } message: {
             Text(confirmationMessage ?? "")
@@ -251,7 +245,7 @@ struct CSVImportView: View {
             if let validationMessage = row.validationMessage {
                 Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(AppDesign.expense)
             } else if row.isExactDuplicate {
                 Label("Duplicado exacto: se omitirá", systemImage: "equal.circle.fill")
                     .font(.caption)
@@ -262,7 +256,7 @@ struct CSVImportView: View {
                     systemImage: "doc.on.doc.fill"
                 )
                 .font(.caption)
-                .foregroundStyle(.orange)
+                .foregroundStyle(AppDesign.warning)
             }
         }
         .padding(.vertical, 4)
@@ -293,7 +287,7 @@ struct CSVImportView: View {
             let data = try Data(contentsOf: url)
             let parsed = try CSVImportService.parse(url: url)
             fileName = url.lastPathComponent
-            fileChecksum = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            fileChecksum = StableDigest.hex(data)
             parseResult = parsed
             categoryCorrections.removeAll()
             visibleRowLimit = 200
@@ -657,7 +651,7 @@ private struct CSVCategoryCorrectionView: View {
                         if let ruleIssue {
                             Label(ruleIssue, systemImage: "exclamationmark.triangle")
                                 .font(.footnote)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(AppDesign.warning)
                         }
                     }
                 } footer: {

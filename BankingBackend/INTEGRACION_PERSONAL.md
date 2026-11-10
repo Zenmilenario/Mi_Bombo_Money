@@ -1,5 +1,210 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Doblón 0.7.13 (54) · bandeja de Apple Pay sin pérdidas
+
+Corrección del 10 de noviembre de 2026, a partir de una revisión externa.
+- **El fallo:** en una prueba de estrés con 32 pagos ficticios simultáneos, solo quedaron 4 registros. La bandeja guardaba todos los pagos en un único archivo y cada pago nuevo lo leía, añadía y reescribía. Dos automatizaciones a la vez se pisaban. No se sabe con qué frecuencia ocurriría en un iPhone real.
+- **Arreglo:**
+  - Un archivo por pago (`CardPayments/inbox/<id>.json`). Añadir un pago no reescribe los demás.
+  - Cada archivo se escribe de forma atómica.
+  - El archivo único de la 0.7.7 se migra al leerlo, y solo se borra cuando cada pago tiene ya su archivo.
+- **Prueba:** `PersonalBankingPlanCheck` lanza 32 pagos ficticios a la vez y comprueba que están todos, que apuntar unos conserva el resto y la migración.
+
+## Doblón 0.7.12 (53) y servidor · personas invitadas
+
+Decidido el 10 de noviembre de 2026. El usuario dará de alta a personas de confianza, al principio dos y quizá más, en la producción restringida de Enable Banking, vinculando sus cuentas en su panel. Usarán la app con normalidad y darán feedback; el caso servirá para su TFM.
+
+**Implementado (sin desplegar).**
+- **Personas invitadas:** `SUPABASE_GUEST_IDS`, una lista de identificadores de usuario de Supabase separados por comas, sin número fijo. Junto con `SUPABASE_OWNER_ID` forma la lista de admitidos. Una lista mal escrita desactiva la banca real en lugar de adivinar.
+- **Conexiones separadas por persona:**
+  - Cada conexión guarda una huella de su dueño en la columna `owner` (nueva migración `0003_connection_owner.sql`). Es un resumen criptográfico, nunca el identificador.
+  - Se cifra con el ámbito de ese usuario.
+  - Listar, abrir, descargar y desconectar solo afecta a las conexiones propias. Ni el dueño puede abrir las de un invitado.
+- **Conexiones anteriores:** se quedan sin huella y siguen siendo del dueño, con el mismo ámbito de cifrado. No hay que volver a conectar nada.
+- **Autorización bancaria:** recuerda quién la inició, y al volver del banco se comprueba que esa persona sigue invitada.
+- **Límites por persona:** consultas y altas de autorización se cuentan por separado. El tope de 6 conexiones es por persona.
+- **Páginas `/privacy` y `/terms`:** describen el acceso de las personas invitadas.
+- **App:** si una cuenta no invitada intenta conectar un banco, ve «Pide al responsable de Doblón que te invite».
+
+**Pruebas.**
+- `test/multiuser.test.mjs`: SQLite real con las tres migraciones, usuarios ficticios. Cubre admisión de invitados y rechazo de desconocidos, aislamiento y cifrado por usuario, conexiones antiguas del dueño, retorno de la autorización y límites por usuario.
+- 30 pruebas del servidor en verde en local. `wrangler deploy --dry-run` correcto.
+
+**Desplegado el 10 de noviembre de 2026** con confirmación del usuario:
+- Migración `0003` aplicada en la base personal.
+- En la base sandbox se aplicaron `0002` y `0003`: la `0002` nunca se había aplicado allí. Se comprobó antes el esquema; la `0002` conserva las filas.
+- Servidor personal: versión `768ffa37` (anterior para *rollback*: `71b61550`).
+- Servidor sandbox: versión `fcf49ebd`.
+- `/health` correcto en ambos; una llamada sin sesión recibe 401.
+
+**Corrección previa al despliegue (`cc7ba10`).**
+- El modo sandbox no tiene usuarios: sigue con un único espacio compartido.
+- El check «banking» falló porque las pruebas de integración aplicaban una lista fija de migraciones. Ahora aplican todas en orden.
+- En local: 31 pruebas unitarias y 23 de integración en verde.
+
+**Pendiente.** Comprobar en la app que tus bancos siguen actualizándose (tus conexiones previas deben verse sin reconectar). Añadir a las personas invitadas.
+
+**Pasos de activación (hechos los dos primeros).**
+1. Aplicar la migración `0003` en las dos bases D1, personal y sandbox, antes de desplegar: el código nuevo escribe la columna `owner`.
+2. Desplegar los dos Workers.
+3. Por cada persona:
+   - vincular sus cuentas en el panel de Enable Banking, con ella delante;
+   - que cree su cuenta en Doblón;
+   - añadir su identificador de usuario de Supabase a `SUPABASE_GUEST_IDS` en `.personal/wrangler.jsonc` y volver a desplegar.
+
+**Riesgo conocido.** Enable Banking describe la producción restringida para las cuentas propias. Ver «Piloto del TFM con personas de confianza» en Obsidian.
+
+## Doblón 0.7.11 (52) · edición personal y edición pública
+
+Decidido el 10 de noviembre de 2026. El mismo código genera dos ediciones, que se eligen al generar el IPA (Actions → Generar IPA → Edición). **Las dos conectan con bancos**: la conexión bancaria es el centro del proyecto.
+
+**Implementado.**
+- **Personal** (`personal`, por defecto): todo, con las herramientas de desarrollo.
+- **Pública** (`publica`, condición de compilación `DOBLON_PUBLIC`): sin las herramientas de desarrollo.
+  - Fuera: el laboratorio bancario, «Fluidez de la app» y su medidor, el diagnóstico de últimos apuntes recibidos y estados descartados, y los detalles del servidor en Mis bancos.
+  - Se mantienen: la conexión bancaria, la actualización automática, Apple Pay, la nube y el resto de funciones.
+- `AppEdition.isPersonal` indica la edición. En la pública, abrir el laboratorio lleva a la conexión real.
+- **CI:** «Validar app iOS» compila también la edición pública. `test-banking` ejecuta `PublicEditionCheck`, compilado con `-D DOBLON_PUBLIC`.
+
+**Pendiente.** La edición pública aún usa el servidor personal, que solo admite al creador. Para que otras personas conecten sus bancos hace falta lo descrito en «Conexión bancaria para otras personas» (Obsidian): acuerdo con Enable Banking, servidor para varios usuarios y consentimiento.
+
+**Corrección de CI.** En el primer intento fallaron las dos compilaciones de la edición personal. Con `set -u`, el bash 3.2 de los Mac de GitHub falla al expandir la lista vacía de opciones extra; la pública, que sí la llena, pasaba. Ahora se usa `${EXTRA[@]+"${EXTRA[@]}"}` en los tres workflows; también afectaba a «Generar IPA» en edición personal.
+
+**Verificación.** Pendientes los checks, el IPA y la prueba.
+
+## Doblón 0.7.7 (48) · pagos con Apple Pay apuntados al momento
+
+Preparado el 10 de noviembre de 2026. Trade Republic tarda días en enviar por PSD2 algunos pagos con tarjeta, y mientras tanto el saldo de la app no los refleja. iOS no deja a una app leer las notificaciones de otra, pero Atajos tiene la automatización **«Transacción»**, que se ejecuta tras cada pago con Apple Pay o Wallet y conoce el importe, el comercio y la tarjeta.
+
+**Implementado.**
+- **Acción de Atajos y Siri «Apuntar pago con tarjeta»** (`CardPaymentIntents.swift`): recibe importe, comercio y tarjeta y los deja en una bandeja **solo del dispositivo** (Application Support, protegida y fuera de copias). No abre la app ni toca la base de datos. Frase de Siri: «Apuntar un pago en Doblón».
+- **Paso a movimientos.** Al abrir Doblón, o al momento si ya está abierta, cada pago se apunta como gasto en la cuenta de su tarjeta. La marca `applepay:` en `externalID` indica que aún falta el banco. Solo en tus finanzas reales, nunca en el laboratorio, y solo si ninguna sincronización ni formulario está cambiando datos.
+- **«Pendiente del banco».** Movimientos muestra esa etiqueta en el lugar de la categoría. El gasto ya cuenta en saldo y presupuesto.
+- **Unión con el apunte del banco.** Un apunte del banco de la misma cuenta y el mismo importe, entre el día anterior y 7 días después del pago, se une con el pago apuntado aunque el concepto sea distinto. Si es el único candidato, la unión es automática (en Trade Republic, que siempre pasa por revisión, aparece ya emparejado). Si hay dos pagos iguales, se propone uno y decides tú. Al unirse se quita la marca y se conservan tu concepto, tu fecha y tu categoría.
+- **Sin contar dos veces una retención.** Si el banco comunica antes una retención del mismo importe, no se descuenta de nuevo del disponible ni aparece en «cargos en camino».
+- **Ajustes › Pagos con Apple Pay.** Cuenta por defecto, cuenta de cada tarjeta vista, pagos en espera y los pasos para crear la automatización.
+- **Don Bigotes** avisa de un pago que espera porque su tarjeta no tiene cuenta (abre Ajustes) y de pagos que tras 5 días siguen sin llegar del banco (lleva al más antiguo).
+
+**Crear la automatización (en el iPhone).**
+1. Atajos › Automatización › Nueva automatización › «Transacción».
+2. Marca las tarjetas, por ejemplo la de Trade Republic, y elige «Ejecutar inmediatamente».
+3. Añade la acción «Apuntar pago con tarjeta» de Doblón.
+4. En Importe, Comercio y Tarjeta elige las variables de la transacción con esos nombres.
+5. Guarda. En Doblón, Ajustes › Pagos con Apple Pay, elige la cuenta de la tarjeta.
+
+**Límite.** Solo los pagos con Apple Pay o Wallet activan la automatización. Un pago escribiendo los datos de la tarjeta virtual en una web no la activa; se puede apuntar diciéndoselo a Siri.
+
+**Verificación.** Pruebas con datos ficticios en `PersonalBankingPlanCheck` (formatos de importe, cuenta por tarjeta, bandeja, retenciones cubiertas, ventana de 7 días, pagos gemelos, dos apuntes contra un pago) y en `PersonalBankingImporterCheck` (unión sin duplicado, conserva tu texto y fecha, quita la marca). Pendientes los checks, el IPA y la prueba en el iPhone con un pago real.
+
+## Doblón 0.7.6 (47) y servidor · apuntes descartados por su estado
+
+Preparado el 10 de noviembre de 2026. Seguía sin llegar un pago con tarjeta de Trade Republic del día anterior. Al revisarlo se vio que el servidor solo acepta apuntes con estado contabilizado (BOOK), pendiente (PDNG) o retenido (HOLD): cualquier otro estado, o la ausencia de estado, se descartaba sin dejar rastro.
+
+**Implementado.** Servidor desplegado el 10 de noviembre (versión `71b61550`, desde `eb43ea9`).
+- **Servidor:** cuenta los apuntes descartados por estado (CNCL, RJCT, INFO, sin estado…), los devuelve como `ignoredStatuses` y deja una línea en el registro. Solo el estado y el número, nunca el apunte.
+- **App:** el diagnóstico de Mis bancos indica, por cuenta, «El banco también envió N … que la app no incorpora».
+- Así se distingue si el banco no ha enviado el pago o si lo envió con un estado que no se importa.
+
+**Verificación.**
+- Servidor: 25 pruebas en local, incluida la nueva con estados variados.
+- App: pruebas con datos ficticios en `PersonalBankingPlanCheck`.
+- Checks en verde y servidor desplegado. En el iPad el diagnóstico no mostró el pago ni estados descartados: Trade Republic no lo había enviado por PSD2. De ahí la 0.7.7.
+
+## Doblón 0.7.5 (46) · Don Bigotes actualiza tus bancos
+
+Idea del usuario del 10 de noviembre de 2026: actualizar los bancos desde Mis bancos exigía demasiados toques.
+
+**Implementado.**
+- En la hoja de Don Bigotes (al tocarlo), botón **«Actualizar mis bancos»**. Hace la misma consulta manual que Mis bancos, muestra el resultado en la propia hoja y, si se ha incorporado algo, sincroniza con la nube a continuación.
+- Si una descarga espera revisión, el botón se desactiva y el aviso «Descarga del banco por revisar» ofrece «Ver», que abre la revisión.
+- Solo aparece en el espacio cloud con conexión bancaria personal.
+
+**Verificación.** Pendientes los checks, el IPA y la prueba en el dispositivo; se probará junto a la 0.7.4 como un único lote.
+
+## Doblón 0.7.4 (45) · diagnóstico bancario y aviso de revisión
+
+Preparado el 10 de noviembre de 2026. El usuario echaba en falta un pago con tarjeta de Trade Republic del día anterior.
+- **Qué se comprobó.** El servidor registró la consulta: todas las peticiones respondieron bien. La revisión mostraba un único apunte nuevo, de Bankinter, y el pago de Trade Republic no estaba entre los recibidos ni entre las propuestas. Es decir, Trade Republic aún no lo había comunicado por PSD2; la app no lo descartó.
+
+**Implementado.**
+- **Diagnóstico en Mis bancos.** Cada cuenta conectada muestra «Últimos apuntes recibidos»: cuántos apuntes envió el banco y los 8 más recientes (fecha, concepto, importe) de la última consulta. Se guarda solo en el dispositivo, junto a los retenidos.
+- **Don Bigotes avisa de la descarga por revisar.** Es un aviso urgente, así que lo despierta a cualquier hora. «Ver» abre la revisión de Mis bancos desde Movimientos.
+
+**Forma de trabajar.** Desde este día, a petición del usuario, los cambios se agrupan en lotes grandes para probarlos de una vez (`CLAUDE.md` actualizado).
+
+**Verificación.** Pruebas con datos ficticios en `PersonalBankingPlanCheck` (apuntes recibidos, límite de 8, lectura de datos guardados por la 0.7.3) y `FinancialLogicCheck`. Pendientes los checks, el IPA y la prueba.
+
+## Retenidos en Movimientos e Inicio — iOS 0.6.23 (40)
+
+Preparado el 9 de noviembre de 2026. Con el Worker desplegado, la 0.6.22 mostró en el detalle de la cuenta los dos retenidos de Bankinter. El usuario prefiere verlos en Movimientos, porque ya le restan dinero.
+
+**En el dispositivo.** La última lista de retenidos de cada cuenta se guarda solo en el dispositivo (Application Support, protección completa, fuera de la copia de iCloud, de la nube y de la contabilidad), por propietario. Se muestra al abrir la app antes de la primera consulta y se sustituye con cada descarga. Las listas de más de siete días se descartan.
+
+**Movimientos.** Encima de los días aparece «Pendientes del banco», con el total, cada cargo con su cuenta, fecha y la etiqueta «Retenido» o «Pendiente», y la hora de consulta. Siguen los filtros de cuenta, tipo y búsqueda; se ocultan con los filtros de categoría, revisión o duplicados. No se pueden editar ni entran en presupuestos, resúmenes ni aprendizaje.
+
+**Inicio y Cuentas.** «Disponible para usar» pasa a «Disponible tras retenciones» cuando hay cargos retenidos en cuentas de gasto, e indica lo retenido. En Cuentas, cada fila muestra el número de retenidos y su importe; el detalle añade «Saldo tras retenciones». Los abonos pendientes no se suman: todavía no son dinero disponible.
+
+**Verificación.** Pruebas con datos ficticios: la actividad se conserva al codificarla, un abono pendiente no aumenta lo disponible, otro arranque del coordinador muestra los retenidos guardados solo al mismo usuario y las listas antiguas se descartan. Pendientes los checks, el IPA y la prueba en el dispositivo.
+
+## Apuntes editados y fechas que cambian — iOS 0.6.22 (39)
+
+Preparado el 9 de noviembre de 2026 tras probar la 0.6.20 en el iPad. Se observaron dos problemas: un banco quedaba apartado en cada consulta porque el usuario había editado uno de sus apuntes ya importados, y un apunte de Trade Republic volvía a aparecer como duplicado sin que se pudiera unir.
+
+**Tu versión se conserva.** Si un apunte con referencia del banco ya está guardado y el usuario le cambió el importe, el tipo o la cuenta, la descarga ya no se detiene: se conserva la versión del usuario, el resto del banco se incorpora y **Mis bancos** indica la fecha del apunte conservado. Antes (0.6.20) el banco quedaba apartado hasta que se deshiciera la edición.
+
+**Fechas que cambia Trade Republic.** Trade Republic no envía referencia, así que la clave de cada apunte se genera con su fecha contable. Si el banco mueve un apunte a otro día, la clave cambia y el apunte llegaba como nuevo. Ahora, si un registro guardado tiene claves generadas de esa cuenta que ya no aparecen en la descarga, con el mismo importe y sentido y a tres días como máximo, se propone como el mismo apunte en la revisión («El banco ha cambiado la fecha de este apunte»). Nunca se une automáticamente. Al aceptar, el registro recibe la clave nueva en lugar de las antiguas y conserva su tipo, categoría y notas.
+
+**Unir duplicados que ya son transferencias.** «¿Ya lo tenías registrado?» aparece también en apuntes del banco convertidos en transferencia hacia una cuenta no vinculada (por ejemplo, la cuenta de valores). Para los duplicados ya creados por un cambio de fecha de Trade Republic se permite unir dos registros con claves generadas de la misma cuenta; el registro conservado guarda ambas claves y ninguna de las dos fechas se vuelve a importar. Dos apuntes con referencia propia del banco en la misma cuenta siguen siendo dos operaciones y no se ofrecen.
+
+**Texto corregido.** La tarjeta «Posible duplicado» ya no aconseja eliminar un apunte del banco, que volvería en la próxima descarga: remite a «¿Ya lo tenías registrado?».
+
+**Verificación.** Pruebas con datos ficticios: el plan conserva la versión editada y lo indica; el cambio de fecha se propone y no se confunde con dos apuntes reales del mismo importe en días consecutivos; con un almacén en memoria se reproduce el duplicado convertido en transferencia, se une, ninguna de las dos fechas vuelve, y un tercer cambio de fecha sustituye las claves antiguas. En el coordinador, un banco con un apunte editado se incorpora junto a los demás. Escrito sin compilador Swift disponible; pendientes los checks, el IPA y la prueba en el dispositivo.
+
+## Transferencias entre tus bancos — iOS 0.6.21 (38)
+
+Preparado el 9 de noviembre de 2026 a partir del caso observado ese día: una transferencia de Trade Republic a Bankinter aparecía como gasto en Trade Republic. Trade Republic no envía contraparte ni referencia, de modo que nunca se aplicaba el emparejamiento por IBAN, y la unión manual exigía la misma fecha exacta. Además, si Bankinter informaba de la cuenta de Trade Republic como origen, su apunte quedaba en espera de una pareja con referencia que nunca llegaría. Propuesta y criterio en la nota «Saldo real — retenciones y transferencias propias» de Obsidian.
+
+**Apuntes que ya no esperan.** Si un banco indica como otra parte una cuenta propia de Trade Republic, el apunte se incorpora por sí solo y se guarda una pista de que el banco nombró esa cuenta.
+
+**Emparejamiento.** Después de cada incorporación se buscan parejas entre cuentas propias vinculadas: un cargo y un abono del mismo importe en cuentas distintas, a dos días como máximo, con una única candidata a cada lado y sin una transferencia ya registrada entre esas cuentas. No participan apuntes con reserva, recurrencia, categoría que no sea de transferencia ni posible duplicado.
+- **Evidencia fuerte** (el banco nombró la otra cuenta propia, o hay concepto de transferencia y como mucho un día de diferencia): se unen automáticamente en una transferencia que conserva las dos referencias. Si el cargo no tenía concepto, toma el del abono.
+- **Evidencia menor:** el detalle muestra «Posible transferencia entre tus cuentas» para unirlos con un toque.
+- **Separar:** el detalle de una transferencia unida así ofrece «Separar en dos movimientos», que restaura los dos apuntes tal como llegaron y evita que se vuelvan a unir automáticamente.
+
+La información para separar se guarda solo en el dispositivo, como el historial del aprendizaje: se puede separar desde el dispositivo que hizo la unión. Un fallo al emparejar no deshace la importación.
+
+**Verificación.** Pruebas con datos ficticios: la selección libera el apunte que nombra a Trade Republic y conserva la pista; con un almacén en archivo se comprueban la unión automática, que la siguiente descarga reconoce los dos lados, la separación, que no se vuelve a unir, la propuesta de evidencia menor, que dos candidatas no se emparejan y que la pista del banco cuenta como evidencia fuerte. Escrito sin compilador Swift disponible; pendientes los checks, el IPA y la prueba en el dispositivo.
+
+## Coincidencias del mismo día con registros locales — iOS 0.6.20 (37)
+
+Preparado el 9 de noviembre de 2026 a partir de la la revisión técnica de la 0.6.19 (hallazgo 3). El emparejamiento comparaba los días en UTC. Los movimientos importados por CSV, y cualquier registro guardado a medianoche local, caen en España en el día UTC anterior, de modo que nunca se reconocían como del mismo día que su apunte bancario: no había coincidencia automática ni sugerencia de «mismo día», y aumentaban las revisiones manuales.
+
+Ahora las fechas del banco se siguen interpretando en UTC, sin cambiar claves ni registros guardados. Un registro del libro guardado exactamente a medianoche UTC (los apuntes bancarios ya importados) se compara en UTC; el resto, por su día del calendario del dispositivo. No se amplía la tolerancia: un registro del día siguiente sigue siendo solo candidato para revisión.
+
+**Verificación.** Prueba con datos ficticios en `PersonalBankingPlanCheck`, fijando la zona Europe/Madrid: el registro de medianoche local coincide automáticamente con su día y el del día siguiente queda como candidato. Pendientes los checks de GitHub Actions y la prueba en el dispositivo.
+
+## Unir un apunte bancario con un movimiento existente — iOS 0.6.20 (37)
+
+Preparado el 9 de noviembre de 2026 a partir de la la revisión técnica de la 0.6.19 (hallazgo 2). Eliminar un apunte que viene del banco no deja ninguna marca, así que la siguiente descarga lo vuelve a crear mientras siga dentro de los 89 días consultados. Cuando el apunte duplica un movimiento que ya habías registrado, lo correcto es unirlos.
+
+**Unir.** En el detalle de un apunte bancario aparece «¿Ya lo tenías registrado?» con los movimientos compatibles: misma cuenta, mismo importe y tipo, y fecha a menos de siete días. También aparece una transferencia propia que todavía no tenga la referencia de esa cuenta. Al confirmar, se conserva tu movimiento con su categoría, notas, reserva y recurrencia; recibe la referencia del banco, queda conciliado y guarda el concepto bancario en sus notas. El apunte duplicado se elimina. La compatibilidad se comprueba con la misma regla que aplica la descarga, de modo que la siguiente consulta lo reconoce como ya importado. No se ofrecen apuntes con reserva o recurrencia propias: hay que desvincularlos antes.
+
+**Aviso al eliminar.** En el espacio cloud, eliminar desde la lista un apunte con referencia bancaria pide confirmación y explica que volverá en la próxima descarga y que, si es un duplicado, conviene unirlo. La eliminación sigue siendo posible.
+
+**Sin cambios de esquema.** No hay migración de Supabase ni de copias: se reutiliza la referencia bancaria existente. Ocultar apuntes no deseados («Ignorar») queda para un lote posterior, porque exige excluirlos de todos los cálculos y pantallas.
+
+**Verificación.** Prueba con datos ficticios en SwiftData en memoria: un movimiento manual y su duplicado bancario incorporado aparte; solo se ofrece el movimiento compatible, la unión conserva categoría y notas, y otra descarga no lo repite. La interfaz se ha escrito sin compilador Swift disponible; pendientes los checks de GitHub Actions, la compilación iOS y la prueba en el dispositivo.
+
+## Incorporación aislada por banco — iOS 0.6.20 (37)
+
+Preparado el 9 de noviembre de 2026 a partir de la la revisión técnica de la 0.6.19 (hallazgo 1). Antes, una descarga con varios bancos se preparaba como un único plan. Si un apunte con referencia del banco ya estaba guardado con otro importe, tipo o cuenta (por ejemplo, tras corregirlo a mano), el plan fallaba con «Tus datos han cambiado» y ningún banco se incorporaba, aunque su descarga hubiera llegado.
+
+Ahora ese caso produce un error que nombra el banco y la fecha del apunte. El coordinador aparta solo ese banco y vuelve a preparar la selección con el resto. Las transferencias propias cuya otra parte pertenece al banco apartado quedan en espera, como cuando un banco no responde, y no se importan como gasto ni como ingreso. El registro editado por el usuario se conserva. También se aíslan los errores que ya identificaban su banco: saldo contable ausente, movimiento no válido y apunte sin referencia. Los errores generales (datos incoherentes o transferencias incompletas) siguen deteniendo toda la descarga.
+
+En **Mis bancos**, el banco apartado muestra «Descarga recibida, pero no se ha podido incorporar» con el motivo; los demás muestran su incorporación habitual.
+
+**Verificación.** Pruebas añadidas con datos ficticios: el error del plan conserva banco y fecha, y en el coordinador una edición local en BBVA no impide incorporar Sabadell, mientras que BBVA solo se detiene con un mensaje que lo nombra. Escritas sin compilador Swift disponible; pendientes de los checks de GitHub Actions, la compilación iOS y la prueba en el dispositivo. La revisión de las coincidencias sigue siendo conjunta para los bancos de una misma descarga.
+
 ## Repetición de descargas de Trade Republic — iOS 0.6.19 (36)
 
 El 7 de noviembre de 2026, Mis bancos indicó que la descarga de Trade Republic había llegado y que la app no podía incorporarla. Se reprodujo el mismo aviso con un apunte antiguo sin referencia bancaria cuyo importe y tipo habían cambiado en el registro local. La captura no permite identificar el apunte que disparó el fallo ni confirmar si la descarga incluía la aportación buscada.

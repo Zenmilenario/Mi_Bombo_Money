@@ -178,10 +178,7 @@ struct BackupView: View {
         } message: {
             Text("Esta copia de seguridad está cifrada. Introduce su contraseña para abrirla.")
         }
-        .alert("Copia de seguridad", isPresented: Binding(
-            get: { message != nil },
-            set: { if !$0 { message = nil } }
-        )) {
+        .alert("Copia de seguridad", isPresented: Binding(isPresent: $message)) {
             Button("Aceptar", role: .cancel) { message = nil }
         } message: {
             Text(message ?? "")

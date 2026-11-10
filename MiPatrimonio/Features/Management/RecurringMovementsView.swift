@@ -77,18 +77,12 @@ struct RecurringMovementsView: View {
         .sheet(item: $editingMovement) { movement in
             RecurringMovementFormView(movement: movement)
         }
-        .alert("No se pudo completar la operación", isPresented: Binding(
-            get: { errorMessage != nil },
-            set: { if !$0 { errorMessage = nil } }
-        )) {
+        .alert("No se pudo completar la operación", isPresented: Binding(isPresent: $errorMessage)) {
             Button("Aceptar", role: .cancel) { errorMessage = nil }
         } message: {
             Text(errorMessage ?? "Error desconocido")
         }
-        .alert("Movimiento creado", isPresented: Binding(
-            get: { confirmationMessage != nil },
-            set: { if !$0 { confirmationMessage = nil } }
-        )) {
+        .alert("Movimiento creado", isPresented: Binding(isPresent: $confirmationMessage)) {
             Button("Aceptar", role: .cancel) { confirmationMessage = nil }
         } message: {
             Text(confirmationMessage ?? "")
@@ -117,7 +111,7 @@ struct RecurringMovementsView: View {
                         } label: {
                             Label("Registrar", systemImage: "checkmark.circle")
                         }
-                        .tint(.green)
+                        .tint(AppDesign.income)
                     }
                     .swipeActions(edge: .trailing) {
                         Button {
@@ -127,7 +121,7 @@ struct RecurringMovementsView: View {
                         } label: {
                             Label(movement.isActive ? "Pausar" : "Activar", systemImage: movement.isActive ? "pause" : "play")
                         }
-                        .tint(.orange)
+                        .tint(AppDesign.warning)
 
                         Button(role: .destructive) {
                             delete(movement)
@@ -383,7 +377,7 @@ private struct RecurringMovementFormView: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppDesign.expense)
                     }
                 }
             }
@@ -408,10 +402,7 @@ private struct RecurringMovementFormView: View {
                 }
                 if categoryID == nil { categoryID = defaultCategory(for: type)?.id }
             }
-            .alert("Revisa el movimiento periódico", isPresented: Binding(
-                get: { errorMessage != nil },
-                set: { if !$0 { errorMessage = nil } }
-            )) {
+            .alert("Revisa el movimiento periódico", isPresented: Binding(isPresent: $errorMessage)) {
                 Button("Aceptar", role: .cancel) { errorMessage = nil }
             } message: {
                 Text(errorMessage ?? "")

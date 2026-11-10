@@ -8,6 +8,14 @@ private struct CloudWorkspaceKey: EnvironmentKey { static let defaultValue = fal
 private struct BankAccountActivityKey: EnvironmentKey {
     static let defaultValue: [String: BankingAccountActivity] = [:]
 }
+/// Banks whose download is waiting for the person's review, if any.
+private struct BankReviewPendingKey: EnvironmentKey { static let defaultValue: [String] = [] }
+/// Asks the personal banking connection for a manual update and returns what happened, in words.
+/// Only the cloud workspace provides it; elsewhere it is nil and nothing offers to update banks.
+struct BankRefreshAction {
+    let run: @MainActor () async -> String
+}
+private struct BankRefreshKey: EnvironmentKey { static let defaultValue: BankRefreshAction? = nil }
 extension EnvironmentValues {
     var isCloudWorkspace: Bool {
         get { self[CloudWorkspaceKey.self] }
@@ -16,6 +24,14 @@ extension EnvironmentValues {
     var bankAccountActivity: [String: BankingAccountActivity] {
         get { self[BankAccountActivityKey.self] }
         set { self[BankAccountActivityKey.self] = newValue }
+    }
+    var bankReviewPending: [String] {
+        get { self[BankReviewPendingKey.self] }
+        set { self[BankReviewPendingKey.self] = newValue }
+    }
+    var bankRefresh: BankRefreshAction? {
+        get { self[BankRefreshKey.self] }
+        set { self[BankRefreshKey.self] = newValue }
     }
 }
 
@@ -46,7 +62,7 @@ struct CloudSignInView: View {
         NavigationStack {
             Form {
                 Section {
-                    Label("Mi Bombo Money", systemImage: "cloud")
+                    Label("Doblón", systemImage: "cloud")
                         .font(.title2.bold())
                     Text("Tus finanzas, en tus dispositivos")
                         .font(.headline)
@@ -176,6 +192,14 @@ private struct CloudFinanceWorkspaceView: View {
                     .modelContainer(container)
                     .environment(\.isCloudWorkspace, true)
                     .environment(\.bankAccountActivity, banking.activity(for: account.session?.user.id))
+                    .environment(\.bankReviewPending, banking.pendingReviewBanks)
+                    .environment(\.bankRefresh, BankRefreshAction {
+                        // The same manual update as «Actualizar movimientos bancarios» in Mis bancos.
+                        let changed = await banking.synchronize(account: account, context: container.mainContext, force: true)
+                        // As in the automatic update: what was imported goes to the cloud straight away.
+                        if changed { await sync.synchronize(account: account) }
+                        return [banking.message, banking.errorMessage].compactMap { $0 }.joined(separator: " ")
+                    })
                     .environmentObject(sync)
                     .environmentObject(banking)
             } else if sync.needsMigrationChoice {
@@ -185,7 +209,7 @@ private struct CloudFinanceWorkspaceView: View {
                             Text("¿Cómo quieres empezar?").font(.title2.bold())
                             Text("En este dispositivo hay \(sync.migrationRecordCount) registros. Puedes copiarlos a tu cuenta cloud o empezar con un espacio vacío. Los originales permanecen en el modo local.")
                         }
-                        if let error = sync.errorMessage { Section { Text(error).foregroundStyle(.red) } }
+                        if let error = sync.errorMessage { Section { Text(error).foregroundStyle(AppDesign.expense) } }
                         Section {
                             Button("Copiar mis datos a mi cuenta cloud") { Task { await sync.chooseMigration(copyLocal: true, account: account) } }
                             Button("Empezar sin copiar datos") { Task { await sync.chooseMigration(copyLocal: false, account: account) } }
@@ -212,6 +236,8 @@ private struct CloudFinanceWorkspaceView: View {
                 sync.setAutomaticPauseReason(paused ? "Se reanudará al cerrar la ventana abierta." : nil)
                 return !paused
             } synchronize: {
+                HitchMonitor.shared.activity = "sincronizando"
+                defer { HitchMonitor.shared.activity = nil }
                 await sync.synchronize(account: account)
                 if !Task.isCancelled, !sync.busy, sync.conflict == nil, !hasPresentedWindow,
                    let context = sync.container?.mainContext {
@@ -321,7 +347,7 @@ struct CloudAccountSettingsView: View {
                 Text("Los cambios se guardan en este dispositivo y se sincronizan al abrir la app y mientras la utilizas. Sin conexión, permanecen pendientes.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
-            if let message = sync.errorMessage { Section { Text(message).foregroundStyle(.red) } }
+            if let message = sync.errorMessage { Section { Text(message).foregroundStyle(AppDesign.expense) } }
             if let message = account.message { Section { Text(message) } }
             if sync.conflict != nil {
                 Section("Cambios que requieren revisión") {

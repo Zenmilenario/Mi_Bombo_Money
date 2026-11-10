@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   build:
-    name: Compilar MiPatrimonio (${{ matrix.configuration }} - ${{ matrix.sdk }})
+    name: Compilar MiPatrimonio (${{ matrix.configuration }} - ${{ matrix.sdk }} - ${{ matrix.edition }})
     runs-on: macos-latest
     timeout-minutes: 30
     strategy:
@@ -29,9 +29,15 @@ jobs:
           - configuration: Debug
             sdk: iphonesimulator
             destination: "generic/platform=iOS Simulator"
+            edition: personal
           - configuration: Release
             sdk: iphoneos
             destination: "generic/platform=iOS"
+            edition: personal
+          - configuration: Release
+            sdk: iphoneos
+            destination: "generic/platform=iOS"
+            edition: publica
 
     steps:
       - name: Descargar el repositorio
@@ -50,9 +56,12 @@ jobs:
           CONFIGURATION: ${{ matrix.configuration }}
           SDK: ${{ matrix.sdk }}
           DESTINATION: ${{ matrix.destination }}
+          EDITION: ${{ matrix.edition }}
         shell: bash
         run: |
           set -euo pipefail
+          EXTRA=()
+          if [ "$EDITION" = "publica" ]; then EXTRA+=("SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) DOBLON_PUBLIC"); fi
           xcodebuild \
             -project MiPatrimonio.xcodeproj \
             -scheme MiPatrimonio \
@@ -65,6 +74,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             VALIDATE_PRODUCT=NO \
             COMPILER_INDEX_STORE_ENABLE=NO \
+            ${EXTRA[@]+"${EXTRA[@]}"} \
             clean build | tee xcodebuild.log
 
       - name: Comprimir la aplicacion del simulador
@@ -90,7 +100,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: Registro-compilacion-Xcode-${{ matrix.configuration }}-${{ matrix.sdk }}
+          name: Registro-compilacion-Xcode-${{ matrix.configuration }}-${{ matrix.sdk }}-${{ matrix.edition }}
           path: xcodebuild.log
           if-no-files-found: warn
           retention-days: 14

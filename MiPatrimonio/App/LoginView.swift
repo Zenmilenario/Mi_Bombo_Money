@@ -2,7 +2,6 @@ import SwiftUI
 
 struct LoginView: View {
     @EnvironmentObject private var lockManager: AppLockManager
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -24,8 +23,8 @@ struct LoginView: View {
     @FocusState private var focusedField: Field?
     @AccessibilityFocusState private var errorIsFocused: Bool
 
-    private var accent: Color { Color(hex: colorScheme == .dark ? "#67CDCF" : "#176B87") }
-    private var buttonColor: Color { Color(hex: "#176B87") }
+    private var accent: Color { AppDesign.accent }
+    private var buttonColor: Color { AppDesign.actionFill }
     private var isBusy: Bool { isProcessing || lockManager.isAuthenticating }
     private var deviceTitle: String {
         biometricType == .passcode ? "Entrar con el código del dispositivo" : "Entrar con \(biometricType.title)"
@@ -65,8 +64,13 @@ struct LoginView: View {
                             }
                             .frame(maxWidth: 1_160)
                         } else {
-                            VStack(alignment: .leading, spacing: 32) {
+                            VStack(alignment: .leading, spacing: 24) {
                                 brandSignature
+                                // Nothing personal before unlocking: an illustration and the saying of the day.
+                                BomboIllustration()
+                                    .frame(maxWidth: .infinity)
+                                    .frame(height: dynamicTypeSize.isAccessibilitySize ? 120 : 190)
+                                DailyQuoteCard()
                                 accessContent
                             }
                             .frame(maxWidth: 520)
@@ -114,7 +118,7 @@ struct LoginView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                Text("Mi Bombo Money")
+                Text("Doblón")
                     .font(.headline)
                 Text("Finanzas personales")
                     .font(.caption)
@@ -125,33 +129,26 @@ struct LoginView: View {
     }
 
     private var welcomePanel: some View {
-        VStack(alignment: .leading, spacing: 48) {
+        VStack(alignment: .leading, spacing: 28) {
             brandSignature
-            VStack(alignment: .leading, spacing: 18) {
-                Image(systemName: "square.stack.3d.up")
-                    .font(.largeTitle)
-                    .foregroundStyle(Color(hex: "#9CE3D9"))
-                    .accessibilityHidden(true)
-                Text("Tu dinero,\ncon más claridad.")
-                    .font(.largeTitle.bold())
+            BomboIllustration()
+                .frame(maxWidth: .infinity)
+                .frame(height: 280)
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Tu dinero, con calma.")
+                    .font(.system(size: 34, weight: .heavy, design: .rounded))
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Un lugar para tus cuentas, tus movimientos y los planes que vienen.")
-                    .font(.title3)
-                    .foregroundStyle(.white.opacity(0.8))
-                    .fixedSize(horizontal: false, vertical: true)
+                DailyQuoteCard()
+                Label("La conexión con tu banco solo lee: nunca puede mover dinero.", systemImage: "lock.shield")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
-            Label("A tu ritmo. A tu manera.", systemImage: "leaf")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.8))
         }
         .padding(36)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .foregroundStyle(.white)
-        .environment(\.colorScheme, .dark)
-        .background {
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .fill(LinearGradient(colors: [Color(hex: "#174F60"), Color(hex: "#102F3A")],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
+        .background(AppDesign.railBackground, in: RoundedRectangle(cornerRadius: 32, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 32, style: .continuous).strokeBorder(AppDesign.cardOutline, lineWidth: 1)
         }
     }
 
@@ -180,10 +177,10 @@ struct LoginView: View {
                 if let message = errorMessage ?? lockManager.lastErrorMessage {
                     Label(message, systemImage: "exclamationmark.circle.fill")
                         .font(.callout)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(AppDesign.expense)
                         .padding(12)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                        .background(AppDesign.expense.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                         .accessibilityFocused($errorIsFocused)
                 }
 

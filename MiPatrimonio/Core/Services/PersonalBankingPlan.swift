@@ -54,8 +54,14 @@ enum PersonalBankingDownloadBatch {
 struct PersonalBankingDownloadSelection {
     let feeds: [BankingAccountFeed]
     let deferredByBank: [String: Int]
+    /// Bank references, by remote account, of legs whose bank named a reference-less own account as the other side.
+    var ownTransferHints: [String: Set<String>] = [:]
 
-    static func prepare(_ feeds: [BankingAccountFeed], knownAccounts: [ConnectedBankAccount]) throws -> Self {
+    /// `referenceLessAccounts`: accounts whose bank sends no counterparty or reference (Trade Republic).
+    /// A leg pointing to one of them can never meet a referenced peer, so it is imported on its own and
+    /// own-transfer pairing joins it with the peer posting by amount and date.
+    static func prepare(_ feeds: [BankingAccountFeed], knownAccounts: [ConnectedBankAccount],
+                        referenceLessAccounts: Set<String> = []) throws -> Self {
         var identities: [String: String] = [:]
         for remote in knownAccounts {
             if let own = remote.ownershipKey {
@@ -64,9 +70,15 @@ struct PersonalBankingDownloadSelection {
             }
         }
         var deferred: [String: Int] = [:]
+        var hints: [String: Set<String>] = [:]
         let selected = feeds.map { feed in
-            let rows = feed.movements.filter { row in
-                guard let otherKey = row.counterpartyKey, let other = identities[otherKey], other != feed.account.id else { return true }
+            let rows = feed.movements.compactMap { row -> BankingPreview.Movement? in
+                guard let otherKey = row.counterpartyKey, let other = identities[otherKey], other != feed.account.id else { return row }
+                if referenceLessAccounts.contains(other) {
+                    if let reference = row.id, !reference.isEmpty { hints[feed.account.id, default: []].insert(reference) }
+                    return BankingPreview.Movement(id: row.id, bookingDate: row.bookingDate, signedAmountMinor: row.signedAmountMinor,
+                        currency: row.currency, description: row.description)
+                }
                 let own = feed.account.ownershipKey
                 let matches = feeds.filter { $0.account.id == other }.flatMap(\.movements).filter {
                     own != nil && $0.counterpartyKey == own && row.transferKey != nil && $0.transferKey == row.transferKey
@@ -80,14 +92,14 @@ struct PersonalBankingDownloadSelection {
                             && $0.bookingDate == peer.bookingDate && peer.signedAmountMinor != Int64.min
                             && $0.signedAmountMinor == -peer.signedAmountMinor && $0.currency == peer.currency
                     }
-                    if reverse.count == 1 { return true }
+                    if reverse.count == 1 { return row }
                 }
                 deferred[feed.connection.bank, default: 0] += 1
-                return false
+                return nil
             }
             return BankingAccountFeed(connection: feed.connection, account: feed.account, balances: feed.balances, movements: rows)
         }
-        return Self(feeds: selected, deferredByBank: deferred)
+        return Self(feeds: selected, deferredByBank: deferred, ownTransferHints: hints)
     }
 }
 
@@ -95,6 +107,13 @@ enum PersonalBankingError: LocalizedError {
     case invalidData, accountNotLinked, needsReview, changed, incompleteTransfer, wrongWorkspace, transferAlreadyRecorded
     case unavailableBookedBalance(String), invalidMovement(String), missingMovementReference(String)
     case contributionNeedsTransferReview
+    /// Bank whose own feed caused the error, so the other banks of a download can continue.
+    var bank: String? {
+        switch self {
+        case .unavailableBookedBalance(let bank), .invalidMovement(let bank), .missingMovementReference(let bank): bank
+        default: nil
+        }
+    }
     var errorDescription: String? {
         switch self {
         case .invalidData: "Los datos bancarios no son compatibles o están incompletos. No se ha guardado la importación."
@@ -110,6 +129,24 @@ enum PersonalBankingError: LocalizedError {
         case .transferAlreadyRecorded: "Ya hay una transferencia con esas cuentas, importe y fecha. Comprueba ese movimiento antes de unir los apuntes."
         }
     }
+    static func displayDate(_ value: String) -> String {
+        let parts = value.split(separator: "-")
+        guard parts.count == 3, let day = Int(parts[2]), let month = Int(parts[1]) else { return value }
+        return "\(day)/\(month)/\(parts[0])"
+    }
+}
+
+extension PersonalBankingPlan {
+    /// Status line for each bank with postings the user edited after importing them.
+    func keptEditsSummary() -> [String: String] {
+        Dictionary(grouping: keptEdits, by: \.bank).mapValues { edits in
+            let dates = Array(Set(edits.map(\.bookingDate))).sorted().map(PersonalBankingError.displayDate)
+            let count = edits.count
+            return count == 1
+                ? "Se conserva tu versión del apunte del \(dates[0]), que editaste después de importarlo."
+                : "Se conserva tu versión de \(count) apuntes que editaste después de importarlos (\(dates.joined(separator: ", ")))."
+        }
+    }
 }
 
 struct BankingLedgerEntry: Equatable {
@@ -121,6 +158,8 @@ struct BankingLedgerEntry: Equatable {
     let destination: UUID?
     let text: String
     let externalID: String?
+    /// Recorded when paying (Apple Pay via Shortcuts) and still waiting for the bank to send it.
+    var awaitingBank = false
 }
 
 /// Interprets Trade Republic's normalized feed without changing shared accounting rules.
@@ -174,13 +213,18 @@ struct PersonalBankingPlan {
         var automaticMatch: UUID?
         var suggestedMatch: UUID?
         var suggestionReason: String?
+        /// Records holding an outdated generated key of this account: matching one replaces that key.
+        var rekeyCandidates: Set<UUID> = []
     }
     struct Balance { let account: UUID; let amount: Int64 }
     struct BalanceGap: Identifiable { let id: UUID; let diagnostics: String }
+    /// A bank posting already stored that the user edited (amount, type or account). The user's version is kept.
+    struct KeptEdit: Equatable { let bank: String; let bookingDate: String }
     let items: [Item]
     let balances: [Balance]
     let balanceGaps: [BalanceGap]
     let alreadyImported: Int
+    var keptEdits: [KeptEdit] = []
     var requiresReferenceReview: Bool { items.contains(where: \.hasLocalReference) }
     var requiresBalanceReview: Bool { !balanceGaps.isEmpty && !items.isEmpty }
 
@@ -194,9 +238,20 @@ struct PersonalBankingPlan {
         }
     }
 
-    static func build(feeds: [BankingAccountFeed], links: [String: UUID], ledger: [BankingLedgerEntry], namespace: String = "test") throws -> Self {
+    static func build(feeds: [BankingAccountFeed], links: [String: UUID], ledger: [BankingLedgerEntry], namespace: String = "test",
+                      timeZone: TimeZone = .current) throws -> Self {
+        // Booking dates stay UTC so existing keys and stored bank dates are unchanged.
         let formatter = ISO8601DateFormatter(); formatter.formatOptions = [.withFullDate]
-        struct Leg { let key: String; let row: BankingPreview.Movement; let local: UUID; let own: String?; let date: Date; let hasLocalReference: Bool }
+        let localFormatter = ISO8601DateFormatter(); localFormatter.formatOptions = [.withFullDate]
+        localFormatter.timeZone = timeZone
+        // Imported bank rows are stored at UTC midnight. A local record (form, CSV, recurrence) uses the device's
+        // calendar day: at local midnight it is the previous UTC day in Spain, but the same booking day.
+        func sameBookingDay(_ entry: BankingLedgerEntry, _ item: Item) -> Bool {
+            let storedAtUTCMidnight = entry.date.timeIntervalSince1970.truncatingRemainder(dividingBy: 86400) == 0
+            let entryDay = storedAtUTCMidnight ? formatter.string(from: entry.date) : localFormatter.string(from: entry.date)
+            return entryDay == formatter.string(from: item.date)
+        }
+        struct Leg { let key: String; let row: BankingPreview.Movement; let local: UUID; let own: String?; let date: Date; let hasLocalReference: Bool; let bank: String }
         var legs: [Leg] = []; var seen = Set<String>(); var balances: [Balance] = []
         var balanceGaps: [BalanceGap] = []
         var localAccounts = Set<UUID>(); var ownership: [String: UUID] = [:]
@@ -256,7 +311,8 @@ struct PersonalBankingPlan {
                 }
                 guard seen.insert(key).inserted else { throw PersonalBankingError.invalidData }
                 pageRows[key] = row
-                legs.append(Leg(key: key, row: row, local: local, own: feed.account.ownershipKey, date: date, hasLocalReference: hasLocalReference))
+                legs.append(Leg(key: key, row: row, local: local, own: feed.account.ownershipKey, date: date,
+                    hasLocalReference: hasLocalReference, bank: feed.connection.bank))
             }
         }
         var knownRows: [String: BankingLedgerEntry] = [:]
@@ -265,7 +321,7 @@ struct PersonalBankingPlan {
                 guard knownRows.updateValue(entry, forKey: key) == nil else { throw PersonalBankingError.invalidData }
             }
         }
-        var used = Set<String>(); var items: [Item] = []; var skipped = 0
+        var used = Set<String>(); var items: [Item] = []; var skipped = 0; var keptEdits: [KeptEdit] = []
         for leg in legs.sorted(by: { $0.key < $1.key }) where !used.contains(leg.key) {
             let ownOther = leg.row.counterpartyKey.flatMap { ownership[$0] }
             if let other = ownOther, other != leg.local {
@@ -297,9 +353,11 @@ struct PersonalBankingPlan {
                     amount: abs(leg.row.signedAmountMinor), source: leg.local, destination: nil, text: leg.row.description,
                     hasLocalReference: leg.hasLocalReference)
                 if let old = knownRows[leg.key] {
-                    // A generated reference includes the original account, date and signed amount.
-                    // A local edit can change the ledger fields without changing that bank identity.
-                    guard leg.hasLocalReference || compatible(old, with: item) else { throw PersonalBankingError.changed }
+                    // The posting is already stored. If the user changed its amount, type or account, their
+                    // version wins: it is kept as is and reported, without holding back the rest of the bank.
+                    if !leg.hasLocalReference && !compatible(old, with: item) {
+                        keptEdits.append(KeptEdit(bank: leg.bank, bookingDate: leg.row.bookingDate))
+                    }
                     skipped += 1; continue
                 }
                 items.append(item)
@@ -310,11 +368,23 @@ struct PersonalBankingPlan {
         let candidateIndex = Dictionary(grouping: ledger.filter { $0.externalID == nil }) {
             CandidateKey(source: $0.source, destination: $0.destination, kind: family($0.kind), amount: $0.amount)
         }
+        // Trade Republic sends no reference, so its key is built from the booking date. If the bank later moves a
+        // posting to another date, the new key no longer matches. A stored record whose generated keys of this
+        // account are all absent from the download is the same posting under its old key.
+        func staleLocalKeys(_ entry: BankingLedgerEntry, prefix: String) throws -> [String]? {
+            let own = try keys(entry.externalID).filter { $0.hasPrefix(prefix) }
+            guard !own.isEmpty, own.allSatisfy({ $0.hasPrefix(prefix + "local-occurrence:") && !seen.contains($0) }) else { return nil }
+            return own
+        }
         for i in items.indices {
             let item = items[i]
             if item.automaticMatch != nil { continue }
             let key = CandidateKey(source: item.source, destination: item.destination, kind: item.kind, amount: item.amount)
-            var candidates = (candidateIndex[key] ?? []).filter { abs($0.date.timeIntervalSince(item.date)) <= 3 * 86400 }
+            // A payment recorded at the till reaches the bank on that day or some days later, never before.
+            var candidates = (candidateIndex[key] ?? []).filter { entry in
+                let delay = item.date.timeIntervalSince(entry.date)
+                return entry.awaitingBank ? delay >= -86400 && delay <= CardPaymentInbox.matchWindow : abs(delay) <= 3 * 86400
+            }
             // A single bank debit may be the visible leg of an existing investment transfer.
             // Matching it preserves the original transfer instead of creating an expense.
             let transfers = try ledger.filter { transfer in
@@ -325,6 +395,16 @@ struct PersonalBankingPlan {
                 return references.count < 2 && !references.contains { $0.hasPrefix(prefix) }
             }
             candidates.append(contentsOf: transfers.filter { transfer in !candidates.contains { $0.id == transfer.id } })
+            var rekeyed: [BankingLedgerEntry] = []
+            if item.hasLocalReference, let prefix = accountPrefixes[item.source] {
+                rekeyed = try ledger.filter { entry in
+                    guard entry.externalID != nil, compatible(entry, with: item),
+                          abs(entry.date.timeIntervalSince(item.date)) <= 3 * 86400,
+                          try staleLocalKeys(entry, prefix: prefix) != nil else { return false }
+                    return true
+                }
+                candidates.append(contentsOf: rekeyed.filter { entry in !candidates.contains { $0.id == entry.id } })
+            }
             // Keep the best textual match first, with stable ordering for equal scores.
             candidates.sort {
                 let left = Self.conceptScore($0.text, item.text), right = Self.conceptScore($1.text, item.text)
@@ -334,20 +414,34 @@ struct PersonalBankingPlan {
             }
             items[i].candidates = candidates.map(\.id)
             items[i].transferCandidates = Set(transfers.map(\.id))
-            let exact = candidates.filter { formatter.string(from: $0.date) == formatter.string(from: item.date)
+            let exact = candidates.filter { sameBookingDay($0, item)
                 && !normalized(item.text).isEmpty && normalized($0.text) == normalized(item.text) }
             // Ambiguous repeated purchases and two bank rows competing for one local row require review.
             if !item.hasLocalReference, candidates.count == 1, exact.count == 1 { items[i].automaticMatch = exact[0].id }
-            if items[i].automaticMatch == nil, let best = candidates.first {
+            // The only candidate is a payment recorded with Apple Pay on this account for this exact amount:
+            // the bank posting is that payment, even when the merchant text differs.
+            if items[i].automaticMatch == nil, candidates.count == 1, candidates[0].awaitingBank, rekeyed.isEmpty {
+                items[i].automaticMatch = candidates[0].id
+            }
+            if items[i].automaticMatch == nil, let paid = candidates.first(where: \.awaitingBank) {
+                items[i].suggestedMatch = paid.id
+                items[i].suggestionReason = "Lo apuntaste al pagar con Apple Pay: misma cuenta e importe."
+            }
+            if items[i].automaticMatch == nil, items[i].suggestedMatch == nil, let best = candidates.first {
                 let score = Self.conceptScore(best.text, item.text)
                 let distinctConcept = score > 0 && (candidates.count == 1 || score > Self.conceptScore(candidates[1].text, item.text))
-                let sameDay = formatter.string(from: best.date) == formatter.string(from: item.date)
+                let sameDay = sameBookingDay(best, item)
                 if distinctConcept || (candidates.count == 1 && sameDay) {
                     items[i].suggestedMatch = best.id
                     items[i].suggestionReason = distinctConcept
                         ? "Misma cuenta e importe, fecha cercana y concepto relacionado."
                         : "Único registro de la misma cuenta, importe y día. El concepto es distinto: compruébalo."
                 }
+            }
+            items[i].rekeyCandidates = Set(rekeyed.map(\.id))
+            if rekeyed.count == 1 {
+                items[i].suggestedMatch = rekeyed[0].id
+                items[i].suggestionReason = "El banco ha cambiado la fecha de este apunte: es el mismo que ya tenías."
             }
         }
         let proposedItems = items
@@ -369,7 +463,7 @@ struct PersonalBankingPlan {
             }
         }
         return Self(items: items.sorted { $0.date == $1.date ? $0.id < $1.id : $0.date < $1.date }, balances: balances,
-                    balanceGaps: balanceGaps, alreadyImported: skipped)
+                    balanceGaps: balanceGaps, alreadyImported: skipped, keptEdits: keptEdits)
     }
 
     func resolutions(_ choices: [String: Choice]) throws -> [String: Choice] {
@@ -420,7 +514,8 @@ struct PersonalBankingPlan {
         if unique.count == 1 { return unique[0] }
         return "enable-keys:" + String(decoding: try JSONEncoder().encode(unique), as: UTF8.self)
     }
-    private static func compatible(_ entry: BankingLedgerEntry, with item: Item) -> Bool {
+    /// Shared with manual merges so a merged movement passes the next download's identity check.
+    static func compatible(_ entry: BankingLedgerEntry, with item: Item) -> Bool {
         guard entry.amount == item.amount else { return false }
         if item.kind == "transfer" { return entry.kind == "transfer" && entry.source == item.source && entry.destination == item.destination }
         if entry.kind == "transfer" { return item.kind == "expense" ? entry.source == item.source : entry.destination == item.source }

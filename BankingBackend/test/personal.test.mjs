@@ -186,6 +186,7 @@ test('pending and held entries are read alongside bookings and kept out of the b
   assert.deepEqual(first.pendingTransactions.map(row => [row.status, row.signedAmountMinor, row.date]),
     [['HOLD', -1230, '2026-11-02'], ['PDNG', -1230, '2026-11-02']]);
   assert.equal(first.pendingTransactions[1].id, null);
+  assert.deepEqual(first.ignoredStatuses, { CNCL: 1 }, 'Entries with other statuses are counted, not imported');
   assert.deepEqual(first.balances.map(row => row.amountMinor), [10000, 8770]);
   const settled = await download(true, [booked, { ...held, status: 'BOOK', booking_date: '2026-11-03' }]);
   assert.deepEqual(settled.pendingTransactions, []);
@@ -193,4 +194,8 @@ test('pending and held entries are read alongside bookings and kept out of the b
   const legacy = await download(false, [booked, held]);
   assert.equal(legacy.transactions.length, 1);
   assert.equal(legacy.pendingTransactions, undefined);
+  assert.equal(legacy.ignoredStatuses, undefined);
+  const odd = await download(true, [booked, { ...pending, status: undefined }, { ...pending, status: 'info' }, { ...pending, status: 'OTHR' }]);
+  assert.deepEqual(odd.ignoredStatuses, { NONE: 1, OTHER: 1, OTHR: 1 });
+  assert.equal(odd.transactions.length, 1);
 });

@@ -1,4 +1,5 @@
 import Charts
+import Combine
 import SwiftData
 import SwiftUI
 
@@ -59,9 +60,12 @@ struct DashboardView: View {
     @Query private var reservedFunds: [ReservedFund]
 
     @AppStorage("hideAmounts") private var hideAmounts = false
+    @Environment(\.bankAccountActivity) private var bankActivity
     @AppStorage("dashboardReviewedAlertsV1") private var reviewedAlertsJSON = ""
 
     @Binding var selectedMonth: Date
+    /// The month as the parent saw it when drawing: the only input from outside that changes what is shown.
+    let month: Date
     @State private var chartRange: NetWorthRange = .oneYear
     @State private var selectedGoal: SavingsGoal?
     @State private var expandedReviewedAlertIDs: Set<String> = []
@@ -100,6 +104,15 @@ struct DashboardView: View {
             transactions: transactions,
             snapshots: snapshots
         )
+    }
+
+    /// Charges the bank has already held on spendable accounts but not booked yet (negative).
+    private var heldMinor: Int64 {
+        activeAccounts
+            .filter { $0.includeInNetWorth && $0.type != .investment && !$0.type.isLiability }
+            .reduce(0) { total, account in
+                total + BankHold.heldMinor(account.bankIdentityKey.flatMap { bankActivity[$0] }, account: account, transactions: transactions)
+            }
     }
 
     private var reservedCash: Int64 {
@@ -146,18 +159,25 @@ struct DashboardView: View {
         return Double(currentMonthChange) / Double(Swift.abs(previousMonthNetWorth))
     }
 
-    private var latestAccountUpdate: Date? {
-        activeAccounts.map(\.lastUpdatedAt).max()
+    @State private var dataVersion = 0
+    @State private var budgetMemo = ViewMemo<BudgetKey, [BudgetProgress]>()
+    private struct BudgetKey: Equatable {
+        let month: Date, version: Int, transactions: Int, budgets: Int, plans: Int, categories: Int
     }
 
+    /// Several cards read the budgets; they are computed once per change of month or data.
     private var budgetItems: [BudgetProgress] {
-        FinanceCalculator.budgetProgress(
-            for: selectedMonth,
-            categories: categories,
-            budgets: budgets,
-            recurringBudgets: recurringBudgets,
-            transactions: transactions
-        )
+        let key = BudgetKey(month: selectedMonth, version: dataVersion, transactions: transactions.count,
+                            budgets: budgets.count, plans: recurringBudgets.count, categories: categories.count)
+        return budgetMemo.value(for: key) {
+            FinanceCalculator.budgetProgress(
+                for: selectedMonth,
+                categories: categories,
+                budgets: budgets,
+                recurringBudgets: recurringBudgets,
+                transactions: transactions
+            )
+        }
     }
 
     private var budgetedItems: [BudgetProgress] {
@@ -267,7 +287,7 @@ struct DashboardView: View {
                     : "Has superado \(overBudgetCount) presupuestos",
                 detail: "Revisa las categorías que necesitan atención.",
                 systemImage: "exclamationmark.triangle.fill",
-                tint: .red,
+                tint: AppDesign.expense,
                 destination: .budgets,
                 priority: 0
             ))
@@ -282,7 +302,7 @@ struct DashboardView: View {
                     : "Hay \(duplicateCount) posibles movimientos duplicados",
                 detail: "Comprueba los registros antes de conservarlos.",
                 systemImage: "doc.on.doc.fill",
-                tint: .orange,
+                tint: AppDesign.warning,
                 destination: .transactions,
                 priority: 1
             ))
@@ -297,7 +317,7 @@ struct DashboardView: View {
                     : "\(staleAccountCount) cuentas llevan más de 30 días sin actualizarse",
                 detail: "Actualiza el saldo para mantener fiable el patrimonio.",
                 systemImage: "clock.badge.exclamationmark.fill",
-                tint: .orange,
+                tint: AppDesign.warning,
                 destination: .accounts,
                 priority: 2
             ))
@@ -312,7 +332,7 @@ struct DashboardView: View {
                     : "Tienes \(dueRecurringCount) movimientos recurrentes próximos",
                 detail: "Consulta las próximas suscripciones y cargos.",
                 systemImage: "calendar.badge.clock",
-                tint: .blue,
+                tint: AppDesign.savings,
                 destination: .settings,
                 priority: 3
             ))
@@ -362,6 +382,8 @@ struct DashboardView: View {
                         AdaptiveCardGrid(spacing: AppDesign.sectionSpacing, packsColumns: true) {
                             netWorthCard
                             monthlyOverview
+                            monthPaceCard
+                            monthCalendarCard
                             budgetsSection
                             netWorthChart
                             primaryGoalSection
@@ -397,6 +419,9 @@ struct DashboardView: View {
                     }
                     .accessibilityLabel(hideAmounts ? "Mostrar importes" : "Ocultar importes")
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave).receive(on: RunLoop.main)) { _ in
+                dataVersion &+= 1
             }
             .sheet(item: $selectedGoal) { goal in
                 GoalDetailView(goal: goal)
@@ -439,95 +464,263 @@ struct DashboardView: View {
         }
     }
 
+    private var availableMinor: Int64 { spendableCash + heldMinor }
+
+    private var investedMinor: Int64 {
+        activeAccounts
+            .filter { $0.includeInNetWorth && $0.type == .investment }
+            .reduce(Int64.zero) { $0 + FinanceCalculator.balance(of: $1, transactions: transactions, snapshots: snapshots) }
+    }
+
+    private var isCurrentMonth: Bool {
+        Calendar.autoupdatingCurrent.isDate(selectedMonth, equalTo: .now, toGranularity: .month)
+    }
+
+    /// Days of the month still ahead, today included.
+    private var daysLeftInMonth: Int {
+        let calendar = Calendar.autoupdatingCurrent
+        let days = calendar.range(of: .day, in: .month, for: .now)?.count ?? 30
+        return max(1, days - calendar.component(.day, from: .now) + 1)
+    }
+
+    /// What the month's budget still allows per remaining day. A fact about the budget, not advice.
+    private var dailyMarginMinor: Int64? {
+        guard isCurrentMonth, totalBudgetMinor > 0 else { return nil }
+        return max(0, totalBudgetAvailableMinor) / Int64(daysLeftInMonth)
+    }
+
     private var netWorthCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             AdaptiveValueRow {
-                netWorthTitle
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(heldMinor == 0 ? "Disponible para usar" : "Disponible tras retenciones")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    PrivacyAmountText(minorUnits: availableMinor, font: .system(size: 42, weight: .bold, design: .rounded), weight: .bold)
+                        .foregroundStyle(availableMinor >= 0 ? Color.primary : AppDesign.expense)
+                        .minimumScaleFactor(0.6)
+                        .lineLimit(1)
+                    if heldMinor != 0 {
+                        HStack(spacing: 4) {
+                            Image(systemName: "hourglass")
+                            PrivacyAmountText(minorUnits: heldMinor, font: .caption, weight: .semibold, signed: true)
+                            Text("ya retenido por el banco")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(AppDesign.warning)
+                        .accessibilityElement(children: .combine)
+                    }
+                }
             } value: {
-                lastUpdateLabel
-            }
-
-            PrivacyAmountText(
-                minorUnits: currentNetWorth,
-                font: .system(.largeTitle, design: .rounded),
-                weight: .bold
-            )
-            .minimumScaleFactor(0.72)
-            .lineLimit(1)
-
-            HStack(spacing: 8) {
-                Image(systemName: currentMonthChange >= 0 ? "arrow.up.right" : "arrow.down.right")
-                    .font(.caption.weight(.bold))
-
-                if hideAmounts {
-                    Text("•••••• este mes")
-                } else {
-                    Text(changeSummaryText)
+                if let margin = dailyMarginMinor {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Tu margen de hoy").font(.caption.weight(.semibold)).foregroundStyle(AppDesign.accent)
+                        PrivacyAmountText(minorUnits: margin, font: .title2, weight: .bold)
+                        Text(daysLeftInMonth == 1 ? "Último día del presupuesto" : "Para \(daysLeftInMonth) días de presupuesto")
+                            .font(.caption2).foregroundStyle(.secondary)
+                    }
+                    .padding(12)
+                    .frame(minWidth: 160, alignment: .leading)
+                    .background(AppDesign.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: AppDesign.compactRadius + 4, style: .continuous))
+                    .accessibilityElement(children: .combine)
                 }
             }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(changeTint)
 
-            Divider()
-                .overlay(Color.primary.opacity(0.08))
+            moneyBreakdown
 
-            AdaptiveCardGrid(minimumColumnWidth: 145, maximumColumns: 2, spacing: 12) {
-                Button(action: onOpenAccounts) {
-                    fundingTile(title: "Disponible para usar", amount: spendableCash,
-                        systemImage: "wallet.bifold", tint: spendableCash >= 0 ? AppDesign.accent : AppDesign.expense)
+            Divider().overlay(Color.primary.opacity(0.08))
+
+            ViewThatFits(in: .horizontal) {
+                HStack {
+                    netWorthLine
+                    Spacer()
+                    changeLine
                 }
-                .buttonStyle(.plain)
-                .accessibilityHint("Abre tus cuentas")
-                NavigationLink {
-                    ReservedFundsView()
-                } label: {
-                    fundingTile(title: "Reservado", amount: reservedCash,
-                        systemImage: "lock.circle", tint: AppDesign.savings)
+                VStack(alignment: .leading, spacing: 6) {
+                    netWorthLine
+                    changeLine
                 }
-                .buttonStyle(.plain)
-                .accessibilityHint("Gestiona el dinero apartado para tus objetivos")
             }
-
+            .font(.footnote)
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            LinearGradient(colors: [AppDesign.accent.opacity(0.14), .clear],
-                           startPoint: .topLeading, endPoint: .bottomTrailing),
-            in: RoundedRectangle(cornerRadius: AppDesign.heroRadius, style: .continuous))
         .financeCardSurface(radius: AppDesign.heroRadius)
     }
 
-    private func fundingTile(title: String, amount: Int64, systemImage: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: systemImage)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(tint)
-                .fixedSize(horizontal: false, vertical: true)
-            PrivacyAmountText(minorUnits: amount, font: .title3, weight: .semibold)
-                .foregroundStyle(.primary)
-                .lineLimit(1).minimumScaleFactor(0.7)
+    private var netWorthLine: some View {
+        HStack(spacing: 4) {
+            Text("Patrimonio total").foregroundStyle(.secondary)
+            PrivacyAmountText(minorUnits: currentNetWorth, font: .footnote, weight: .semibold)
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
-        .overlay {
-            RoundedRectangle(cornerRadius: AppDesign.compactRadius)
-                .strokeBorder(tint.opacity(0.25), lineWidth: 1).allowsHitTesting(false)
-        }
-        .contentShape(RoundedRectangle(cornerRadius: AppDesign.compactRadius))
     }
 
-    private var netWorthTitle: some View {
-        Label("Patrimonio total", systemImage: "sum")
-            .font(.headline)
-            .foregroundStyle(.secondary)
+    private var changeLine: some View {
+        HStack(spacing: 4) {
+            Image(systemName: currentMonthChange >= 0 ? "arrow.up.right" : "arrow.down.right")
+            Text(hideAmounts ? "•••••• este mes" : changeSummaryText)
+        }
+        .font(.footnote.weight(.semibold))
+        .foregroundStyle(changeTint)
     }
 
-    private var lastUpdateLabel: some View {
-        Text(lastUpdateText)
-            .font(.caption)
-            .foregroundStyle(.secondary)
+    /// How the money splits: available, reserved, held by the bank and invested.
+    private var moneyBreakdown: some View {
+        let parts: [(String, Int64, Color)] = [
+            ("Disponible", max(0, availableMinor), AppDesign.accent),
+            ("Reservado", max(0, reservedCash), AppDesign.savings),
+            ("Retenido", abs(heldMinor), AppDesign.warning),
+            ("Inversión", max(0, investedMinor), AppDesign.investment)
+        ]
+        let total = max(1, parts.reduce(Int64.zero) { $0 + $1.1 })
+        return VStack(alignment: .leading, spacing: 10) {
+            GeometryReader { proxy in
+                let visible = parts.filter { $0.1 > 0 }
+                let gaps = CGFloat(max(0, visible.count - 1)) * 3
+                HStack(spacing: 3) {
+                    ForEach(visible.indices, id: \.self) { index in
+                        let part = visible[index]
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(part.2)
+                            .frame(width: max(4, (proxy.size.width - gaps) * CGFloat(part.1) / CGFloat(total)))
+                    }
+                }
+            }
+            .frame(height: 12)
+            .clipShape(Capsule())
+            .accessibilityHidden(true)
+
+            AdaptiveCardGrid(minimumColumnWidth: 120, maximumColumns: 4, spacing: 10) {
+                ForEach(parts.indices, id: \.self) { index in
+                    let part = parts[index]
+                    Button {
+                        if part.0 == "Reservado" { onOpenAccounts() } else if part.0 == "Retenido" { onOpenTransactions() } else { onOpenAccounts() }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 6) {
+                                RoundedRectangle(cornerRadius: 2).fill(part.2).frame(width: 8, height: 8)
+                                Text(part.0).font(.caption).foregroundStyle(.secondary)
+                            }
+                            PrivacyAmountText(minorUnits: part.1, font: .subheadline, weight: .semibold)
+                                .lineLimit(1).minimumScaleFactor(0.7)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+    }
+
+    /// Spending pace against the month's budget, with a straight-line projection.
+    @ViewBuilder private var monthPaceCard: some View {
+        if isCurrentMonth && totalBudgetMinor > 0 {
+            let calendar = Calendar.autoupdatingCurrent
+            let days = calendar.range(of: .day, in: .month, for: .now)?.count ?? 30
+            let today = calendar.component(.day, from: .now)
+            let expected = totalBudgetMinor * Int64(today) / Int64(days)
+            let difference = expected - totalBudgetSpentMinor
+            let projection = totalBudgetSpentMinor * Int64(days) / Int64(max(1, today))
+            SectionCard("Ritmo del mes", subtitle: "Día \(today) de \(days)") {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        PrivacyAmountText(minorUnits: totalBudgetSpentMinor, font: .title2, weight: .bold)
+                        Text("de").foregroundStyle(.secondary)
+                        PrivacyAmountText(minorUnits: totalBudgetMinor, font: .subheadline, weight: .semibold)
+                            .foregroundStyle(.secondary)
+                    }
+                    GeometryReader { proxy in
+                        let width = proxy.size.width
+                        let spentFraction = min(1, Double(totalBudgetSpentMinor) / Double(totalBudgetMinor))
+                        let expectedFraction = min(1, Double(expected) / Double(totalBudgetMinor))
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(AppDesign.tertiaryBackground)
+                            Capsule().fill(difference >= 0 ? AppDesign.accent : AppDesign.expense)
+                                .frame(width: max(6, width * spentFraction))
+                            Rectangle().fill(Color.primary.opacity(0.55))
+                                .frame(width: 2, height: 18)
+                                .offset(x: width * expectedFraction - 1)
+                        }
+                    }
+                    .frame(height: 12)
+                    .accessibilityHidden(true)
+                    AdaptiveCardGrid(minimumColumnWidth: 140, maximumColumns: 2, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(difference >= 0 ? "Por debajo del ritmo" : "Por encima del ritmo")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(difference >= 0 ? AppDesign.income : AppDesign.expense)
+                            PrivacyAmountText(minorUnits: abs(difference), font: .subheadline, weight: .bold)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background((difference >= 0 ? AppDesign.incomeSurface : AppDesign.expenseSurface),
+                                    in: RoundedRectangle(cornerRadius: AppDesign.compactRadius, style: .continuous))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("A este paso, a fin de mes").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            PrivacyAmountText(minorUnits: projection, font: .subheadline, weight: .bold)
+                        }
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(AppDesign.tertiaryBackground, in: RoundedRectangle(cornerRadius: AppDesign.compactRadius, style: .continuous))
+                    }
+                    Text("La marca indica lo que correspondería gastar hasta hoy si el presupuesto se repartiera por igual.")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    /// Spending per day of the selected month as a small calendar.
+    private var monthCalendarCard: some View {
+        let calendar = Calendar.autoupdatingCurrent
+        let monthStart = selectedMonth.startOfMonth()
+        let days = calendar.range(of: .day, in: .month, for: monthStart)?.count ?? 30
+        // Monday-first offset of the 1st.
+        let leading = (calendar.component(.weekday, from: monthStart) + 5) % 7
+        var spend = [Int: Int64]()
+        for transaction in transactions where transaction.type.countsAsExpense
+            && calendar.isDate(transaction.date, equalTo: monthStart, toGranularity: .month) {
+            spend[calendar.component(.day, from: transaction.date), default: 0] += abs(transaction.amountMinor)
+        }
+        let maximum = max(1, spend.values.max() ?? 1)
+        let todayDay = isCurrentMonth ? calendar.component(.day, from: .now) : (selectedMonth > .now ? 0 : days + 1)
+        let busiest = spend.max { $0.value < $1.value }
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 5), count: 7)
+        return SectionCard("Tu mes, día a día", subtitle: "Gasto de cada día") {
+            VStack(alignment: .leading, spacing: 8) {
+                LazyVGrid(columns: columns, spacing: 5) {
+                    ForEach(["L", "M", "X", "J", "V", "S", "D"], id: \.self) { initial in
+                        Text(initial).font(.caption2).foregroundStyle(.secondary)
+                    }
+                    ForEach(0..<leading, id: \.self) { index in
+                        Color.clear.frame(height: 30).id("lead-\(index)")
+                    }
+                    ForEach(1...days, id: \.self) { day in
+                        let amount = spend[day] ?? 0
+                        let level = amount == 0 ? 0.0 : 0.22 + 0.78 * Double(amount) / Double(maximum)
+                        let future = day > todayDay
+                        Text("\(day)")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(level > 0.6 ? Color.white : (future ? Color.secondary.opacity(0.6) : Color.primary))
+                            .frame(maxWidth: .infinity, minHeight: 30)
+                            .background((level == 0 ? AppDesign.tertiaryBackground : AppDesign.accent.opacity(level)),
+                                        in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .overlay {
+                                if day == todayDay {
+                                    RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(AppDesign.accent, lineWidth: 2)
+                                }
+                            }
+                            .accessibilityLabel(hideAmounts ? "Día \(day)" : "Día \(day): \(MoneyFormatter.string(minorUnits: amount))")
+                    }
+                }
+                if let busiest, !hideAmounts {
+                    Text("El día con más gasto fue el \(busiest.key): \(MoneyFormatter.string(minorUnits: busiest.value)).")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
     private var monthSelector: some View {
@@ -765,10 +958,10 @@ struct DashboardView: View {
                     AdaptiveSummaryPair(
                         firstTitle: "Gastado",
                         firstAmount: totalBudgetSpentMinor,
-                        firstTint: totalBudgetFraction > 1 ? .red : .primary,
+                        firstTint: totalBudgetFraction > 1 ? AppDesign.expense : .primary,
                         secondTitle: "Disponible",
                         secondAmount: totalBudgetAvailableMinor,
-                        secondTint: totalBudgetAvailableMinor >= 0 ? .green : .red
+                        secondTint: totalBudgetAvailableMinor >= 0 ? AppDesign.income : AppDesign.expense
                     )
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -936,18 +1129,6 @@ struct DashboardView: View {
             .accessibilityLabel("Datos del gráfico ocultos")
     }
 
-    private var lastUpdateText: String {
-        guard let latestAccountUpdate else { return "Sin actualizar" }
-        let calendar = Calendar.autoupdatingCurrent
-        if calendar.isDateInToday(latestAccountUpdate) {
-            return "Hoy, \(latestAccountUpdate.formatted(.dateTime.hour().minute()))"
-        }
-        if calendar.isDateInYesterday(latestAccountUpdate) {
-            return "Ayer"
-        }
-        return latestAccountUpdate.formatted(.dateTime.day().month(.abbreviated))
-    }
-
     private var changeSummaryText: String {
         let amount = MoneyFormatter.string(minorUnits: Swift.abs(currentMonthChange))
         let sign = currentMonthChange >= 0 ? "+" : "−"
@@ -969,7 +1150,7 @@ struct DashboardView: View {
 
     private var budgetOverallTint: Color {
         if totalBudgetFraction > 1 { return AppDesign.expense }
-        if totalBudgetFraction >= 0.85 { return .orange }
+        if totalBudgetFraction >= 0.85 { return AppDesign.warning }
         return AppDesign.accent
     }
 
@@ -1050,5 +1231,13 @@ struct DashboardView: View {
 
     private func hidden(_ value: String) -> String {
         hideAmounts ? "••••••" : value
+    }
+}
+
+/// The parent rebuilds Inicio on every tab change with new closures. Its own data (queries, bank activity,
+/// preferences) still refreshes it; from outside only the chosen month matters.
+extension DashboardView: Equatable {
+    nonisolated static func == (lhs: DashboardView, rhs: DashboardView) -> Bool {
+        MainActor.assumeIsolated { lhs.month == rhs.month }
     }
 }

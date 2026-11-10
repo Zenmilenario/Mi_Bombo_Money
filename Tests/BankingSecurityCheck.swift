@@ -13,6 +13,9 @@ struct BankingSecurityCheck {
         }
         precondition(BankingConnectionPolicy.entryDestination(cloud: true, testWorkspace: false, testOnly: false) == .personal)
         precondition(BankingConnectionPolicy.entryDestination(cloud: false, testWorkspace: false, testOnly: false) == .requiresPersonalWorkspace)
+        precondition(AppEdition.isPersonal, "The default build is the personal edition")
+        precondition(BankingConnectionPolicy.entryDestination(cloud: true, testWorkspace: false, testOnly: true, personalEdition: false)
+            == .personal, "Without the lab, the public edition opens the real bank connection")
         checkAuthenticationLifecycle()
         checkSingleCompletion()
         let bankFailure = BankingConnectionError.server("bank_unavailable").localizedDescription

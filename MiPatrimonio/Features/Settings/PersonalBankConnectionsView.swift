@@ -47,7 +47,7 @@ struct PersonalBankConnectionsView: View {
                 Text("Recibe saldos y movimientos. La conexión solo consulta información; no permite realizar pagos.")
                     .foregroundStyle(.secondary)
                 Text(banking.message).font(.callout)
-                if let message = banking.errorMessage { Text(message).foregroundStyle(.red) }
+                if let message = banking.errorMessage { Text(message).foregroundStyle(AppDesign.expense) }
                 if banking.pendingPlan != nil {
                     Button("Revisar e incorporar la descarga recibida") {
                         withAnimation { scroll.scrollTo("personal-bank-review", anchor: .top) }
@@ -60,7 +60,9 @@ struct PersonalBankConnectionsView: View {
                 Button("Comprobar conexión") { run { try await banking.configure(server: server, account: account) } }
                 Text("Usa el servidor de producción preparado para tu cuenta cloud. No necesitas introducir una clave del servidor ni contraseñas bancarias aquí.")
                     .font(.caption).foregroundStyle(.secondary)
-                DisclosureGroup("Detalles del servidor") { Text(server).font(.caption).textSelection(.enabled) }
+                if AppEdition.isPersonal {
+                    DisclosureGroup("Detalles del servidor") { Text(server).font(.caption).textSelection(.enabled) }
+                }
             }
             if !banking.connections.isEmpty {
                 Section {
@@ -76,7 +78,7 @@ struct PersonalBankConnectionsView: View {
                 Section(connection.bank) {
                     if let status = banking.bankStatus[connection.bank] {
                         Text(status.summary).font(.callout)
-                        if let error = status.errorMessage { Text(error).font(.caption).foregroundStyle(.red) }
+                        if let error = status.errorMessage { Text(error).font(.caption).foregroundStyle(AppDesign.expense) }
                         if let retry = status.retryAt, retry > .now {
                             Label("\(status.retryIsAutomatic ? "Próxima consulta automática" : "Próximo intento"): \(retry.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
                                 .font(.caption).foregroundStyle(.secondary)
@@ -102,6 +104,44 @@ struct PersonalBankConnectionsView: View {
                         }.disabled(linked != nil || remote.currency != "EUR")
                     }
                     Text("Permiso válido hasta \(connection.validUntil.prefix(10)).").font(.caption).foregroundStyle(.secondary)
+                    ForEach(connection.accounts) { remote in
+                        // Diagnostic of what the bank sent: a developer tool, only in the personal edition.
+                        if AppEdition.isPersonal, let activity = banking.activity(forAccount: remote.id),
+                           let recent = activity.recentMovements {
+                            DisclosureGroup {
+                                if recent.isEmpty {
+                                    Text("El banco no envió apuntes contabilizados en el periodo consultado.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                ForEach(Array(recent.enumerated()), id: \.offset) { _, movement in
+                                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                        Text(PersonalBankingError.displayDate(movement.bookingDate))
+                                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                            .frame(width: 78, alignment: .leading)
+                                        Text(TransactionPresentation.listTitle(movement.description, isBanking: true))
+                                            .font(.caption).lineLimit(1)
+                                        Spacer(minLength: 6)
+                                        PrivacyAmountText(minorUnits: movement.signedAmountMinor, currencyCode: movement.currency,
+                                                          font: .caption, weight: .semibold, signed: true)
+                                    }
+                                }
+                                if let ignored = activity.ignoredStatuses, !ignored.isEmpty {
+                                    Label {
+                                        Text("El banco también envió " + ignored.sorted { $0.key < $1.key }
+                                            .map { "\($0.value) \(Self.statusName($0.key))" }.joined(separator: ", ")
+                                            + ". La app no los incorpora porque el banco no los da por contabilizados.")
+                                    } icon: { Image(systemName: "exclamationmark.circle") }
+                                    .font(.caption).foregroundStyle(AppDesign.warning)
+                                }
+                                Text("Es lo que envió el banco en la consulta del \(activity.observedAt.formatted(date: .abbreviated, time: .shortened)), contabilizado y sin retenidos. Si un pago de tu banco no aparece aquí, el banco aún no lo ha comunicado.")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            } label: {
+                                Label("Últimos apuntes recibidos de •••• \(remote.lastFour) (\(activity.receivedCount ?? recent.count))",
+                                      systemImage: "tray.and.arrow.down")
+                                    .font(.subheadline)
+                            }
+                        }
+                    }
                     Button { run {
                         _ = await banking.synchronize(account: account, context: context, force: true, onlyBank: connection.bank)
                         choices = [:]
@@ -197,7 +237,7 @@ struct PersonalBankConnectionsView: View {
                           systemImage: "1.circle.fill")
                     Label("Deja abierta esa página y escanea el QR con la cámara del móvil. Confirma en la app de Trade Republic que quieres compartir tu cuenta con Enable Banking.",
                           systemImage: "2.circle.fill")
-                    Label("Vuelve a Mis bancos y asocia la cuenta de efectivo con la que ya usas en Mi Bombo Money.",
+                    Label("Vuelve a Mis bancos y asocia la cuenta de efectivo con la que ya usas en Doblón.",
                           systemImage: "3.circle.fill")
                     Text("La cámara que necesitas es la del móvil que escanea el QR. Si la verificación se bloquea también allí, contacta con atención al cliente desde Ayuda en Trade Republic.")
                         .font(.footnote)
@@ -215,9 +255,7 @@ struct PersonalBankConnectionsView: View {
             .background(AppDesign.pageBackground)
             .presentationDetents([.medium, .large])
         }
-        .confirmationDialog("¿Desconectar este banco? Se revocará el permiso; tus movimientos guardados se conservan.", isPresented: Binding(
-            get: { disconnecting != nil }, set: { if !$0 { disconnecting = nil } }
-        ), titleVisibility: .visible) {
+        .confirmationDialog("¿Desconectar este banco? Se revocará el permiso; tus movimientos guardados se conservan.", isPresented: Binding(isPresent: $disconnecting), titleVisibility: .visible) {
             if let connection = disconnecting {
                 Button("Desconectar", role: .destructive) { run(protected: true) {
                     let client = try await banking.client(account: account)
@@ -226,7 +264,7 @@ struct PersonalBankConnectionsView: View {
                 } }
             }
         }
-        .alert("Conexión bancaria", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+        .alert("Conexión bancaria", isPresented: Binding(isPresent: $error)) {
             Button("Aceptar", role: .cancel) { error = nil }
         } message: { Text(error ?? "") }
     }
@@ -475,6 +513,18 @@ struct PersonalBankConnectionsView: View {
             selection = nil
         } catch { self.error = error.localizedDescription; selection = nil }
     }
+    /// Readable name of a bank entry status the app does not import.
+    static func statusName(_ code: String) -> String {
+        switch code {
+        case "CNCL": "cancelados"
+        case "RJCT": "rechazados"
+        case "INFO": "informativos"
+        case "SCHD": "programados"
+        case "NONE": "sin estado"
+        default: "con estado \(code)"
+        }
+    }
+
     private func run(protected: Bool = false, _ action: @escaping @MainActor () async throws -> Void) {
         guard !busy else { return }
         busy = true

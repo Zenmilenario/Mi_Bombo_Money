@@ -1,4 +1,5 @@
 import Charts
+import Combine
 import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
@@ -38,7 +39,7 @@ private struct TransactionCategorySelection: Identifiable {
     let transactionIDs: Set<UUID>
 }
 
-private enum TransactionDateFilter: String, CaseIterable, Identifiable {
+private enum TransactionDateFilter: String, CaseIterable, Identifiable, Equatable {
     case all
     case thisMonth
     case last30Days
@@ -56,9 +57,59 @@ private enum TransactionDateFilter: String, CaseIterable, Identifiable {
     }
 }
 
+/// A provisional charge or credit the bank reported but has not booked yet. Never part of accounting.
+struct BankHold: Identifiable {
+    let id: String
+    let account: FinancialAccount
+    let movement: BankingPreview.PendingMovement
+    let observedAt: Date
+
+    var title: String { TransactionPresentation.listTitle(movement.description, isBanking: true) }
+    var dateText: String? { movement.date.map(PersonalBankingError.displayDate) }
+
+    /// Holds of active linked accounts, newest first. A hold already recorded as an Apple Pay payment
+    /// waiting for the bank is left out: that money is already counted as an expense.
+    static func all(accounts: [FinancialAccount], activity: [String: BankingAccountActivity],
+                    transactions: [FinancialTransaction]) -> [BankHold] {
+        accounts.filter { !$0.isArchived }.flatMap { account -> [BankHold] in
+            guard let key = account.bankIdentityKey, let entry = activity[key] else { return [] }
+            return uncovered(entry, account: account, transactions: transactions).enumerated().map { index, movement in
+                BankHold(id: "\(key)#\(index)", account: account, movement: movement, observedAt: entry.observedAt)
+            }
+        }
+        .sorted { lhs, rhs in
+            let left = lhs.movement.date ?? "", right = rhs.movement.date ?? ""
+            return left == right ? lhs.id < rhs.id : left > right
+        }
+    }
+
+    static func uncovered(_ entry: BankingAccountActivity, account: FinancialAccount,
+                          transactions: [FinancialTransaction]) -> [BankingPreview.PendingMovement] {
+        guard let pending = entry.pendingMovements, !pending.isEmpty else { return [] }
+        let awaiting = transactions
+            .filter { $0.sourceAccount?.id == account.id && $0.bankEntryKey == nil && CardPaymentInbox.isAwaiting($0.externalID) }
+            .map { (amountMinor: $0.amountMinor, date: $0.date) }
+        return CardPaymentInbox.uncoveredHolds(pending, awaiting: awaiting)
+    }
+
+    /// Charges held for this account and not yet counted as a recorded payment (zero or negative).
+    static func heldMinor(_ entry: BankingAccountActivity?, account: FinancialAccount,
+                          transactions: [FinancialTransaction]) -> Int64 {
+        guard let entry else { return 0 }
+        return uncovered(entry, account: account, transactions: transactions).reduce(0) { $0 + min(0, $1.signedAmountMinor) }
+    }
+}
+
 struct TransactionsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.isCloudWorkspace) private var isCloudWorkspace
+    @Environment(\.bankAccountActivity) private var bankActivity
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @State private var inspectedID: UUID?
+    @AppStorage("companionFocus") private var companionFocus = ""
+    @State private var highlightedHolds = false
+    @State private var highlightedID: UUID?
+    @State private var showingBankReview = false
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
@@ -76,13 +127,51 @@ struct TransactionsView: View {
     @State private var categorySelection: TransactionCategorySelection?
     @State private var selectedTransaction: FinancialTransaction?
     @State private var deletionError: String?
+    @State private var bankDeletionCandidate: FinancialTransaction?
+    @State private var pendingBankMerge: (duplicate: FinancialTransaction, kept: FinancialTransaction)?
+    @State private var pendingOwnTransfer: (debit: FinancialTransaction, credit: FinancialTransaction)?
+    @State private var mergeError: String?
 
     @State private var showingCSVExporter = false
     @State private var csvExportDocument: TransactionCSVDocument?
     @State private var csvExportMessage: String?
+    /// Bumped on every save and whenever the stored movements change: the cached list is then rebuilt.
+    @State private var dataVersion = 0
+    @State private var listMemo = ViewMemo<ListKey, ListData>()
 
-    private var scopedTransactions: [FinancialTransaction] {
-        transactions.filter { transaction in
+    private struct ListKey: Equatable {
+        let count: Int, version: Int, day: Date
+        let account: UUID?, category: UUID?, type: TransactionType?, dateFilter: TransactionDateFilter
+        let duplicates: Bool, review: Bool, search: String
+    }
+    private struct ListData {
+        let scoped: [FinancialTransaction]
+        let filtered: [FinancialTransaction]
+        let reviewCount: Int
+        let groups: [TransactionDayGroup]
+    }
+
+    /// The list, its review count and its days, computed once per change instead of once per use.
+    private var listData: ListData {
+        let key = ListKey(count: transactions.count, version: dataVersion, day: Calendar.current.startOfDay(for: .now),
+                          account: selectedAccountID, category: selectedCategoryID, type: selectedType, dateFilter: dateFilter,
+                          duplicates: showOnlyDuplicates, review: showOnlyReview, search: searchText)
+        return listMemo.value(for: key) {
+            let scoped = computeScopedTransactions()
+            let pending = scoped.filter { !TransactionReviewService.issues(for: $0).isEmpty }
+            let filtered = showOnlyReview ? pending : scoped
+            let groups = Dictionary(grouping: filtered) { Calendar.autoupdatingCurrent.startOfDay(for: $0.date) }
+                .sorted { $0.key > $1.key }
+                .map { TransactionDayGroup(date: $0.key, transactions: $0.value) }
+            return ListData(scoped: scoped, filtered: filtered, reviewCount: pending.count, groups: groups)
+        }
+    }
+
+    private var scopedTransactions: [FinancialTransaction] { listData.scoped }
+
+    private func computeScopedTransactions() -> [FinancialTransaction] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return transactions.filter { transaction in
             if let selectedAccountID,
                transaction.sourceAccount?.id != selectedAccountID,
                transaction.destinationAccount?.id != selectedAccountID
@@ -112,7 +201,6 @@ struct TransactionsView: View {
                 return false
             }
 
-            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !query.isEmpty else { return true }
 
             return [
@@ -129,42 +217,88 @@ struct TransactionsView: View {
         }
     }
 
-    private var filteredTransactions: [FinancialTransaction] {
-        scopedTransactions.filter { !showOnlyReview || !TransactionReviewService.issues(for: $0).isEmpty }
+    private var filteredTransactions: [FinancialTransaction] { listData.filtered }
+
+    private var groupedTransactionDays: [TransactionDayGroup] { listData.groups }
+
+    /// With no period chosen the summary describes the current month, not the whole history.
+    private var summaryTransactions: [FinancialTransaction] {
+        guard dateFilter == .all else { return filteredTransactions }
+        let calendar = Calendar.autoupdatingCurrent
+        return filteredTransactions.filter { calendar.isDate($0.date, equalTo: .now, toGranularity: .month) }
     }
 
-    private var groupedTransactionDays: [TransactionDayGroup] {
-        let grouped = Dictionary(grouping: filteredTransactions) {
-            Calendar.autoupdatingCurrent.startOfDay(for: $0.date)
+    private var summaryTitle: String {
+        dateFilter == .all ? Date.now.formatted(.dateTime.month(.wide).year()).capitalized : dateFilter.title
+    }
+
+    /// Holds follow the account, type and search filters. Filters that only make sense for recorded
+    /// movements (category, review, duplicates) hide them. They are current, so any date filter keeps them.
+    private var visibleHolds: [BankHold] {
+        guard selectedCategoryID == nil, !showOnlyDuplicates, !showOnlyReview else { return [] }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return BankHold.all(accounts: accounts, activity: bankActivity, transactions: transactions).filter { hold in
+            if let selectedAccountID, hold.account.id != selectedAccountID { return false }
+            if let selectedType {
+                guard selectedType == .expense || selectedType == .income,
+                      (selectedType == .income) == (hold.movement.signedAmountMinor > 0) else { return false }
+            }
+            guard !query.isEmpty else { return true }
+            return [hold.movement.description, hold.title, hold.account.bankAndAccountDisplayName]
+                .contains { $0.localizedCaseInsensitiveContains(query) }
         }
-        return grouped
-            .sorted { $0.key > $1.key }
-            .map { TransactionDayGroup(date: $0.key, transactions: $0.value) }
     }
 
-    private var filteredIncomeMinor: Int64 {
-        filteredTransactions
-            .filter { $0.type.countsAsIncome }
-            .reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
-    }
+    private var reviewCount: Int { listData.reviewCount }
 
-    private var filteredExpenseMinor: Int64 {
-        filteredTransactions
-            .filter { $0.type.countsAsExpense }
-            .reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
-    }
-
-    private var reviewCount: Int {
-        scopedTransactions.filter { !TransactionReviewService.issues(for: $0).isEmpty }.count
-    }
-
+    /// iPad: list on the left, the chosen movement on the right. iPhone: list and a sheet for the detail.
     var body: some View {
+        if horizontalSizeClass == .regular {
+            HStack(spacing: 0) {
+                listStack
+                    .frame(minWidth: 380, idealWidth: 520, maxWidth: 600)
+                Rectangle().fill(AppDesign.cardOutline).frame(width: 1).ignoresSafeArea()
+                inspector
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .background(AppDesign.pageBackground)
+        } else {
+            listStack
+        }
+    }
+
+    @ViewBuilder private var inspector: some View {
+        if let id = inspectedID, let transaction = transactions.first(where: { $0.id == id }) {
+            TransactionDetailView(transaction: transaction, onMergeBankEntry: { kept in
+                pendingBankMerge = (transaction, kept)
+                inspectedID = nil
+                performPendingBankMerge()
+            }, onPairOwnTransfer: { debit, credit in
+                pendingOwnTransfer = (debit, credit)
+                inspectedID = nil
+                performPendingBankMerge()
+            }, onClose: { inspectedID = nil })
+            .id(transaction.id)
+        } else {
+            VStack(spacing: 14) {
+                DonBigotesMark(awake: false, size: 64)
+                Text("Elige un movimiento").font(.title3.weight(.semibold))
+                Text("Su detalle aparecerá aquí, sin tapar la lista.")
+                    .font(.subheadline).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var listStack: some View {
         NavigationStack {
             movementContent
             .cloudSyncToolbar()
             .scrollContentBackground(.hidden)
             .background(AppDesign.pageBackground)
             .navigationTitle("Movimientos")
+            // Don Bigotes' «Ver» on a download waiting for review opens it here, as the review button in the toolbar does.
+            .navigationDestination(isPresented: $showingBankReview) { PersonalBankConnectionsView() }
             .searchable(
                 text: $searchText,
                 prompt: "Buscar descripción, cuenta o categoría"
@@ -238,8 +372,15 @@ struct TransactionsView: View {
                     )
                 }
             }
-            .sheet(item: $selectedTransaction) { transaction in
-                TransactionDetailView(transaction: transaction)
+            .sheet(item: $selectedTransaction, onDismiss: performPendingBankMerge) { transaction in
+                // The detail closes before the duplicate is deleted, so it never renders a removed movement.
+                TransactionDetailView(transaction: transaction, onMergeBankEntry: { kept in
+                    pendingBankMerge = (transaction, kept)
+                    selectedTransaction = nil
+                }, onPairOwnTransfer: { debit, credit in
+                    pendingOwnTransfer = (debit, credit)
+                    selectedTransaction = nil
+                })
             }
             .sheet(item: $categorySelection) { selection in
                 BulkCategoryView(transactionIDs: selection.transactionIDs) {
@@ -249,12 +390,11 @@ struct TransactionsView: View {
             .onChange(of: filteredTransactions.map(\.id)) { _, visibleIDs in
                 selectedIDs.formIntersection(visibleIDs)
             }
+            .onChange(of: transactions) { _, _ in dataVersion &+= 1 }
+            .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave).receive(on: RunLoop.main)) { _ in dataVersion &+= 1 }
             .alert(
                 "Exportar movimientos",
-                isPresented: Binding(
-                    get: { csvExportMessage != nil },
-                    set: { if !$0 { csvExportMessage = nil } }
-                )
+                isPresented: Binding(isPresent: $csvExportMessage)
             ) {
                 Button("Aceptar", role: .cancel) {
                     csvExportMessage = nil
@@ -264,20 +404,35 @@ struct TransactionsView: View {
             }
             .alert(
                 "No se pudo eliminar",
-                isPresented: Binding(
-                    get: { deletionError != nil },
-                    set: { isPresented in
-                        if !isPresented {
-                            deletionError = nil
-                        }
-                    }
-                )
+                isPresented: Binding(isPresent: $deletionError)
             ) {
                 Button("Aceptar", role: .cancel) {
                     deletionError = nil
                 }
             } message: {
                 Text(deletionError ?? "Error desconocido")
+            }
+            .confirmationDialog(
+                "Este movimiento viene de tu banco",
+                isPresented: showingBankDeletion,
+                titleVisibility: .visible,
+                presenting: bankDeletionCandidate
+            ) { transaction in
+                Button("Eliminar de todos modos", role: .destructive) {
+                    bankDeletionCandidate = nil
+                    delete(transaction)
+                }
+                Button("Cancelar", role: .cancel) { bankDeletionCandidate = nil }
+            } message: { _ in
+                Text("Si lo eliminas, volverá en la próxima descarga del banco. Si duplica otro movimiento, ábrelo y elige «Unir con este movimiento»: se conserva el tuyo y el banco no lo repetirá.")
+            }
+            .alert(
+                "No se pudieron unir los movimientos",
+                isPresented: showingMergeError
+            ) {
+                Button("Aceptar", role: .cancel) { mergeError = nil }
+            } message: {
+                Text(mergeError ?? "")
             }
         }
     }
@@ -298,16 +453,26 @@ struct TransactionsView: View {
     }
 
     private var movementsList: some View {
+      ScrollViewReader { proxy in
         List {
+          // Rows without their own background take the card colour, never the system grey.
+          Group {
             if isSelecting { selectionControls }
             Section {
                 TransactionPeriodSummaryCard(
-                    transactionCount: filteredTransactions.count,
-                    incomeMinor: filteredIncomeMinor,
-                    expenseMinor: filteredExpenseMinor
+                    title: summaryTitle,
+                    transactionCount: summaryTransactions.count,
+                    incomeMinor: summaryTransactions.filter { $0.type.countsAsIncome }.reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) },
+                    expenseMinor: summaryTransactions.filter { $0.type.countsAsExpense }.reduce(Int64.zero) { $0 + Swift.abs($1.amountMinor) }
                 )
                 .listRowInsets(EdgeInsets())
                 .listRowBackground(Color.clear)
+            }
+
+            Section {
+                quickFilters
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
             }
 
             Section {
@@ -344,9 +509,53 @@ struct TransactionsView: View {
                 }
             }
 
+            let holds = visibleHolds
+            if !holds.isEmpty { BankHoldsSection(holds: holds, highlighted: highlightedHolds) }
+
             transactionSections
+          }
+          .listRowBackground(AppDesign.cardBackground)
         }
         .listStyle(.insetGrouped)
+        .listSectionSpacing(.compact)
+        .onAppear { followCompanion(proxy) }
+        .onChange(of: companionFocus) { _, _ in followCompanion(proxy) }
+      }
+    }
+
+    /// Don Bigotes pointed here: show what he meant, scroll to it and highlight it for a moment.
+    private func followCompanion(_ proxy: ScrollViewProxy) {
+        guard let focus = CompanionFocus.parse(companionFocus), [.holds, .review, .bankReview, .awaitingBank].contains(focus) else { return }
+        companionFocus = ""
+        if focus == .bankReview {
+            showingBankReview = true
+            return
+        }
+        resetFilters()
+        searchText = ""
+        if focus == .review { showOnlyReview = true }
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            withAnimation(.easeInOut(duration: 0.35)) {
+                if focus == .holds, let first = visibleHolds.first {
+                    highlightedHolds = true
+                    proxy.scrollTo(first.id, anchor: .top)
+                } else if focus == .review, let first = filteredTransactions.first {
+                    highlightedID = first.id
+                    proxy.scrollTo(first.id, anchor: .center)
+                } else if focus == .awaitingBank, let oldest = filteredTransactions
+                    .filter({ $0.bankEntryKey == nil && CardPaymentInbox.isAwaiting($0.externalID) })
+                    .min(by: { $0.date < $1.date }) {
+                    highlightedID = oldest.id
+                    proxy.scrollTo(oldest.id, anchor: .center)
+                }
+            }
+            try? await Task.sleep(for: .seconds(2.5))
+            withAnimation(.easeOut(duration: 0.6)) {
+                highlightedHolds = false
+                highlightedID = nil
+            }
+        }
     }
 
     @ViewBuilder
@@ -370,28 +579,45 @@ struct TransactionsView: View {
     }
 
     private func transactionSection(_ group: TransactionDayGroup) -> some View {
-        let heading = group.date.formatted(.dateTime.weekday(.wide).day().month(.wide).year())
+        let calendar = Calendar.autoupdatingCurrent
+        let heading = calendar.isDate(group.date, equalTo: .now, toGranularity: .year)
+            ? group.date.formatted(.dateTime.weekday(.wide).day().month(.wide))
+            : group.date.formatted(.dateTime.weekday(.wide).day().month(.wide).year())
+        let net = group.transactions.reduce(Int64.zero) { total, transaction in
+            if transaction.type.countsAsIncome { return total + transaction.amountMinor }
+            if transaction.type.countsAsExpense { return total - transaction.amountMinor }
+            return total
+        }
         return Section {
             ForEach(group.transactions) { transaction in
                 TransactionActionRow(
                     transaction: transaction,
                     isSelecting: isSelecting,
                     isSelected: selectedIDs.contains(transaction.id),
+                    highlighted: highlightedID == transaction.id,
                     onTap: { tapTransaction(transaction) },
                     onCategorize: {
                         categorySelection = TransactionCategorySelection(transactionIDs: Set([transaction.id]))
                     },
-                    onDelete: { delete(transaction) }
+                    onDelete: { requestDelete(transaction) }
                 )
             }
         } header: {
-            Text(heading)
+            HStack(alignment: .firstTextBaseline) {
+                Text(heading)
+                Spacer()
+                if net != 0 {
+                    PrivacyAmountText(minorUnits: net, font: .caption, weight: .semibold, signed: true)
+                        .foregroundStyle(net > 0 ? AppDesign.income : .secondary)
+                        .accessibilityLabel("Resultado del día")
+                }
+            }
         }
     }
 
     private func tapTransaction(_ transaction: FinancialTransaction) {
         if !isSelecting {
-            selectedTransaction = transaction
+            if horizontalSizeClass == .regular { inspectedID = transaction.id } else { selectedTransaction = transaction }
         } else if selectedIDs.contains(transaction.id) {
             selectedIDs.remove(transaction.id)
         } else {
@@ -416,6 +642,37 @@ struct TransactionsView: View {
         } footer: {
             Text("La selección se limita a los resultados de tu búsqueda y filtros. Al cambiar los filtros se retiran los movimientos que dejan de aparecer.")
         }
+    }
+
+    private var quickFilters: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                quickChip("Todo", active: selectedType == nil && !showOnlyReview) { selectedType = nil; showOnlyReview = false }
+                quickChip("Gastos", active: selectedType == .expense && !showOnlyReview) { selectedType = .expense; showOnlyReview = false }
+                quickChip("Ingresos", active: selectedType == .income && !showOnlyReview) { selectedType = .income; showOnlyReview = false }
+                quickChip("Transferencias", active: selectedType == .transfer && !showOnlyReview) { selectedType = .transfer; showOnlyReview = false }
+                if reviewCount > 0 || showOnlyReview {
+                    quickChip("Por revisar · \(reviewCount)", active: showOnlyReview, tint: AppDesign.warning) {
+                        selectedType = nil; showOnlyReview = true
+                    }
+                }
+            }
+            .padding(.vertical, 2)
+        }
+    }
+
+    private func quickChip(_ title: String, active: Bool, tint: Color = .primary, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(active ? AppDesign.pageBackground : tint)
+                .padding(.horizontal, 14)
+                .frame(height: 34)
+                .background(active ? Color.primary : AppDesign.cardBackground, in: Capsule())
+                .overlay { Capsule().strokeBorder(AppDesign.cardOutline, lineWidth: active ? 0 : 1) }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     private var reviewAction: TransactionReviewService.FilterAction {
@@ -443,7 +700,7 @@ struct TransactionsView: View {
     }
 
     private var reviewSummaryContent: some View {
-            AdaptiveValueRow {
+            HStack(spacing: 12) {
                 HStack(spacing: 12) {
                     Image(systemName: reviewCount == 0 ? "checkmark.circle" : "checklist")
                         .font(.title3).foregroundStyle(reviewCount == 0 ? AppDesign.income : AppDesign.warning)
@@ -459,12 +716,16 @@ struct TransactionsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
-            } value: {
+                Spacer(minLength: 8)
                 if reviewAction != .none {
-                    Label(showOnlyReview ? "Ver todos" : "Ver pendientes", systemImage: "chevron.right")
-                        .font(.caption.weight(.semibold)).foregroundStyle(AppDesign.accent)
+                    HStack(spacing: 4) {
+                        Text(showOnlyReview ? "Ver todos" : "Ver pendientes")
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(.caption.weight(.semibold)).foregroundStyle(AppDesign.accent)
                 }
             }
+            .fixedSize(horizontal: false, vertical: true)
             .padding(AppDesign.cardPadding)
             .financeCardSurface()
     }
@@ -531,7 +792,7 @@ struct TransactionsView: View {
                     FilterChip(
                         title: "Posibles duplicados",
                         systemImage: "doc.on.doc",
-                        tint: .orange,
+                        tint: AppDesign.warning,
                         onRemove: { showOnlyDuplicates = false }
                     )
                 }
@@ -576,6 +837,34 @@ struct TransactionsView: View {
         showOnlyReview = false
     }
 
+    private var showingBankDeletion: Binding<Bool> {
+        Binding(isPresent: $bankDeletionCandidate)
+    }
+
+    private var showingMergeError: Binding<Bool> {
+        Binding(isPresent: $mergeError)
+    }
+
+    private func requestDelete(_ transaction: FinancialTransaction) {
+        if isCloudWorkspace && transaction.bankEntryKey != nil {
+            bankDeletionCandidate = transaction
+        } else {
+            delete(transaction)
+        }
+    }
+
+    private func performPendingBankMerge() {
+        if let pair = pendingOwnTransfer {
+            pendingOwnTransfer = nil
+            do { try PersonalBankingImporter.pairOwnTransfer(pair.debit, with: pair.credit, in: modelContext) }
+            catch { mergeError = error.localizedDescription }
+        }
+        guard let merge = pendingBankMerge else { return }
+        pendingBankMerge = nil
+        do { try PersonalBankingImporter.mergeBankEntry(merge.duplicate, into: merge.kept, in: modelContext) }
+        catch { mergeError = error.localizedDescription }
+    }
+
     private func delete(_ transaction: FinancialTransaction) {
         do {
             if let fundID = transaction.reservedFundID {
@@ -612,6 +901,7 @@ private struct BankDownloadReviewLink: View {
 }
 
 private struct TransactionPeriodSummaryCard: View {
+    let title: String
     let transactionCount: Int
     let incomeMinor: Int64
     let expenseMinor: Int64
@@ -621,45 +911,76 @@ private struct TransactionPeriodSummaryCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Resumen del periodo")
-                    .font(.headline)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(.headline)
                 Spacer()
-                Text("\(transactionCount) movimientos")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(transactionCount == 1 ? "1 movimiento" : "\(transactionCount) movimientos")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-
-            AdaptiveSummaryPair(
-                firstTitle: "Ingresos",
-                firstAmount: incomeMinor,
-                firstTint: .green,
-                secondTitle: "Gastos",
-                secondAmount: expenseMinor,
-                secondTint: .red
-            )
-
-            Divider()
-
-            HStack {
-                Label("Balance del periodo", systemImage: "equal.circle")
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                PrivacyAmountText(
-                    minorUnits: netMinor,
-                    font: .headline,
-                    weight: .semibold,
-                    signed: true
-                )
-                .foregroundStyle(netMinor >= 0 ? .blue : .red)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { tiles }
+                VStack(spacing: 8) { tiles }
             }
         }
         .padding(AppDesign.cardPadding)
-        .background(
-            AppDesign.cardBackground,
-            in: RoundedRectangle(cornerRadius: AppDesign.cardRadius, style: .continuous)
-        )
+        .financeCardSurface()
+    }
+
+    @ViewBuilder private var tiles: some View {
+        SemanticMetricTile(title: "Ingresos", minorUnits: incomeMinor, systemImage: "arrow.down.left",
+                           tint: AppDesign.income, surface: AppDesign.incomeSurface)
+        SemanticMetricTile(title: "Gastos", minorUnits: expenseMinor, systemImage: "arrow.up.right",
+                           tint: AppDesign.expense, surface: AppDesign.expenseSurface)
+        SemanticMetricTile(title: "Balance", minorUnits: netMinor, systemImage: "equal",
+                           tint: netMinor >= 0 ? AppDesign.savings : AppDesign.expense,
+                           surface: netMinor >= 0 ? AppDesign.savingsSurface : AppDesign.expenseSurface, signed: true)
+    }
+}
+
+/// Bank holds shown above the movements: they already reduce the money available at the bank.
+private struct BankHoldsSection: View {
+    let holds: [BankHold]
+    var highlighted = false
+
+    private var total: Int64 { holds.reduce(0) { $0 + $1.movement.signedAmountMinor } }
+    private var consulted: String {
+        holds.map(\.observedAt).max()?.formatted(date: .abbreviated, time: .shortened) ?? ""
+    }
+
+    var body: some View {
+        Section {
+            ForEach(holds) { hold in
+                HStack(spacing: 12) {
+                    RowGlyph(systemImage: "hourglass", tint: AppDesign.warning)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(hold.title).font(.subheadline.weight(.medium)).lineLimit(1)
+                        Text([hold.account.bankAndAccountDisplayName, hold.dateText].compactMap { $0 }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 3) {
+                        PrivacyAmountText(minorUnits: hold.movement.signedAmountMinor,
+                                          currencyCode: hold.movement.currency,
+                                          font: .subheadline, weight: .semibold, signed: true)
+                        StatusPill(text: hold.movement.status == "HOLD" ? "Retenido" : "Pendiente", tint: AppDesign.warning)
+                    }
+                }
+                .padding(.vertical, 2)
+                .listRowBackground(highlighted ? AppDesign.warning.opacity(0.28) : AppDesign.warningSurface)
+                .id(hold.id)
+                .accessibilityElement(children: .combine)
+            }
+        } header: {
+            HStack(alignment: .firstTextBaseline) {
+                Label("Pendientes del banco", systemImage: "hourglass")
+                Spacer()
+                PrivacyAmountText(minorUnits: total, font: .caption, weight: .semibold, signed: true)
+                    .foregroundStyle(AppDesign.warning)
+            }
+        } footer: {
+            Text("Tu banco ya los ha retenido y aún no los ha contabilizado (consulta del \(consulted)). Pasarán a tus movimientos cuando el banco los cierre; mientras tanto no cuentan en los presupuestos.")
+        }
     }
 }
 
@@ -667,6 +988,7 @@ private struct TransactionActionRow: View {
     let transaction: FinancialTransaction
     let isSelecting: Bool
     let isSelected: Bool
+    var highlighted = false
     let onTap: () -> Void
     let onCategorize: () -> Void
     let onDelete: () -> Void
@@ -685,7 +1007,7 @@ private struct TransactionActionRow: View {
             rowLabel
         }
         .buttonStyle(.plain)
-        .listRowBackground(AppDesign.cardBackground)
+        .listRowBackground(highlighted ? AppDesign.warningSurface : AppDesign.cardBackground)
         .accessibilityHint(Text(hint))
         .accessibilityValue(Text(selectionValue))
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
@@ -723,21 +1045,19 @@ private struct TransactionRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: transaction.category?.systemImage ?? transaction.type.systemImage)
-                .foregroundStyle(Color(hex: transaction.category?.colorHex ?? "#4D7C8A"))
-                .frame(width: 38, height: 38)
-                .background(Color.secondary.opacity(0.09), in: Circle())
+            RowGlyph(systemImage: transaction.category?.systemImage ?? transaction.type.systemImage,
+                     tint: transaction.category.map { Color(hex: $0.colorHex) } ?? glyphTint)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(transaction.displayDescription)
+                    Text(transaction.listTitle)
                         .font(.subheadline.weight(.medium))
                         .lineLimit(1)
 
                     if transaction.duplicateState == .possible {
                         Image(systemName: "doc.on.doc.fill")
                             .font(.caption2)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(AppDesign.warning)
                             .accessibilityLabel("Posible duplicado")
                     }
                 }
@@ -745,7 +1065,7 @@ private struct TransactionRow: View {
                 Text(accountSubtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
                 if let issue = TransactionReviewService.issues(for: transaction).first(where: { $0 != .possibleDuplicate }) {
                     Label(issue.title, systemImage: issue.systemImage)
                         .font(.caption2).foregroundStyle(AppDesign.warning)
@@ -754,24 +1074,31 @@ private struct TransactionRow: View {
 
             Spacer(minLength: 8)
 
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: 3) {
                 Text(displayAmount)
                     .font(.subheadline.weight(.semibold))
+                    .monospacedDigit()
                     .foregroundStyle(amountColor)
 
-                if transaction.type != .transfer {
-                    Text(transaction.category?.name ?? transaction.type.title)
+                if transaction.bankEntryKey == nil && CardPaymentInbox.isAwaiting(transaction.externalID) {
+                    StatusPill(text: "Pendiente del banco", tint: AppDesign.warning)
+                } else {
+                    Text(transaction.type == .transfer ? "Transferencia" : (transaction.category?.name ?? transaction.type.title))
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
-                } else {
-                    Text(transaction.date.formatted(date: .omitted, time: .shortened))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
+    }
+
+    private var glyphTint: Color {
+        switch transaction.type {
+        case .income, .interest: AppDesign.income
+        case .expense, .fee: AppDesign.expense
+        case .transfer: AppDesign.savings
+        }
     }
 
     private var accountSubtitle: String {
@@ -801,9 +1128,9 @@ private struct TransactionRow: View {
 
     private var amountColor: Color {
         switch transaction.type {
-        case .income, .interest: .green
+        case .income, .interest: AppDesign.income
         case .expense, .fee: .primary
-        case .transfer: .blue
+        case .transfer: AppDesign.savings
         }
     }
 }
@@ -855,7 +1182,7 @@ private struct BulkCategoryView: View {
                     }
                     if selected.count != transactionIDs.count {
                         Text("La selección ha cambiado o algún movimiento ya no existe. Cierra y vuelve a seleccionarlos.")
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppDesign.expense)
                     }
                     DisclosureGroup("Ver movimientos seleccionados") {
                         ForEach(selected) { transaction in
@@ -901,7 +1228,7 @@ private struct BulkCategoryView: View {
                             TextField("Comercio o frase a reconocer", text: $rulePhrase)
                                 .textInputAutocapitalization(.never)
                             if let learningIssue {
-                                Text(learningIssue).font(.footnote).foregroundStyle(.red)
+                                Text(learningIssue).font(.footnote).foregroundStyle(AppDesign.expense)
                             }
                         }
                     } footer: {
@@ -929,9 +1256,7 @@ private struct BulkCategoryView: View {
                     rulePhrase = first.displayDescription
                 }
             }
-            .alert("No se pudo guardar la categoría", isPresented: Binding(
-                get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
-            )) { Button("Aceptar", role: .cancel) { errorMessage = nil } }
+            .alert("No se pudo guardar la categoría", isPresented: Binding(isPresent: $errorMessage)) { Button("Aceptar", role: .cancel) { errorMessage = nil } }
             message: { Text(errorMessage ?? "") }
         }
     }
@@ -998,8 +1323,7 @@ private struct InvestmentContributionReviewView: View {
             ForEach(proposals) { proposal in contributionSection(proposal) }
         }
         .navigationTitle("Aportaciones detectadas")
-        .confirmationDialog("¿Confirmar estos cargos como aportación a inversión?", isPresented: Binding(
-            get: { confirming != nil }, set: { if !$0 { confirming = nil } }), titleVisibility: .visible,
+        .confirmationDialog("¿Confirmar estos cargos como aportación a inversión?", isPresented: Binding(isPresent: $confirming), titleVisibility: .visible,
             presenting: confirming) { proposal in
                 Button("Confirmar aportación") {
                     do {
@@ -1012,8 +1336,7 @@ private struct InvestmentContributionReviewView: View {
                 let rule = recurring.first { $0.id == proposal.recurringID }
                 Text("\(MoneyFormatter.string(minorUnits: proposal.remaining)) hacia \(rule?.destinationAccount?.bankAndAccountDisplayName ?? "la cuenta de inversión"). Los cargos se convertirán en transferencias.\(proposal.planned.isEmpty ? "" : " Se sustituirá la previsión de este periodo por los cargos seleccionados.")")
             }
-        .alert("No se pudo reconocer la aportación", isPresented: Binding(
-            get: { error != nil }, set: { if !$0 { error = nil } })) {
+        .alert("No se pudo reconocer la aportación", isPresented: Binding(isPresent: $error)) {
                 Button("Aceptar", role: .cancel) { error = nil }
             } message: { Text(error ?? "") }
     }
@@ -1134,14 +1457,10 @@ private struct TransactionReviewActions: View {
                 type: transaction.type, categories: allowedCategories, in: modelContext)
             if !Task.isCancelled { learnedCategoryID = prediction }
         }
-        .alert("No se pudo guardar la revisión", isPresented: Binding(
-            get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } }
-        )) {
+        .alert("No se pudo guardar la revisión", isPresented: Binding(isPresent: $errorMessage)) {
             Button("Aceptar", role: .cancel) { errorMessage = nil }
         } message: { Text(errorMessage ?? "") }
-        .confirmationDialog("¿Unir los dos apuntes como transferencia propia?", isPresented: Binding(
-            get: { transferPartner != nil }, set: { if !$0 { transferPartner = nil } }
-        ), titleVisibility: .visible, presenting: transferPartner) { partner in
+        .confirmationDialog("¿Unir los dos apuntes como transferencia propia?", isPresented: Binding(isPresent: $transferPartner), titleVisibility: .visible, presenting: transferPartner) { partner in
             Button("Unir como transferencia") {
                 do { try PersonalBankingImporter.pairImportedTransfer(transaction, with: partner, in: modelContext) }
                 catch { errorMessage = error.localizedDescription }
@@ -1241,7 +1560,9 @@ private struct TransactionReviewActions: View {
             }
             .buttonStyle(.bordered)
                 .controlSize(.large)
-            Text("Esta opción conserva los movimientos. Si sobra uno, elimínalo desde la lista de Movimientos.")
+            Text(transaction.bankEntryKey == nil
+                 ? "Esta opción conserva los movimientos. Si sobra uno, elimínalo desde la lista de Movimientos."
+                 : "Esta opción conserva los movimientos. Si sobra uno, únelo con «¿Ya lo tenías registrado?», más abajo: si lo eliminas, el banco lo volverá a enviar.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -1249,7 +1570,7 @@ private struct TransactionReviewActions: View {
     private func similarRow(_ other: FinancialTransaction) -> some View {
         AdaptiveValueRow {
             VStack(alignment: .leading, spacing: 4) {
-                Text(other.displayDescription).font(.subheadline.weight(.medium))
+                Text(other.listTitle).font(.subheadline.weight(.medium))
                 Text("\(other.sourceAccount?.bankAndAccountDisplayName ?? "Sin cuenta") · \(other.type.title) · \(other.date.formatted(date: .abbreviated, time: .omitted))")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -1370,7 +1691,7 @@ private struct TransactionOperationReviewCard: View {
                     .font(.caption).foregroundStyle(.secondary)
                 if let termsMessage { Text(termsMessage).font(.caption).foregroundStyle(.secondary) }
             }
-            if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(.red) }
+            if let errorMessage { Text(errorMessage).font(.footnote).foregroundStyle(AppDesign.expense) }
         }
         .task(id: "\(transaction.updatedAt.timeIntervalSince1970)|\(refresh)") {
             review = nil
@@ -1414,12 +1735,127 @@ private struct TransactionOperationReviewCard: View {
     }
 }
 
+/// Proposes joining a debit and a credit of two linked accounts that look like one own transfer.
+private struct OwnTransferProposalCard: View {
+    @Query private var transactions: [FinancialTransaction]
+    @State private var confirming = false
+    let transaction: FinancialTransaction
+    let onPair: (FinancialTransaction, FinancialTransaction) -> Void
+
+    var body: some View {
+        let pair = PersonalBankingImporter.ownTransferPairs(in: transactions, involving: [transaction.id]).first
+        if let pair {
+            SectionCard("Posible transferencia entre tus cuentas", subtitle: "Mismo importe en dos de tus bancos") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("\(pair.debit.sourceAccount?.bankAndAccountDisplayName ?? "Cuenta") → \(pair.credit.sourceAccount?.bankAndAccountDisplayName ?? "Cuenta")")
+                        .font(.subheadline.weight(.semibold))
+                    Text("Salida el \(pair.debit.date.formatted(date: .abbreviated, time: .omitted)) y entrada el \(pair.credit.date.formatted(date: .abbreviated, time: .omitted)). Si es un traspaso entre tus cuentas, únelos: dejará de contar como gasto e ingreso.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button { confirming = true } label: {
+                        Label("Unir como transferencia", systemImage: "arrow.left.arrow.right")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+            .confirmationDialog("¿Unir los dos apuntes como transferencia propia?", isPresented: $confirming,
+                                titleVisibility: .visible) {
+                Button("Unir como transferencia") { onPair(pair.debit, pair.credit) }
+                Button("Cancelar", role: .cancel) {}
+            } message: {
+                Text("Se conservan las dos referencias bancarias. Podrás separarlos después desde el detalle de la transferencia.")
+            }
+        }
+    }
+}
+
+/// Shows that two bank postings were joined as one own transfer and lets the user restore them.
+private struct OwnTransferSeparationCard: View {
+    @Environment(\.modelContext) private var modelContext
+    @State private var confirming = false
+    @State private var errorMessage: String?
+    let transaction: FinancialTransaction
+
+    var body: some View {
+        SectionCard("Transferencia entre tus cuentas", subtitle: "Unida a partir de los apuntes de los dos bancos") {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("La salida y la entrada se han reconocido como un traspaso entre tus cuentas, así que no cuentan como gasto ni como ingreso.")
+                    .font(.caption).foregroundStyle(.secondary)
+                Button(role: .destructive) { confirming = true } label: {
+                    Label("Separar en dos movimientos", systemImage: "arrow.uturn.backward")
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .confirmationDialog("¿Separar esta transferencia?", isPresented: $confirming, titleVisibility: .visible) {
+            Button("Separar en gasto e ingreso", role: .destructive) {
+                do { try PersonalBankingImporter.separateOwnTransfer(transaction, in: modelContext) }
+                catch { errorMessage = error.localizedDescription }
+            }
+            Button("Cancelar", role: .cancel) {}
+        } message: {
+            Text("Vuelven los dos apuntes del banco tal como llegaron y no se unirán automáticamente otra vez.")
+        }
+        .alert("No se pudo separar", isPresented: Binding(isPresent: $errorMessage)) {
+            Button("Aceptar", role: .cancel) { errorMessage = nil }
+        } message: { Text(errorMessage ?? "") }
+    }
+}
+
+/// Lets a bank posting hand its reference to a movement the user already recorded.
+private struct BankEntryMergeCard: View {
+    @Query private var transactions: [FinancialTransaction]
+    @State private var chosen: FinancialTransaction?
+    let transaction: FinancialTransaction
+    let onMerge: (FinancialTransaction) -> Void
+
+    private var candidates: [FinancialTransaction] {
+        PersonalBankingImporter.mergeCandidates(for: transaction, in: transactions)
+    }
+
+    var body: some View {
+        let candidates = candidates
+        if !candidates.isEmpty {
+            SectionCard("¿Ya lo tenías registrado?", subtitle: "Une este apunte del banco con tu movimiento") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Se conserva tu movimiento, con su categoría, notas y vínculos. Recibe la referencia del banco y este apunte se elimina; la próxima descarga no lo repetirá.")
+                        .font(.caption).foregroundStyle(.secondary)
+                    ForEach(candidates.prefix(5)) { candidate in
+                        Button { chosen = candidate } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(candidate.listTitle)
+                                Text("\(candidate.date.formatted(date: .abbreviated, time: .omitted)) · \(candidate.sourceAccount?.bankAndAccountDisplayName ?? "Cuenta")")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+            .confirmationDialog("¿Unir con este movimiento?", isPresented: Binding(isPresent: $chosen), titleVisibility: .visible, presenting: chosen) { kept in
+                Button("Unir con este movimiento") {
+                    chosen = nil
+                    onMerge(kept)
+                }
+                Button("Cancelar", role: .cancel) { chosen = nil }
+            } message: { kept in
+                Text("Se conservará «\(kept.displayDescription)» y se eliminará este apunte del banco.")
+            }
+        }
+    }
+}
+
 private struct TransactionDetailView: View {
     @Query private var reservedFunds: [ReservedFund]
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.isCloudWorkspace) private var isCloudWorkspace
     @AppStorage("hideAmounts") private var hideAmounts = false
 
     let transaction: FinancialTransaction
+    let onMergeBankEntry: (FinancialTransaction) -> Void
+    let onPairOwnTransfer: (FinancialTransaction, FinancialTransaction) -> Void
+    /// Set when the detail is shown beside the list (iPad) instead of in a sheet.
+    var onClose: (() -> Void)? = nil
 
     @State private var showingEdit = false
     @State private var reviewingTransfer = false
@@ -1433,7 +1869,7 @@ private struct TransactionDetailView: View {
                     if TransactionOperationLearning.supports(transaction) {
                         TransactionOperationReviewCard(transaction: transaction)
                     }
-                    if transaction.displayDescription != transaction.descriptionText {
+                    if transaction.listTitle != transaction.descriptionText {
                         SectionCard("Concepto guardado", subtitle: "Descripción conservada tal como está registrada") {
                             Text(transaction.descriptionText)
                                 .font(.subheadline).textSelection(.enabled)
@@ -1455,6 +1891,18 @@ private struct TransactionDetailView: View {
                             reviewingTransfer = true
                         }
                     }
+
+                    if isCloudWorkspace && transaction.bankEntryKey != nil {
+                        if transaction.type == .transfer {
+                            if PersonalBankingImporter.canSeparateOwnTransfer(transaction) {
+                                OwnTransferSeparationCard(transaction: transaction)
+                            }
+                        } else {
+                            OwnTransferProposalCard(transaction: transaction, onPair: onPairOwnTransfer)
+                        }
+                        // Also for a posting the user turned into a transfer: it can duplicate another one.
+                        BankEntryMergeCard(transaction: transaction, onMerge: onMergeBankEntry)
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 16)
@@ -1462,13 +1910,14 @@ private struct TransactionDetailView: View {
             .background(AppDesign.pageBackground)
             .navigationTitle("Detalle del movimiento")
             .navigationBarTitleDisplayMode(.inline)
+            .formSheetSizing()
             .sheet(isPresented: $reviewingTransfer) {
                 TransactionFormView(transaction: transaction, asBankTransfer: true)
             }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cerrar") {
-                        dismiss()
+                        if let onClose { onClose() } else { dismiss() }
                     }
                 }
 
@@ -1495,7 +1944,7 @@ private struct TransactionDetailView: View {
                 .frame(width: 56, height: 56)
                 .background(accentColor.opacity(0.12), in: Circle())
 
-            Text(transaction.displayDescription)
+            Text(transaction.listTitle)
                 .font(.headline)
                 .multilineTextAlignment(.center)
 
@@ -1621,9 +2070,9 @@ private struct TransactionDetailView: View {
 
     private var amountColor: Color {
         switch transaction.type {
-        case .income, .interest: .green
+        case .income, .interest: AppDesign.income
         case .expense, .fee: .primary
-        case .transfer: .blue
+        case .transfer: AppDesign.savings
         }
     }
 }
@@ -1640,10 +2089,13 @@ struct TransactionCategoryPickerLink: View {
                 onSelect()
             }
         } label: {
-            LabeledContent("Categoría") {
+            // A plain row: a LabeledContent with a Label value could grow far taller than its text on iPad.
+            HStack(spacing: 8) {
+                Text("Categoría")
+                Spacer(minLength: 12)
                 if let category = categories.first(where: { $0.id == selection }) {
-                    Label(category.name, systemImage: category.systemImage)
-                        .foregroundStyle(.secondary)
+                    Image(systemName: category.systemImage).foregroundStyle(Color(hex: category.colorHex))
+                    Text(category.name).foregroundStyle(.secondary).lineLimit(1)
                 } else {
                     Text("Elegir").foregroundStyle(.secondary)
                 }
@@ -1811,14 +2263,14 @@ private struct SpendingAnalysisView: View {
                         title: "Gastos",
                         value: hidden(MoneyFormatter.string(minorUnits: summary.expenseMinor)),
                         systemImage: "arrow.up",
-                        tint: .red
+                        tint: AppDesign.expense
                     )
 
                     MetricCard(
                         title: "Categorías activas",
                         value: "\(spending.count)",
                         systemImage: "tag",
-                        tint: .blue
+                        tint: AppDesign.savings
                     )
                 }
                 .frame(maxWidth: 420)
@@ -2121,17 +2573,15 @@ struct TransactionFormView: View {
                 if let validationMessage {
                     Section {
                         Text(validationMessage)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppDesign.expense)
                     }
                 }
             }
             .onChange(of: destinationAccountID) { _, _ in updateSuggestedReservedAmount() }
             .navigationTitle(transaction == nil ? "Nuevo movimiento" : "Editar movimiento")
             .navigationBarTitleDisplayMode(.inline)
-            .alert("Revisa el movimiento", isPresented: Binding(
-                get: { validationMessage != nil },
-                set: { if !$0 { validationMessage = nil } }
-            )) {
+            .formSheetSizing()
+            .alert("Revisa el movimiento", isPresented: Binding(isPresent: $validationMessage)) {
                 Button("Aceptar", role: .cancel) {
                     if descriptionText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         descriptionIsFocused = true

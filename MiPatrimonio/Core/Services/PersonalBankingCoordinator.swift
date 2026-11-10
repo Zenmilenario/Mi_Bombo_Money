@@ -15,7 +15,11 @@ final class PersonalBankingCoordinator: ObservableObject {
     @Published private(set) var banks: [ConnectedBank] = []
     @Published private(set) var pendingPlan: PersonalBankingPlan?
     @Published private(set) var catalogueErrorMessage: String?
-    @Published private var accountActivity: [String: BankingAccountActivity] = [:]
+    @Published private var accountActivity: [String: BankingAccountActivity] = [:] {
+        didSet { if let owner { BankingActivityStore.save(accountActivity, owner: owner) } }
+    }
+    /// Holds saved by a previous launch, shown before this session's first bank query.
+    private var restoredActivity: (owner: UUID, value: [String: BankingAccountActivity])?
     private var pendingFeeds: [BankingAccountFeed] = []
     private var pendingLedger: [UUID: BankingLedgerEntry]?
     private var observedAt: Date?
@@ -30,11 +34,30 @@ final class PersonalBankingCoordinator: ObservableObject {
     @Published private(set) var bankStatus: [String: BankingBankSyncStatus] = [:]
     private var schedules: [String: BankingBankSchedule] = [:]
     private var pendingDeferred: [String: Int] = [:]
+    private var pendingHints: [String: Set<String>] = [:]
     private var owner: UUID?
 
     func activity(for user: UUID?) -> [String: BankingAccountActivity] {
-        guard let user, user == owner else { return [:] }
-        return accountActivity
+        guard let user else { return [:] }
+        if user == owner { return accountActivity }
+        if restoredActivity?.owner != user { restoredActivity = (user, BankingActivityStore.load(owner: user)) }
+        return restoredActivity?.value ?? [:]
+    }
+    /// Banks whose download waits for the person's review in Mis bancos.
+    var pendingReviewBanks: [String] {
+        pendingPlan == nil ? [] : Array(Set(pendingFeeds.map(\.connection.bank))).sorted()
+    }
+    /// The last activity received for one remote account of the current owner (diagnostic in Mis bancos).
+    func activity(forAccount accountID: String) -> BankingAccountActivity? {
+        guard let owner, let server = URL(string: savedServer(owner: owner)) else { return nil }
+        return accountActivity[PersonalBankingImporter.identity(server: server, accountID: accountID)]
+    }
+    /// Adopts the holds saved on this device when the coordinator starts serving this owner.
+    private func adoptOwner(_ user: UUID) {
+        guard owner != user else { return }
+        owner = user
+        accountActivity = BankingActivityStore.load(owner: user)
+        restoredActivity = nil
     }
 
     func nextAutomaticRefresh(for bank: String) -> Date? {
@@ -78,11 +101,11 @@ final class PersonalBankingCoordinator: ObservableObject {
         guard account.session?.user.id == expectedOwner else { throw CancellationError() }
         if self.owner != expectedOwner {
             bankStatus = [:]
-            accountActivity = [:]
             waitingDownload = nil
             clearReview()
+            if let expectedOwner { adoptOwner(expectedOwner) } else { owner = nil; accountActivity = [:] }
         }
-        self.connections = connections; self.owner = expectedOwner
+        self.connections = connections
         if let expectedOwner, let server = URL(string: savedServer(owner: expectedOwner)) {
             keepActivity(for: connections, server: server)
         }
@@ -161,12 +184,12 @@ final class PersonalBankingCoordinator: ObservableObject {
         let active = Set(connections.flatMap(\.accounts).map { PersonalBankingImporter.identity(server: server, accountID: $0.id) })
         accountActivity = accountActivity.filter { active.contains($0.key) }
     }
-    private func imported(_ feeds: [BankingAccountFeed], deferred: [String: Int]) {
+    private func imported(_ feeds: [BankingAccountFeed], deferred: [String: Int], keptEdits: [String: String] = [:]) {
         for bank in Set(feeds.map(\.connection.bank)) {
             schedules[bank, default: BankingBankSchedule()].lastImportedAt = .now
             schedules[bank, default: BankingBankSchedule()].awaitingReview = false
-            bankStatus[bank] = BankingBankSyncStatus(summary: "Descarga incorporada a tus finanzas.",
-                deferredTransfers: deferred[bank, default: 0])
+            let summary = ["Descarga incorporada a tus finanzas.", keptEdits[bank]].compactMap { $0 }.joined(separator: " ")
+            bankStatus[bank] = BankingBankSyncStatus(summary: summary, deferredTransfers: deferred[bank, default: 0])
         }
         if let owner { saveSchedules(user: owner) }
     }
@@ -176,11 +199,10 @@ final class PersonalBankingCoordinator: ObservableObject {
                      onlyBank: String? = nil, mayApply: @MainActor () -> Bool = { true }) async -> Bool {
         guard !busy, !Task.isCancelled, let user = account.session?.user.id else { return false }
         if owner != user {
-            accountActivity = [:]
             bankStatus = [:]
             waitingDownload = nil
             clearReview()
-            owner = user
+            adoptOwner(user)
         }
         let now = Date.now
         if let observedAt, now.timeIntervalSince(observedAt) >= Self.reviewLifetime {
@@ -296,11 +318,31 @@ final class PersonalBankingCoordinator: ObservableObject {
     }
 
     private func incorporate(_ download: Download, user: UUID, context: ModelContext) -> Bool {
+        var excluded: [String: Error] = [:]
         do {
-            let selection = try PersonalBankingDownloadSelection.prepare(download.feeds, knownAccounts: download.knownAccounts)
+            // A problem in one bank's own feed must not hold back the others. Selecting again
+            // defers own transfers whose peer bank was excluded; they are never imported as expenses.
+            var remaining = download.feeds
+            // Trade Republic sends no counterparty or reference: legs that name it are joined by amount and date.
+            let referenceLessAccounts = Set(connections.filter { $0.bank == "Trade Republic" }.flatMap(\.accounts).map(\.id))
+            var prepared: (selection: PersonalBankingDownloadSelection, plan: PersonalBankingPlan)?
+            while prepared == nil {
+                let candidate = try PersonalBankingDownloadSelection.prepare(remaining, knownAccounts: download.knownAccounts,
+                    referenceLessAccounts: referenceLessAccounts)
+                do {
+                    prepared = (candidate, try PersonalBankingImporter.plan(candidate.feeds, server: download.server, in: context))
+                } catch let error as PersonalBankingError {
+                    guard let bank = error.bank, remaining.contains(where: { $0.connection.bank != bank }) else { throw error }
+                    excluded[bank] = error
+                    remaining.removeAll { $0.connection.bank == bank }
+                }
+            }
+            guard let ready = prepared else { return false }
+            let selection = ready.selection
+            let plan = ready.plan
             let feeds = selection.feeds
             for (bank, count) in selection.deferredByBank { bankStatus[bank]?.deferredTransfers = count }
-            let plan = try PersonalBankingImporter.plan(feeds, server: download.server, in: context)
+            reportExcluded(excluded)
             let snapshots = try context.fetch(FetchDescriptor<BalanceSnapshot>())
             let firstImport = plan.balances.contains { balance in
                 !snapshots.contains { $0.account?.id == balance.account && $0.source == .bankAPI && $0.notes == "Saldo contable de Enable Banking" }
@@ -316,23 +358,37 @@ final class PersonalBankingCoordinator: ObservableObject {
                 let ledger = try PersonalBankingImporter.ledger(in: context)
                 saveSchedules(user: user)
                 pendingFeeds = feeds; pendingPlan = plan; observedAt = download.observedAt; pendingDeferred = selection.deferredByBank
+                pendingHints = selection.ownTransferHints
                 pendingLedger = Dictionary(uniqueKeysWithValues: ledger.map { ($0.id, $0) })
                 message = "Descarga preparada de \(names): revisa e incorpora los movimientos. El estado de los demás bancos se muestra por separado."
+                errorMessage = excludedDescription(excluded)
                 return false
             }
-            let result = try PersonalBankingImporter.apply(feeds, server: download.server, in: context, observedAt: download.observedAt)
-            imported(feeds, deferred: selection.deferredByBank)
+            let result = try PersonalBankingImporter.apply(feeds, server: download.server, ownTransferHints: selection.ownTransferHints,
+                in: context, observedAt: download.observedAt)
+            imported(feeds, deferred: selection.deferredByBank, keptEdits: plan.keptEditsSummary())
             message = "\(names): \(result.inserted) movimientos nuevos · \(result.matched) coincidencias reconocidas."
-            errorMessage = nil
+            errorMessage = excludedDescription(excluded)
             return true
         } catch {
-            for bank in Set(download.feeds.map(\.connection.bank)) {
+            for bank in Set(download.feeds.map(\.connection.bank)) where excluded[bank] == nil {
                 bankStatus[bank]?.summary = "Descarga recibida, pero no se ha podido incorporar."
+                bankStatus[bank]?.errorMessage = error.localizedDescription
             }
+            reportExcluded(excluded)
             message = "No se ha incorporado esta descarga. Tus datos guardados se conservan."
-            errorMessage = error.localizedDescription
+            errorMessage = [excludedDescription(excluded), error.localizedDescription].compactMap { $0 }.joined(separator: "\n")
         }
         return false
+    }
+    private func reportExcluded(_ excluded: [String: Error]) {
+        for (bank, error) in excluded {
+            bankStatus[bank] = BankingBankSyncStatus(summary: "Descarga recibida, pero no se ha podido incorporar.",
+                errorMessage: error.localizedDescription, deferredTransfers: bankStatus[bank]?.deferredTransfers ?? 0)
+        }
+    }
+    private func excludedDescription(_ excluded: [String: Error]) -> String? {
+        excluded.isEmpty ? nil : excluded.keys.sorted().compactMap { excluded[$0]?.localizedDescription }.joined(separator: "\n")
     }
     func confirm(choices: [String: PersonalBankingPlan.Choice], manualBalances: [UUID: PersonalBankingImporter.ManualBalance] = [:],
                  reviewedBalances: [PersonalBankingImporter.BalanceReview] = [], account: CloudAccountManager, context: ModelContext) throws {
@@ -342,8 +398,9 @@ final class PersonalBankingCoordinator: ObservableObject {
         let current = Dictionary(uniqueKeysWithValues: try PersonalBankingImporter.ledger(in: context).map { ($0.id, $0) })
         guard current == pendingLedger else { throw PersonalBankingError.changed }
         let result = try PersonalBankingImporter.apply(pendingFeeds, server: server, choices: choices,
-            manualBalances: manualBalances, reviewedBalances: reviewedBalances, in: context, observedAt: observedAt)
-        imported(pendingFeeds, deferred: pendingDeferred)
+            manualBalances: manualBalances, reviewedBalances: reviewedBalances, ownTransferHints: pendingHints,
+            in: context, observedAt: observedAt)
+        imported(pendingFeeds, deferred: pendingDeferred, keptEdits: pendingPlan?.keptEditsSummary() ?? [:])
         clearReview()
         message = "\(result.inserted) movimientos nuevos · \(result.matched) coincidencias conservadas."
         errorMessage = nil
@@ -359,7 +416,7 @@ final class PersonalBankingCoordinator: ObservableObject {
         message = "No se ha incorporado la descarga descartada. Tus datos guardados se conservan."
     }
     private func clearReview() {
-        pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; observedAt = nil; pendingDeferred = [:]
+        pendingPlan = nil; pendingFeeds = []; pendingLedger = nil; observedAt = nil; pendingDeferred = [:]; pendingHints = [:]
     }
     func disconnected() {
         accountActivity = [:]

@@ -71,6 +71,25 @@ struct AccountsView: View {
         accounts.filter(\.isArchived).count + cards.filter(\.isArchived).count
     }
 
+    @AppStorage("companionFocus") private var companionFocus = ""
+
+    /// Don Bigotes pointed here: accounts without a recent balance, or the upcoming periodic charge.
+    private func followCompanion() {
+        switch CompanionFocus.parse(companionFocus) {
+        case .stale:
+            companionFocus = ""
+            selectedCollection = .accounts
+            searchText = ""
+            showOnlyStale = true
+        case .recurring:
+            // Opens the periodic charges tool, where the upcoming one is listed first.
+            companionFocus = ""
+            managementTool = .recurring
+        default:
+            break
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -135,6 +154,8 @@ struct AccountsView: View {
                     }
                     .listStyle(.insetGrouped)
                     .contentMargins(.horizontal, 16, for: .scrollContent)
+                    .onAppear(perform: followCompanion)
+                    .onChange(of: companionFocus) { _, _ in followCompanion() }
                 }
             }
             .frame(maxWidth: .infinity)
@@ -215,14 +236,7 @@ struct AccountsView: View {
             }
             .alert(
                 "No se pudo completar la operación",
-                isPresented: Binding(
-                    get: { errorMessage != nil },
-                    set: { isPresented in
-                        if !isPresented {
-                            errorMessage = nil
-                        }
-                    }
-                )
+                isPresented: Binding(isPresent: $errorMessage)
             ) {
                 Button("Aceptar", role: .cancel) {
                     errorMessage = nil
@@ -273,63 +287,65 @@ struct AccountsView: View {
     }
 
     private var accountManagementCard: some View {
-        SectionCard("Cada cuenta, bajo control", subtitle: "Consulta saldos, reservas y tarjetas; actualiza tus valoraciones.") {
-            VStack(alignment: .leading, spacing: 14) {
-                if staleAccountCount > 0 {
-                    Button {
-                        selectedCollection = .accounts
-                        showOnlyStale = true
-                        searchText = ""
-                    } label: {
-                        HStack {
-                            Label("Revisar saldos sin actualizar (\(staleAccountCount))", systemImage: "clock.badge.exclamationmark")
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                        }
-                        .font(.subheadline)
-                        .foregroundStyle(.orange)
-                    }
-                    .buttonStyle(.plain)
-                }
-                AdaptiveCardGrid(minimumColumnWidth: 240, maximumColumns: 2, spacing: 12) {
-                    Button {
-                        managementTool = .balances
-                    } label: {
-                        managementShortcut("Actualizar saldo o valoración", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.borderless)
-                    .disabled(activeAccounts.isEmpty)
-                    Button {
-                        managementTool = .reserves
-                    } label: {
-                        managementShortcut("Gestionar dinero reservado", systemImage: "lock.circle")
-                    }
-                    .buttonStyle(.borderless)
-                    Button {
-                        managementTool = .recurring
-                    } label: {
-                        managementShortcut("Aportaciones y cargos periódicos", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .buttonStyle(.borderless)
-                    Button {
-                        managementTool = .investments
-                    } label: {
-                        managementShortcut("Efectivo e inversiones", systemImage: "chart.line.uptrend.xyaxis")
-                    }
-                    .buttonStyle(.borderless)
-                }
-                .foregroundStyle(.tint)
+        let live = activeAccounts.filter(\.includeInNetWorth)
+        let netWorth = FinanceCalculator.netWorth(accounts: activeAccounts, transactions: transactions, snapshots: snapshots, at: .now)
+        let available = FinanceCalculator.spendableCash(accounts: activeAccounts, funds: reservedFunds, transactions: transactions, snapshots: snapshots)
+        let reserved = live.filter { !$0.type.isLiability && $0.type != .investment }
+            .reduce(Int64.zero) { $0 + FinanceCalculator.reservedAmount(for: $1, funds: reservedFunds, transactions: transactions) }
+        let invested = live.filter { $0.type == .investment }
+            .reduce(Int64.zero) { $0 + FinanceCalculator.balance(of: $1, transactions: transactions, snapshots: snapshots) }
+        return VStack(alignment: .leading, spacing: 14) {
+            AdaptiveCardGrid(minimumColumnWidth: 150, maximumColumns: 4, spacing: 10) {
+                SemanticMetricTile(title: "Patrimonio", minorUnits: netWorth, systemImage: "sum",
+                                   tint: .primary, surface: AppDesign.cardBackground)
+                SemanticMetricTile(title: "Disponible", minorUnits: available, systemImage: "wallet.bifold",
+                                   tint: AppDesign.accent, surface: AppDesign.accent.opacity(0.11))
+                SemanticMetricTile(title: "Reservado", minorUnits: reserved, systemImage: "lock",
+                                   tint: AppDesign.savings, surface: AppDesign.savingsSurface)
+                SemanticMetricTile(title: "Invertido", minorUnits: invested, systemImage: "chart.line.uptrend.xyaxis",
+                                   tint: AppDesign.investment, surface: AppDesign.investment.opacity(0.11))
             }
-            .font(.subheadline)
+            if staleAccountCount > 0 {
+                Button {
+                    selectedCollection = .accounts
+                    showOnlyStale = true
+                    searchText = ""
+                } label: {
+                    HStack {
+                        Label("Revisar saldos sin actualizar (\(staleAccountCount))", systemImage: "clock.badge.exclamationmark")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(AppDesign.warning)
+                    .padding(12)
+                    .background(AppDesign.warningSurface, in: RoundedRectangle(cornerRadius: AppDesign.compactRadius, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    managementChip("Actualizar saldo", systemImage: "arrow.clockwise") { managementTool = .balances }
+                        .disabled(activeAccounts.isEmpty)
+                    managementChip("Dinero reservado", systemImage: "lock.circle") { managementTool = .reserves }
+                    managementChip("Cargos periódicos", systemImage: "arrow.triangle.2.circlepath") { managementTool = .recurring }
+                    managementChip("Efectivo e inversiones", systemImage: "chart.line.uptrend.xyaxis") { managementTool = .investments }
+                }
+            }
         }
     }
 
-    private func managementShortcut(_ title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .padding(12)
-            .background(AppDesign.tertiaryBackground, in: RoundedRectangle(cornerRadius: AppDesign.compactRadius))
+    private func managementChip(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppDesign.accent)
+                .padding(.horizontal, 14)
+                .frame(height: 38)
+                .background(AppDesign.cardBackground, in: Capsule())
+                .overlay { Capsule().strokeBorder(AppDesign.cardOutline, lineWidth: 1) }
+        }
+        .buttonStyle(.plain)
     }
 
     private var balanceAccountSelector: some View {
@@ -412,7 +428,7 @@ struct AccountsView: View {
                         } label: {
                             Label("Editar", systemImage: "pencil")
                         }
-                        .tint(.blue)
+                        .tint(AppDesign.savings)
                     }
                     .swipeActions(edge: .trailing) {
                         Button {
@@ -422,7 +438,7 @@ struct AccountsView: View {
                         } label: {
                             Label("Archivar", systemImage: "archivebox")
                         }
-                        .tint(.orange)
+                        .tint(AppDesign.warning)
 
                         Button(role: .destructive) {
                             delete(account)
@@ -435,79 +451,93 @@ struct AccountsView: View {
         }
     }
 
+    /// One card per account: who, how much, how it splits (free, reserved, held) and its state.
     private func accountRow(_ account: FinancialAccount) -> some View {
-        AdaptiveValueRow {
-            accountIdentity(account)
-        } value: {
-            accountAmounts(account)
-        }
-        .padding(.vertical, 5)
-    }
-
-    private func accountIdentity(_ account: FinancialAccount) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: account.bankSystemImage)
-                .foregroundStyle(AppDesign.institutionTint(account.institution?.colorHex ?? "#1F6B7A"))
-                .frame(width: 42, height: 42)
-                .background(Color.secondary.opacity(0.09), in: Circle())
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(account.bankDisplayName)
-                    .font(.subheadline.weight(.semibold))
-
-                Text(account.bankDisplayName == account.name ? account.type.title : account.name)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
+        let balance = FinanceCalculator.balance(of: account, transactions: transactions, snapshots: snapshots)
+        let reserved = (account.type.isLiability || account.type == .investment) ? 0
+            : FinanceCalculator.reservedAmount(for: account, funds: reservedFunds, transactions: transactions)
+        let activity = account.bankIdentityKey.flatMap { bankActivity[$0] }
+        let held = account.isArchived ? 0 : abs(BankHold.heldMinor(activity, account: account, transactions: transactions))
+        let free = max(0, balance - reserved - held)
+        let tint = AppDesign.institutionTint(account.institution?.colorHex ?? "#1F6B7A")
+        let linkedCardCount = activeCards.filter { $0.linkedAccount?.id == account.id }.count
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                Image(systemName: account.bankSystemImage)
+                    .font(.headline)
+                    .foregroundStyle(tint)
+                    .frame(width: 42, height: 42)
+                    .background(Color(hex: account.institution?.colorHex ?? "#1F6B7A").opacity(0.13),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(account.bankDisplayName).font(.subheadline.weight(.semibold))
+                    Text(account.bankDisplayName == account.name ? account.type.title : account.name)
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 8)
                 if isStale(account) {
-                    Label("Sin actualizar", systemImage: "clock")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(AppDesign.warning)
+                    StatusPill(text: "Sin actualizar", systemImage: "clock", tint: AppDesign.warning)
+                } else if account.bankIdentityKey != nil {
+                    StatusPill(text: "Al día", tint: AppDesign.accent)
                 }
-
-                if !account.isArchived, let key = account.bankIdentityKey,
-                   let count = bankActivity[key]?.pendingMovements?.count, count > 0 {
-                    Label(count == 1 ? "1 pendiente del banco" : "\(count) pendientes del banco", systemImage: "hourglass")
-                        .font(.caption)
-                        .foregroundStyle(AppDesign.warning)
-                }
-
-                let linkedCardCount = activeCards.filter { $0.linkedAccount?.id == account.id }.count
-                if linkedCardCount > 0 {
-                    Label(linkedCardCount == 1 ? "1 tarjeta" : "\(linkedCardCount) tarjetas", systemImage: "creditcard")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if !account.includeInNetWorth {
-                    Text("Fuera del patrimonio").font(.caption).foregroundStyle(.secondary)
-                }
+            }
+            HStack(alignment: .firstTextBaseline) {
+                PrivacyAmountText(minorUnits: balance, currencyCode: account.currencyCode,
+                                  font: .system(.title2, design: .rounded), weight: .bold)
+                    .lineLimit(1).minimumScaleFactor(0.7)
+                Spacer(minLength: 8)
                 Text("Actualizada \(relativeUpdateText(account.lastUpdatedAt))")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            if reserved > 0 || held > 0 {
+                GeometryReader { proxy in
+                    let total = CGFloat(max(1, free + reserved + held))
+                    HStack(spacing: 2) {
+                        Capsule().fill(AppDesign.accent).frame(width: proxy.size.width * CGFloat(free) / total)
+                        if reserved > 0 { Capsule().fill(AppDesign.savings).frame(width: max(3, proxy.size.width * CGFloat(reserved) / total)) }
+                        if held > 0 { Capsule().fill(AppDesign.warning).frame(width: max(3, proxy.size.width * CGFloat(held) / total)) }
+                    }
+                }
+                .frame(height: 7)
+                .accessibilityHidden(true)
+                HStack(spacing: 12) {
+                    HStack(spacing: 4) {
+                        Text("Libre").foregroundStyle(.secondary)
+                        PrivacyAmountText(minorUnits: free, currencyCode: account.currencyCode, font: .caption, weight: .semibold)
+                    }
+                    if reserved > 0 {
+                        HStack(spacing: 4) {
+                            Text("Reservado").foregroundStyle(.secondary)
+                            PrivacyAmountText(minorUnits: reserved, currencyCode: account.currencyCode, font: .caption, weight: .semibold)
+                        }
+                    }
+                }
+                .font(.caption)
+            }
+            if let count = activity?.pendingMovements?.count, count > 0, !account.isArchived {
+                HStack(spacing: 6) {
+                    Circle().fill(AppDesign.warning).frame(width: 7, height: 7)
+                    Text(count == 1 ? "1 retenido" : "\(count) retenidos")
+                    Text("·")
+                    PrivacyAmountText(minorUnits: activity?.pendingTotal ?? 0, font: .caption, weight: .semibold, signed: true)
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppDesign.warning)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(AppDesign.warningSurface, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .accessibilityElement(children: .combine)
+            }
+            if linkedCardCount > 0 || !account.includeInNetWorth {
+                HStack(spacing: 10) {
+                    if linkedCardCount > 0 {
+                        Label(linkedCardCount == 1 ? "1 tarjeta" : "\(linkedCardCount) tarjetas", systemImage: "creditcard")
+                    }
+                    if !account.includeInNetWorth { Text("Fuera del patrimonio") }
+                }
+                .font(.caption).foregroundStyle(.secondary)
             }
         }
-    }
-
-    private func accountAmounts(_ account: FinancialAccount) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            PrivacyAmountText(
-                minorUnits: FinanceCalculator.balance(of: account, transactions: transactions, snapshots: snapshots),
-                currencyCode: account.currencyCode,
-                font: .headline,
-                weight: .semibold
-            )
-            let reserved = FinanceCalculator.reservedAmount(for: account, funds: reservedFunds, transactions: transactions)
-            if reserved > 0 && !account.type.isLiability && account.type != .investment {
-                Text("Disponible").font(.caption2).foregroundStyle(.secondary)
-                PrivacyAmountText(
-                    minorUnits: FinanceCalculator.balance(of: account, transactions: transactions, snapshots: snapshots) - reserved,
-                    currencyCode: account.currencyCode,
-                    font: .caption,
-                    weight: .medium
-                )
-            }
-        }
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder
@@ -526,7 +556,7 @@ struct AccountsView: View {
                         } label: {
                             Label("Editar", systemImage: "pencil")
                         }
-                        .tint(.blue)
+                        .tint(AppDesign.savings)
                     }
                     .swipeActions(edge: .trailing) {
                         Button {
@@ -536,7 +566,7 @@ struct AccountsView: View {
                         } label: {
                             Label("Archivar", systemImage: "archivebox")
                         }
-                        .tint(.orange)
+                        .tint(AppDesign.warning)
 
                         Button(role: .destructive) {
                             delete(card)
@@ -845,7 +875,7 @@ struct PaymentCardFormView: View {
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(AppDesign.expense)
                     }
                 }
             }
@@ -1100,7 +1130,12 @@ private struct AccountDetailView: View {
                     }
                 }
                 if !pending.isEmpty {
-                    Text("Importes provisionales. Los cargos se reflejan en el historial y el presupuesto cuando el banco los contabiliza.")
+                    LabeledContent("Saldo tras retenciones") {
+                        PrivacyAmountText(minorUnits: balance + BankHold.heldMinor(activity, account: account, transactions: transactions),
+                                          currencyCode: activity.currency,
+                                          weight: .semibold)
+                    }
+                    Text("Importes provisionales. Los cargos se reflejan en el historial y el presupuesto cuando el banco los contabiliza; también los ves en Movimientos.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             } else {
@@ -1177,7 +1212,7 @@ private struct AccountDetailView: View {
                     if reservedAmount > balance {
                         Text("La reserva supera el saldo actual de esta cuenta.")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(AppDesign.warning)
                     }
                     Button {
                         showingAddReservation = true
@@ -1351,7 +1386,7 @@ struct AccountFormView: View {
                 }
 
                 if let errorMessage {
-                    Section { Text(errorMessage).foregroundStyle(.red) }
+                    Section { Text(errorMessage).foregroundStyle(AppDesign.expense) }
                 }
             }
             .navigationTitle(account == nil ? "Nueva cuenta" : "Editar cuenta")
@@ -1601,7 +1636,7 @@ private struct BalanceSnapshotFormView: View {
                 TextField("Notas", text: $notes, axis: .vertical)
                     .lineLimit(2...4)
                 if let errorMessage {
-                    Text(errorMessage).foregroundStyle(.red)
+                    Text(errorMessage).foregroundStyle(AppDesign.expense)
                 }
             }
             .navigationTitle("Registrar valoración")

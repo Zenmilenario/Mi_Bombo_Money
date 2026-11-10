@@ -1,5 +1,5 @@
-import { Fault, authenticate, origin, mode, readJSON, limitedBytes, UUID, isState, json, securityHeaders, psuHeaders } from './security.mjs';
-import { rateLimit, newAuthorization, claimAuthorization, assertPendingAuthorization, saveConnection, connection, listConnections } from './store.mjs';
+import { Fault, authenticate, origin, mode, readJSON, limitedBytes, UUID, isState, json, securityHeaders, psuHeaders, allowedUsers } from './security.mjs';
+import { rateLimit, newAuthorization, claimAuthorization, assertPendingAuthorization, saveConnection, connection, listConnections, ownerTag } from './store.mjs';
 import { acceptsBankName, banks, startAuthorization, exchange, demoConnection, accountData, revoke } from './provider.mjs';
 
 function appRedirect(id, result) {
@@ -21,17 +21,17 @@ function personalInformation(path) {
   const privacy = path === '/privacy';
   const title = privacy ? 'Privacidad de Mi Bombo Money Personal' : 'Uso de Mi Bombo Money Personal';
   const body = privacy
-    ? `<p>Aplicación privada para que su propietario consulte sus propias cuentas y organice sus finanzas.</p>
+    ? `<p>Aplicación privada para que su propietario, y las personas que este invite expresamente, consulten sus propias cuentas y organicen sus finanzas.</p>
       <h2>Datos y servicios</h2><p>El banco y Enable Banking gestionan la autorización. El servidor de Cloudflare recibe identificadores de cuentas, saldos y movimientos. La app guarda la contabilidad en el dispositivo y la sincroniza con la cuenta personal de Supabase.</p>
       <p>Las contraseñas bancarias y los códigos de autorización se introducen en el flujo del banco, nunca en un formulario de esta app. Las claves del proveedor y las sesiones bancarias permanecen en el servidor; las sesiones se cifran y se vinculan al propietario.</p>
-      <h2>Acceso y conservación</h2><p>El acceso bancario del servidor se limita a una identidad de Supabase configurada por el propietario. Solo se consultan datos; el servidor no tiene funciones para iniciar pagos.</p>
+      <h2>Acceso y conservación</h2><p>El acceso bancario del servidor se limita a las identidades de Supabase del propietario y de las personas que invite. Cada persona solo accede a sus propias conexiones, cifradas por separado; ni el propietario puede abrir las de otra persona. Solo se consultan datos; el servidor no tiene funciones para iniciar pagos ni guarda movimientos.</p>
       <p>Desconectar un banco revoca su sesión disponible en el servidor. Los movimientos ya incorporados permanecen en la contabilidad. La eliminación contable utiliza marcas de borrado en la nube y no equivale a una eliminación física inmediata de copias o registros. El propietario administra también los datos y copias en su proyecto Supabase.</p>
       <h2>Contacto</h2><p>El contacto del propietario para cuestiones de protección de datos figura en el registro de esta aplicación en Enable Banking. Este prototipo no ofrece registro público a terceros.</p>`
-    : `<p>Prototipo privado de uso personal. Su finalidad es consultar las cuentas propias que el propietario autorice y organizar saldos, movimientos, categorías, reservas y presupuestos.</p>
+    : `<p>Prototipo privado, sin registro público. Su finalidad es que el propietario y las personas que invite consulten las cuentas propias que cada uno autorice y organicen saldos, movimientos, categorías, reservas y presupuestos.</p>
       <h2>Conexión bancaria</h2><p>El acceso requiere una aplicación de Enable Banking de producción restringida a cuentas propias y una autorización vigente del banco. La app utiliza únicamente información de cuentas: no permite ordenar pagos ni transferencias bancarias.</p>
       <h2>Comprobación de los datos</h2><p>La disponibilidad, el historial y los campos recibidos dependen del banco. La primera importación requiere revisión; las posibles coincidencias con movimientos existentes se resuelven antes de incorporarlas. La conexión de una cuenta de efectivo no incluye una cartera de valores.</p>
-      <h2>Control del propietario</h2><p>El propietario puede desconectar el banco desde la app y gestionar su consentimiento con el banco o el proveedor. Desconectar no borra los movimientos ya guardados. El prototipo no ofrece acceso comercial ni conexión de cuentas de otras personas.</p>`;
-  return new Response(`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><main><h1>${title}</h1>${body}<p>Versión informativa: 30 de octubre de 2026.</p></main></html>`,
+      <h2>Control del propietario</h2><p>El propietario puede desconectar el banco desde la app y gestionar su consentimiento con el banco o el proveedor. Desconectar no borra los movimientos ya guardados. Cada persona invitada controla igualmente sus propias conexiones. El prototipo no ofrece acceso comercial.</p>`;
+  return new Response(`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><main><h1>${title}</h1>${body}<p>Versión informativa: 10 de noviembre de 2026.</p></main></html>`,
     { headers: securityHeaders({ 'Content-Type': 'text/html; charset=utf-8' }) });
 }
 async function callback(request, url, env) {
@@ -39,13 +39,14 @@ async function callback(request, url, env) {
   if (url.searchParams.getAll('state').length !== 1 || url.searchParams.getAll('code').length > 1
       || url.searchParams.getAll('error').length > 1) throw new Fault(400, 'invalid_authorization');
   const pending = await claimAuthorization(url.searchParams.get('state'), env);
-  if (mode(env) === 'production' && pending.owner !== env.SUPABASE_OWNER_ID) throw new Fault(403, 'owner_required');
+  // The person who started the authorization must still be invited when the bank returns.
+  if (mode(env) === 'production' && !allowedUsers(env).has(String(pending.owner ?? '').toLowerCase())) throw new Fault(403, 'owner_required');
   if (url.searchParams.has('error')) return appRedirect(pending.id, 'cancelled');
   const code = url.searchParams.get('code');
   if (typeof code !== 'string' || code.length < 1 || code.length > 4096) return appRedirect(pending.id, 'failed');
   try {
     const value = await exchange(code, pending.bank, env);
-    try { await saveConnection(pending.id, value, env); }
+    try { await saveConnection(pending.id, value, env, mode(env) === 'production' ? pending.owner : undefined); }
     catch (error) { await revoke(value, env); throw error; }
     return appRedirect(pending.id, 'ok');
   } catch { return appRedirect(pending.id, 'failed'); }
@@ -100,26 +101,28 @@ export async function handle(request, env) {
   if (url.pathname === '/v1/callback' && request.method === 'GET' && mode(env) !== 'demo') return callback(request, url, env);
   // A native client does not need browser CORS. Even a correct token is refused in a browser-origin request.
   if (request.headers.has('origin')) throw new Fault(403, 'forbidden');
-  await authenticate(request, env);
-  await rateLimit(env, 'owner');
+  // In production, the Supabase user: every route below only sees that person's connections.
+  const verified = await authenticate(request, env);
+  const user = mode(env) === 'production' ? verified : env.SUPABASE_OWNER_ID;
+  await rateLimit(env, mode(env) === 'production' ? `user:${(await ownerTag(user)).slice(0, 32)}` : 'owner');
   if (request.method === 'GET' && url.pathname === '/v1/status') return json({ mode: mode(env),
     liveBankingEnabled: mode(env) === 'production', accountingImportEnabled: mode(env) === 'production' });
   if (request.method === 'GET' && url.pathname === '/v1/banks') return json({ banks: await banks(env) });
   if (request.method === 'POST' && url.pathname === '/v1/authorizations') {
-    await rateLimit(env, 'authorizations', 5);
+    await rateLimit(env, mode(env) === 'production' ? `authorizations:${(await ownerTag(user)).slice(0, 32)}` : 'authorizations', 5);
     const { bank } = await readJSON(request, ['bank']);
     if (!acceptsBankName(bank, env)) throw new Fault(400, 'unsupported_bank');
-    if ((await listConnections(env)).length >= 6) throw new Fault(409, 'connection_limit');
-    const pending = await newAuthorization(bank, env);
+    if ((await listConnections(env, false, user)).length >= 6) throw new Fault(409, 'connection_limit');
+    const pending = await newAuthorization(bank, env, user);
     try { return json({ id: pending.id, authorizationURL: await startAuthorization(bank, pending.state, env) }, 201); }
     catch (error) { await env.DB.prepare('DELETE FROM auth_requests WHERE id=?').bind(pending.id).run(); throw error; }
   }
-  if (request.method === 'GET' && url.pathname === '/v1/connections') return json({ connections: (await listConnections(env)).map(projectConnection) });
+  if (request.method === 'GET' && url.pathname === '/v1/connections') return json({ connections: (await listConnections(env, false, user)).map(projectConnection) });
   const match = /^\/v1\/connections\/([a-f0-9-]+)(?:\/accounts\/([a-zA-Z0-9_-]+))?$/.exec(url.pathname);
   if (match && UUID.test(match[1])) {
-    const conn = await connection(match[1], env);
+    const conn = await connection(match[1], env, user);
     if (!match[2] && request.method === 'DELETE') {
-      const targets = mode(env) === 'production' ? (await listConnections(env, true)).filter(c => c.bank === conn.bank) : [conn];
+      const targets = mode(env) === 'production' ? (await listConnections(env, true, user)).filter(c => c.bank === conn.bank) : [conn];
       for (const target of targets) {
         await revoke(target, env);
         await env.DB.prepare('DELETE FROM connections WHERE id=?').bind(target.id).run();

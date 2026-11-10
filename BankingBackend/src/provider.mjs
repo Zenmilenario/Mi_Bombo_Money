@@ -225,6 +225,16 @@ async function pendingTransaction(t, account) {
     signedAmountMinor: debit ? -Math.abs(amount) : amount, currency: account.currency,
     description: transactionDescription(t), status: t.status };
 }
+export function countIgnoredStatuses(rows) {
+  const counts = {};
+  for (const row of rows) {
+    const raw = typeof row?.status === 'string' ? row.status : '';
+    if (['BOOK', 'PDNG', 'HOLD'].includes(raw)) continue;
+    const status = raw === '' ? 'NONE' : (/^[A-Z]{2,8}$/.test(raw) ? raw : 'OTHER');
+    counts[status] = (counts[status] ?? 0) + 1;
+  }
+  return counts;
+}
 export async function accountData(conn, account, from, to, continuation, env, transport = fetch, psu = {}, includePending = false) {
   if (mode(env) === 'demo') {
     // Fixtures belong to the connection's creation day, not to the query's end
@@ -250,6 +260,12 @@ export async function accountData(conn, account, from, to, continuation, env, tr
     const pendingTransactions = includePending
       ? (await Promise.all(transactionResponse.transactions.map(t => pendingTransaction(t, account)))).filter(Boolean)
       : undefined;
+    // Entries with another status (cancelled, rejected, informative, none…) are not imported. Count them so the
+    // app can say "the bank sent N entries with status X": only the status and a count, never the entry itself.
+    const ignoredStatuses = includePending ? countIgnoredStatuses(transactionResponse.transactions) : undefined;
+    if (ignoredStatuses && Object.keys(ignoredStatuses).length) {
+      console.log(JSON.stringify({ event: 'banking_ignored_statuses', statuses: ignoredStatuses }));
+    }
     const balanceResponse = continuation ? { balances: [] } : await api(`${path}/balances`, env, { headers: psu }, transport);
     if (!Array.isArray(balanceResponse?.balances)) throw invalidFeed('balances', 'list');
     const balances = balanceResponse.balances.filter(b => b?.balance_amount?.currency === account.currency).map(b => {
@@ -257,7 +273,7 @@ export async function accountData(conn, account, from, to, continuation, env, tr
       if (typeof b.balance_type !== 'string') throw invalidFeed('balances', 'type');
       return { amountMinor: amount, currency: b.balance_amount.currency, type: b.balance_type };
     });
-    return { balances, transactions, pendingTransactions, continuation: transactionResponse.continuation_key || null };
+    return { balances, transactions, pendingTransactions, ignoredStatuses, continuation: transactionResponse.continuation_key || null };
   } catch (error) {
     if (error instanceof Fault && error.feedValidation) {
       console.warn(JSON.stringify({ event: 'banking_feed_validation', ...error.feedValidation }));
