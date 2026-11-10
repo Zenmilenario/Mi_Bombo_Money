@@ -2,14 +2,19 @@
 
 Primera versión para Android, en Flutter. Entra con la misma cuenta de Doblón que en el iPhone y muestra las mismas finanzas desde la nube (Supabase, función `finance_snapshot`).
 
-## Qué hace (0.1.0)
+## Qué hace
 
 - **Entrar o crear cuenta** con correo y contraseña, con la curiosidad del día; sin datos antes de entrar.
 - **Inicio:** patrimonio, disponible (descontando reservas), invertido, ingresos, gastos y ahorro del mes, presupuestos y últimos movimientos.
 - **Movimientos:** todos, agrupados por día, con buscador. Conceptos del banco legibles y la etiqueta «Pendiente del banco» de los pagos con Apple Pay.
 - **Cuentas:** saldo de cada cuenta y dinero reservado.
 - **Presupuestos:** por mes, con el arrastre del mes anterior y lo pagado con reservas excluido.
-- **Solo lectura:** apuntar, categorizar y conectar bancos se hace de momento desde el iPhone.
+- **Mis bancos (0.2.0, en Ajustes):**
+  - conectar un banco en su propia web y volver a Doblón;
+  - ver las conexiones y desconectarlas;
+  - «Actualizar movimientos», que descarga 90 días y guarda en la nube lo nuevo.
+  Usa las mismas claves que el iPhone, así que nada se duplica entre dispositivos. Guarda con el control de versiones de la nube: si otro dispositivo guardó a la vez, vuelve a leer y reintenta.
+- **Aún no:** apuntar a mano, categorizar, emparejar transferencias entre cuentas propias y revisar coincidencias con apuntes manuales. De momento se hacen en el iPhone.
 
 ## Reglas compartidas con el iPhone
 

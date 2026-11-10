@@ -5,6 +5,7 @@ import '../data.dart';
 import '../finance.dart';
 import '../theme.dart';
 import 'accounts.dart';
+import 'banks.dart';
 import 'budgets.dart';
 import 'home.dart';
 import 'transactions.dart';
@@ -133,9 +134,19 @@ class _SettingsPage extends StatelessWidget {
       const SizedBox(height: 12),
       Card(
         child: ListTile(
+          leading: Icon(Icons.account_balance_outlined, color: pulso.accent),
+          title: const Text('Mis bancos'),
+          subtitle: const Text('Conectar, actualizar y desconectar bancos'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => BanksScreen(repository: repository))),
+        ),
+      ),
+      const SizedBox(height: 12),
+      Card(
+        child: ListTile(
           leading: Icon(Icons.info_outline, color: pulso.accent),
-          title: const Text('Primera versión para Android'),
-          subtitle: const Text('Consulta tus finanzas. Para apuntar movimientos, conectar bancos o categorizar, de momento usa la app del iPhone.'),
+          title: const Text('Versión para Android'),
+          subtitle: const Text('Consulta tus finanzas y trae los movimientos de tus bancos. Para apuntar a mano o categorizar, de momento usa la app del iPhone.'),
         ),
       ),
       const SizedBox(height: 12),
