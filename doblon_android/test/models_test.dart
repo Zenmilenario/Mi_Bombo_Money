@@ -10,7 +10,7 @@ void main() {
       'accounts': [
         {'id': 'a1', 'name': 'Cuenta ficticia', 'typeRaw': 'checking', 'openingBalanceMinor': 12345, 'openingDate': 815184000,
          'includeInNetWorth': true, 'isArchived': false, 'sortOrder': 2},
-        {'id': 'a0', 'name': 'Efectivo', 'typeRaw': 'cash', 'openingBalanceMinor': 0, 'openingDate': 815184000, 'sortOrder': 1},
+        {'id': 'a0', 'name': 'Efectivo', 'typeRaw': 'cash', 'currencyCode': 'USD', 'openingBalanceMinor': 0, 'openingDate': 815184000, 'sortOrder': 1},
       ],
       'transactions': [
         {'id': 't1', 'date': 815184000, 'typeRaw': 'expense', 'amountMinor': 450, 'descriptionText': 'Gasolinera ficticia',
@@ -22,6 +22,7 @@ void main() {
       'unknownEntity': [{'id': 'x'}],
     });
     expect(finances.accounts.map((a) => a.id), ['a0', 'a1'], reason: 'Sorted as on the iPhone');
+    expect(finances.accounts.map((a) => a.currencyCode), ['USD', 'EUR'], reason: 'Missing currency means euros');
     expect(finances.accounts[1].openingDate.toUtc(), DateTime.utc(2026, 11, 1));
     expect(finances.transactions.first.id, 't2', reason: 'Newest first');
     expect(finances.transactions.last.awaitsBank, isTrue);
@@ -37,6 +38,8 @@ void main() {
     expect(readableCase('ABC'), 'ABC', reason: 'Too short to be a shouting concept');
     expect(money(123456), anyOf(contains('1.234,56'), contains('1234,56')));
     expect(money(-450), contains('4,50'));
+    expect(money(450), contains('€'));
+    expect(money(450, currency: 'USD'), allOf(contains('4,50'), isNot(contains('€'))), reason: 'A USD account is never shown in euros');
   });
 
   test('the daily quote changes with the day and never fails', () {

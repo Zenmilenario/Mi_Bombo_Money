@@ -221,6 +221,23 @@ struct PersonalBankingPlanCheck {
         precondition(CardPaymentInbox.load() == [paid], "The same payment is stored once")
         CardPaymentInbox.remove([paid.id])
         precondition(CardPaymentInbox.load().isEmpty)
+        // 32 automations finishing at the same moment: every payment is kept (one file each).
+        let burst = (0..<32).map { CardPayment(id: UUID(), date: day.addingTimeInterval(Double($0)), amountMinor: Int64(100 + $0),
+                                               merchant: "Comercio ficticio \($0)", card: "Tarjeta ficticia") }
+        DispatchQueue.concurrentPerform(iterations: burst.count) { index in
+            do { try CardPaymentInbox.add(burst[index]) } catch { preconditionFailure("A concurrent payment could not be stored") }
+        }
+        precondition(CardPaymentInbox.load().map(\.id) == burst.map(\.id), "No payment is lost when several arrive at once")
+        CardPaymentInbox.remove(Set(burst.prefix(16).map(\.id)))
+        precondition(CardPaymentInbox.load().map(\.id) == burst.suffix(16).map(\.id), "Filing some keeps the others")
+        CardPaymentInbox.remove(Set(burst.map(\.id)))
+        // A payment left by version 0.7.7 in its single file is moved to the folder, not lost.
+        let legacy = CardPayment(id: UUID(), date: day, amountMinor: 999, merchant: "Pago anterior", card: "")
+        try CardPaymentInbox.writeLegacyForTesting([legacy])
+        precondition(CardPaymentInbox.load() == [legacy])
+        precondition(!FileManager.default.fileExists(atPath: folder.appendingPathComponent("inbox.json").path), "The old file is retired")
+        CardPaymentInbox.remove([legacy.id])
+        precondition(CardPaymentInbox.load().isEmpty)
 
         // A bank hold for a payment already recorded is not counted twice.
         func hold(_ amount: Int64, _ date: String?) -> BankingPreview.PendingMovement {

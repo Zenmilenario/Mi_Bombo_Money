@@ -1,5 +1,15 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Doblón 0.7.13 (54) · bandeja de Apple Pay sin pérdidas
+
+Corrección del 10 de noviembre de 2026, a partir de una revisión externa.
+- **El fallo:** en una prueba de estrés con 32 pagos ficticios simultáneos, solo quedaron 4 registros. La bandeja guardaba todos los pagos en un único archivo y cada pago nuevo lo leía, añadía y reescribía. Dos automatizaciones a la vez se pisaban. No se sabe con qué frecuencia ocurriría en un iPhone real.
+- **Arreglo:**
+  - Un archivo por pago (`CardPayments/inbox/<id>.json`). Añadir un pago no reescribe los demás.
+  - Cada archivo se escribe de forma atómica.
+  - El archivo único de la 0.7.7 se migra al leerlo, y solo se borra cuando cada pago tiene ya su archivo.
+- **Prueba:** `PersonalBankingPlanCheck` lanza 32 pagos ficticios a la vez y comprueba que están todos, que apuntar unos conserva el resto y la migración.
+
 ## Doblón 0.7.12 (53) y servidor · personas invitadas
 
 Decidido el 10 de noviembre de 2026. El usuario dará de alta a personas de confianza, al principio dos y quizá más, en la producción restringida de Enable Banking, vinculando sus cuentas en su panel. Usarán la app con normalidad y darán feedback; el caso servirá para su TFM.

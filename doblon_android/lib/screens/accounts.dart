@@ -72,11 +72,12 @@ class _AccountCard extends StatelessWidget {
                 Text([institution, account.type.title].whereType<String>().join(' · '), style: Theme.of(context).textTheme.bodySmall),
               ]),
             ),
-            Text(money(balance), style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: balance < 0 ? pulso.expense : null)),
+            Text(money(balance, currency: account.currencyCode),
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: balance < 0 ? pulso.expense : null)),
           ]),
           if (reserved > 0) ...[
             const SizedBox(height: 10),
-            Text('Reservado ${money(reserved)} · libre ${money(balance - reserved > 0 ? balance - reserved : 0)}',
+            Text('Reservado ${money(reserved, currency: account.currencyCode)} · libre ${money(balance - reserved > 0 ? balance - reserved : 0, currency: account.currencyCode)}',
                 style: TextStyle(fontSize: 12, color: pulso.warning)),
           ],
           if (!account.includeInNetWorth) ...[

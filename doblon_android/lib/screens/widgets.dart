@@ -84,6 +84,8 @@ class TransactionTile extends StatelessWidget {
       TransactionType.transfer => 0,
     };
     final color = signed > 0 ? pulso.income : (signed < 0 ? pulso.expense : pulso.savings);
+    // A movement is in the currency of the account it comes from.
+    final currency = source?.currencyCode ?? 'EUR';
     final accountText = t.type == TransactionType.transfer
         ? '${source?.name ?? 'Cuenta'} → ${destination?.name ?? 'Cuenta'}'
         : (source?.name ?? 'Cuenta');
@@ -101,7 +103,7 @@ class TransactionTile extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(accountText, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
-        Text(t.type == TransactionType.transfer ? money(t.amountMinor) : money(signed, signed: true),
+        Text(t.type == TransactionType.transfer ? money(t.amountMinor, currency: currency) : money(signed, signed: true, currency: currency),
             style: TextStyle(fontWeight: FontWeight.w700, color: color)),
         Text(
           t.awaitsBank ? 'Pendiente del banco' : (t.type == TransactionType.transfer ? 'Transferencia' : (category?.name ?? 'Sin categoría')),

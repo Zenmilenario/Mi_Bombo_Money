@@ -43,11 +43,86 @@ struct FinancialLogicCheck {
                      "CSV export must correctly format date, type, amount with European comma, and escape delimiters")
 
         checkBalanceIndex()
+        checkSharedCases()
         print("Financial checks passed: reservations, transfers, dated history, budget remainders, reviewed alerts, bank identity, automatic subscriptions/income/fees, categories, CSV input and CSV export.")
     }
 
     private static func date(_ month: Int, _ day: Int = 1) -> Date {
         calendar.date(from: DateComponents(year: 2024, month: month, day: day, hour: 12))!
+    }
+
+    /// Cases shared with the Android app (Tests/Fixtures/shared_finance_cases.json): both platforms must
+    /// reach the same hand-calculated results, so a rule changed on one side fails on the other.
+    private static func checkSharedCases() {
+        guard let data = FileManager.default.contents(atPath: "Tests/Fixtures/shared_finance_cases.json"),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            preconditionFailure("Shared cases file missing: run from the repository root")
+        }
+        func list(_ value: Any?) -> [[String: Any]] { value as? [[String: Any]] ?? [] }
+        func int(_ value: Any?) -> Int64 { (value as? NSNumber)?.int64Value ?? 0 }
+        func day(_ text: Any?) -> Date {
+            let parts = (text as? String ?? "").split(separator: "-").compactMap { Int($0) }
+            return calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts.count > 2 ? parts[2] : 1, hour: 12))!
+        }
+        var accounts: [String: FinancialAccount] = [:]
+        for row in list(root["accounts"]) {
+            accounts[row["id"] as! String] = FinancialAccount(name: row["id"] as! String, type: AccountType(rawValue: row["type"] as! String)!,
+                currencyCode: row["currency"] as? String ?? "EUR", openingBalanceMinor: int(row["openingBalanceMinor"]),
+                openingDate: day(row["openingDay"]), includeInNetWorth: row["includeInNetWorth"] as? Bool ?? true)
+        }
+        var categories: [String: FinanceCategory] = [:]
+        for row in list(root["categories"]) {
+            categories[row["id"] as! String] = FinanceCategory(name: row["id"] as! String, kind: CategoryKind(rawValue: row["kind"] as! String)!)
+        }
+        var funds: [String: ReservedFund] = [:]
+        for row in list(root["funds"]) {
+            funds[row["id"] as! String] = ReservedFund(name: row["id"] as! String, amountMinor: int(row["amountMinor"]), account: accounts[row["account"] as! String])
+        }
+        let transactions = list(root["transactions"]).map { row in
+            FinancialTransaction(date: day(row["day"]), type: TransactionType(rawValue: row["type"] as! String)!, amountMinor: int(row["amountMinor"]),
+                descriptionText: row["id"] as! String, reservedFundID: (row["fund"] as? String).flatMap { funds[$0]?.id },
+                reservedAmountMinor: row["reservedAmountMinor"] == nil ? nil : int(row["reservedAmountMinor"]),
+                sourceAccount: accounts[row["source"] as! String], destinationAccount: (row["destination"] as? String).flatMap { accounts[$0] },
+                category: (row["category"] as? String).flatMap { categories[$0] })
+        }
+        let snapshots = list(root["snapshots"]).map {
+            BalanceSnapshot(date: day($0["day"]), balanceMinor: int($0["balanceMinor"]), account: accounts[$0["account"] as! String])
+        }
+        let plans = list(root["recurringBudgets"]).map {
+            RecurringBudget(startMonth: day($0["startMonth"]), baseLimitMinor: int($0["baseLimitMinor"]),
+                remainderChoice: BudgetRemainderChoice(rawValue: $0["remainderChoice"] as! String)!, category: categories[$0["category"] as! String])
+        }
+        let budgets = list(root["monthlyBudgets"]).map {
+            MonthlyBudget(monthStart: day($0["month"]), limitMinor: int($0["limitMinor"]), category: categories[$0["category"] as! String])
+        }
+        let expected = root["expected"] as! [String: Any]
+        let allAccounts = Array(accounts.values), allFunds = Array(funds.values)
+        for row in list(expected["balances"]) {
+            let balance = FinanceCalculator.balance(of: accounts[row["account"] as! String]!, at: day(row["day"]), transactions: transactions, snapshots: snapshots)
+            precondition(balance == int(row["minor"]), "Shared case: balance of \(row["account"]!) on \(row["day"]!) is \(balance)")
+        }
+        for row in list(expected["netWorth"]) {
+            let value = FinanceCalculator.netWorth(accounts: allAccounts, transactions: transactions, snapshots: snapshots, at: day(row["day"]))
+            precondition(value == int(row["minor"]), "Shared case: net worth on \(row["day"]!) is \(value)")
+        }
+        for row in list(expected["reserved"]) {
+            let value = FinanceCalculator.reservedAmount(for: accounts[row["account"] as! String]!, funds: allFunds, transactions: transactions)
+            precondition(value == int(row["minor"]), "Shared case: reserved in \(row["account"]!) is \(value)")
+        }
+        let spendable = FinanceCalculator.spendableCash(accounts: allAccounts, funds: allFunds, transactions: transactions, snapshots: snapshots)
+        precondition(spendable == int(expected["spendableCash"]), "Shared case: spendable cash is \(spendable)")
+        for row in list(expected["monthly"]) {
+            let summary = FinanceCalculator.monthlySummary(for: day(row["month"]), transactions: transactions, calendar: calendar)
+            precondition(summary.incomeMinor == int(row["income"]) && summary.expenseMinor == int(row["expense"])
+                && summary.reservedExpenseMinor == int(row["reserved"]), "Shared case: summary of \(row["month"]!)")
+        }
+        for row in list(expected["budgets"]) {
+            let category = categories[row["category"] as! String]!
+            let item = FinanceCalculator.budgetProgress(for: day(row["month"]), categories: Array(categories.values), budgets: budgets,
+                recurringBudgets: plans, transactions: transactions, calendar: calendar).first { $0.category.id == category.id }
+            precondition(item?.limitMinor == int(row["limit"]) && item?.carriedInMinor == int(row["carried"]) && item?.spentMinor == int(row["spent"]),
+                "Shared case: budget of \(row["month"]!) is \(String(describing: item?.limitMinor))/\(String(describing: item?.carriedInMinor))/\(String(describing: item?.spentMinor))")
+        }
     }
 
     /// The balance index used by the screens gives exactly the scanned balance, and its cache is rebuilt

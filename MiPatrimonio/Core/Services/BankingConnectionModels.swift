@@ -228,43 +228,69 @@ enum CardPaymentInbox {
         return formatter
     }()
 
-    private static var url: URL? {
-        let base = directoryOverride
+    /// One file per payment. Adding a payment never rewrites the others, so two automations finishing at
+    /// the same moment (or the action and the app) cannot overwrite each other's payment.
+    private static var directory: URL? {
+        directoryOverride
             ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
                 .appendingPathComponent("CardPayments", isDirectory: true)
-        return base?.appendingPathComponent("inbox.json")
+    }
+    private static var inbox: URL? { directory?.appendingPathComponent("inbox", isDirectory: true) }
+    /// Version 0.7.7 kept every payment in this single file; it is moved to the folder on first read.
+    private static var legacyFile: URL? { directory?.appendingPathComponent("inbox.json") }
+
+    private static func file(for id: UUID) -> URL? {
+        inbox?.appendingPathComponent(id.uuidString.lowercased() + ".json")
     }
 
     static func load() -> [CardPayment] {
-        guard let url, let data = try? Data(contentsOf: url) else { return [] }
-        return (try? JSONDecoder().decode([CardPayment].self, from: data)) ?? []
-    }
-
-    static func save(_ payments: [CardPayment]) throws {
-        guard let url else { throw CocoaError(.fileNoSuchFile) }
-        guard !payments.isEmpty else { try? FileManager.default.removeItem(at: url); return }
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        // Readable after the first unlock: the automation may run right after paying, before the app opens.
-        #if os(iOS)
-        try JSONEncoder().encode(payments).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
-        #else
-        try JSONEncoder().encode(payments).write(to: url, options: .atomic)
-        #endif
-        var destination = url, values = URLResourceValues()
-        values.isExcludedFromBackup = true
-        try? destination.setResourceValues(values)
+        migrateLegacyFile()
+        guard let inbox, let names = try? FileManager.default.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil)
+        else { return [] }
+        return names.filter { $0.pathExtension == "json" }
+            .compactMap { try? JSONDecoder().decode(CardPayment.self, from: Data(contentsOf: $0)) }
+            .sorted { $0.date == $1.date ? $0.id.uuidString < $1.id.uuidString : $0.date < $1.date }
     }
 
     static func add(_ payment: CardPayment) throws {
-        var payments = load()
-        guard !payments.contains(where: { $0.id == payment.id }) else { return }
-        payments.append(payment)
-        try save(payments)
+        guard let inbox, let url = file(for: payment.id) else { throw CocoaError(.fileNoSuchFile) }
+        guard !FileManager.default.fileExists(atPath: url.path) else { return }
+        try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        // Readable after the first unlock: the automation may run right after paying, before the app opens.
+        // `.atomic` writes a temporary file and renames it, so a reader never sees half a payment.
+        #if os(iOS)
+        try JSONEncoder().encode(payment).write(to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        #else
+        try JSONEncoder().encode(payment).write(to: url, options: .atomic)
+        #endif
+        if let directory {
+            var folder = directory, values = URLResourceValues()
+            values.isExcludedFromBackup = true
+            try? folder.setResourceValues(values)
+        }
     }
 
     static func remove(_ ids: Set<UUID>) {
-        guard !ids.isEmpty else { return }
-        try? save(load().filter { !ids.contains($0.id) })
+        for id in ids {
+            if let url = file(for: id) { try? FileManager.default.removeItem(at: url) }
+        }
+    }
+
+    private static func migrateLegacyFile() {
+        guard let legacy = legacyFile, let data = try? Data(contentsOf: legacy),
+              let payments = try? JSONDecoder().decode([CardPayment].self, from: data) else { return }
+        // Only delete the old file when every payment it held has its own file.
+        for payment in payments { try? add(payment) }
+        if payments.allSatisfy({ file(for: $0.id).map { FileManager.default.fileExists(atPath: $0.path) } ?? false }) {
+            try? FileManager.default.removeItem(at: legacy)
+        }
+    }
+
+    /// Writes a payment in the format of version 0.7.7, only to check the migration.
+    static func writeLegacyForTesting(_ payments: [CardPayment]) throws {
+        guard let legacy = legacyFile else { return }
+        try FileManager.default.createDirectory(at: legacy.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(payments).write(to: legacy, options: .atomic)
     }
 }
 

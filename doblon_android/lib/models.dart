@@ -56,6 +56,7 @@ class Account {
     required this.id,
     required this.name,
     required this.type,
+    this.currencyCode = 'EUR',
     this.openingBalanceMinor = 0,
     required this.openingDate,
     this.includeInNetWorth = true,
@@ -67,6 +68,8 @@ class Account {
   final String id;
   final String name;
   final AccountType type;
+  /// ISO code of the account's currency. Amounts of this account are shown in it.
+  final String currencyCode;
   final int openingBalanceMinor;
   final DateTime openingDate;
   final bool includeInNetWorth;
@@ -79,6 +82,7 @@ class Account {
         id: _string(json['id']),
         name: _string(json['name']),
         type: _enumValue(AccountType.values, json['typeRaw'], AccountType.other),
+        currencyCode: RegExp(r'^[A-Z]{3}$').hasMatch(_string(json['currencyCode'])) ? _string(json['currencyCode']) : 'EUR',
         openingBalanceMinor: _int(json['openingBalanceMinor']),
         openingDate: _date(json['openingDate']),
         includeInNetWorth: json['includeInNetWorth'] != false,

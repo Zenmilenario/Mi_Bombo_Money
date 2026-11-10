@@ -1,0 +1,57 @@
+{
+  "_description": "Casos ficticios compartidos por la app del iPhone (Tests/FinancialLogicCheck.swift) y la de Android (doblon_android/test/shared_cases_test.dart). Los resultados esperados están calculados a mano: si una plataforma cambia una regla, esta prueba falla en la otra. Días como fecha local a las 12:00.",
+  "accounts": [
+    { "id": "corriente", "type": "checking", "currency": "EUR", "openingBalanceMinor": 100000, "openingDay": "2024-01-01" },
+    { "id": "ahorro", "type": "savings", "currency": "EUR", "openingBalanceMinor": 0, "openingDay": "2024-01-01" },
+    { "id": "inversion", "type": "investment", "currency": "EUR", "openingBalanceMinor": 0, "openingDay": "2024-02-01" },
+    { "id": "fuera", "type": "checking", "currency": "USD", "openingBalanceMinor": 5000, "openingDay": "2024-01-01", "includeInNetWorth": false }
+  ],
+  "categories": [ { "id": "formacion", "kind": "expense" } ],
+  "funds": [ { "id": "fondo", "account": "corriente", "amountMinor": 60000 } ],
+  "transactions": [
+    { "id": "t1", "day": "2024-01-05", "type": "expense", "amountMinor": 20000, "source": "corriente", "category": "formacion", "fund": "fondo", "reservedAmountMinor": 20000 },
+    { "id": "t2", "day": "2024-01-06", "type": "expense", "amountMinor": 30000, "source": "corriente", "category": "formacion", "fund": "fondo", "reservedAmountMinor": 20000 },
+    { "id": "t3", "day": "2024-01-07", "type": "expense", "amountMinor": 5000, "source": "corriente", "category": "formacion" },
+    { "id": "t4", "day": "2024-01-10", "type": "income", "amountMinor": 200000, "source": "corriente" },
+    { "id": "t5", "day": "2024-01-15", "type": "transfer", "amountMinor": 50000, "source": "corriente", "destination": "ahorro" },
+    { "id": "t6", "day": "2024-02-03", "type": "transfer", "amountMinor": 30000, "source": "ahorro", "destination": "inversion" },
+    { "id": "t7", "day": "2024-02-10", "type": "transfer", "amountMinor": 15000, "source": "corriente", "destination": "ahorro", "fund": "fondo", "reservedAmountMinor": 10000 },
+    { "id": "t8", "day": "2024-02-12", "type": "expense", "amountMinor": 4000, "source": "corriente", "category": "formacion" }
+  ],
+  "snapshots": [ { "id": "s1", "day": "2024-03-01", "balanceMinor": 31000, "account": "inversion" } ],
+  "recurringBudgets": [ { "id": "r1", "startMonth": "2024-01", "baseLimitMinor": 50000, "remainderChoice": "carryForward", "category": "formacion" } ],
+  "monthlyBudgets": [ { "id": "b4", "month": "2024-04", "limitMinor": 20000, "category": "formacion" } ],
+  "expected": {
+    "balances": [
+      { "account": "corriente", "day": "2024-01-31", "minor": 195000 },
+      { "account": "ahorro", "day": "2024-01-31", "minor": 50000 },
+      { "account": "inversion", "day": "2024-01-31", "minor": 0 },
+      { "account": "corriente", "day": "2024-02-15", "minor": 176000 },
+      { "account": "ahorro", "day": "2024-02-15", "minor": 35000 },
+      { "account": "inversion", "day": "2024-02-29", "minor": 30000 },
+      { "account": "inversion", "day": "2024-03-01", "minor": 31000 },
+      { "account": "fuera", "day": "2024-06-30", "minor": 5000 }
+    ],
+    "netWorth": [
+      { "day": "2024-01-31", "minor": 245000 },
+      { "day": "2024-02-15", "minor": 241000 },
+      { "day": "2024-06-30", "minor": 242000 }
+    ],
+    "reserved": [
+      { "account": "corriente", "minor": 10000 },
+      { "account": "ahorro", "minor": 10000 }
+    ],
+    "spendableCash": 191000,
+    "monthly": [
+      { "month": "2024-01", "income": 200000, "expense": 55000, "reserved": 40000 },
+      { "month": "2024-02", "income": 0, "expense": 4000, "reserved": 0 }
+    ],
+    "budgets": [
+      { "month": "2024-01", "category": "formacion", "limit": 50000, "carried": 0, "spent": 15000 },
+      { "month": "2024-02", "category": "formacion", "limit": 85000, "carried": 35000, "spent": 4000 },
+      { "month": "2024-03", "category": "formacion", "limit": 131000, "carried": 81000, "spent": 0 },
+      { "month": "2024-04", "category": "formacion", "limit": 20000, "carried": 0, "spent": 0 },
+      { "month": "2024-05", "category": "formacion", "limit": 70000, "carried": 20000, "spent": 0 }
+    ]
+  }
+}
