@@ -34,6 +34,18 @@ struct PersonalBankingPlanCheck {
         precondition(activity.availableBalance == 8500 && activity.bookedBalance == 9000)
         precondition(activity.pendingMovements?.map(\.signedAmountMinor) == [-500], "A booked reference supersedes its pending entry")
         precondition(activity.pendingTotal == -500 && activity.heldTotal == -500)
+        // Diagnostic in Mis bancos: what the bank actually sent, newest first.
+        precondition(activity.receivedCount == 1 && activity.recentMovements?.map(\.signedAmountMinor) == [-1000])
+        let several = BankingAccountActivity(feed: BankingAccountFeed(connection: existingFeed.connection, account: existingFeed.account,
+            balances: [], movements: (1...12).map { day in
+                BankingPreview.Movement(id: "m\(day)", bookingDate: String(format: "2026-10-%02d", day), signedAmountMinor: -Int64(day),
+                    currency: "EUR", description: "Compra ficticia", counterpartyKey: nil, transferKey: nil)
+            }), observedAt: day)
+        precondition(several.receivedCount == 12 && several.recentMovements?.count == 8
+            && several.recentMovements?.first?.bookingDate == "2026-10-12", "Only the newest postings are kept")
+        let legacyActivity = try JSONDecoder().decode(BankingAccountActivity.self, from: Data(
+            #"{"observedAt":0,"currency":"EUR","bookedBalance":null,"availableBalance":null,"pendingMovements":null}"#.utf8))
+        precondition(legacyActivity.recentMovements == nil, "Activity saved by 0.7.3 still loads")
         let roundTrip = try JSONDecoder().decode(BankingAccountActivity.self, from: JSONEncoder().encode(activity))
         precondition(roundTrip.pendingMovements?.first?.description == "Retención ficticia" && roundTrip.observedAt == activity.observedAt,
                      "Holds survive being saved on the device")

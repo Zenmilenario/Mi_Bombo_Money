@@ -43,6 +43,15 @@ final class PersonalBankingCoordinator: ObservableObject {
         if restoredActivity?.owner != user { restoredActivity = (user, BankingActivityStore.load(owner: user)) }
         return restoredActivity?.value ?? [:]
     }
+    /// Banks whose download waits for the person's review in Mis bancos.
+    var pendingReviewBanks: [String] {
+        pendingPlan == nil ? [] : Array(Set(pendingFeeds.map(\.connection.bank))).sorted()
+    }
+    /// The last activity received for one remote account of the current owner (diagnostic in Mis bancos).
+    func activity(forAccount accountID: String) -> BankingAccountActivity? {
+        guard let owner, let server = URL(string: savedServer(owner: owner)) else { return nil }
+        return accountActivity[PersonalBankingImporter.identity(server: server, accountID: accountID)]
+    }
     /// Adopts the holds saved on this device when the coordinator starts serving this owner.
     private func adoptOwner(_ user: UUID) {
         guard owner != user else { return }

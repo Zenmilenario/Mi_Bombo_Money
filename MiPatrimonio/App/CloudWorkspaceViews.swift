@@ -8,6 +8,8 @@ private struct CloudWorkspaceKey: EnvironmentKey { static let defaultValue = fal
 private struct BankAccountActivityKey: EnvironmentKey {
     static let defaultValue: [String: BankingAccountActivity] = [:]
 }
+/// Banks whose download is waiting for the person's review, if any.
+private struct BankReviewPendingKey: EnvironmentKey { static let defaultValue: [String] = [] }
 extension EnvironmentValues {
     var isCloudWorkspace: Bool {
         get { self[CloudWorkspaceKey.self] }
@@ -16,6 +18,10 @@ extension EnvironmentValues {
     var bankAccountActivity: [String: BankingAccountActivity] {
         get { self[BankAccountActivityKey.self] }
         set { self[BankAccountActivityKey.self] = newValue }
+    }
+    var bankReviewPending: [String] {
+        get { self[BankReviewPendingKey.self] }
+        set { self[BankReviewPendingKey.self] = newValue }
     }
 }
 
@@ -176,6 +182,7 @@ private struct CloudFinanceWorkspaceView: View {
                     .modelContainer(container)
                     .environment(\.isCloudWorkspace, true)
                     .environment(\.bankAccountActivity, banking.activity(for: account.session?.user.id))
+                    .environment(\.bankReviewPending, banking.pendingReviewBanks)
                     .environmentObject(sync)
                     .environmentObject(banking)
             } else if sync.needsMigrationChoice {

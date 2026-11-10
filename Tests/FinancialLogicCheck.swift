@@ -508,6 +508,7 @@ struct FinancialLogicCheck {
         precondition(memory.dismissed == ["review:3"] && memory.isMuted("review"), "Forgetting old notes keeps what was muted")
         // «Ver» leaves a one-off focus request for the destination screen.
         let request = CompanionFocus.request(.holds, at: morning)
+        precondition(CompanionFocus.parse(CompanionFocus.request(.bankReview)) == .bankReview)
         precondition(CompanionFocus.parse(request) == .holds && CompanionFocus.parse("") == nil && CompanionFocus.parse("otro|1") == nil)
         precondition(CompanionFocus.request(.holds, at: morning) != CompanionFocus.request(.holds, at: evening),
             "Tapping the same note again is still a new request")

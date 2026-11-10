@@ -174,7 +174,7 @@ struct CompanionMemory: Codable, Equatable {
 /// Where Don Bigotes points when the person taps «Ver». Written by the companion and consumed once by the
 /// destination screen, which then filters, scrolls to and highlights the element.
 enum CompanionFocus: String {
-    case holds, review, stale, recurring
+    case holds, review, stale, recurring, bankReview
 
     /// Stored as "kind|timestamp" so tapping the same note twice still triggers a change.
     static func request(_ focus: CompanionFocus, at date: Date = .now) -> String {

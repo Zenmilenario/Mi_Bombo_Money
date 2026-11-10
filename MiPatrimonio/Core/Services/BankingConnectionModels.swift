@@ -27,6 +27,18 @@ struct BankingAccountActivity: Codable {
     let bookedBalance: Int64?
     let availableBalance: Int64?
     let pendingMovements: [BankingPreview.PendingMovement]?
+    /// The latest booked postings the bank sent in this query, newest first. A diagnostic for
+    /// "did the bank send it?"; kept on the device only. Absent in activity saved by older versions.
+    var recentMovements: [RecentMovement]? = nil
+    /// How many booked postings the bank sent in this query.
+    var receivedCount: Int? = nil
+
+    struct RecentMovement: Codable, Equatable {
+        let bookingDate: String
+        let signedAmountMinor: Int64
+        let currency: String
+        let description: String
+    }
 
     /// Sum of the provisional amounts (holds are negative). They are not in the ledger yet.
     var pendingTotal: Int64 { (pendingMovements ?? []).reduce(0) { $0 + $1.signedAmountMinor } }
@@ -43,6 +55,12 @@ struct BankingAccountActivity: Codable {
             let amounts = Set(rows.map(\.amountMinor))
             return amounts.count == 1 ? amounts.first : nil
         }
+        recentMovements = feed.movements
+            .sorted { $0.bookingDate == $1.bookingDate ? ($0.id ?? "") > ($1.id ?? "") : $0.bookingDate > $1.bookingDate }
+            .prefix(8)
+            .map { RecentMovement(bookingDate: $0.bookingDate, signedAmountMinor: $0.signedAmountMinor,
+                                  currency: $0.currency, description: $0.description) }
+        receivedCount = feed.movements.count
         bookedBalance = balance(preferred: "ITBD", fallback: "CLBD")
         availableBalance = balance(preferred: "ITAV", fallback: "CLAV")
         if let pending = feed.pendingMovements {

@@ -323,6 +323,7 @@ private struct CompanionNote: Identifiable {
 /// «Púlsame» when it does. It never interrupts: nothing happens until the person taps it.
 private struct CompanionView: View {
     @Environment(\.bankAccountActivity) private var bankActivity
+    @Environment(\.bankReviewPending) private var bankReviewPending
     @Query private var transactions: [FinancialTransaction]
     @Query private var accounts: [FinancialAccount]
     @Query(sort: \RecurringMovement.nextDueDate) private var recurring: [RecurringMovement]
@@ -339,6 +340,12 @@ private struct CompanionView: View {
 
     private var allNotes: [CompanionNote] {
         var notes: [CompanionNote] = []
+        if !bankReviewPending.isEmpty {
+            notes.append(CompanionNote(id: "bankReview:" + bankReviewPending.joined(separator: ","), kind: "bankReview",
+                title: "Descarga del banco por revisar",
+                detail: bankReviewPending.joined(separator: ", ") + " · confírmala para incorporarla",
+                systemImage: "tray.and.arrow.down", tab: .transactions, focus: .bankReview, urgent: true))
+        }
         let holds = BankHold.all(accounts: accounts, activity: bankActivity).filter { $0.movement.signedAmountMinor < 0 }
         if !holds.isEmpty {
             let total = holds.reduce(Int64.zero) { $0 + $1.movement.signedAmountMinor }

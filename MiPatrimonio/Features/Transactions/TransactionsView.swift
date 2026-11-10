@@ -90,6 +90,7 @@ struct TransactionsView: View {
     @AppStorage("companionFocus") private var companionFocus = ""
     @State private var highlightedHolds = false
     @State private var highlightedID: UUID?
+    @State private var showingBankReview = false
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
@@ -255,6 +256,8 @@ struct TransactionsView: View {
             .scrollContentBackground(.hidden)
             .background(AppDesign.pageBackground)
             .navigationTitle("Movimientos")
+            // Don Bigotes' «Ver» on a download waiting for review opens it here, as the review button in the toolbar does.
+            .navigationDestination(isPresented: $showingBankReview) { PersonalBankConnectionsView() }
             .searchable(
                 text: $searchText,
                 prompt: "Buscar descripción, cuenta o categoría"
@@ -479,8 +482,12 @@ struct TransactionsView: View {
 
     /// Don Bigotes pointed here: show what he meant, scroll to it and highlight it for a moment.
     private func followCompanion(_ proxy: ScrollViewProxy) {
-        guard let focus = CompanionFocus.parse(companionFocus), focus == .holds || focus == .review else { return }
+        guard let focus = CompanionFocus.parse(companionFocus), [.holds, .review, .bankReview].contains(focus) else { return }
         companionFocus = ""
+        if focus == .bankReview {
+            showingBankReview = true
+            return
+        }
         resetFilters()
         searchText = ""
         if focus == .review { showOnlyReview = true }

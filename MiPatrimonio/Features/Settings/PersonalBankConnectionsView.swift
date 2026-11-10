@@ -102,6 +102,34 @@ struct PersonalBankConnectionsView: View {
                         }.disabled(linked != nil || remote.currency != "EUR")
                     }
                     Text("Permiso válido hasta \(connection.validUntil.prefix(10)).").font(.caption).foregroundStyle(.secondary)
+                    ForEach(connection.accounts) { remote in
+                        if let activity = banking.activity(forAccount: remote.id), let recent = activity.recentMovements {
+                            DisclosureGroup {
+                                if recent.isEmpty {
+                                    Text("El banco no envió apuntes contabilizados en el periodo consultado.")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                                ForEach(Array(recent.enumerated()), id: \.offset) { _, movement in
+                                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                        Text(PersonalBankingError.displayDate(movement.bookingDate))
+                                            .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                            .frame(width: 78, alignment: .leading)
+                                        Text(TransactionPresentation.listTitle(movement.description, isBanking: true))
+                                            .font(.caption).lineLimit(1)
+                                        Spacer(minLength: 6)
+                                        PrivacyAmountText(minorUnits: movement.signedAmountMinor, currencyCode: movement.currency,
+                                                          font: .caption, weight: .semibold, signed: true)
+                                    }
+                                }
+                                Text("Es lo que envió el banco en la consulta del \(activity.observedAt.formatted(date: .abbreviated, time: .shortened)), contabilizado y sin retenidos. Si un pago de tu banco no aparece aquí, el banco aún no lo ha comunicado.")
+                                    .font(.caption2).foregroundStyle(.secondary)
+                            } label: {
+                                Label("Últimos apuntes recibidos de •••• \(remote.lastFour) (\(activity.receivedCount ?? recent.count))",
+                                      systemImage: "tray.and.arrow.down")
+                                    .font(.subheadline)
+                            }
+                        }
+                    }
                     Button { run {
                         _ = await banking.synchronize(account: account, context: context, force: true, onlyBank: connection.bank)
                         choices = [:]

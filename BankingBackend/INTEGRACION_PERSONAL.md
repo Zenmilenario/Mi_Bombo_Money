@@ -1,5 +1,18 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Doblón 0.7.4 (45) · diagnóstico bancario y aviso de revisión
+
+Preparado el 10 de noviembre de 2026. El usuario echaba en falta un pago con tarjeta de Trade Republic del día anterior.
+- **Qué se comprobó.** El servidor registró la consulta: todas las peticiones respondieron bien. La revisión mostraba un único apunte nuevo, de Bankinter, y el pago de Trade Republic no estaba entre los recibidos ni entre las propuestas. Es decir, Trade Republic aún no lo había comunicado por PSD2; la app no lo descartó.
+
+**Implementado.**
+- **Diagnóstico en Mis bancos.** Cada cuenta conectada muestra «Últimos apuntes recibidos»: cuántos apuntes envió el banco y los 8 más recientes (fecha, concepto, importe) de la última consulta. Se guarda solo en el dispositivo, junto a los retenidos.
+- **Don Bigotes avisa de la descarga por revisar.** Es un aviso urgente, así que lo despierta a cualquier hora. «Ver» abre la revisión de Mis bancos desde Movimientos.
+
+**Forma de trabajar.** Desde este día, a petición del usuario, los cambios se agrupan en lotes grandes para probarlos de una vez (`CLAUDE.md` actualizado).
+
+**Verificación.** Pruebas con datos ficticios en `PersonalBankingPlanCheck` (apuntes recibidos, límite de 8, lectura de datos guardados por la 0.7.3) y `FinancialLogicCheck`. Pendientes los checks, el IPA y la prueba.
+
 ## Retenidos en Movimientos e Inicio — iOS 0.6.23 (40)
 
 Preparado el 9 de noviembre de 2026. Con el Worker desplegado, la 0.6.22 mostró en el detalle de la cuenta los dos retenidos de Bankinter. El usuario prefiere verlos en Movimientos, porque ya le restan dinero.
