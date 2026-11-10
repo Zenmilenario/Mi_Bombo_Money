@@ -1,5 +1,35 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Doblón 0.7.12 (53) y servidor · personas invitadas
+
+Decidido el 10 de noviembre de 2026. El usuario dará de alta a personas de confianza, al principio dos y quizá más, en la producción restringida de Enable Banking, vinculando sus cuentas en su panel. Usarán la app con normalidad y darán feedback; el caso servirá para su TFM.
+
+**Implementado (sin desplegar).**
+- **Personas invitadas:** `SUPABASE_GUEST_IDS`, una lista de identificadores de usuario de Supabase separados por comas, sin número fijo. Junto con `SUPABASE_OWNER_ID` forma la lista de admitidos. Una lista mal escrita desactiva la banca real en lugar de adivinar.
+- **Conexiones separadas por persona:**
+  - Cada conexión guarda una huella de su dueño en la columna `owner` (nueva migración `0003_connection_owner.sql`). Es un resumen criptográfico, nunca el identificador.
+  - Se cifra con el ámbito de ese usuario.
+  - Listar, abrir, descargar y desconectar solo afecta a las conexiones propias. Ni el dueño puede abrir las de un invitado.
+- **Conexiones anteriores:** se quedan sin huella y siguen siendo del dueño, con el mismo ámbito de cifrado. No hay que volver a conectar nada.
+- **Autorización bancaria:** recuerda quién la inició, y al volver del banco se comprueba que esa persona sigue invitada.
+- **Límites por persona:** consultas y altas de autorización se cuentan por separado. El tope de 6 conexiones es por persona.
+- **Páginas `/privacy` y `/terms`:** describen el acceso de las personas invitadas.
+- **App:** si una cuenta no invitada intenta conectar un banco, ve «Pide al responsable de Doblón que te invite».
+
+**Pruebas.**
+- `test/multiuser.test.mjs`: SQLite real con las tres migraciones, usuarios ficticios. Cubre admisión de invitados y rechazo de desconocidos, aislamiento y cifrado por usuario, conexiones antiguas del dueño, retorno de la autorización y límites por usuario.
+- 30 pruebas del servidor en verde en local. `wrangler deploy --dry-run` correcto.
+
+**Para activarlo (requiere confirmación del usuario).**
+1. Aplicar la migración `0003` en las dos bases D1, personal y sandbox, antes de desplegar: el código nuevo escribe la columna `owner`.
+2. Desplegar los dos Workers.
+3. Por cada persona:
+   - vincular sus cuentas en el panel de Enable Banking, con ella delante;
+   - que cree su cuenta en Doblón;
+   - añadir su identificador de usuario de Supabase a `SUPABASE_GUEST_IDS` en `.personal/wrangler.jsonc` y volver a desplegar.
+
+**Riesgo conocido.** Enable Banking describe la producción restringida para las cuentas propias. Ver «Piloto del TFM con personas de confianza» en Obsidian.
+
 ## Doblón 0.7.11 (52) · edición personal y edición pública
 
 Decidido el 10 de noviembre de 2026. El mismo código genera dos ediciones, que se eligen al generar el IPA (Actions → Generar IPA → Edición). **Las dos conectan con bancos**: la conexión bancaria es el centro del proyecto.

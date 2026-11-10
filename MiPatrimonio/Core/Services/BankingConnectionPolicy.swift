@@ -140,7 +140,7 @@ enum BankingConnectionError: LocalizedError {
         case .server(let code):
             switch code {
             case "unauthorized": "La clave de acceso no es válida o ha sido revocada."
-            case "owner_required": "Esta conexión bancaria pertenece a otra cuenta cloud."
+            case "owner_required": "Tu cuenta no tiene acceso a la conexión bancaria. Pide al responsable de Doblón que te invite."
             case "identity_unavailable": "No se ha podido verificar tu sesión cloud. Inténtalo más tarde."
             case "production_configuration_required": "El servidor necesita una aplicación de Enable Banking de producción activa, con acceso AIS y el retorno correcto."
             case "stable_account_identity_required": "El banco no devuelve una identificación estable de la cuenta. No se importará para evitar duplicados al renovar el permiso."

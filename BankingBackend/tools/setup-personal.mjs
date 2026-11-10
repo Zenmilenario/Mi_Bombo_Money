@@ -23,7 +23,9 @@ export function personalConfiguration({ appID, ownerID, databaseID, pem, publish
       compatibility_flags: ['nodejs_compat'], workers_dev: true, send_metrics: false, observability: { enabled: false },
       vars: { PROVIDER_MODE: 'production', BANKING_AUTH: 'supabase-owner',
         PUBLIC_ORIGIN: 'https://mi-bombo-banking-personal.albertor7722.workers.dev',
-        SUPABASE_URL: 'https://coeicjffmpclqowsqeys.supabase.co', SUPABASE_PUBLISHABLE_KEY: publishableKey, SUPABASE_OWNER_ID: ownerID },
+        SUPABASE_URL: 'https://coeicjffmpclqowsqeys.supabase.co', SUPABASE_PUBLISHABLE_KEY: publishableKey, SUPABASE_OWNER_ID: ownerID,
+        // Invited people: Supabase user IDs separated by commas. Empty means only the owner.
+        SUPABASE_GUEST_IDS: '' },
       d1_databases: [{ binding: 'DB', database_name: 'mi-bombo-banking-personal', database_id: databaseID, migrations_dir: '../migrations' }]
     },
     secrets: { ENABLE_APP_ID: appID, ENABLE_PRIVATE_KEY: key.export({ type: 'pkcs8', format: 'pem' }),

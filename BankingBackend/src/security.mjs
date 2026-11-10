@@ -41,7 +41,7 @@ export async function authenticate(request, env, transport = fetch) {
     let user;
     try { user = JSON.parse(new TextDecoder().decode(await limitedBytes(response, 100_000))); }
     catch { throw new Fault(503, 'identity_unavailable'); }
-    if (user.id !== env.SUPABASE_OWNER_ID || user.is_anonymous === true) throw new Fault(403, 'owner_required');
+    if (!allowedUsers(env).has(user.id) || user.is_anonymous === true) throw new Fault(403, 'owner_required');
     return user.id;
   }
   const expected = env.ACCESS_TOKEN_SHA256;
@@ -60,6 +60,24 @@ export function origin(env) {
       || /replace-me|your-subdomain/.test(url.hostname)) throw new Fault(503, 'not_configured');
   return url.origin;
 }
+const IDENTITY = /^[a-f0-9-]{36}$/i;
+/// The owner plus the people they invite. `SUPABASE_GUEST_IDS` is an optional comma-separated list of
+/// Supabase user IDs, with no fixed size. Anything malformed disables live banking instead of guessing.
+function guestIDs(env) {
+  const raw = (env.SUPABASE_GUEST_IDS ?? '').trim();
+  if (!raw) return [];
+  const ids = raw.split(',').map(id => id.trim().toLowerCase());
+  if (ids.some(id => !IDENTITY.test(id))) throw new Fault(503, 'live_banking_disabled');
+  return ids;
+}
+export function allowedUsers(env) {
+  return new Set([String(env.SUPABASE_OWNER_ID ?? '').toLowerCase(), ...guestIDs(env)]);
+}
+/// Users are compared and stored in lower case; the owner keeps the exact scope used by earlier sessions.
+export function canonicalUser(user, env) {
+  const value = String(user ?? '').toLowerCase();
+  return value === String(env.SUPABASE_OWNER_ID ?? '').toLowerCase() ? env.SUPABASE_OWNER_ID : value;
+}
 export function mode(env) {
   if (env.PROVIDER_MODE === 'production') {
     // A separate deployment is mandatory: the sandbox token can never unlock real accounts.
@@ -68,6 +86,7 @@ export function mode(env) {
         || !/^sb_publishable_[A-Za-z0-9_-]+$/.test(env.SUPABASE_PUBLISHABLE_KEY ?? '')
         || !/^[a-f0-9-]{36}$/i.test(env.SUPABASE_OWNER_ID ?? '')
         || !/^[A-Za-z0-9+/]{43}=$/.test(env.ACCOUNT_IDENTITY_KEY ?? '')) throw new Fault(503, 'live_banking_disabled');
+    guestIDs(env);
   } else if (!['demo', 'sandbox'].includes(env.PROVIDER_MODE)) throw new Fault(503, 'live_banking_disabled');
   return env.PROVIDER_MODE;
 }
@@ -82,23 +101,25 @@ async function encryptionKey(env) {
   if (raw.byteLength !== 32 || raw.toString('base64') !== env.DATA_ENCRYPTION_KEY) throw new Fault(503, 'not_configured');
   return crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
-export async function seal(value, purpose, env) {
+/// `user` binds the data to one person: another user's key scope cannot open it. Without it, the
+/// owner's scope is used, as in earlier versions (server-level records such as pending authorizations).
+export async function seal(value, purpose, env, user = env.SUPABASE_OWNER_ID) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const bytes = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: encoder.encode(encryptionScope(purpose, env)) },
+  const bytes = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: encoder.encode(encryptionScope(purpose, env, user)) },
     await encryptionKey(env), encoder.encode(JSON.stringify(value)));
   return `${base64url(iv)}.${base64url(bytes)}`;
 }
-export async function unseal(value, purpose, env) {
+export async function unseal(value, purpose, env, user = env.SUPABASE_OWNER_ID) {
   const [iv, data, extra] = value.split('.');
   if (!iv || !data || extra) throw new Fault(503, 'invalid_connection');
   try {
     const clear = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: Buffer.from(iv, 'base64url'),
-      additionalData: encoder.encode(encryptionScope(purpose, env)) }, await encryptionKey(env), Buffer.from(data, 'base64url'));
+      additionalData: encoder.encode(encryptionScope(purpose, env, user)) }, await encryptionKey(env), Buffer.from(data, 'base64url'));
     return JSON.parse(new TextDecoder().decode(clear));
   } catch { throw new Fault(503, 'invalid_connection'); }
 }
-function encryptionScope(purpose, env) {
-  return mode(env) === 'production' ? `production:${env.SUPABASE_OWNER_ID}:${purpose}` : `${mode(env)}:${purpose}`;
+function encryptionScope(purpose, env, user) {
+  return mode(env) === 'production' ? `production:${user}:${purpose}` : `${mode(env)}:${purpose}`;
 }
 export async function readJSON(request, allowedKeys) {
   if ((request.headers.get('content-type') ?? '').split(';')[0] !== 'application/json') throw new Fault(415, 'json_required');
