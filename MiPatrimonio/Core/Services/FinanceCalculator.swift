@@ -368,6 +368,14 @@ enum FinanceCalculator {
         calendar: Calendar = .autoupdatingCurrent
     ) -> [BudgetProgress] {
         let monthStart = month.startOfMonth(calendar: calendar)
+        // Spending of every category by month, read once; each limit then walks its months without a new pass.
+        let nextMonth = monthStart.addingMonths(1, calendar: calendar)
+        var spentByCategory: [UUID: [Date: Int64]] = [:]
+        for transaction in transactions where transaction.type.countsAsExpense && transaction.date < nextMonth {
+            guard let categoryID = transaction.category?.id else { continue }
+            spentByCategory[categoryID, default: [:]][transaction.date.startOfMonth(calendar: calendar), default: 0]
+                += budgetExpenseAmount(for: transaction)
+        }
         let spend = Dictionary(uniqueKeysWithValues: spendingByCategory(
             for: monthStart,
             categories: categories,
@@ -381,8 +389,8 @@ enum FinanceCalculator {
             .map { category in
                 let details = budgetLimit(
                     for: category, month: monthStart, budgets: budgets,
-                    recurringBudgets: recurringBudgets, transactions: transactions,
-                    calendar: calendar
+                    recurringBudgets: recurringBudgets, spentByMonth: spentByCategory[category.id] ?? [:],
+                    calendar: calendar, asOf: .now
                 )
                 return BudgetProgress(
                     category: category,
@@ -426,17 +434,32 @@ enum FinanceCalculator {
         asOf: Date = .now
     ) -> BudgetLimitDetails {
         let target = month.startOfMonth(calendar: calendar)
+        let spentByMonth = transactions
+            .filter { $0.category?.id == category.id && $0.type.countsAsExpense && $0.date < target.addingMonths(1, calendar: calendar) }
+            .reduce(into: [Date: Int64]()) { result, transaction in
+                result[transaction.date.startOfMonth(calendar: calendar), default: 0] += budgetExpenseAmount(for: transaction)
+            }
+        return budgetLimit(for: category, month: month, budgets: budgets, recurringBudgets: recurringBudgets,
+                           spentByMonth: spentByMonth, calendar: calendar, asOf: asOf)
+    }
+
+    /// The limit with the category's spending by month already known.
+    static func budgetLimit(
+        for category: FinanceCategory,
+        month: Date,
+        budgets: [MonthlyBudget],
+        recurringBudgets: [RecurringBudget],
+        spentByMonth: [Date: Int64],
+        calendar: Calendar,
+        asOf: Date
+    ) -> BudgetLimitDetails {
+        let target = month.startOfMonth(calendar: calendar)
         let currentRealMonth = asOf.startOfMonth(calendar: calendar)
         let categoryPlans = recurringBudgets.filter {
             $0.category?.id == category.id && $0.startMonth.startOfMonth(calendar: calendar) <= target
         }
         let categoryBudgets = budgets.filter { $0.category?.id == category.id }
         let firstMonth = categoryPlans.map { $0.startMonth.startOfMonth(calendar: calendar) }.min() ?? target
-        let spentByMonth = transactions
-            .filter { $0.category?.id == category.id && $0.type.countsAsExpense && $0.date < target.addingMonths(1, calendar: calendar) }
-            .reduce(into: [Date: Int64]()) { result, transaction in
-                result[transaction.date.startOfMonth(calendar: calendar), default: 0] += budgetExpenseAmount(for: transaction)
-            }
 
         var current = firstMonth
         var previousLimit: Int64 = 0

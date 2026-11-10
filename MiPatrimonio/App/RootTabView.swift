@@ -160,7 +160,7 @@ struct RootTabView: View {
             .equatable()
         case .transactions: TransactionsView()
         case .accounts: AccountsView()
-        case .budgets: BudgetsView(selectedMonth: $selectedMonth)
+        case .budgets: BudgetsView(selectedMonth: $selectedMonth, month: selectedMonth).equatable()
         case .settings: SettingsView()
         }
     }

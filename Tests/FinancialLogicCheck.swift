@@ -236,6 +236,13 @@ struct FinancialLogicCheck {
             transactions: transactions, asOf: date(2, 15))
         precondition(carried.carriedInMinor == 35_000 && carried.limitMinor == 85_000,
                      "Budget rollover must use the same reserved-payment exclusion")
+        // The budgets screen reads every category's spending in one pass: same limits as one by one.
+        let viaProgress = FinanceCalculator.budgetProgress(for: date(2), categories: [category], budgets: [],
+            recurringBudgets: [plan], transactions: transactions)
+        let oneByOne = FinanceCalculator.budgetLimit(for: category, month: date(2), budgets: [], recurringBudgets: [plan],
+            transactions: transactions)
+        precondition(viaProgress.first?.limitMinor == oneByOne.limitMinor && viaProgress.first?.carriedInMinor == oneByOne.carriedInMinor
+            && viaProgress.first?.isRecurring == oneByOne.isRecurring, "Budget progress keeps the same limits and rollover")
         let fee = FinancialTransaction(date: date(1, 8), type: .fee, amountMinor: 500,
             descriptionText: "Comisión prevista", reservedFundID: fund.id, reservedAmountMinor: 500,
             sourceAccount: account, category: category)

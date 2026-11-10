@@ -1,5 +1,24 @@
 # Mejora visual y navegación — 29 de octubre de 2026
 
+## Doblón 0.7.10 (51) · Presupuestos sin bloquear la app
+
+Preparado el 10 de noviembre de 2026, con los datos del medidor de la 0.7.9 en el iPhone:
+- Cada cambio de pestaña costaba unos 0,5 s, también al ir a Ajustes, que no calcula nada.
+- Abrir Presupuestos costaba entre 1,7 y 1,9 s.
+- Había pausas de 0,6 a 1,1 s sin tocar nada, durante la sincronización.
+
+**Causa.**
+- El límite de cada categoría recorría todos los movimientos, una vez por categoría (`budgetLimit`).
+- La pantalla pedía la lista de presupuestos unas diez veces por pintado.
+- Presupuestos se pintaba de nuevo en cada cambio de pestaña y con cada aviso de la sincronización, aunque no estuviera a la vista.
+
+**Implementado.**
+- **`budgetProgress`:** lee el gasto de todas las categorías por mes en una sola pasada y calcula cada límite con ese dato. Mismas reglas de arrastre y de pagos con reservas.
+- **Presupuestos e Inicio:** guardan la lista de presupuestos (`ViewMemo`) y solo la rehacen si cambia el mes o se guardan datos.
+- **Presupuestos:** desde fuera solo se repinta si cambia el mes elegido (`Equatable`), igual que Inicio.
+
+**Verificación.** `FinancialLogicCheck` comprueba que la pasada única da los mismos límites y arrastres que el cálculo categoría a categoría. Pendientes los checks, el IPA y volver a mirar el medidor en el iPhone.
+
 ## Doblón 0.7.9 (50) · saldos por índice y medidor de pausas
 
 Preparado el 10 de noviembre de 2026. Con la 0.7.8 el iPhone seguía tardando como medio segundo en entrar en cada menú.
@@ -19,7 +38,7 @@ Con miles de movimientos son cientos de miles de lecturas a la base de datos en 
   - Solo en memoria y en el dispositivo.
   - Sirve para medir en el iPhone sin Mac: si sigue habiendo retardo, sus datos dirán dónde.
 
-**Verificación.** `FinancialLogicCheck` compara índice y cálculo original en tres cuentas y ocho fechas, incluidos los bordes de apertura y saldo conocido. También comprueba que el índice se rehace tras un cambio, que otra lista no lo reutiliza y que el historial da los mismos valores. Pendientes los checks, el IPA y la prueba en el iPhone.
+**Verificación.** `FinancialLogicCheck` compara índice y cálculo original en tres cuentas y ocho fechas, incluidos los bordes de apertura y saldo conocido. También comprueba que el índice se rehace tras un cambio, que otra lista no lo reutiliza y que el historial da los mismos valores. Probado en el iPhone: el medidor señaló Presupuestos (de ahí la 0.7.10).
 
 ## Doblón 0.7.8 (49) · fluidez en el iPhone
 

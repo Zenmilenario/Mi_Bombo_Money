@@ -1,4 +1,5 @@
 import Charts
+import Combine
 import SwiftData
 import SwiftUI
 
@@ -10,9 +11,17 @@ struct BudgetsView: View {
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
 
     @Binding var selectedMonth: Date
+    /// The month as the parent saw it: the only outside input that changes what is shown.
+    let month: Date
     @State private var selectedCategory: FinanceCategory?
     @State private var showingAddBudget = false
     @ScaledMetric(relativeTo: .body) private var comparisonRowHeight: CGFloat = 48
+    @State private var dataVersion = 0
+    @State private var progressMemo = ViewMemo<ProgressKey, [BudgetProgress]>()
+
+    private struct ProgressKey: Equatable {
+        let month: Date, version: Int, transactions: Int, budgets: Int, plans: Int, categories: Int
+    }
 
     private var expenseCategories: [FinanceCategory] {
         categories.filter {
@@ -20,14 +29,19 @@ struct BudgetsView: View {
         }
     }
 
+    /// Every card of the screen reads this list; it is computed once per change of month or data.
     private var progressItems: [BudgetProgress] {
-        FinanceCalculator.budgetProgress(
-            for: selectedMonth,
-            categories: expenseCategories,
-            budgets: budgets,
-            recurringBudgets: recurringBudgets,
-            transactions: transactions
-        )
+        let key = ProgressKey(month: selectedMonth, version: dataVersion, transactions: transactions.count,
+                              budgets: budgets.count, plans: recurringBudgets.count, categories: categories.count)
+        return progressMemo.value(for: key) {
+            FinanceCalculator.budgetProgress(
+                for: selectedMonth,
+                categories: expenseCategories,
+                budgets: budgets,
+                recurringBudgets: recurringBudgets,
+                transactions: transactions
+            )
+        }
     }
 
     private var budgetedItems: [BudgetProgress] {
@@ -212,6 +226,10 @@ struct BudgetsView: View {
                     month: selectedMonth,
                     existingBudget: existingBudget(for: category)
                 )
+            }
+            // An edited budget or category keeps the same counts: each save refreshes the list.
+            .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave).receive(on: RunLoop.main)) { _ in
+                dataVersion &+= 1
             }
         }
     }
@@ -1033,5 +1051,13 @@ private struct BudgetEditorView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+/// Rebuilt by the parent on every tab change; from outside only the chosen month matters. Its own data
+/// still refreshes it.
+extension BudgetsView: Equatable {
+    nonisolated static func == (lhs: BudgetsView, rhs: BudgetsView) -> Bool {
+        MainActor.assumeIsolated { lhs.month == rhs.month }
     }
 }

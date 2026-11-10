@@ -1,4 +1,5 @@
 import Charts
+import Combine
 import SwiftData
 import SwiftUI
 
@@ -158,14 +159,25 @@ struct DashboardView: View {
         return Double(currentMonthChange) / Double(Swift.abs(previousMonthNetWorth))
     }
 
+    @State private var dataVersion = 0
+    @State private var budgetMemo = ViewMemo<BudgetKey, [BudgetProgress]>()
+    private struct BudgetKey: Equatable {
+        let month: Date, version: Int, transactions: Int, budgets: Int, plans: Int, categories: Int
+    }
+
+    /// Several cards read the budgets; they are computed once per change of month or data.
     private var budgetItems: [BudgetProgress] {
-        FinanceCalculator.budgetProgress(
-            for: selectedMonth,
-            categories: categories,
-            budgets: budgets,
-            recurringBudgets: recurringBudgets,
-            transactions: transactions
-        )
+        let key = BudgetKey(month: selectedMonth, version: dataVersion, transactions: transactions.count,
+                            budgets: budgets.count, plans: recurringBudgets.count, categories: categories.count)
+        return budgetMemo.value(for: key) {
+            FinanceCalculator.budgetProgress(
+                for: selectedMonth,
+                categories: categories,
+                budgets: budgets,
+                recurringBudgets: recurringBudgets,
+                transactions: transactions
+            )
+        }
     }
 
     private var budgetedItems: [BudgetProgress] {
@@ -407,6 +419,9 @@ struct DashboardView: View {
                     }
                     .accessibilityLabel(hideAmounts ? "Mostrar importes" : "Ocultar importes")
                 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave).receive(on: RunLoop.main)) { _ in
+                dataVersion &+= 1
             }
             .sheet(item: $selectedGoal) { goal in
                 GoalDetailView(goal: goal)
