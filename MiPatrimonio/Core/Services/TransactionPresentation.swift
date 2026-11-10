@@ -215,3 +215,19 @@ struct UsageHours: Codable, Equatable {
         return [hour - 1, hour, hour + 1].contains { counts[($0 + 24) % 24, default: 0] >= threshold }
     }
 }
+
+/// Keeps the last result of an expensive calculation while its inputs do not change. Held in `@State`:
+/// SwiftUI evaluates a body many times (a tab change, a toggle, a sheet) and most of those times the
+/// data is the same, so filtering every movement again only makes the app feel slow.
+final class ViewMemo<Key: Equatable, Value> {
+    private var key: Key?
+    private var value: Value?
+
+    func value(for key: Key, _ make: () -> Value) -> Value {
+        if let value, self.key == key { return value }
+        let made = make()
+        self.key = key
+        value = made
+        return made
+    }
+}

@@ -509,6 +509,18 @@ struct FinancialLogicCheck {
         // «Ver» leaves a one-off focus request for the destination screen.
         let request = CompanionFocus.request(.holds, at: morning)
         precondition(CompanionFocus.parse(CompanionFocus.request(.bankReview)) == .bankReview)
+        precondition(CompanionFocus.parse(CompanionFocus.request(.awaitingBank)) == .awaitingBank
+            && CompanionFocus.parse(CompanionFocus.request(.cardPayments)) == .cardPayments)
+        // The memo behind Movimientos and Don Bigotes: same inputs, no recomputation; new inputs, a fresh result.
+        let memo = ViewMemo<Int, String>()
+        var computed = 0
+        let firstValue = memo.value(for: 1) { computed += 1; return "uno" }
+        let sameValue = memo.value(for: 1) { computed += 1; return "otro" }
+        precondition(firstValue == "uno" && sameValue == "uno" && computed == 1, "Unchanged inputs reuse the result")
+        let nextValue = memo.value(for: 2) { computed += 1; return "dos" }
+        precondition(nextValue == "dos" && computed == 2, "Changed inputs recompute")
+        let backValue = memo.value(for: 1) { computed += 1; return "uno de nuevo" }
+        precondition(backValue == "uno de nuevo" && computed == 3, "Only the last result is kept")
         precondition(CompanionFocus.parse(request) == .holds && CompanionFocus.parse("") == nil && CompanionFocus.parse("otro|1") == nil)
         precondition(CompanionFocus.request(.holds, at: morning) != CompanionFocus.request(.holds, at: evening),
             "Tapping the same note again is still a new request")

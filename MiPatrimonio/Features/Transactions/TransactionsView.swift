@@ -1,4 +1,5 @@
 import Charts
+import Combine
 import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
@@ -38,7 +39,7 @@ private struct TransactionCategorySelection: Identifiable {
     let transactionIDs: Set<UUID>
 }
 
-private enum TransactionDateFilter: String, CaseIterable, Identifiable {
+private enum TransactionDateFilter: String, CaseIterable, Identifiable, Equatable {
     case all
     case thisMonth
     case last30Days
@@ -134,9 +135,43 @@ struct TransactionsView: View {
     @State private var showingCSVExporter = false
     @State private var csvExportDocument: TransactionCSVDocument?
     @State private var csvExportMessage: String?
+    /// Bumped on every save and whenever the stored movements change: the cached list is then rebuilt.
+    @State private var dataVersion = 0
+    @State private var listMemo = ViewMemo<ListKey, ListData>()
 
-    private var scopedTransactions: [FinancialTransaction] {
-        transactions.filter { transaction in
+    private struct ListKey: Equatable {
+        let count: Int, version: Int, day: Date
+        let account: UUID?, category: UUID?, type: TransactionType?, dateFilter: TransactionDateFilter
+        let duplicates: Bool, review: Bool, search: String
+    }
+    private struct ListData {
+        let scoped: [FinancialTransaction]
+        let filtered: [FinancialTransaction]
+        let reviewCount: Int
+        let groups: [TransactionDayGroup]
+    }
+
+    /// The list, its review count and its days, computed once per change instead of once per use.
+    private var listData: ListData {
+        let key = ListKey(count: transactions.count, version: dataVersion, day: Calendar.current.startOfDay(for: .now),
+                          account: selectedAccountID, category: selectedCategoryID, type: selectedType, dateFilter: dateFilter,
+                          duplicates: showOnlyDuplicates, review: showOnlyReview, search: searchText)
+        return listMemo.value(for: key) {
+            let scoped = computeScopedTransactions()
+            let pending = scoped.filter { !TransactionReviewService.issues(for: $0).isEmpty }
+            let filtered = showOnlyReview ? pending : scoped
+            let groups = Dictionary(grouping: filtered) { Calendar.autoupdatingCurrent.startOfDay(for: $0.date) }
+                .sorted { $0.key > $1.key }
+                .map { TransactionDayGroup(date: $0.key, transactions: $0.value) }
+            return ListData(scoped: scoped, filtered: filtered, reviewCount: pending.count, groups: groups)
+        }
+    }
+
+    private var scopedTransactions: [FinancialTransaction] { listData.scoped }
+
+    private func computeScopedTransactions() -> [FinancialTransaction] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return transactions.filter { transaction in
             if let selectedAccountID,
                transaction.sourceAccount?.id != selectedAccountID,
                transaction.destinationAccount?.id != selectedAccountID
@@ -166,7 +201,6 @@ struct TransactionsView: View {
                 return false
             }
 
-            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !query.isEmpty else { return true }
 
             return [
@@ -183,18 +217,9 @@ struct TransactionsView: View {
         }
     }
 
-    private var filteredTransactions: [FinancialTransaction] {
-        scopedTransactions.filter { !showOnlyReview || !TransactionReviewService.issues(for: $0).isEmpty }
-    }
+    private var filteredTransactions: [FinancialTransaction] { listData.filtered }
 
-    private var groupedTransactionDays: [TransactionDayGroup] {
-        let grouped = Dictionary(grouping: filteredTransactions) {
-            Calendar.autoupdatingCurrent.startOfDay(for: $0.date)
-        }
-        return grouped
-            .sorted { $0.key > $1.key }
-            .map { TransactionDayGroup(date: $0.key, transactions: $0.value) }
-    }
+    private var groupedTransactionDays: [TransactionDayGroup] { listData.groups }
 
     /// With no period chosen the summary describes the current month, not the whole history.
     private var summaryTransactions: [FinancialTransaction] {
@@ -224,9 +249,7 @@ struct TransactionsView: View {
         }
     }
 
-    private var reviewCount: Int {
-        scopedTransactions.filter { !TransactionReviewService.issues(for: $0).isEmpty }.count
-    }
+    private var reviewCount: Int { listData.reviewCount }
 
     /// iPad: list on the left, the chosen movement on the right. iPhone: list and a sheet for the detail.
     var body: some View {
@@ -367,6 +390,8 @@ struct TransactionsView: View {
             .onChange(of: filteredTransactions.map(\.id)) { _, visibleIDs in
                 selectedIDs.formIntersection(visibleIDs)
             }
+            .onChange(of: transactions) { _, _ in dataVersion &+= 1 }
+            .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave).receive(on: RunLoop.main)) { _ in dataVersion &+= 1 }
             .alert(
                 "Exportar movimientos",
                 isPresented: Binding(isPresent: $csvExportMessage)

@@ -1,5 +1,26 @@
 # Mejora visual y navegación — 29 de octubre de 2026
 
+## Doblón 0.7.8 (49) · fluidez en el iPhone
+
+Preparado el 10 de noviembre de 2026. Al probar la 0.7.7 en el iPhone, el usuario notó retardo al abrir la app y en cada toque por los menús.
+
+**Causas encontradas en el código** (no medidas en el dispositivo):
+- **Don Bigotes** recalculaba sus avisos en cada cambio de pestaña. Para ello recorría todos los movimientos y su categoría.
+- **Inicio** se recalculaba entero en cada cambio de pestaña, aunque no estuviera a la vista: saldos, patrimonio e historial. La pantalla principal le pasa acciones nuevas cada vez y SwiftUI no puede saber que nada ha cambiado.
+- **Movimientos** repetía el filtrado completo y la cuenta de «por revisar» unas diez veces por cada toque.
+- **Cambio de pestaña animado sobre todo el árbol de vistas**, heredado de la 0.2.0.
+- **Al abrir**, la preparación de las sugerencias de categoría competía con la primera pantalla.
+
+**Implementado.**
+- `ViewMemo`: guarda el último resultado mientras no cambian los datos (número de movimientos y cada guardado de la base de datos) ni los filtros.
+  - **Movimientos:** la lista, los días y la cuenta de revisión se calculan una sola vez por cambio.
+  - **Don Bigotes:** los avisos se recalculan solo si cambian los datos, los bancos o la hora.
+- **Inicio** solo se recalcula desde fuera si cambia el mes elegido (`Equatable`). Sus propios datos lo siguen actualizando.
+- **Animación de cambio de pestaña** solo en el fundido del iPad.
+- **Sugerencias de categoría** preparadas 3 segundos después de abrir.
+
+**Verificación.** Prueba del memo en `FinancialLogicCheck`. Pendientes los checks, el IPA y comprobar la fluidez en el iPhone.
+
 ## Problema observado
 
 La captura del usuario muestra una franja de sincronización por encima del `TabView` que cubre la navegación de iPadOS. La pantalla de inicio combina negro puro con tarjetas de alturas distintas dentro de filas compartidas: la tarjeta más alta obliga a dejar un hueco debajo de su vecina. Cuatro métricas pueden terminar en una distribución 3+1 y truncar el título de inversión.

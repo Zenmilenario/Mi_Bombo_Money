@@ -53,14 +53,15 @@ struct RootTabView: View {
     var body: some View {
         navigation
         .accentColor(AppDesign.accent)
-        .animation(
-            .easeInOut(duration: 0.18),
-            value: selectedTab
-        )
         .sheet(isPresented: $showingQuickAdd) {
             TransactionFormView()
         }
-        .task { _ = await TransactionLearning.models(in: modelContext) }
+        .task {
+            // Prepares category suggestions once the first screen is on show, not while the app opens.
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            _ = await TransactionLearning.models(in: modelContext)
+        }
         .task(id: "\(modelContext.container.configurations.first?.url.absoluteString ?? "")|\(scenePhase == .active)") {
             await listenForCorrectionEvents()
         }
@@ -105,6 +106,8 @@ struct RootTabView: View {
                             .accessibilityHidden(selectedTab != tab)
                     }
                 }
+                // Only the fade between screens is animated, not every view inside them.
+                .animation(.easeInOut(duration: 0.18), value: selectedTab)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .background(AppDesign.pageBackground)
@@ -134,12 +137,15 @@ struct RootTabView: View {
         case .home:
             DashboardView(
                 selectedMonth: $selectedMonth,
+                month: selectedMonth,
                 onOpenTransactions: { selectedTab = .transactions },
                 onOpenAccounts: { selectedTab = .accounts },
                 onOpenBudgets: { selectedTab = .budgets },
                 onOpenSettings: { selectedTab = .settings },
                 onAddMovement: { showingQuickAdd = true }
             )
+            // Its closures are new on every tab change; comparing the month avoids recomputing balances then.
+            .equatable()
         case .transactions: TransactionsView()
         case .accounts: AccountsView()
         case .budgets: BudgetsView(selectedMonth: $selectedMonth)
@@ -347,13 +353,29 @@ private struct CompanionView: View {
     @AppStorage("companionUsageV1") private var usageJSON = ""
     @AppStorage("companionFocus") private var focusRequest = ""
     @State private var showingNotes = false
-    @State private var waitingCardPayments = CardPaymentInbox.load().count
+    @State private var waitingCardPayments = 0
+    @State private var dataVersion = 0
+    @State private var notesMemo = ViewMemo<NotesKey, [CompanionNote]>()
+
+    private struct NotesKey: Equatable {
+        let transactions: Int, accounts: Int, recurring: Int, version: Int, hour: Int, waiting: Int
+        let activity: [String], reviewPending: [String]
+    }
+
+    /// Notes are rebuilt only when the data, the banks or the hour change, not on every tab change.
+    private var allNotes: [CompanionNote] {
+        let key = NotesKey(transactions: transactions.count, accounts: accounts.count, recurring: recurring.count,
+                           version: dataVersion, hour: Int(Date.now.timeIntervalSince1970 / 3600), waiting: waitingCardPayments,
+                           activity: bankActivity.map { "\($0.key)|\($0.value.observedAt.timeIntervalSince1970)" }.sorted(),
+                           reviewPending: bankReviewPending)
+        return notesMemo.value(for: key) { computeNotes() }
+    }
 
     let currentTab: AppTab
     let bottomInset: CGFloat
     let open: (AppTab) -> Void
 
-    private var allNotes: [CompanionNote] {
+    private func computeNotes() -> [CompanionNote] {
         var notes: [CompanionNote] = []
         if !bankReviewPending.isEmpty {
             notes.append(CompanionNote(id: "bankReview:" + bankReviewPending.joined(separator: ","), kind: "bankReview",
@@ -482,6 +504,10 @@ private struct CompanionView: View {
                 waitingCardPayments = CardPaymentInbox.load().count
             }
             .onChange(of: transactions.count) { _, _ in waitingCardPayments = CardPaymentInbox.load().count }
+            .onReceive(NotificationCenter.default.publisher(for: ModelContext.didSave).receive(on: RunLoop.main)) { _ in
+                dataVersion &+= 1
+            }
+            .onAppear { waitingCardPayments = CardPaymentInbox.load().count }
         }
     }
 

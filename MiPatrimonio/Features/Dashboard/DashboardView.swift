@@ -63,6 +63,8 @@ struct DashboardView: View {
     @AppStorage("dashboardReviewedAlertsV1") private var reviewedAlertsJSON = ""
 
     @Binding var selectedMonth: Date
+    /// The month as the parent saw it when drawing: the only input from outside that changes what is shown.
+    let month: Date
     @State private var chartRange: NetWorthRange = .oneYear
     @State private var selectedGoal: SavingsGoal?
     @State private var expandedReviewedAlertIDs: Set<String> = []
@@ -1214,5 +1216,13 @@ struct DashboardView: View {
 
     private func hidden(_ value: String) -> String {
         hideAmounts ? "••••••" : value
+    }
+}
+
+/// The parent rebuilds Inicio on every tab change with new closures. Its own data (queries, bank activity,
+/// preferences) still refreshes it; from outside only the chosen month matters.
+extension DashboardView: Equatable {
+    nonisolated static func == (lhs: DashboardView, rhs: DashboardView) -> Bool {
+        MainActor.assumeIsolated { lhs.month == rhs.month }
     }
 }
