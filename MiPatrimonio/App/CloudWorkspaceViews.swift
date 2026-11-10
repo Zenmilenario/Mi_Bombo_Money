@@ -10,6 +10,12 @@ private struct BankAccountActivityKey: EnvironmentKey {
 }
 /// Banks whose download is waiting for the person's review, if any.
 private struct BankReviewPendingKey: EnvironmentKey { static let defaultValue: [String] = [] }
+/// Asks the personal banking connection for a manual update and returns what happened, in words.
+/// Only the cloud workspace provides it; elsewhere it is nil and nothing offers to update banks.
+struct BankRefreshAction {
+    let run: @MainActor () async -> String
+}
+private struct BankRefreshKey: EnvironmentKey { static let defaultValue: BankRefreshAction? = nil }
 extension EnvironmentValues {
     var isCloudWorkspace: Bool {
         get { self[CloudWorkspaceKey.self] }
@@ -22,6 +28,10 @@ extension EnvironmentValues {
     var bankReviewPending: [String] {
         get { self[BankReviewPendingKey.self] }
         set { self[BankReviewPendingKey.self] = newValue }
+    }
+    var bankRefresh: BankRefreshAction? {
+        get { self[BankRefreshKey.self] }
+        set { self[BankRefreshKey.self] = newValue }
     }
 }
 
@@ -183,6 +193,13 @@ private struct CloudFinanceWorkspaceView: View {
                     .environment(\.isCloudWorkspace, true)
                     .environment(\.bankAccountActivity, banking.activity(for: account.session?.user.id))
                     .environment(\.bankReviewPending, banking.pendingReviewBanks)
+                    .environment(\.bankRefresh, BankRefreshAction {
+                        // The same manual update as «Actualizar movimientos bancarios» in Mis bancos.
+                        let changed = await banking.synchronize(account: account, context: container.mainContext, force: true)
+                        // As in the automatic update: what was imported goes to the cloud straight away.
+                        if changed { await sync.synchronize(account: account) }
+                        return [banking.message, banking.errorMessage].compactMap { $0 }.joined(separator: " ")
+                    })
                     .environmentObject(sync)
                     .environmentObject(banking)
             } else if sync.needsMigrationChoice {

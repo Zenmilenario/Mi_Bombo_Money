@@ -324,6 +324,7 @@ private struct CompanionNote: Identifiable {
 private struct CompanionView: View {
     @Environment(\.bankAccountActivity) private var bankActivity
     @Environment(\.bankReviewPending) private var bankReviewPending
+    @Environment(\.bankRefresh) private var bankRefresh
     @Query private var transactions: [FinancialTransaction]
     @Query private var accounts: [FinancialAccount]
     @Query(sort: \RecurringMovement.nextDueDate) private var recurring: [RecurringMovement]
@@ -434,7 +435,7 @@ private struct CompanionView: View {
             .padding(.bottom, bottomInset)
             .animation(.spring(response: 0.4, dampingFraction: 0.8), value: awake)
             .sheet(isPresented: $showingNotes) {
-                CompanionNotesSheet(notes: current) { note in
+                CompanionNotesSheet(notes: current, refresh: bankRefresh, reviewPending: !bankReviewPending.isEmpty) { note in
                     showingNotes = false
                     focusRequest = CompanionFocus.request(note.focus)
                     open(note.tab)
@@ -457,15 +458,21 @@ private struct CompanionView: View {
 
 private struct CompanionNotesSheet: View {
     let notes: [CompanionNote]
+    /// Present in the cloud workspace with a personal bank connection.
+    let refresh: BankRefreshAction?
+    let reviewPending: Bool
     let go: (CompanionNote) -> Void
     let dismiss: (CompanionNote) -> Void
+
+    @State private var refreshing = false
+    @State private var refreshResult: String?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 12) {
-                        DonBigotesMark(awake: !notes.isEmpty, size: 52)
+                        DonBigotesMark(awake: !notes.isEmpty || refreshing, size: 52)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(notes.isEmpty ? "Todo en orden" : "Lo que he visto").font(.title3.bold())
                             Text(notes.isEmpty ? "No hay nada pendiente. Vuelvo a mi esquina." : "Solo cosas tuyas, nada urgente.")
@@ -473,6 +480,39 @@ private struct CompanionNotesSheet: View {
                         }
                     }
                     .padding(.bottom, 4)
+                    if let refresh {
+                        // Asking him to update the banks: one tap, the same manual update as in Mis bancos.
+                        Button {
+                            refreshing = true
+                            refreshResult = nil
+                            Task { @MainActor in
+                                refreshResult = await refresh.run()
+                                refreshing = false
+                            }
+                        } label: {
+                            HStack(spacing: 10) {
+                                if refreshing { ProgressView().tint(.white) } else { Image(systemName: "arrow.clockwise") }
+                                Text(refreshing ? "Consultando tus bancos…" : "Actualizar mis bancos")
+                                    .font(.subheadline.weight(.semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity, minHeight: 46)
+                            .background(AppDesign.actionFill, in: RoundedRectangle(cornerRadius: AppDesign.compactRadius + 2, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(refreshing || reviewPending)
+                        .opacity(reviewPending ? 0.5 : 1)
+                        if reviewPending {
+                            Text("Antes de otra consulta, revisa la descarga que ya llegó (aviso de abajo).")
+                                .font(.caption).foregroundStyle(.secondary)
+                        } else if let refreshResult, !refreshResult.isEmpty {
+                            Text(refreshResult)
+                                .font(.footnote)
+                                .padding(12)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(AppDesign.tertiaryBackground, in: RoundedRectangle(cornerRadius: AppDesign.compactRadius, style: .continuous))
+                        }
+                    }
                     ForEach(notes) { note in
                         HStack(spacing: 12) {
                             RowGlyph(systemImage: note.systemImage, tint: note.kind == "holds" ? AppDesign.warning : AppDesign.accent)

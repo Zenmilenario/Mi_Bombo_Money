@@ -1,5 +1,16 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Doblón 0.7.5 (46) · Don Bigotes actualiza tus bancos
+
+Idea del usuario del 10 de noviembre de 2026: actualizar los bancos desde Mis bancos exigía demasiados toques.
+
+**Implementado.**
+- En la hoja de Don Bigotes (al tocarlo), botón **«Actualizar mis bancos»**. Hace la misma consulta manual que Mis bancos, muestra el resultado en la propia hoja y, si se ha incorporado algo, sincroniza con la nube a continuación.
+- Si una descarga espera revisión, el botón se desactiva y el aviso «Descarga del banco por revisar» ofrece «Ver», que abre la revisión.
+- Solo aparece en el espacio cloud con conexión bancaria personal.
+
+**Verificación.** Pendientes los checks, el IPA y la prueba en el dispositivo; se probará junto a la 0.7.4 como un único lote.
+
 ## Doblón 0.7.4 (45) · diagnóstico bancario y aviso de revisión
 
 Preparado el 10 de noviembre de 2026. El usuario echaba en falta un pago con tarjeta de Trade Republic del día anterior.
