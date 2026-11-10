@@ -79,7 +79,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         onRefresh: repository.refresh,
         child: switch (tab) {
           0 => HomeScreen(calc: calc, month: month, onMonth: (m) => setState(() => month = m)),
-          1 => TransactionsScreen(calc: calc),
+          1 => TransactionsScreen(calc: calc, repository: repository),
           2 => AccountsScreen(calc: calc),
           3 => BudgetsScreen(calc: calc, month: month, onMonth: (m) => setState(() => month = m)),
           _ => _SettingsPage(repository: repository),
@@ -88,14 +88,31 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     }
     return Scaffold(
       appBar: AppBar(
-        title: Text(const ['Inicio', 'Movimientos', 'Cuentas', 'Presupuestos', 'Ajustes'][tab],
-            style: const TextStyle(fontWeight: FontWeight.w700)),
+        title: Text(const ['Inicio', 'Movimientos', 'Cuentas', 'Presupuestos', 'Ajustes'][tab], style: const TextStyle(fontWeight: FontWeight.w700)),
         actions: [
+          if (repository.pending.isNotEmpty)
+            Tooltip(
+              message: '${repository.pending.length} cambios sin subir',
+              child: IconButton(icon: const Icon(Icons.cloud_upload_outlined), onPressed: repository.refresh),
+            ),
           if (repository.loading && calc != null)
             const Padding(padding: EdgeInsets.all(16), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
         ],
       ),
-      body: body,
+      body: calc != null && repository.error != null
+          ? Column(children: [
+              Material(
+                color: Pulso.of(context).warning.withValues(alpha: 0.15),
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(Icons.cloud_off_outlined, color: Pulso.of(context).warning),
+                  title: Text(repository.error!),
+                  trailing: TextButton(onPressed: repository.refresh, child: const Text('Reintentar')),
+                ),
+              ),
+              Expanded(child: body),
+            ])
+          : body,
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (index) => setState(() => tab = index),
@@ -126,8 +143,7 @@ class _SettingsPage extends StatelessWidget {
           title: const Text('Mi nube'),
           subtitle: Text([
             if (user?.email != null) user!.email!,
-            if (repository.loadedAt != null)
-              'Actualizado a las ${TimeOfDay.fromDateTime(repository.loadedAt!).format(context)}',
+            if (repository.loadedAt != null) 'Actualizado a las ${TimeOfDay.fromDateTime(repository.loadedAt!).format(context)}',
           ].join('\n')),
         ),
       ),
@@ -146,7 +162,8 @@ class _SettingsPage extends StatelessWidget {
         child: ListTile(
           leading: Icon(Icons.info_outline, color: pulso.accent),
           title: const Text('Versión para Android'),
-          subtitle: const Text('Consulta tus finanzas y trae los movimientos de tus bancos. Para apuntar a mano o categorizar, de momento usa la app del iPhone.'),
+          subtitle:
+              const Text('Consulta tus finanzas y trae los movimientos de tus bancos. Para apuntar a mano o categorizar, de momento usa la app del iPhone.'),
         ),
       ),
       const SizedBox(height: 12),
@@ -155,7 +172,22 @@ class _SettingsPage extends StatelessWidget {
           leading: Icon(Icons.logout, color: pulso.expense),
           title: const Text('Salir de la cuenta'),
           onTap: () async {
-            repository.clear();
+            if (repository.pending.isNotEmpty) {
+              final leave = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Hay cambios sin subir'),
+                  content: Text(
+                      '${repository.pending.length} cambios todavía no han llegado a tu nube. Si sales ahora se perderán. Conéctate a internet y espera a que se suban.'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Esperar')),
+                    TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Salir igualmente')),
+                  ],
+                ),
+              );
+              if (leave != true) return;
+            }
+            await repository.signOut();
             await Supabase.instance.client.auth.signOut();
           },
         ),

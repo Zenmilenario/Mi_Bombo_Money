@@ -1,7 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 
 import 'banking.dart';
+import 'edits.dart';
 import 'models.dart';
 
 /// Same cloud project and public key as the iPhone app (`CloudConfiguration.json`). The publishable key
@@ -21,39 +27,115 @@ class CloudCopy {
     final map = Map<String, dynamic>.from(response as Map);
     return CloudCopy('${map['workspace_id']}', (map['revision'] as num).toInt(), Map<String, dynamic>.from(map['document'] as Map));
   }
+
+  Map<String, dynamic> toJson() => {'workspace_id': workspaceId, 'revision': revision, 'document': document};
+}
+
+/// Keeps the last cloud copy and the changes not yet uploaded on this device, per user, in the app's private
+/// storage. With it the app opens and works without connection; changes are uploaded when it returns.
+class LocalStore {
+  LocalStore(this.directory);
+  final Directory directory;
+
+  File _file(String user, String name) => File('${directory.path}${Platform.pathSeparator}$name-$user.json');
+
+  Future<CloudCopy?> loadCopy(String user) async {
+    try {
+      return CloudCopy.parse(jsonDecode(await _file(user, 'cloud').readAsString()));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<Operation>> loadPending(String user) async {
+    try {
+      final list = jsonDecode(await _file(user, 'pending').readAsString()) as List;
+      return [for (final item in list) Operation.fromJson(Map<String, dynamic>.from(item as Map))];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Written to a temporary file and renamed, so a crash never leaves half a file.
+  Future<void> _write(File file, Object value) async {
+    final temporary = File('${file.path}.tmp');
+    await temporary.writeAsString(jsonEncode(value), flush: true);
+    await temporary.rename(file.path);
+  }
+
+  Future<void> saveCopy(String user, CloudCopy copy) => _write(_file(user, 'cloud'), copy.toJson());
+  Future<void> savePending(String user, List<Operation> pending) => _write(_file(user, 'pending'), [for (final op in pending) op.toJson()]);
+
+  Future<void> clear(String user) async {
+    for (final name in ['cloud', 'pending']) {
+      final file = _file(user, name);
+      if (await file.exists()) await file.delete();
+    }
+  }
 }
 
 /// Downloads and saves the person's finances with the same functions the iPhone uses to sync.
 class FinanceRepository extends ChangeNotifier {
+  FinanceRepository({LocalStore? store}) : _store = store;
+
+  LocalStore? _store;
   Finances? finances;
   CloudCopy? copy;
+  List<Operation> pending = [];
   String? error;
   bool loading = false;
   DateTime? loadedAt;
+  bool _opened = false;
+
+  String? get _user => Supabase.instance.client.auth.currentUser?.id;
+
+  Future<LocalStore> _local() async => _store ??= LocalStore(await getApplicationSupportDirectory());
 
   Future<CloudCopy> _fetch() async => CloudCopy.parse(await Supabase.instance.client.rpc('finance_snapshot'));
 
+  /// Shows the device copy at once, then uploads pending changes and downloads the latest cloud copy.
   Future<void> refresh() async {
     if (loading) return;
+    final user = _user;
+    if (user == null) return;
+    if (!_opened) {
+      _opened = true;
+      final store = await _local();
+      pending = await store.loadPending(user);
+      final saved = await store.loadCopy(user);
+      if (saved != null) _show(saved);
+    }
     loading = true;
     error = null;
     notifyListeners();
     try {
-      _adopt(await _fetch());
+      if (pending.isNotEmpty) {
+        await _upload();
+      } else {
+        await _adopt(await _fetch());
+      }
     } on AuthException {
       error = 'Tu sesión ha caducado. Vuelve a entrar.';
     } catch (_) {
-      error = 'No se han podido cargar tus finanzas. Comprueba la conexión y vuelve a intentarlo.';
+      error = copy == null
+          ? 'No se han podido cargar tus finanzas. Comprueba la conexión y vuelve a intentarlo.'
+          : 'Sin conexión: ves la última copia de este dispositivo.';
     } finally {
       loading = false;
       notifyListeners();
     }
   }
 
-  void _adopt(CloudCopy value) {
+  void _show(CloudCopy value) {
     copy = value;
-    finances = Finances.fromDocument(value.document);
+    finances = Finances.fromDocument(withPending(value.document, pending));
+  }
+
+  Future<void> _adopt(CloudCopy value) async {
+    _show(value);
     loadedAt = DateTime.now();
+    final user = _user;
+    if (user != null) await (await _local()).saveCopy(user, value);
   }
 
   /// Applies `change` to the latest cloud document and saves it with the expected revision. If another
@@ -70,7 +152,7 @@ class FinanceRepository extends ChangeNotifier {
           'p_document': document,
           'p_timezone': 'Europe/Madrid',
         });
-        _adopt(CloudCopy.parse(saved));
+        await _adopt(CloudCopy.parse(saved));
         notifyListeners();
         return result;
       } on PostgrestException catch (error) {
@@ -81,11 +163,62 @@ class FinanceRepository extends ChangeNotifier {
     throw BankingError('cloud_conflict');
   }
 
-  void clear() {
+  /// Records a change: it shows at once, is kept on the device and is uploaded as soon as possible.
+  Future<void> apply(Operation op) async {
+    final user = _user;
+    if (user == null) return;
+    pending = [...pending, op];
+    await (await _local()).savePending(user, pending);
+    if (copy != null) _show(copy!);
+    notifyListeners();
+    try {
+      await _upload();
+    } catch (_) {
+      error = 'Guardado en este dispositivo. Se subirá a tu nube cuando haya conexión.';
+      notifyListeners();
+    }
+  }
+
+  bool _uploading = false;
+  bool _again = false;
+
+  /// One upload at a time; a change made during an upload is sent right after it.
+  Future<void> _upload() async {
+    final user = _user;
+    if (user == null || pending.isEmpty) return;
+    if (_uploading) {
+      _again = true;
+      return;
+    }
+    _uploading = true;
+    try {
+      do {
+        _again = false;
+        final sending = List<Operation>.from(pending);
+        await update((document) => (withPending(document, sending), null));
+        // Only what was sent is cleared: a change made meanwhile stays queued.
+        pending = pending.sublist(sending.length);
+        await (await _local()).savePending(user, pending);
+        if (copy != null) _show(copy!);
+        error = null;
+        notifyListeners();
+      } while (_again && pending.isNotEmpty);
+    } finally {
+      _uploading = false;
+    }
+  }
+
+  String newId() => const Uuid().v4();
+
+  Future<void> signOut() async {
+    final user = _user;
+    if (user != null) await (await _local()).clear(user);
     finances = null;
     copy = null;
+    pending = [];
     error = null;
     loadedAt = null;
+    _opened = false;
     notifyListeners();
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../edits.dart';
 import '../finance.dart';
 import '../models.dart';
 import '../presentation.dart';
@@ -86,9 +87,7 @@ class TransactionTile extends StatelessWidget {
     final color = signed > 0 ? pulso.income : (signed < 0 ? pulso.expense : pulso.savings);
     // A movement is in the currency of the account it comes from.
     final currency = source?.currencyCode ?? 'EUR';
-    final accountText = t.type == TransactionType.transfer
-        ? '${source?.name ?? 'Cuenta'} → ${destination?.name ?? 'Cuenta'}'
-        : (source?.name ?? 'Cuenta');
+    final accountText = t.type == TransactionType.transfer ? '${source?.name ?? 'Cuenta'} → ${destination?.name ?? 'Cuenta'}' : (source?.name ?? 'Cuenta');
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 12),
       leading: CircleAvatar(
@@ -99,9 +98,13 @@ class TransactionTile extends StatelessWidget {
           color: category == null ? color : colorFromHex(category.colorHex),
         ),
       ),
-      title: Text(listTitle(t.descriptionText, isBanking: t.isBanking), maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w600)),
-      subtitle: Text(accountText, maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: Text(listTitle(t.descriptionText, isBanking: t.isBanking),
+          maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+      subtitle: Builder(builder: (context) {
+        final issues = reviewIssues(t, category);
+        if (issues.isEmpty) return Text(accountText, maxLines: 1, overflow: TextOverflow.ellipsis);
+        return Text('$accountText · ${issues.first.title}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pulso.warning));
+      }),
       trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
         Text(t.type == TransactionType.transfer ? money(t.amountMinor, currency: currency) : money(signed, signed: true, currency: currency),
             style: TextStyle(fontWeight: FontWeight.w700, color: color)),

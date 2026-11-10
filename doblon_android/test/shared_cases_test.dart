@@ -31,7 +31,10 @@ void main() {
   };
   final finances = Finances(
     accounts: accounts.values.toList(),
-    categories: [for (final row in list('categories')) Category(id: row['id'] as String, name: row['id'] as String, kind: CategoryKind.values.byName(row['kind'] as String))],
+    categories: [
+      for (final row in list('categories'))
+        Category(id: row['id'] as String, name: row['id'] as String, kind: CategoryKind.values.byName(row['kind'] as String))
+    ],
     reservedFunds: [
       for (final row in list('funds'))
         ReservedFund(id: row['id'] as String, name: row['id'] as String, amountMinor: row['amountMinor'] as int, accountId: row['account'] as String)
@@ -65,7 +68,8 @@ void main() {
     ],
     budgets: [
       for (final row in list('monthlyBudgets'))
-        MonthlyBudget(id: row['id'] as String, monthStart: day(row['month'] as String), limitMinor: row['limitMinor'] as int, categoryId: row['category'] as String)
+        MonthlyBudget(
+            id: row['id'] as String, monthStart: day(row['month'] as String), limitMinor: row['limitMinor'] as int, categoryId: row['category'] as String)
     ],
   );
   final calc = FinanceCalculator(finances);

@@ -37,57 +37,16 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Generar la parte nativa de Android
+      - name: Comprobar la parte nativa de Android
         shell: bash
         run: |
           set -euo pipefail
-          # The Android project is generated here (no Flutter on the Windows development machine).
-          # Existing Dart code is kept; the example test that `flutter create` adds is removed.
-          flutter create --platforms=android --org com.zenmilenario --project-name doblon --no-pub .
-          rm -f test/widget_test.dart
+          # The native projects are committed (generated with Flutter on the development PC).
           MANIFEST=android/app/src/main/AndroidManifest.xml
-          sed -i 's/android:label="doblon"/android:label="Doblón"/' "$MANIFEST"
-          grep -q 'android.permission.INTERNET' "$MANIFEST" || \
-            sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.INTERNET"\/>/' "$MANIFEST"
           grep -q 'android.permission.INTERNET' "$MANIFEST"
           grep -q 'android:label="Doblón"' "$MANIFEST"
-          # The bank server returns to mibombomoney-bank://callback after the authorization: Android brings
-          # Doblón back. Flutter's own deep-link routing is off (the app refreshes when it resumes).
-          python3 - "$MANIFEST" <<'PY'
-          import sys
-          path = sys.argv[1]
-          text = open(path, encoding='utf-8').read()
-          link = """
-                      <intent-filter>
-                          <action android:name="android.intent.action.VIEW"/>
-                          <category android:name="android.intent.category.DEFAULT"/>
-                          <category android:name="android.intent.category.BROWSABLE"/>
-                          <data android:scheme="mibombomoney-bank" android:host="callback"/>
-                      </intent-filter>
-                      <meta-data android:name="flutter_deeplinking_enabled" android:value="false"/>
-                  </activity>"""
-          assert text.count('</activity>') == 1
-          text = text.replace('</activity>', link, 1)
-          queries = """
-              <queries>
-                  <intent>
-                      <action android:name="android.intent.action.VIEW"/>
-                      <data android:scheme="https"/>
-                  </intent>
-              </queries>
-          </manifest>"""
-          if '<queries>' not in text:
-              text = text.replace('</manifest>', queries, 1)
-          else:
-              extra = '<intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent>'
-              text = text.replace('<queries>', '<queries>' + extra, 1)
-          open(path, 'w', encoding='utf-8').write(text)
-          PY
           grep -q 'mibombomoney-bank' "$MANIFEST"
-          # Launcher icons are committed already resized (assets/launcher): no image tools needed on the runner.
-          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            cp "assets/launcher/ic_launcher_${density}.png" "android/app/src/main/res/mipmap-${density}/ic_launcher.png"
-          done
+          test -f android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
       - run: flutter pub get
 

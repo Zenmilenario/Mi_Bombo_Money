@@ -11,7 +11,7 @@ import 'theme.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('es');
-  await Supabase.initialize(url: supabaseUrl, anonKey: supabasePublishableKey);
+  await Supabase.initialize(url: supabaseUrl, publishableKey: supabasePublishableKey);
   runApp(const DoblonApp());
 }
 

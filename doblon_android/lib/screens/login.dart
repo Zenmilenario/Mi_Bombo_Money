@@ -119,10 +119,12 @@ class _LoginScreenState extends State<LoginScreen> {
                         : Text(_creating ? 'Crear cuenta' : 'Entrar'),
                   ),
                   TextButton(
-                    onPressed: _busy ? null : () => setState(() {
-                      _creating = !_creating;
-                      _message = null;
-                    }),
+                    onPressed: _busy
+                        ? null
+                        : () => setState(() {
+                              _creating = !_creating;
+                              _message = null;
+                            }),
                     child: Text(_creating ? 'Ya tengo cuenta' : 'Crear una cuenta nueva'),
                   ),
                 ],

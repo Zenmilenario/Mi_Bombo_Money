@@ -41,7 +41,9 @@ class _Summary extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(label, style: Theme.of(context).textTheme.labelMedium),
-            FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft,
+            FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
                 child: Text(value, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: color))),
           ]),
         ),
@@ -77,7 +79,8 @@ class _AccountCard extends StatelessWidget {
           ]),
           if (reserved > 0) ...[
             const SizedBox(height: 10),
-            Text('Reservado ${money(reserved, currency: account.currencyCode)} · libre ${money(balance - reserved > 0 ? balance - reserved : 0, currency: account.currencyCode)}',
+            Text(
+                'Reservado ${money(reserved, currency: account.currencyCode)} · libre ${money(balance - reserved > 0 ? balance - reserved : 0, currency: account.currencyCode)}',
                 style: TextStyle(fontSize: 12, color: pulso.warning)),
           ],
           if (!account.includeInNetWorth) ...[

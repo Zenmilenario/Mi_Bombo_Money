@@ -7,8 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 RemoteConnection connection(String bank, List<RemoteAccount> accounts) =>
     RemoteConnection(id: '00000000-0000-4000-8000-000000000001', bank: bank, validUntil: '2027-01-01', accounts: accounts);
 
-AccountFeed feed(String bank, RemoteAccount account, List<Movement> movements, {List<BankBalance>? balances}) => AccountFeed(
-    connection: connection(bank, [account]), account: account, balances: balances ?? [BankBalance(123456, 'EUR', 'CLBD')], movements: movements);
+AccountFeed feed(String bank, RemoteAccount account, List<Movement> movements, {List<BankBalance>? balances}) =>
+    AccountFeed(connection: connection(bank, [account]), account: account, balances: balances ?? [BankBalance(123456, 'EUR', 'CLBD')], movements: movements);
 
 Movement row(String? id, String day, int amount, [String text = 'Compra ficticia']) =>
     Movement(id: id, bookingDate: day, signedAmountMinor: amount, currency: 'EUR', description: text);
@@ -28,9 +28,12 @@ void main() {
   });
 
   test('first download creates the account, the movements and the booked balance', () {
-    final (document, result) = importFeeds(emptyDocument(), [
-      feed('Banco Ficticio', account, [row('ref-001', '2026-11-08', -450, 'GASOLINERA FICTICIA'), row('ref-002', '2026-11-09', 120000, 'NOMINA FICTICIA')]),
-    ], observed);
+    final (document, result) = importFeeds(
+        emptyDocument(),
+        [
+          feed('Banco Ficticio', account, [row('ref-001', '2026-11-08', -450, 'GASOLINERA FICTICIA'), row('ref-002', '2026-11-09', 120000, 'NOMINA FICTICIA')]),
+        ],
+        observed);
     expect(result.inserted, 2);
     expect(result.newAccounts, 1);
     final finances = Finances.fromDocument(document);
@@ -50,11 +53,21 @@ void main() {
   });
 
   test('downloading again adds nothing and keeps what the person edited', () {
-    final (first, _) = importFeeds(emptyDocument(), [feed('Banco Ficticio', account, [row('ref-001', '2026-11-08', -450)])], observed);
+    final (first, _) = importFeeds(
+        emptyDocument(),
+        [
+          feed('Banco Ficticio', account, [row('ref-001', '2026-11-08', -450)])
+        ],
+        observed);
     ((first['transactions'] as List).single as Map)['descriptionText'] = 'Mi texto';
     ((first['transactions'] as List).single as Map)['amountMinor'] = 999;
-    final (second, result) = importFeeds(first, [feed('Banco Ficticio', account, [row('ref-001', '2026-11-08', -450), row('ref-003', '2026-11-10', -100)])],
-        observed, server: bankingServer);
+    final (second, result) = importFeeds(
+        first,
+        [
+          feed('Banco Ficticio', account, [row('ref-001', '2026-11-08', -450), row('ref-003', '2026-11-10', -100)])
+        ],
+        observed,
+        server: bankingServer);
     expect(result.inserted, 1);
     expect(result.alreadyImported, 1);
     expect(result.newAccounts, 0, reason: 'The account is found by its bank identity');
@@ -73,7 +86,12 @@ void main() {
       ..['transactions'] = [
         {'id': 'otro-id', 'bankEntryKey': 'enable-keys:["$key","${entryPrefix('otra')}x"]', 'typeRaw': 'transfer'}
       ];
-    final (next, result) = importFeeds(document, [feed('Banco Ficticio', account, [row('ref-001', '2026-11-08', -450)])], observed);
+    final (next, result) = importFeeds(
+        document,
+        [
+          feed('Banco Ficticio', account, [row('ref-001', '2026-11-08', -450)])
+        ],
+        observed);
     expect(result.inserted, 0);
     expect(result.newAccounts, 0);
     expect((next['transactions'] as List).length, 1);
@@ -93,11 +111,14 @@ void main() {
 
   test('other currencies, future dates, empty texts and ambiguous balances are left out', () {
     final usd = RemoteAccount(id: 'usd', currency: 'USD', lastFour: '2222');
-    final (document, result) = importFeeds(emptyDocument(), [
-      feed('Banco Ficticio', usd, [row('u1', '2026-11-08', -100)]),
-      feed('Banco Ficticio', account, [row('f1', '2026-12-01', -100), row('e1', '2026-11-08', -100, '  '), row('z1', '2026-11-08', 0)],
-          balances: [BankBalance(100, 'EUR', 'CLBD'), BankBalance(200, 'EUR', 'CLBD')]),
-    ], observed);
+    final (document, result) = importFeeds(
+        emptyDocument(),
+        [
+          feed('Banco Ficticio', usd, [row('u1', '2026-11-08', -100)]),
+          feed('Banco Ficticio', account, [row('f1', '2026-12-01', -100), row('e1', '2026-11-08', -100, '  '), row('z1', '2026-11-08', 0)],
+              balances: [BankBalance(100, 'EUR', 'CLBD'), BankBalance(200, 'EUR', 'CLBD')]),
+        ],
+        observed);
     expect(result.skippedAccounts, 1);
     expect(result.inserted, 0);
     expect((document['snapshots'] as List), isEmpty, reason: 'Two different booked balances: none is trusted');

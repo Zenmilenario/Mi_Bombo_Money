@@ -194,9 +194,8 @@ class FinanceCalculator {
   int netWorth([DateTime? at]) => _counted.fold(0, (sum, a) => sum + balance(a, at));
 
   /// Cash you can spend: current, savings and cash accounts, minus the money reserved in them.
-  int spendableCash() => _counted
-      .where((a) => a.type != AccountType.investment && !a.type.isLiability)
-      .fold(0, (sum, a) => sum + balance(a) - reservedAmount(a));
+  int spendableCash() =>
+      _counted.where((a) => a.type != AccountType.investment && !a.type.isLiability).fold(0, (sum, a) => sum + balance(a) - reservedAmount(a));
 
   int invested() => _counted.where((a) => a.type == AccountType.investment).fold(0, (sum, a) => sum + balance(a));
 
@@ -225,8 +224,8 @@ class FinanceCalculator {
 
   /// The limit of a month, with what a carry-forward plan brings from earlier months
   /// (Swift: `FinanceCalculator.budgetLimit`). `spentByMonth` is keyed by `monthKey`.
-  static BudgetLimit budgetLimit(Category category, DateTime month, List<MonthlyBudget> budgets, List<RecurringBudget> recurring,
-      Map<int, int> spentByMonth, {DateTime? asOf}) {
+  static BudgetLimit budgetLimit(Category category, DateTime month, List<MonthlyBudget> budgets, List<RecurringBudget> recurring, Map<int, int> spentByMonth,
+      {DateTime? asOf}) {
     final target = monthKey(month);
     final currentRealMonth = monthKey(asOf ?? DateTime.now());
     final plans = recurring.where((p) => p.categoryId == category.id && monthKey(p.startMonth) <= target).toList();
@@ -239,13 +238,10 @@ class FinanceCalculator {
     while (current <= target) {
       final plan = activeRecurringBudget(category, current, plans);
       final override = overrides.where((b) => monthKey(b.monthStart) == current).firstOrNull;
-      final carry = plan != null &&
-              previousChoice == RemainderChoice.carryForward &&
-              previousHadPlan &&
-              previousMonth != null &&
-              previousMonth < currentRealMonth
-          ? (previousLimit - previousSpent > 0 ? previousLimit - previousSpent : 0)
-          : 0;
+      final carry =
+          plan != null && previousChoice == RemainderChoice.carryForward && previousHadPlan && previousMonth != null && previousMonth < currentRealMonth
+              ? (previousLimit - previousSpent > 0 ? previousLimit - previousSpent : 0)
+              : 0;
       final base = override?.limitMinor ?? plan?.baseLimitMinor ?? 0;
       final limit = override != null ? base : base + carry;
       if (current == target) return BudgetLimit(limit, override == null ? carry : 0, plan != null);

@@ -34,11 +34,14 @@ class BankingError implements Exception {
         'guest_banking_not_configured' => 'La conexión bancaria para personas invitadas aún no está preparada. Avisa al responsable de Doblón.',
         'guest_application_inactive' =>
           'La conexión bancaria para personas invitadas aún no está activa: el responsable de Doblón tiene que vincular primero tus cuentas en Enable Banking.',
-        'no_linked_accounts' => 'El banco no ha compartido ninguna cuenta que Doblón pueda leer. Comprueba con el responsable de Doblón que tu cuenta está vinculada.',
+        'no_linked_accounts' =>
+          'El banco no ha compartido ninguna cuenta que Doblón pueda leer. Comprueba con el responsable de Doblón que tu cuenta está vinculada.',
         'connection_limit' => 'Has llegado al máximo de bancos conectados.',
         'rate_limited' => 'Se han hecho demasiadas solicitudes. Espera un minuto antes de reintentar.',
         'bank_rate_limited' => 'El banco ha limitado las consultas. Espera antes de volver a actualizar; no necesitas desconectar la cuenta.',
-        'bank_session_expired' || 'bank_action_required' => 'El banco pide que renueves la autorización: vuelve a conectar este banco. Tus movimientos se conservan.',
+        'bank_session_expired' ||
+        'bank_action_required' =>
+          'El banco pide que renueves la autorización: vuelve a conectar este banco. Tus movimientos se conservan.',
         'bank_unavailable' || 'bank_timeout' => 'El banco no ha podido responder. Vuelve a intentarlo más tarde.',
         'unauthorized' || 'identity_unavailable' => 'No se ha podido verificar tu sesión. Sal y vuelve a entrar.',
         'connection_not_found' => 'La conexión ha caducado o ya se ha desconectado.',
@@ -77,8 +80,14 @@ class RemoteConnection {
 }
 
 class Movement {
-  Movement({this.id, required this.bookingDate, required this.signedAmountMinor, required this.currency, required this.description,
-      this.counterpartyKey, this.transferKey});
+  Movement(
+      {this.id,
+      required this.bookingDate,
+      required this.signedAmountMinor,
+      required this.currency,
+      required this.description,
+      this.counterpartyKey,
+      this.transferKey});
   final String? id;
   final String bookingDate;
   final int signedAmountMinor;
@@ -236,8 +245,7 @@ int? bookedBalance(List<BankBalance> balances) {
 /// - Movements without a bank reference (Trade Republic) get the iPhone's generated key: date, amount and
 ///   order of appearance.
 /// - Accounts in another currency are left out, as on the iPhone.
-(Map<String, dynamic>, ImportResult) importFeeds(Map<String, dynamic> document, List<AccountFeed> feeds, DateTime observedAt,
-    {String server = bankingServer}) {
+(Map<String, dynamic>, ImportResult) importFeeds(Map<String, dynamic> document, List<AccountFeed> feeds, DateTime observedAt, {String server = bankingServer}) {
   final next = jsonDecode(jsonEncode(document)) as Map<String, dynamic>;
   List<Map<String, dynamic>> rows(String key) => ((next[key] ??= <dynamic>[]) as List).cast<Map<String, dynamic>>();
   final accounts = rows('accounts');

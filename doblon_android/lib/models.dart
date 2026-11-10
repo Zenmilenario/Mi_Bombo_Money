@@ -2,8 +2,7 @@
 // Read only in this first version: nothing here writes back.
 
 /// Dates in the document are seconds since 1 January 2001 (Apple's reference date), in UTC.
-DateTime referenceDate(num seconds) =>
-    DateTime.fromMillisecondsSinceEpoch(((seconds + 978307200) * 1000).round(), isUtc: true).toLocal();
+DateTime referenceDate(num seconds) => DateTime.fromMillisecondsSinceEpoch(((seconds + 978307200) * 1000).round(), isUtc: true).toLocal();
 
 /// A month as a single number, so months compare without time zones: year * 12 + month - 1.
 int monthKey(DateTime date) => date.year * 12 + date.month - 1;
@@ -34,8 +33,7 @@ enum CategoryKind { income, expense, both, transfer }
 
 enum RemainderChoice { save, carryForward }
 
-T _enumValue<T extends Enum>(List<T> values, Object? raw, T fallback) =>
-    values.firstWhere((value) => value.name == raw, orElse: () => fallback);
+T _enumValue<T extends Enum>(List<T> values, Object? raw, T fallback) => values.firstWhere((value) => value.name == raw, orElse: () => fallback);
 
 int _int(Object? value) => value is num ? value.toInt() : 0;
 int? _intOrNull(Object? value) => value is num ? value.toInt() : null;
@@ -47,8 +45,7 @@ class Institution {
   Institution({required this.id, required this.name});
   final String id;
   final String name;
-  factory Institution.fromJson(Map<String, dynamic> json) =>
-      Institution(id: _string(json['id']), name: _string(json['name']));
+  factory Institution.fromJson(Map<String, dynamic> json) => Institution(id: _string(json['id']), name: _string(json['name']));
 }
 
 class Account {
@@ -68,6 +65,7 @@ class Account {
   final String id;
   final String name;
   final AccountType type;
+
   /// ISO code of the account's currency. Amounts of this account are shown in it.
   final String currencyCode;
   final int openingBalanceMinor;
@@ -130,6 +128,8 @@ class Transaction {
     this.externalId,
     this.bankEntryKey,
     this.duplicateState = 'none',
+    this.fingerprint = '',
+    this.isReconciled = false,
   });
   final String id;
   final DateTime date;
@@ -145,6 +145,8 @@ class Transaction {
   final String? externalId;
   final String? bankEntryKey;
   final String duplicateState;
+  final String fingerprint;
+  final bool isReconciled;
 
   /// Downloaded from a bank (its text needs the bank presentation rules).
   bool get isBanking => bankEntryKey != null;
@@ -167,6 +169,8 @@ class Transaction {
         externalId: _stringOrNull(json['externalID']),
         bankEntryKey: _stringOrNull(json['bankEntryKey']),
         duplicateState: _string(json['duplicateStateRaw']).isEmpty ? 'none' : _string(json['duplicateStateRaw']),
+        fingerprint: _string(json['fingerprint']),
+        isReconciled: json['isReconciled'] == true,
       );
 }
 
@@ -213,7 +217,8 @@ class MonthlyBudget {
 }
 
 class RecurringBudget {
-  RecurringBudget({required this.id, required this.startMonth, this.endMonth, required this.baseLimitMinor, required this.remainderChoice, required this.categoryId});
+  RecurringBudget(
+      {required this.id, required this.startMonth, this.endMonth, required this.baseLimitMinor, required this.remainderChoice, required this.categoryId});
   final String id;
   final DateTime startMonth;
   final DateTime? endMonth;
@@ -252,10 +257,7 @@ class Finances {
   final List<RecurringBudget> recurringBudgets;
 
   static List<T> _list<T>(Map<String, dynamic> document, String key, T Function(Map<String, dynamic>) parse) =>
-      ((document[key] as List?) ?? const [])
-          .whereType<Map>()
-          .map((row) => parse(Map<String, dynamic>.from(row)))
-          .toList();
+      ((document[key] as List?) ?? const []).whereType<Map>().map((row) => parse(Map<String, dynamic>.from(row))).toList();
 
   /// Parses the `document` of `finance_snapshot`. Unknown or missing entities are simply empty.
   factory Finances.fromDocument(Map<String, dynamic> document) {

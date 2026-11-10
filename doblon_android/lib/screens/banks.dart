@@ -53,20 +53,26 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
     });
     try {
       final text = await action(client);
-      if (mounted) setState(() {
-        message = text;
-        messageIsError = false;
-      });
+      if (mounted) {
+        setState(() {
+          message = text;
+          messageIsError = false;
+        });
+      }
     } on BankingError catch (error) {
-      if (mounted) setState(() {
-        message = error.message;
-        messageIsError = true;
-      });
+      if (mounted) {
+        setState(() {
+          message = error.message;
+          messageIsError = true;
+        });
+      }
     } catch (_) {
-      if (mounted) setState(() {
-        message = 'No se ha podido completar. Inténtalo de nuevo más tarde.';
-        messageIsError = true;
-      });
+      if (mounted) {
+        setState(() {
+          message = 'No se ha podido completar. Inténtalo de nuevo más tarde.';
+          messageIsError = true;
+        });
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -161,13 +167,10 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
               child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                 const Text('Conecta tu banco en su propia web: Doblón solo lee saldos y movimientos y nunca ve tus claves.'),
                 const SizedBox(height: 12),
-                FilledButton.icon(
-                    onPressed: busy ? null : _connect, icon: const Icon(Icons.add_link), label: const Text('Conectar un banco')),
+                FilledButton.icon(onPressed: busy ? null : _connect, icon: const Icon(Icons.add_link), label: const Text('Conectar un banco')),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
-                    onPressed: busy || (list?.isEmpty ?? true) ? null : _update,
-                    icon: const Icon(Icons.sync),
-                    label: const Text('Actualizar movimientos')),
+                    onPressed: busy || (list?.isEmpty ?? true) ? null : _update, icon: const Icon(Icons.sync), label: const Text('Actualizar movimientos')),
               ]),
             ),
           ),
@@ -187,9 +190,9 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
                   ListTile(
                     leading: Icon(Icons.account_balance, color: pulso.accent),
                     title: Text(connection.bank, style: const TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: Text('Permiso válido hasta ${connection.validUntil.length >= 10 ? connection.validUntil.substring(0, 10) : connection.validUntil}'),
-                    trailing: IconButton(
-                        tooltip: 'Desconectar', onPressed: busy ? null : () => _disconnect(connection), icon: const Icon(Icons.link_off)),
+                    subtitle:
+                        Text('Permiso válido hasta ${connection.validUntil.length >= 10 ? connection.validUntil.substring(0, 10) : connection.validUntil}'),
+                    trailing: IconButton(tooltip: 'Desconectar', onPressed: busy ? null : () => _disconnect(connection), icon: const Icon(Icons.link_off)),
                   ),
                   for (final account in connection.accounts)
                     ListTile(
