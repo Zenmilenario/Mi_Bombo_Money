@@ -18,7 +18,7 @@ Primera versión para Android, en Flutter. Entra con la misma cuenta de Doblón 
 ## Compilar
 
 En este repositorio la parte nativa de Android (`android/`) la genera el workflow «Comprobar app Android» con `flutter create`. Ese workflow:
-1. pone el nombre «Doblón», el permiso de internet y el icono;
+1. pone el nombre «Doblón», el permiso de internet y el icono (ya redimensionado en `assets/launcher`);
 2. analiza el código;
 3. pasa las pruebas;
 4. compila un APK y lo publica como artefacto **Doblon-Android-APK**.

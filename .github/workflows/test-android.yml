@@ -51,9 +51,9 @@ jobs:
             sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.INTERNET"\/>/' "$MANIFEST"
           grep -q 'android.permission.INTERNET' "$MANIFEST"
           grep -q 'android:label="Doblón"' "$MANIFEST"
-          for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
-            density=${pair%%:*}; size=${pair##*:}
-            convert assets/icon.png -resize "${size}x${size}" "android/app/src/main/res/mipmap-${density}/ic_launcher.png"
+          # Launcher icons are committed already resized (assets/launcher): no image tools needed on the runner.
+          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+            cp "assets/launcher/ic_launcher_${density}.png" "android/app/src/main/res/mipmap-${density}/ic_launcher.png"
           done
 
       - run: flutter pub get
