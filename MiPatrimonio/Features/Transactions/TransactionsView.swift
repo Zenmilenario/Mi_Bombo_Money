@@ -66,11 +66,13 @@ struct BankHold: Identifiable {
     var title: String { TransactionPresentation.listTitle(movement.description, isBanking: true) }
     var dateText: String? { movement.date.map(PersonalBankingError.displayDate) }
 
-    /// Holds of active linked accounts, newest first.
-    static func all(accounts: [FinancialAccount], activity: [String: BankingAccountActivity]) -> [BankHold] {
+    /// Holds of active linked accounts, newest first. A hold already recorded as an Apple Pay payment
+    /// waiting for the bank is left out: that money is already counted as an expense.
+    static func all(accounts: [FinancialAccount], activity: [String: BankingAccountActivity],
+                    transactions: [FinancialTransaction]) -> [BankHold] {
         accounts.filter { !$0.isArchived }.flatMap { account -> [BankHold] in
-            guard let key = account.bankIdentityKey, let entry = activity[key], let pending = entry.pendingMovements else { return [] }
-            return pending.enumerated().map { index, movement in
+            guard let key = account.bankIdentityKey, let entry = activity[key] else { return [] }
+            return uncovered(entry, account: account, transactions: transactions).enumerated().map { index, movement in
                 BankHold(id: "\(key)#\(index)", account: account, movement: movement, observedAt: entry.observedAt)
             }
         }
@@ -78,6 +80,22 @@ struct BankHold: Identifiable {
             let left = lhs.movement.date ?? "", right = rhs.movement.date ?? ""
             return left == right ? lhs.id < rhs.id : left > right
         }
+    }
+
+    static func uncovered(_ entry: BankingAccountActivity, account: FinancialAccount,
+                          transactions: [FinancialTransaction]) -> [BankingPreview.PendingMovement] {
+        guard let pending = entry.pendingMovements, !pending.isEmpty else { return [] }
+        let awaiting = transactions
+            .filter { $0.sourceAccount?.id == account.id && $0.bankEntryKey == nil && CardPaymentInbox.isAwaiting($0.externalID) }
+            .map { (amountMinor: $0.amountMinor, date: $0.date) }
+        return CardPaymentInbox.uncoveredHolds(pending, awaiting: awaiting)
+    }
+
+    /// Charges held for this account and not yet counted as a recorded payment (zero or negative).
+    static func heldMinor(_ entry: BankingAccountActivity?, account: FinancialAccount,
+                          transactions: [FinancialTransaction]) -> Int64 {
+        guard let entry else { return 0 }
+        return uncovered(entry, account: account, transactions: transactions).reduce(0) { $0 + min(0, $1.signedAmountMinor) }
     }
 }
 
@@ -194,7 +212,7 @@ struct TransactionsView: View {
     private var visibleHolds: [BankHold] {
         guard selectedCategoryID == nil, !showOnlyDuplicates, !showOnlyReview else { return [] }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return BankHold.all(accounts: accounts, activity: bankActivity).filter { hold in
+        return BankHold.all(accounts: accounts, activity: bankActivity, transactions: transactions).filter { hold in
             if let selectedAccountID, hold.account.id != selectedAccountID { return false }
             if let selectedType {
                 guard selectedType == .expense || selectedType == .income,
@@ -482,7 +500,7 @@ struct TransactionsView: View {
 
     /// Don Bigotes pointed here: show what he meant, scroll to it and highlight it for a moment.
     private func followCompanion(_ proxy: ScrollViewProxy) {
-        guard let focus = CompanionFocus.parse(companionFocus), [.holds, .review, .bankReview].contains(focus) else { return }
+        guard let focus = CompanionFocus.parse(companionFocus), [.holds, .review, .bankReview, .awaitingBank].contains(focus) else { return }
         companionFocus = ""
         if focus == .bankReview {
             showingBankReview = true
@@ -500,6 +518,11 @@ struct TransactionsView: View {
                 } else if focus == .review, let first = filteredTransactions.first {
                     highlightedID = first.id
                     proxy.scrollTo(first.id, anchor: .center)
+                } else if focus == .awaitingBank, let oldest = filteredTransactions
+                    .filter({ $0.bankEntryKey == nil && CardPaymentInbox.isAwaiting($0.externalID) })
+                    .min(by: { $0.date < $1.date }) {
+                    highlightedID = oldest.id
+                    proxy.scrollTo(oldest.id, anchor: .center)
                 }
             }
             try? await Task.sleep(for: .seconds(2.5))
@@ -1032,10 +1055,14 @@ private struct TransactionRow: View {
                     .monospacedDigit()
                     .foregroundStyle(amountColor)
 
-                Text(transaction.type == .transfer ? "Transferencia" : (transaction.category?.name ?? transaction.type.title))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if transaction.bankEntryKey == nil && CardPaymentInbox.isAwaiting(transaction.externalID) {
+                    StatusPill(text: "Pendiente del banco", tint: AppDesign.warning)
+                } else {
+                    Text(transaction.type == .transfer ? "Transferencia" : (transaction.category?.name ?? transaction.type.title))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(.vertical, 2)

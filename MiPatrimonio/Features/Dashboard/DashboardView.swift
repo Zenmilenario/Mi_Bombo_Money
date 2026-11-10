@@ -107,8 +107,9 @@ struct DashboardView: View {
     private var heldMinor: Int64 {
         activeAccounts
             .filter { $0.includeInNetWorth && $0.type != .investment && !$0.type.isLiability }
-            .compactMap { $0.bankIdentityKey.flatMap { bankActivity[$0] }?.heldTotal }
-            .reduce(0, +)
+            .reduce(0) { total, account in
+                total + BankHold.heldMinor(account.bankIdentityKey.flatMap { bankActivity[$0] }, account: account, transactions: transactions)
+            }
     }
 
     private var reservedCash: Int64 {

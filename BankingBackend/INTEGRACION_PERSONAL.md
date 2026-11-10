@@ -1,10 +1,34 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Doblón 0.7.7 (48) · pagos con Apple Pay apuntados al momento
+
+Preparado el 10 de noviembre de 2026. Trade Republic tarda días en enviar por PSD2 algunos pagos con tarjeta, y mientras tanto el saldo de la app no los refleja. iOS no deja a una app leer las notificaciones de otra, pero Atajos tiene la automatización **«Transacción»**, que se ejecuta tras cada pago con Apple Pay o Wallet y conoce el importe, el comercio y la tarjeta.
+
+**Implementado.**
+- **Acción de Atajos y Siri «Apuntar pago con tarjeta»** (`CardPaymentIntents.swift`): recibe importe, comercio y tarjeta y los deja en una bandeja **solo del dispositivo** (Application Support, protegida y fuera de copias). No abre la app ni toca la base de datos. Frase de Siri: «Apuntar un pago en Doblón».
+- **Paso a movimientos.** Al abrir Doblón, o al momento si ya está abierta, cada pago se apunta como gasto en la cuenta de su tarjeta. La marca `applepay:` en `externalID` indica que aún falta el banco. Solo en tus finanzas reales, nunca en el laboratorio, y solo si ninguna sincronización ni formulario está cambiando datos.
+- **«Pendiente del banco».** Movimientos muestra esa etiqueta en el lugar de la categoría. El gasto ya cuenta en saldo y presupuesto.
+- **Unión con el apunte del banco.** Un apunte del banco de la misma cuenta y el mismo importe, entre el día anterior y 7 días después del pago, se une con el pago apuntado aunque el concepto sea distinto. Si es el único candidato, la unión es automática (en Trade Republic, que siempre pasa por revisión, aparece ya emparejado). Si hay dos pagos iguales, se propone uno y decides tú. Al unirse se quita la marca y se conservan tu concepto, tu fecha y tu categoría.
+- **Sin contar dos veces una retención.** Si el banco comunica antes una retención del mismo importe, no se descuenta de nuevo del disponible ni aparece en «cargos en camino».
+- **Ajustes › Pagos con Apple Pay.** Cuenta por defecto, cuenta de cada tarjeta vista, pagos en espera y los pasos para crear la automatización.
+- **Don Bigotes** avisa de un pago que espera porque su tarjeta no tiene cuenta (abre Ajustes) y de pagos que tras 5 días siguen sin llegar del banco (lleva al más antiguo).
+
+**Crear la automatización (en el iPhone).**
+1. Atajos › Automatización › Nueva automatización › «Transacción».
+2. Marca las tarjetas, por ejemplo la de Trade Republic, y elige «Ejecutar inmediatamente».
+3. Añade la acción «Apuntar pago con tarjeta» de Doblón.
+4. En Importe, Comercio y Tarjeta elige las variables de la transacción con esos nombres.
+5. Guarda. En Doblón, Ajustes › Pagos con Apple Pay, elige la cuenta de la tarjeta.
+
+**Límite.** Solo los pagos con Apple Pay o Wallet activan la automatización. Un pago escribiendo los datos de la tarjeta virtual en una web no la activa; se puede apuntar diciéndoselo a Siri.
+
+**Verificación.** Pruebas con datos ficticios en `PersonalBankingPlanCheck` (formatos de importe, cuenta por tarjeta, bandeja, retenciones cubiertas, ventana de 7 días, pagos gemelos, dos apuntes contra un pago) y en `PersonalBankingImporterCheck` (unión sin duplicado, conserva tu texto y fecha, quita la marca). Pendientes los checks, el IPA y la prueba en el iPhone con un pago real.
+
 ## Doblón 0.7.6 (47) y servidor · apuntes descartados por su estado
 
 Preparado el 10 de noviembre de 2026. Seguía sin llegar un pago con tarjeta de Trade Republic del día anterior. Al revisarlo se vio que el servidor solo acepta apuntes con estado contabilizado (BOOK), pendiente (PDNG) o retenido (HOLD): cualquier otro estado, o la ausencia de estado, se descartaba sin dejar rastro.
 
-**Implementado (pendiente de desplegar el servidor).**
+**Implementado.** Servidor desplegado el 10 de noviembre (versión `71b61550`, desde `eb43ea9`).
 - **Servidor:** cuenta los apuntes descartados por estado (CNCL, RJCT, INFO, sin estado…), los devuelve como `ignoredStatuses` y deja una línea en el registro. Solo el estado y el número, nunca el apunte.
 - **App:** el diagnóstico de Mis bancos indica, por cuenta, «El banco también envió N … que la app no incorpora».
 - Así se distingue si el banco no ha enviado el pago o si lo envió con un estado que no se importa.
@@ -12,7 +36,7 @@ Preparado el 10 de noviembre de 2026. Seguía sin llegar un pago con tarjeta de 
 **Verificación.**
 - Servidor: 25 pruebas en local, incluida la nueva con estados variados.
 - App: pruebas con datos ficticios en `PersonalBankingPlanCheck`.
-- Pendientes los checks, el despliegue del servidor (requiere confirmación) y la prueba.
+- Checks en verde y servidor desplegado. En el iPad el diagnóstico no mostró el pago ni estados descartados: Trade Republic no lo había enviado por PSD2. De ahí la 0.7.7.
 
 ## Doblón 0.7.5 (46) · Don Bigotes actualiza tus bancos
 

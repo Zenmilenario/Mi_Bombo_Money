@@ -457,7 +457,7 @@ struct AccountsView: View {
         let reserved = (account.type.isLiability || account.type == .investment) ? 0
             : FinanceCalculator.reservedAmount(for: account, funds: reservedFunds, transactions: transactions)
         let activity = account.bankIdentityKey.flatMap { bankActivity[$0] }
-        let held = account.isArchived ? 0 : abs(activity?.heldTotal ?? 0)
+        let held = account.isArchived ? 0 : abs(BankHold.heldMinor(activity, account: account, transactions: transactions))
         let free = max(0, balance - reserved - held)
         let tint = AppDesign.institutionTint(account.institution?.colorHex ?? "#1F6B7A")
         let linkedCardCount = activeCards.filter { $0.linkedAccount?.id == account.id }.count
@@ -1131,7 +1131,8 @@ private struct AccountDetailView: View {
                 }
                 if !pending.isEmpty {
                     LabeledContent("Saldo tras retenciones") {
-                        PrivacyAmountText(minorUnits: balance + activity.heldTotal, currencyCode: activity.currency,
+                        PrivacyAmountText(minorUnits: balance + BankHold.heldMinor(activity, account: account, transactions: transactions),
+                                          currencyCode: activity.currency,
                                           weight: .semibold)
                     }
                     Text("Importes provisionales. Los cargos se reflejan en el historial y el presupuesto cuando el banco los contabiliza; también los ves en Movimientos.")

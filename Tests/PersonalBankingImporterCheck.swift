@@ -154,6 +154,7 @@ struct PersonalBankingImporterCheck {
         try checkTradeRepublicWithoutBookedBalance(server: server, in: context, day: day, observed: observed)
         try checkSplitContributions(server: server, in: context, day: day, observed: observed)
         try checkMergeDuplicateBankEntry(server: server, schema: schema, day: day, observed: observed)
+        try checkApplePayPayment(server: server, schema: schema, day: day, observed: observed)
         try checkTradeRepublicShiftedDate(server: server, schema: schema, day: day, observed: observed)
         try checkOwnTransfers(server: server, schema: schema, day: day, observed: observed)
         // Live financial imports can never write to the separate sandbox workspace.
@@ -296,6 +297,39 @@ struct PersonalBankingImporterCheck {
         _ = try PersonalBankingImporter.apply(hinted, server: server, ownTransferHints: ["bk-own": ["in-hint"]], in: context, observedAt: observed)
         let hintedRows = try rows().filter { $0.amountMinor == 900 }
         precondition(hintedRows.map(\.type) == [.transfer], "A bank naming the other own account is strong evidence")
+    }
+
+    /// A payment recorded with Apple Pay pairs with the bank posting that arrives days later: it keeps the
+    /// user's text and date, takes the bank reference and stops waiting. The download adds nothing new.
+    @MainActor private static func checkApplePayPayment(server: URL, schema: Schema, day: Date, observed: Date) throws {
+        let container = try ModelContainer(for: schema, configurations: ModelConfiguration("CloudFinance", schema: schema, isStoredInMemoryOnly: true))
+        let context = container.mainContext
+        let local = FinancialAccount(name: "Cuenta ficticia con Apple Pay", type: .checking, openingDate: day.addingTimeInterval(-86400 * 30))
+        let payment = CardPayment(id: UUID(), date: day.addingTimeInterval(-86400 * 2), amountMinor: 4250,
+                                  merchant: "Gasolinera ficticia", card: "Tarjeta ficticia")
+        let recorded = FinancialTransaction(id: payment.id, date: payment.date, type: .expense, amountMinor: payment.amountMinor,
+            descriptionText: payment.merchant, notes: "Apuntado al pagar con Tarjeta ficticia.",
+            externalID: CardPaymentInbox.externalID(for: payment), sourceAccount: local)
+        context.insert(local); context.insert(recorded)
+        try context.save()
+        let remote = ConnectedBankAccount(id: "applepay-account", name: "Cuenta •••• 0000", currency: "EUR", lastFour: "0000")
+        try PersonalBankingImporter.link(remote, bank: "BBVA", server: server, to: local, in: context)
+        let feed = BankingAccountFeed(connection: .init(id: UUID().uuidString, bank: "BBVA", validUntil: "2026-11-01", accounts: [remote]),
+            account: remote, balances: [.init(amountMinor: 50000, currency: "EUR", type: "CLBD")], movements: [
+                .init(id: "fuel", bookingDate: "2026-10-15", signedAmountMinor: -4250, currency: "EUR", description: "TXT/PAGO TARJETA FICTICIO")])
+        let ledger = try PersonalBankingImporter.ledger(in: context)
+        precondition(ledger.first { $0.id == recorded.id }?.awaitingBank == true, "The recorded payment is waiting for the bank")
+        let plan = try PersonalBankingImporter.plan([feed], server: server, in: context)
+        precondition(plan.items.count == 1 && plan.items[0].automaticMatch == recorded.id)
+        let result = try PersonalBankingImporter.apply([feed], server: server, in: context, observedAt: observed)
+        let rows = try context.fetch(FetchDescriptor<FinancialTransaction>())
+        precondition(result.inserted == 0 && result.matched == 1 && rows.count == 1, "No duplicate: the bank posting is the recorded payment")
+        precondition(recorded.externalID == nil && recorded.bankEntryKey != nil && recorded.isReconciled)
+        precondition(recorded.descriptionText == "Gasolinera ficticia" && recorded.date == payment.date, "The user's text and date are kept")
+        let afterLedger = try PersonalBankingImporter.ledger(in: context)
+        precondition(afterLedger.allSatisfy { !$0.awaitingBank })
+        let repeated = try PersonalBankingImporter.apply([feed], server: server, in: context, observedAt: observed.addingTimeInterval(60))
+        precondition(repeated.inserted == 0 && repeated.skipped == 1)
     }
 
     /// A bank posting imported next to the user's own record can be merged into it, and stays merged.

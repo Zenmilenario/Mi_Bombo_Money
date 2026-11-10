@@ -149,7 +149,8 @@ enum PersonalBankingImporter {
     @MainActor static func ledger(in context: ModelContext) throws -> [BankingLedgerEntry] {
         try context.fetch(FetchDescriptor<FinancialTransaction>()).map {
             BankingLedgerEntry(id: $0.id, date: $0.date, kind: $0.typeRaw, amount: $0.amountMinor,
-                source: $0.sourceAccount?.id, destination: $0.destinationAccount?.id, text: $0.descriptionText, externalID: $0.bankEntryKey)
+                source: $0.sourceAccount?.id, destination: $0.destinationAccount?.id, text: $0.descriptionText, externalID: $0.bankEntryKey,
+                awaitingBank: $0.bankEntryKey == nil && CardPaymentInbox.isAwaiting($0.externalID))
         }
     }
 
@@ -571,6 +572,8 @@ enum PersonalBankingImporter {
                     }
                     // Preserve the user's category, notes, reserve allocation, recurring provenance and date.
                     transaction.bankEntryKey = try PersonalBankingPlan.encodedKeys(keys + PersonalBankingPlan.keys(item.id))
+                    // A payment recorded with Apple Pay is no longer waiting: the bank has sent it.
+                    if CardPaymentInbox.isAwaiting(transaction.externalID) { transaction.externalID = nil }
                     transaction.isReconciled = true; transaction.updatedAt = observedAt
                     matched += 1
                 case .new:

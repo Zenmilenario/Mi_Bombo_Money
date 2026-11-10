@@ -158,6 +158,8 @@ struct BankingLedgerEntry: Equatable {
     let destination: UUID?
     let text: String
     let externalID: String?
+    /// Recorded when paying (Apple Pay via Shortcuts) and still waiting for the bank to send it.
+    var awaitingBank = false
 }
 
 /// Interprets Trade Republic's normalized feed without changing shared accounting rules.
@@ -378,7 +380,11 @@ struct PersonalBankingPlan {
             let item = items[i]
             if item.automaticMatch != nil { continue }
             let key = CandidateKey(source: item.source, destination: item.destination, kind: item.kind, amount: item.amount)
-            var candidates = (candidateIndex[key] ?? []).filter { abs($0.date.timeIntervalSince(item.date)) <= 3 * 86400 }
+            // A payment recorded at the till reaches the bank on that day or some days later, never before.
+            var candidates = (candidateIndex[key] ?? []).filter { entry in
+                let delay = item.date.timeIntervalSince(entry.date)
+                return entry.awaitingBank ? delay >= -86400 && delay <= CardPaymentInbox.matchWindow : abs(delay) <= 3 * 86400
+            }
             // A single bank debit may be the visible leg of an existing investment transfer.
             // Matching it preserves the original transfer instead of creating an expense.
             let transfers = try ledger.filter { transfer in
@@ -412,7 +418,16 @@ struct PersonalBankingPlan {
                 && !normalized(item.text).isEmpty && normalized($0.text) == normalized(item.text) }
             // Ambiguous repeated purchases and two bank rows competing for one local row require review.
             if !item.hasLocalReference, candidates.count == 1, exact.count == 1 { items[i].automaticMatch = exact[0].id }
-            if items[i].automaticMatch == nil, let best = candidates.first {
+            // The only candidate is a payment recorded with Apple Pay on this account for this exact amount:
+            // the bank posting is that payment, even when the merchant text differs.
+            if items[i].automaticMatch == nil, candidates.count == 1, candidates[0].awaitingBank, rekeyed.isEmpty {
+                items[i].automaticMatch = candidates[0].id
+            }
+            if items[i].automaticMatch == nil, let paid = candidates.first(where: \.awaitingBank) {
+                items[i].suggestedMatch = paid.id
+                items[i].suggestionReason = "Lo apuntaste al pagar con Apple Pay: misma cuenta e importe."
+            }
+            if items[i].automaticMatch == nil, items[i].suggestedMatch == nil, let best = candidates.first {
                 let score = Self.conceptScore(best.text, item.text)
                 let distinctConcept = score > 0 && (candidates.count == 1 || score > Self.conceptScore(candidates[1].text, item.text))
                 let sameDay = sameBookingDay(best, item)

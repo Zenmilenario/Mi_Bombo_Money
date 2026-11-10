@@ -66,13 +66,18 @@ struct RootTabView: View {
         }
         .onAppear {
             postDueMovements()
+            fileCardPayments()
             recordOpening()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
                 postDueMovements()
+                fileCardPayments()
                 recordOpening()
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: CardPaymentInbox.didChange).receive(on: RunLoop.main)) { _ in
+            fileCardPayments()
         }
         .alert("No se pudo registrar un movimiento periódico", isPresented: Binding(isPresent: $recurrenceError)) {
             Button("Aceptar", role: .cancel) { recurrenceError = nil }
@@ -184,6 +189,14 @@ struct RootTabView: View {
         } catch {
             recurrenceError = error.localizedDescription
         }
+    }
+
+    /// Payments captured by the Shortcuts action become expenses pending from the bank. Only in the real
+    /// finances (never the banking lab) and when no sync or form is changing the data at that moment.
+    private func fileCardPayments() {
+        guard let name = modelContext.container.configurations.first?.name, ["LocalFinance", "CloudFinance"].contains(name),
+              !modelContext.hasChanges, mayApplyLearning() else { return }
+        CardPaymentFiler.file(into: modelContext)
     }
 
     @MainActor
@@ -334,6 +347,7 @@ private struct CompanionView: View {
     @AppStorage("companionUsageV1") private var usageJSON = ""
     @AppStorage("companionFocus") private var focusRequest = ""
     @State private var showingNotes = false
+    @State private var waitingCardPayments = CardPaymentInbox.load().count
 
     let currentTab: AppTab
     let bottomInset: CGFloat
@@ -347,13 +361,29 @@ private struct CompanionView: View {
                 detail: bankReviewPending.joined(separator: ", ") + " · confírmala para incorporarla",
                 systemImage: "tray.and.arrow.down", tab: .transactions, focus: .bankReview, urgent: true))
         }
-        let holds = BankHold.all(accounts: accounts, activity: bankActivity).filter { $0.movement.signedAmountMinor < 0 }
+        let holds = BankHold.all(accounts: accounts, activity: bankActivity, transactions: transactions).filter { $0.movement.signedAmountMinor < 0 }
         if !holds.isEmpty {
             let total = holds.reduce(Int64.zero) { $0 + $1.movement.signedAmountMinor }
             notes.append(CompanionNote(id: "holds:" + holds.map(\.id).sorted().joined(separator: ","), kind: "holds",
                 title: holds.count == 1 ? "1 cargo en camino" : "\(holds.count) cargos en camino",
                 detail: "Retenidos por el banco · \(MoneyFormatter.string(minorUnits: total))",
                 systemImage: "hourglass", tab: .transactions, focus: .holds, urgent: true))
+        }
+        if waitingCardPayments > 0 {
+            notes.append(CompanionNote(id: "cardInbox:\(waitingCardPayments)", kind: "cardInbox",
+                title: waitingCardPayments == 1 ? "1 pago con Apple Pay sin cuenta" : "\(waitingCardPayments) pagos con Apple Pay sin cuenta",
+                detail: "Se apuntará cuando su tarjeta tenga una cuenta asignada",
+                systemImage: "creditcard", tab: .settings, focus: .cardPayments, urgent: true))
+        }
+        let overdueLimit = Date.now.addingTimeInterval(-CardPaymentInbox.overdueAfter)
+        let overdue = transactions.filter {
+            $0.bankEntryKey == nil && CardPaymentInbox.isAwaiting($0.externalID) && $0.date < overdueLimit
+        }
+        if !overdue.isEmpty {
+            notes.append(CompanionNote(id: "awaitingBank:" + overdue.map(\.id.uuidString).sorted().joined(separator: ","), kind: "awaitingBank",
+                title: overdue.count == 1 ? "1 pago sigue sin llegar del banco" : "\(overdue.count) pagos siguen sin llegar del banco",
+                detail: "Apuntados con Apple Pay hace más de 5 días",
+                systemImage: "creditcard.trianglebadge.exclamationmark", tab: .transactions, focus: .awaitingBank, urgent: false))
         }
         let review = transactions.filter { !TransactionReviewService.issues(for: $0).isEmpty }
         if !review.isEmpty {
@@ -447,6 +477,11 @@ private struct CompanionView: View {
                 }
                 .presentationDetents([.medium, .large])
             }
+            // The inbox lives in a file: re-read it when a payment arrives or the finances change.
+            .onReceive(NotificationCenter.default.publisher(for: CardPaymentInbox.didChange).receive(on: RunLoop.main)) { _ in
+                waitingCardPayments = CardPaymentInbox.load().count
+            }
+            .onChange(of: transactions.count) { _, _ in waitingCardPayments = CardPaymentInbox.load().count }
         }
     }
 
