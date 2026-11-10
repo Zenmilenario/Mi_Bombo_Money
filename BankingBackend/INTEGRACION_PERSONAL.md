@@ -22,6 +22,15 @@ Decidido el 10 de noviembre de 2026. El usuario creó en Enable Banking una segu
 - `personal.test.mjs`: sesión sin cuentas revocada.
 - En local: 34 unitarias y 23 de integración en verde.
 
+**Desplegado el 10 de noviembre de 2026** con confirmación del usuario:
+- Clave de «Doblón Piloto» subida por el usuario con `npm run pilot-app`.
+- Servidor personal: versión `e8e6f77c` (anterior para *rollback*: `35bba215`).
+- Servidor sandbox: versión `b6296b51`.
+- `/health` correcto y 401 sin sesión. Antes: auditoría, 34 unitarias, 23 de integración y compilación en verde.
+- PR #41 en borrador.
+
+**Pendiente:** activar «Doblón Piloto» vinculando las cuentas de la primera persona y añadir a los invitados cuando estén disponibles.
+
 **Dar de alta a una persona invitada.**
 1. **Una sola vez:**
    - En el panel, «Doblón Piloto» › «Activate by linking accounts». La persona, delante, entra en su banco y autoriza. Con eso la aplicación queda activa.
