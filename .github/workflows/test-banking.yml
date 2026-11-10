@@ -77,6 +77,17 @@ jobs:
             Tests/BankingSecurityCheck.swift \
             -o build/banking-client-check/BankingSecurityCheck
           build/banking-client-check/BankingSecurityCheck
+      - name: Comprobar la edición pública
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/public-edition-check
+          xcrun swiftc -swift-version 5 -parse-as-library -D DOBLON_PUBLIC \
+            MiPatrimonio/Core/Security/AppAuthenticationPolicy.swift \
+            MiPatrimonio/Core/Services/BankingConnectionPolicy.swift \
+            Tests/PublicEditionCheck.swift \
+            -o build/public-edition-check/PublicEditionCheck
+          build/public-edition-check/PublicEditionCheck
 
   workspace:
     name: Integración bancaria en la app de prueba

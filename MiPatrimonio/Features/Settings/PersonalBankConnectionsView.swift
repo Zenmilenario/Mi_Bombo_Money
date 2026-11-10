@@ -60,7 +60,9 @@ struct PersonalBankConnectionsView: View {
                 Button("Comprobar conexión") { run { try await banking.configure(server: server, account: account) } }
                 Text("Usa el servidor de producción preparado para tu cuenta cloud. No necesitas introducir una clave del servidor ni contraseñas bancarias aquí.")
                     .font(.caption).foregroundStyle(.secondary)
-                DisclosureGroup("Detalles del servidor") { Text(server).font(.caption).textSelection(.enabled) }
+                if AppEdition.isPersonal {
+                    DisclosureGroup("Detalles del servidor") { Text(server).font(.caption).textSelection(.enabled) }
+                }
             }
             if !banking.connections.isEmpty {
                 Section {
@@ -103,7 +105,9 @@ struct PersonalBankConnectionsView: View {
                     }
                     Text("Permiso válido hasta \(connection.validUntil.prefix(10)).").font(.caption).foregroundStyle(.secondary)
                     ForEach(connection.accounts) { remote in
-                        if let activity = banking.activity(forAccount: remote.id), let recent = activity.recentMovements {
+                        // Diagnostic of what the bank sent: a developer tool, only in the personal edition.
+                        if AppEdition.isPersonal, let activity = banking.activity(forAccount: remote.id),
+                           let recent = activity.recentMovements {
                             DisclosureGroup {
                                 if recent.isEmpty {
                                     Text("El banco no envió apuntes contabilizados en el periodo consultado.")

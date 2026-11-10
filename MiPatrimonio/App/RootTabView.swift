@@ -66,7 +66,7 @@ struct RootTabView: View {
             await listenForCorrectionEvents()
         }
         .onAppear {
-            HitchMonitor.shared.start()
+            if AppEdition.isPersonal { HitchMonitor.shared.start() }
             postDueMovements()
             fileCardPayments()
             recordOpening()

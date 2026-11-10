@@ -1,5 +1,21 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Doblón 0.7.11 (52) · edición personal y edición pública
+
+Decidido el 10 de noviembre de 2026. El mismo código genera dos ediciones, que se eligen al generar el IPA (Actions → Generar IPA → Edición). **Las dos conectan con bancos**: la conexión bancaria es el centro del proyecto.
+
+**Implementado.**
+- **Personal** (`personal`, por defecto): todo, con las herramientas de desarrollo.
+- **Pública** (`publica`, condición de compilación `DOBLON_PUBLIC`): sin las herramientas de desarrollo.
+  - Fuera: el laboratorio bancario, «Fluidez de la app» y su medidor, el diagnóstico de últimos apuntes recibidos y estados descartados, y los detalles del servidor en Mis bancos.
+  - Se mantienen: la conexión bancaria, la actualización automática, Apple Pay, la nube y el resto de funciones.
+- `AppEdition.isPersonal` indica la edición. En la pública, abrir el laboratorio lleva a la conexión real.
+- **CI:** «Validar app iOS» compila también la edición pública. `test-banking` ejecuta `PublicEditionCheck`, compilado con `-D DOBLON_PUBLIC`.
+
+**Pendiente.** La edición pública aún usa el servidor personal, que solo admite al creador. Para que otras personas conecten sus bancos hace falta lo descrito en «Conexión bancaria para otras personas» (Obsidian): acuerdo con Enable Banking, servidor para varios usuarios y consentimiento.
+
+**Verificación.** Pendientes los checks, el IPA y la prueba.
+
 ## Doblón 0.7.7 (48) · pagos con Apple Pay apuntados al momento
 
 Preparado el 10 de noviembre de 2026. Trade Republic tarda días en enviar por PSD2 algunos pagos con tarjeta, y mientras tanto el saldo de la app no los refleja. iOS no deja a una app leer las notificaciones de otra, pero Atajos tiene la automatización **«Transacción»**, que se ejecuta tras cada pago con Apple Pay o Wallet y conoce el importe, el comercio y la tarjeta.

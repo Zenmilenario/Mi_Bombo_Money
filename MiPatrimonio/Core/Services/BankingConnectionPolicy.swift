@@ -33,12 +33,25 @@ struct BankingBankSyncStatus {
     var retryIsAutomatic = false
 }
 
+/// Two editions from one code base, chosen when the IPA is built. Both connect to banks. The public one
+/// (`DOBLON_PUBLIC`), for other people, leaves out the developer tools: the banking lab, the pause meter
+/// and the diagnostics of what each bank sent.
+enum AppEdition {
+    #if DOBLON_PUBLIC
+    static let isPersonal = false
+    #else
+    static let isPersonal = true
+    #endif
+}
+
 enum BankingConnectionPolicy {
     enum EntryDestination: Equatable { case personal, sandbox, requiresPersonalWorkspace }
 
-    static func entryDestination(cloud: Bool, testWorkspace: Bool, testOnly: Bool) -> EntryDestination {
+    static func entryDestination(cloud: Bool, testWorkspace: Bool, testOnly: Bool,
+                                 personalEdition: Bool = AppEdition.isPersonal) -> EntryDestination {
         if testWorkspace { return .requiresPersonalWorkspace }
-        if testOnly { return .sandbox }
+        // The banking lab only exists in the personal edition; elsewhere the real connection is shown.
+        if testOnly && personalEdition { return .sandbox }
         return cloud ? .personal : .requiresPersonalWorkspace
     }
 

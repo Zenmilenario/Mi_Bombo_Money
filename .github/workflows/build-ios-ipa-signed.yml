@@ -2,6 +2,15 @@ name: Generar IPA firmado
 
 on:
   workflow_dispatch:
+    inputs:
+      edition:
+        description: Edición (personal con tu banco y herramientas; publica para otras personas)
+        required: true
+        default: personal
+        type: choice
+        options:
+          - personal
+          - publica
 
 permissions:
   contents: read
@@ -23,6 +32,7 @@ jobs:
       DERIVED_DATA: build/DerivedDataSigned
       OUTPUT_DIR: build/output-signed
       BUILD_NUMBER: ${{ github.run_number }}
+      EDITION: ${{ inputs.edition || 'personal' }}
       BUNDLE_IDENTIFIER: ${{ secrets.BUNDLE_IDENTIFIER }}
 
     steps:
@@ -149,6 +159,8 @@ jobs:
           rm -rf build
           mkdir -p "$OUTPUT_DIR"
 
+          EXTRA=()
+          if [ "$EDITION" = "publica" ]; then EXTRA+=("SWIFT_ACTIVE_COMPILATION_CONDITIONS=\$(inherited) DOBLON_PUBLIC"); fi
           xcodebuild \
             -project "$PROJECT" \
             -scheme "$SCHEME" \
@@ -165,6 +177,7 @@ jobs:
             PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN_PATH" \
             COMPILER_INDEX_STORE_ENABLE=NO \
+            "${EXTRA[@]}" \
             clean build | tee build/xcodebuild-signed.log
 
       - name: Verificar firma y crear IPA

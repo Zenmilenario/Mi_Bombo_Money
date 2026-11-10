@@ -103,6 +103,8 @@ struct SettingsView: View {
     private var availableRoutes: [SettingsRoute] {
         SettingsRoute.allCases.filter { route in
             if isBankingTestWorkspace && [.cloud, .banks, .cardPayments, .backup, .csv, .sandbox].contains(route) { return false }
+            // The banking lab is a developer tool: only in the personal edition.
+            if !AppEdition.isPersonal && route == .sandbox { return false }
             return true
         }
     }
@@ -321,8 +323,10 @@ struct SettingsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     routeRow(.sandbox)
-                    NavigationLink { HitchListView() } label: {
-                        SettingsRouteLabel(title: "Fluidez de la app", subtitle: "Pausas recientes al usar la app", systemImage: "speedometer")
+                    if AppEdition.isPersonal {
+                        NavigationLink { HitchListView() } label: {
+                            SettingsRouteLabel(title: "Fluidez de la app", subtitle: "Pausas recientes al usar la app", systemImage: "speedometer")
+                        }
                     }
                     if showsReset {
                         Button(role: .destructive) { showingResetConfirmation = true } label: {
