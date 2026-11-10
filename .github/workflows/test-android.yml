@@ -1,0 +1,88 @@
+name: Comprobar app Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["**"]
+  pull_request:
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    name: Pruebas y APK de Doblón para Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: doblon_android
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generar la parte nativa de Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The Android project is generated here (no Flutter on the Windows development machine).
+          # Existing Dart code is kept; the example test that `flutter create` adds is removed.
+          flutter create --platforms=android --org com.zenmilenario --project-name doblon --no-pub .
+          rm -f test/widget_test.dart
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          sed -i 's/android:label="doblon"/android:label="Doblón"/' "$MANIFEST"
+          grep -q 'android.permission.INTERNET' "$MANIFEST" || \
+            sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.INTERNET"\/>/' "$MANIFEST"
+          grep -q 'android.permission.INTERNET' "$MANIFEST"
+          grep -q 'android:label="Doblón"' "$MANIFEST"
+          for pair in mdpi:48 hdpi:72 xhdpi:96 xxhdpi:144 xxxhdpi:192; do
+            density=${pair%%:*}; size=${pair##*:}
+            convert assets/icon.png -resize "${size}x${size}" "android/app/src/main/res/mipmap-${density}/ic_launcher.png"
+          done
+
+      - run: flutter pub get
+
+      - name: Analizar el código
+        run: flutter analyze --no-fatal-infos
+
+      - name: Pruebas con datos ficticios
+        run: flutter test
+
+      - name: Compilar el APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter build apk --release
+          VERSION=$(grep '^version:' pubspec.yaml | awk '{print $2}' | tr '+' '-')
+          mkdir -p ../build/android
+          cp build/app/outputs/flutter-apk/app-release.apk "../build/android/Doblon-Android-${VERSION}-${GITHUB_RUN_NUMBER}.apk"
+          {
+            echo "## APK de Doblón para Android"
+            echo ""
+            echo "- Versión: \`${VERSION}\` (ejecución ${GITHUB_RUN_NUMBER})"
+            echo "- Descarga el artefacto **Doblon-Android-APK**, ábrelo en el móvil y permite instalar desde esa fuente."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar el APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: Doblon-Android-APK
+          path: build/android/*.apk
+          if-no-files-found: error
+          retention-days: 30
