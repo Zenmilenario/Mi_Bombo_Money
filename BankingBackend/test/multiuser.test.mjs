@@ -92,3 +92,18 @@ test('rate limits are counted separately for each user', async () => {
   await assert.rejects(rateLimit(env, `user:${(await ownerTag(guestA)).slice(0, 32)}`, 3), { code: 'rate_limited' });
   await rateLimit(env, `user:${(await ownerTag(guestB)).slice(0, 32)}`, 3);
 });
+
+test('sandbox keeps one shared space with no Supabase identity, including connections saved before', async () => {
+  const env = { PROVIDER_MODE: 'sandbox', PUBLIC_ORIGIN: 'https://bank-test.sandbox.workers.dev',
+    DATA_ENCRYPTION_KEY: randomBytes(32).toString('base64'), DB: database() };
+  const legacy = crypto.randomUUID();
+  env.DB.raw.prepare('INSERT INTO connections(id,mode,encrypted_data,created_at,expires_at) VALUES (?,?,?,?,?)')
+    .run(legacy, 'sandbox', await seal(fictitious('Banco de prueba previo'), `connection:${legacy}`, env), Date.now(), Math.floor(Date.now() / 1000) + 86400);
+  const fresh = crypto.randomUUID();
+  await saveConnection(fresh, fictitious('Banco de prueba'), env);
+  assert.equal(env.DB.raw.prepare('SELECT owner FROM connections WHERE id=?').get(fresh).owner, null);
+  assert.deepEqual((await listConnections(env)).map(c => c.bank).sort(), ['Banco de prueba', 'Banco de prueba previo']);
+  assert.equal((await connection(legacy, env)).sessionID, 'session-Banco de prueba previo');
+  const pending = await newAuthorization('Banco de prueba', env);
+  assert.equal((await claimAuthorization(pending.state, env)).bank, 'Banco de prueba');
+});

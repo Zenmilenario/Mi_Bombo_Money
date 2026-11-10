@@ -18,6 +18,14 @@ export async function rateLimit(env, scope, limit = 60) {
 export async function ownerTag(user) { return sha256(`owner:${String(user).toLowerCase()}`); }
 /// Rows saved before invited users existed carry no marker: they belong to the configured owner.
 function isOwner(user, env) { return String(user).toLowerCase() === String(env.SUPABASE_OWNER_ID ?? '').toLowerCase(); }
+/// Users only exist in production. Demo and sandbox have no Supabase identity and keep one shared space.
+const production = env => env.PROVIDER_MODE === 'production';
+/// SQL filter and values that keep each production user inside their own connections.
+async function ownership(env, user) {
+  if (!production(env)) return { clause: '', values: [] };
+  const owner = canonicalUser(user, env);
+  return { clause: ' AND (owner=? OR (owner IS NULL AND ?=1))', values: [await ownerTag(owner), isOwner(owner, env) ? 1 : 0] };
+}
 
 export async function newAuthorization(bank, env, user = env.SUPABASE_OWNER_ID) {
   const state = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url');
@@ -44,28 +52,27 @@ export async function assertPendingAuthorization(state, env) {
   if (!row) throw new Fault(400, 'invalid_authorization');
 }
 export async function saveConnection(id, value, env, user = env.SUPABASE_OWNER_ID) {
-  if (!allowedUsers(env).has(String(user).toLowerCase())) throw new Fault(403, 'owner_required');
+  if (production(env) && !allowedUsers(env).has(String(user).toLowerCase())) throw new Fault(403, 'owner_required');
   const expiresAt = Math.floor(Date.parse(value.validUntil) / 1000);
   if (!Number.isSafeInteger(expiresAt) || expiresAt <= now()) throw new Fault(502, 'invalid_provider_data');
-  const owner = canonicalUser(user, env);
+  const owner = production(env) ? canonicalUser(user, env) : undefined;
   await env.DB.prepare('INSERT INTO connections(id,mode,encrypted_data,created_at,expires_at,owner) VALUES (?,?,?,?,?,?)')
-    .bind(id, env.PROVIDER_MODE, await seal(value, `connection:${id}`, env, owner), Date.now(), expiresAt, await ownerTag(owner)).run();
+    .bind(id, env.PROVIDER_MODE, await seal(value, `connection:${id}`, env, owner), Date.now(), expiresAt,
+      owner === undefined ? null : await ownerTag(owner)).run();
 }
 /// Only the user's own connections are ever read; another user's ID is simply "not found".
 export async function connection(id, env, user = env.SUPABASE_OWNER_ID) {
-  const owner = canonicalUser(user, env);
-  const row = await env.DB.prepare(`SELECT * FROM connections WHERE id=? AND mode=? AND expires_at>?
-    AND (owner=? OR (owner IS NULL AND ?=1))`)
-    .bind(id, env.PROVIDER_MODE, now(), await ownerTag(owner), isOwner(owner, env) ? 1 : 0).first();
+  const filter = await ownership(env, user);
+  const row = await env.DB.prepare(`SELECT * FROM connections WHERE id=? AND mode=? AND expires_at>?${filter.clause}`)
+    .bind(id, env.PROVIDER_MODE, now(), ...filter.values).first();
   if (!row) throw new Fault(404, 'connection_not_found');
-  return { id, ...await unseal(row.encrypted_data, `connection:${id}`, env, owner) };
+  return { id, ...await unseal(row.encrypted_data, `connection:${id}`, env, production(env) ? canonicalUser(user, env) : undefined) };
 }
 export async function listConnections(env, includeSuperseded = false, user = env.SUPABASE_OWNER_ID) {
-  const owner = canonicalUser(user, env);
-  const { results } = await env.DB.prepare(`SELECT id FROM connections WHERE mode=? AND expires_at>?
-    AND (owner=? OR (owner IS NULL AND ?=1)) ORDER BY created_at DESC`)
-    .bind(env.PROVIDER_MODE, now(), await ownerTag(owner), isOwner(owner, env) ? 1 : 0).all();
-  const connections = await Promise.all(results.map(row => connection(row.id, env, owner)));
+  const filter = await ownership(env, user);
+  const { results } = await env.DB.prepare(`SELECT id FROM connections WHERE mode=? AND expires_at>?${filter.clause} ORDER BY created_at DESC`)
+    .bind(env.PROVIDER_MODE, now(), ...filter.values).all();
+  const connections = await Promise.all(results.map(row => connection(row.id, env, user)));
   if (env.PROVIDER_MODE !== 'production' || includeSuperseded) return connections;
   const seen = new Set();
   // A renewed consent has new provider UIDs but the same stable account IDs.
