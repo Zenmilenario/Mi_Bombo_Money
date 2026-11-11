@@ -1,6 +1,6 @@
 # Privacidad de invitados, cifrado y aprendizaje
 
-Revisión del 11 de noviembre de 2026. Implementación **local**, pendiente de revisión de CI/macOS, despliegue coordinado de Supabase y prueba física en iPhone/Android. No se ha aplicado esta migración al proyecto real.
+Revisión del 11 de noviembre de 2026. Implementación **local**, pendiente de revisión de CI/macOS, despliegue coordinado de Supabase y prueba física en iPhone/Android. La migración se aplicó al proyecto real el 11 de noviembre de 2026 (ver «Activación del 11/11»).
 
 ## Decisión
 
@@ -56,7 +56,7 @@ Para el TFM: conservar el esquema relacional con datos propios o sintéticos per
 - 81 pruebas Flutter correctas; análisis estático sin incidencias.
 - APK Release Android 0.13.0 (9) compilado correctamente. No instalar todavía contra la base sin migrar.
 - iOS 0.7.16 (57): código y comprobaciones de CI preparados; compilación macOS y prueba física pendientes.
-- No se ha hecho push, desplegado el Worker ni aplicado la migración real.
+- Subido a la rama `claude/flutter-lote-1` con las comprobaciones de CI en verde. El Worker no se ha desplegado.
 
 ## Comprobaciones
 

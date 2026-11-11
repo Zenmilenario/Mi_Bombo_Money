@@ -1,9 +1,12 @@
--- Prepared locally. Do not apply to the live project before coordinating both client releases.
+-- Applied to the live project on 11 November 2026, in one transaction with the developer's exemption (the id is
+-- inserted by an administrator and is not stored in the repository).
 -- Default: encrypted. Only an administrator can exempt the developer's own identity.
 CREATE TABLE finance_private.developer_plaintext_users (
     owner_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE
 );
 REVOKE ALL ON finance_private.developer_plaintext_users FROM PUBLIC, anon, authenticated;
+-- No policies on purpose: only SECURITY DEFINER code (plaintext_allowed) and administrators read it.
+ALTER TABLE finance_private.developer_plaintext_users ENABLE ROW LEVEL SECURITY;
 GRANT ALL ON finance_private.developer_plaintext_users TO service_role;
 
 CREATE FUNCTION finance_private.plaintext_allowed() RETURNS boolean
