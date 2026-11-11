@@ -5,9 +5,11 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+import 'bank_activity.dart';
 import 'banking.dart' show referenceSeconds;
 import 'edits.dart';
 import 'models.dart';
+import 'presentation.dart' show money;
 
 // ---------------------------------------------------------------- periodic movements
 
@@ -296,11 +298,22 @@ class CompanionNote {
 }
 
 /// What Don Bigotes points out. Never advice: only facts about the person's own data.
-List<CompanionNote> companionNotes(Finances data, DateTime now, {int pendingBankReview = 0}) {
+List<CompanionNote> companionNotes(Finances data, DateTime now, {int pendingBankReview = 0, List<BankHold> holds = const []}) {
   final notes = <CompanionNote>[];
   if (pendingBankReview > 0) {
     notes.add(CompanionNote(
         id: 'bankReview', title: 'Descarga del banco por revisar', detail: '$pendingBankReview movimientos esperan tu confirmación', tab: 4, urgent: true));
+  }
+  // Charges the bank holds and has not booked yet (Swift «cargos en camino»).
+  final charges = holds.where((h) => h.movement.signedAmountMinor < 0).toList();
+  if (charges.isNotEmpty) {
+    final total = charges.fold(0, (sum, h) => sum + h.movement.signedAmountMinor);
+    notes.add(CompanionNote(
+        id: 'holds:${(charges.map((h) => h.id).toList()..sort()).join(',')}',
+        title: charges.length == 1 ? '1 cargo en camino' : '${charges.length} cargos en camino',
+        detail: 'Retenidos por el banco · ${money(total)}',
+        tab: 1,
+        urgent: true));
   }
   final review = data.transactions.where((t) => reviewIssues(t, data.category(t.categoryId)).isNotEmpty).length;
   if (review > 0) {

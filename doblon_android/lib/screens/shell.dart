@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../automation.dart';
+import '../bank_activity.dart' show bankHolds;
 import '../data.dart';
 import '../finance.dart';
 import '../preferences.dart';
@@ -10,6 +11,7 @@ import 'accounts.dart';
 import 'banks.dart';
 import 'budgets.dart';
 import 'home.dart';
+import 'learning.dart';
 import 'manage.dart';
 import 'tools.dart';
 import 'transactions.dart';
@@ -50,10 +52,13 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   /// Downloads, then posts the periodic movements that are due (once per opening), as the iPhone does.
   Future<void> _open() async {
     await repository.refresh();
-    if (!_postedToday && repository.finances != null && repository.error == null) {
+    if (repository.finances == null || repository.error != null) return;
+    if (!_postedToday) {
       _postedToday = true;
       await postDue(repository);
     }
+    // Corrections the person taught several times are repeated on new bank movements (as on the iPhone).
+    await repository.applyLearnedCorrections();
   }
 
   @override
@@ -126,7 +131,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     final pulso = Pulso.of(context);
     final notes = calc == null || !widget.preferences.companionEnabled
         ? <CompanionNote>[]
-        : companionNotes(calc.data, DateTime.now()).where((n) => !widget.preferences.dismissedNotes.contains(n.id)).toList();
+        : companionNotes(calc.data, DateTime.now(), holds: bankHolds(calc.data, repository.bankActivity)).where((n) => !widget.preferences.dismissedNotes.contains(n.id)).toList();
     final Widget body;
     if (calc == null) {
       body = Center(
@@ -250,6 +255,7 @@ class _SettingsPage extends StatelessWidget {
       section('Organiza tus finanzas', [
         route(Icons.sell_outlined, 'Categorías', '', () => CategoriesScreen(repository: repository)),
         route(Icons.rule, 'Categorización automática', 'Reglas para reconocer conceptos habituales', () => RulesScreen(repository: repository)),
+        route(Icons.auto_awesome, 'Inteligencia artificial', 'Lo que la app ha aprendido de ti', () => LearningScreen(repository: repository)),
         route(Icons.repeat, 'Cargos y aportaciones periódicas', 'Suscripciones, ingresos y traspasos', () => RecurringScreen(repository: repository)),
         route(Icons.account_balance, 'Bancos y entidades', 'Nombres que agrupan cuentas y tarjetas', () => InstitutionsScreen(repository: repository)),
       ]),

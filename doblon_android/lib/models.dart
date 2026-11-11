@@ -137,8 +137,15 @@ class Transaction {
     this.fingerprint = '',
     this.isReconciled = false,
     this.recurringMovementId,
-  });
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  })  : createdAt = createdAt ?? date,
+        updatedAt = updatedAt ?? createdAt ?? date;
   final String? recurringMovementId;
+
+  /// When the record was created and last changed (the learning uses them, as on the iPhone).
+  final DateTime createdAt;
+  final DateTime updatedAt;
   final String id;
   final DateTime date;
   final TransactionType type;
@@ -180,6 +187,8 @@ class Transaction {
         fingerprint: _string(json['fingerprint']),
         isReconciled: json['isReconciled'] == true,
         recurringMovementId: _stringOrNull(json['recurringMovementID']),
+        createdAt: json['createdAt'] is num ? referenceDate(json['createdAt'] as num) : null,
+        updatedAt: json['updatedAt'] is num ? referenceDate(json['updatedAt'] as num) : null,
       );
 }
 

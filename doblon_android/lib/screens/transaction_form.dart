@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -6,8 +8,10 @@ import '../automation.dart';
 import '../data.dart';
 import '../finance.dart' show ReservedEntry, reservedBalances;
 import '../edits.dart';
+import '../learning.dart' show EditSnapshot;
 import '../models.dart';
 import '../theme.dart';
+import 'learning.dart';
 
 /// Reads "12,50", "1.234,56" or "12.5" as cents. Null when it is not an amount.
 int? parseAmount(String text) {
@@ -44,6 +48,13 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   late bool _categoryChosen = widget.editing?.categoryId != null;
   bool _remember = false;
 
+  /// The bank facts before editing, so a correction can teach the models (Swift `captureEdit`).
+  EditSnapshot? _before;
+
+  /// The category the model proposes for the concept (only for a new movement).
+  Category? _proposal;
+  Timer? _debounce;
+
   Finances get data => widget.repository.finances!;
 
   @override
@@ -68,10 +79,26 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     if (t != null) _amount.text = (t.amountMinor / 100).toStringAsFixed(2).replaceAll('.', ',');
     _description.text = draft.description;
     _notes.text = draft.notes;
+    if (t != null) _before = widget.repository.learning?.captureEdit(t, data);
+  }
+
+  /// Swift `updateLearningSuggestion`: 350 ms after typing, without a rule or a category chosen by hand.
+  void _propose() {
+    _debounce?.cancel();
+    if (widget.editing != null || draft.type == TransactionType.transfer || _categoryChosen || matchRule(_description.text, draft.type, data) != null) {
+      if (_proposal != null) setState(() => _proposal = null);
+      return;
+    }
+    final text = _description.text, type = draft.type;
+    _debounce = Timer(const Duration(milliseconds: 350), () async {
+      final category = await proposeCategory(widget.repository, text, type);
+      if (mounted && text == _description.text && type == draft.type) setState(() => _proposal = category);
+    });
   }
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _amount.dispose();
     _description.dispose();
     _notes.dispose();
@@ -92,10 +119,13 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     }
     setState(() => _saving = true);
     final now = DateTime.now();
-    final op = saveOperation(draft, data, now, editing: widget.editing, newId: widget.repository.newId());
+    final id = widget.editing?.id ?? widget.repository.newId();
+    final op = saveOperation(draft, data, now, editing: widget.editing, newId: id);
     final category = data.category(draft.categoryId);
     final rule = _remember && category != null ? rememberRule(draft.description, draft.type, category, data, now, widget.repository.newId()) : null;
     await widget.repository.apply(rule == null ? op : batchOperation([op, rule]));
+    // What the person decided teaches the models: the category chosen and, in a bank movement, the correction.
+    await learnFromEdit(widget.repository, _before, id, categoryConfirmed: _categoryChosen && category != null);
     if (mounted) Navigator.of(context).pop(true);
   }
 
@@ -215,6 +245,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                   if (_categoryChosen) return;
                   final suggested = matchRule(text, draft.type, data);
                   if (suggested?.id != draft.categoryId) setState(() => draft.categoryId = suggested?.id);
+                  _propose();
                 },
               ),
               const SizedBox(height: 12),
@@ -240,6 +271,8 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
               ],
               const SizedBox(height: 12),
               DropdownButtonFormField<String?>(
+                // Rebuilt when a rule or the AI proposal changes the category.
+                key: ValueKey('category-${draft.categoryId}'),
                 initialValue: draft.categoryId,
                 isExpanded: true,
                 decoration: const InputDecoration(labelText: 'Categoría', border: OutlineInputBorder()),
@@ -257,8 +290,22 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 onChanged: (value) => setState(() {
                   draft.categoryId = value;
                   _categoryChosen = true;
+                  _proposal = null;
                 }),
               ),
+              if (!_categoryChosen && _proposal != null && draft.categoryId == null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    onPressed: () => setState(() {
+                      draft.categoryId = _proposal!.id;
+                      _categoryChosen = true;
+                      _proposal = null;
+                    }),
+                    icon: const Icon(Icons.auto_awesome),
+                    label: Text('Usar propuesta de IA: ${_proposal!.name}'),
+                  ),
+                ),
               const SizedBox(height: 12),
               ListTile(
                 contentPadding: EdgeInsets.zero,

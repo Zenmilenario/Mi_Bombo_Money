@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../bank_activity.dart';
 import '../banking.dart';
 import '../data.dart';
 import '../models.dart';
@@ -130,13 +132,17 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
           }
         }
         if (feeds.isEmpty) return 'No hay cuentas conectadas que actualizar.';
+        // Balances, holds and what the bank sent are kept on this device, apart from the accounts.
+        await widget.repository.recordBankActivity(feeds, now);
         final result = await widget.repository.update((document) => importFeeds(document, feeds, now));
+        await widget.repository.applyLearnedCorrections();
         if (result.proposals.isEmpty || !mounted) return result.summary;
         // Some downloaded movements may be ones recorded by hand: the person decides, then they are brought in.
         final decisions = await Navigator.of(context)
             .push<Map<String, String>>(MaterialPageRoute(builder: (_) => BankReviewScreen(proposals: result.proposals, data: widget.repository.finances!)));
         if (decisions == null) return '${result.summary}. Los que esperan revisión se incorporarán en la próxima actualización.';
         final second = await widget.repository.update((document) => importFeeds(document, feeds, now, decisions: decisions));
+        await widget.repository.applyLearnedCorrections();
         return 'Revisión incorporada: ${second.summary}';
       });
 
@@ -204,17 +210,66 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
                     trailing: IconButton(tooltip: 'Desconectar', onPressed: busy ? null : () => _disconnect(connection), icon: const Icon(Icons.link_off)),
                   ),
                   for (final account in connection.accounts)
-                    ListTile(
-                      dense: true,
-                      leading: const SizedBox(width: 24),
-                      title: Text('•••• ${account.lastFour}'),
-                      trailing: Text(account.currency == 'EUR' ? 'EUR' : '${account.currency} · no se incorpora'),
-                    ),
+                    if (widget.repository.bankActivity[accountIdentity(account.id)] case final activity?)
+                      _Received(account: account, activity: activity)
+                    else
+                      ListTile(
+                        dense: true,
+                        leading: const SizedBox(width: 24),
+                        title: Text('•••• ${account.lastFour}'),
+                        trailing: Text(account.currency == 'EUR' ? 'EUR' : '${account.currency} · no se incorpora'),
+                      ),
                 ]),
               ),
             ),
         ]),
       ),
+    );
+  }
+}
+
+/// Diagnostic of what the bank sent in the last query of one account: "did the bank send it?"
+/// (Swift `PersonalBankConnectionsView`, «Últimos apuntes recibidos»).
+class _Received extends StatelessWidget {
+  const _Received({required this.account, required this.activity});
+  final RemoteAccount account;
+  final BankActivity activity;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    const caption = TextStyle(fontSize: 12);
+    final ignored = activity.ignoredStatuses.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
+    return ExpansionTile(
+      leading: const Icon(Icons.move_to_inbox_outlined),
+      title: Text('•••• ${account.lastFour} · ${account.currency}${account.currency == 'EUR' ? '' : ' · no se incorpora'}'),
+      subtitle: Text('Últimos apuntes recibidos (${activity.receivedCount})'),
+      childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      children: [
+        if (activity.recentMovements.isEmpty) const Text('El banco no envió apuntes contabilizados en el periodo consultado.', style: caption),
+        for (final m in activity.recentMovements)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(children: [
+              SizedBox(width: 82, child: Text(m.bookingDate.split('-').reversed.join('/'), style: caption)),
+              Expanded(child: Text(listTitle(m.description, isBanking: true), maxLines: 1, overflow: TextOverflow.ellipsis, style: caption)),
+              Text(money(m.signedAmountMinor, signed: true, currency: m.currency), style: caption.copyWith(fontWeight: FontWeight.w700)),
+            ]),
+          ),
+        if (ignored.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+                'El banco también envió ${ignored.map((e) => '${e.value} ${bankStatusName(e.key)}').join(', ')}. La app no los incorpora porque el banco no los da por contabilizados.',
+                style: caption.copyWith(color: pulso.warning)),
+          ),
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+              'Es lo que envió el banco en la consulta del ${DateFormat("d MMM yyyy, HH:mm", 'es').format(activity.observedAt)}, contabilizado y sin retenidos. Si un pago de tu banco no aparece aquí, el banco aún no lo ha comunicado.',
+              style: caption),
+        ),
+      ],
     );
   }
 }

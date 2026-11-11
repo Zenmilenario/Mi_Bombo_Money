@@ -6,6 +6,7 @@ import '../edits.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
+import 'learning.dart';
 import 'transaction_form.dart';
 import 'widgets.dart';
 
@@ -140,11 +141,12 @@ class _Detail extends StatelessWidget {
                   OutlinedButton.icon(
                     onPressed: () async {
                       final chosen = await pickCategory(context, data, [t]);
-                      if (chosen != null) await repository.apply(categorizeOperation([t], chosen, DateTime.now()));
+                      if (chosen != null) await repository.categorize([t], chosen);
                     },
                     icon: const Icon(Icons.sell_outlined),
                     label: const Text('Elegir categoría'),
                   ),
+                  LearnedCategoryButton(repository: repository, transaction: t),
                 ],
               ]),
             ),
@@ -162,7 +164,7 @@ class _Detail extends StatelessWidget {
                   ? null
                   : () async {
                       final chosen = await pickCategory(context, data, [t]);
-                      if (chosen != null) await repository.apply(categorizeOperation([t], chosen, DateTime.now()));
+                      if (chosen != null) await repository.categorize([t], chosen);
                     },
             ),
             if (t.notes.isNotEmpty) ListTile(title: const Text('Notas'), subtitle: Text(t.notes)),
@@ -171,6 +173,8 @@ class _Detail extends StatelessWidget {
             if (t.reservedFundId != null) ListTile(title: const Text('Pagado con dinero reservado'), trailing: Text(money(t.reservedAmountMinor ?? 0))),
           ]),
         ),
+        const SizedBox(height: 12),
+        OperationReviewCard(repository: repository, transaction: t),
       ]),
     );
   }

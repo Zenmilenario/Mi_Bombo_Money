@@ -1,13 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart' hide Category;
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import 'bank_activity.dart';
 import 'banking.dart';
 import 'edits.dart';
+import 'learning.dart';
 import 'models.dart';
 
 /// Same cloud project and public key as the iPhone app (`CloudConfiguration.json`). The publishable key
@@ -104,6 +106,8 @@ class FinanceRepository extends ChangeNotifier {
       pending = await store.loadPending(user);
       final saved = await store.loadCopy(user);
       if (saved != null) _show(saved);
+      learning = await Learning.open(store.directory, user);
+      bankActivity = await BankActivityStore(store.directory).load(user);
     }
     loading = true;
     error = null;
@@ -214,9 +218,67 @@ class FinanceRepository extends ChangeNotifier {
 
   String newId() => const Uuid().v4();
 
+  /// What the person has taught the models on this device and profile (null until the first load).
+  Learning? learning;
+
+  /// The last bank report of each linked account (holds, balances, what it sent), by bank identity.
+  Map<String, BankActivity> bankActivity = {};
+
+  /// Keeps what each downloaded account reported, replacing that account's previous report.
+  Future<void> recordBankActivity(List<AccountFeed> feeds, DateTime observedAt) async {
+    final user = _user;
+    if (user == null || feeds.isEmpty) return;
+    bankActivity = {
+      ...bankActivity,
+      for (final feed in feeds) accountIdentity(feed.account.id): feed.activity(observedAt),
+    };
+    await BankActivityStore((await _local()).directory).save(user, bankActivity);
+    notifyListeners();
+  }
+
+  /// Categorises movements and teaches the choice to the models (Swift `TransactionLearning.confirm`).
+  Future<void> categorize(List<Transaction> rows, Category category) async {
+    final op = categorizeOperation(rows, category, DateTime.now());
+    final ids = {for (final id in op.data['ids'] as List) '$id'};
+    await apply(op);
+    final data = finances;
+    if (data == null || learning == null) return;
+    await learning!.confirmCategories(data.transactions.where((t) => ids.contains(t.id)).toList(), data);
+    notifyListeners();
+  }
+
+  /// Tells the screens that something kept outside the document changed (what was learnt, bank reports).
+  void changed() => notifyListeners();
+
+  bool _correcting = false;
+
+  /// Repeats the corrections the person taught on new bank movements, when the model has proved itself.
+  Future<int> applyLearnedCorrections({Set<String>? only}) async {
+    final data = finances;
+    if (_correcting || data == null || learning == null || pending.isNotEmpty) return 0;
+    _correcting = true;
+    try {
+      final op = await learning!.learnedCorrections(data, DateTime.now(), only: only);
+      if (op == null) return 0;
+      await apply(op);
+      return (op.data['ops'] as List).length;
+    } catch (_) {
+      return 0;
+    } finally {
+      _correcting = false;
+    }
+  }
+
   Future<void> signOut() async {
     final user = _user;
-    if (user != null) await (await _local()).clear(user);
+    if (user != null) {
+      final store = await _local();
+      await store.clear(user);
+      // Bank reports are not kept after signing out; what was taught to the models stays for this profile.
+      await BankActivityStore(store.directory).clear(user);
+    }
+    bankActivity = {};
+    learning = null;
     finances = null;
     copy = null;
     document = null;

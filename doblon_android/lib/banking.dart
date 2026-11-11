@@ -6,6 +6,8 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
+import 'bank_activity.dart';
+
 /// The personal bank server. Its address is part of every account and movement key: it must not change.
 const bankingServer = 'https://mi-bombo-banking-personal.albertor7722.workers.dev';
 
@@ -114,11 +116,29 @@ class BankBalance {
 
 /// Everything downloaded for one remote account.
 class AccountFeed {
-  AccountFeed({required this.connection, required this.account, required this.balances, required this.movements});
+  AccountFeed({required this.connection, required this.account, required this.balances, required this.movements, this.pending, this.ignoredStatuses});
   final RemoteConnection connection;
   final RemoteAccount account;
   final List<BankBalance> balances;
   final List<Movement> movements;
+
+  /// Holds and pending entries; null when the server did not report them.
+  final List<PendingMovement>? pending;
+
+  /// Entries with a status that is not imported, counted by status (diagnostic only).
+  final Map<String, int>? ignoredStatuses;
+
+  /// What this query reported besides the booked movements, kept on the device.
+  BankActivity activity(DateTime observedAt) => BankActivity.fromFeed(
+      accountCurrency: account.currency,
+      balances: [for (final b in balances) (amountMinor: b.amountMinor, currency: b.currency, type: b.type)],
+      movements: [
+        for (final m in movements)
+          BookedMovement(id: m.id, bookingDate: m.bookingDate, signedAmountMinor: m.signedAmountMinor, currency: m.currency, description: m.description)
+      ],
+      pending: pending,
+      ignored: ignoredStatuses,
+      observedAt: observedAt);
 }
 
 class BankingClient {
@@ -185,6 +205,8 @@ class BankingClient {
     String day(DateTime d) => d.toUtc().toIso8601String().substring(0, 10);
     final movements = <Movement>[];
     final balances = <BankBalance>[];
+    List<PendingMovement>? pending;
+    Map<String, int>? ignored;
     String? cursor;
     final visited = <String>{};
     for (var page = 0; page < 50; page++) {
@@ -192,6 +214,8 @@ class BankingClient {
           query: {
             'from': day(asOf.subtract(const Duration(days: 89))),
             'to': day(asOf),
+            // Holds and pending entries; the server only adds them with a real bank (as on the iPhone).
+            'include_pending': '1',
             if (cursor != null) 'continuation': cursor,
           },
           userInitiated: userInitiated) as Map;
@@ -201,8 +225,18 @@ class BankingClient {
         }
       }
       movements.addAll(((data['transactions'] as List?) ?? const []).whereType<Map>().map((m) => Movement.fromJson(Map<String, dynamic>.from(m))));
+      if (data['pendingTransactions'] is List) {
+        (pending ??= []).addAll((data['pendingTransactions'] as List).whereType<Map>().map((m) => PendingMovement.fromJson(Map<String, dynamic>.from(m))));
+      }
+      if (data['ignoredStatuses'] is Map) {
+        final counts = ignored ??= {};
+        (data['ignoredStatuses'] as Map).forEach((k, v) => counts['$k'] = (counts['$k'] ?? 0) + ((v as num?)?.toInt() ?? 0));
+      }
+      if (movements.length > 20000 || (pending?.length ?? 0) > 20000) throw BankingError('incomplete_history');
       final next = data['continuation'] as String?;
-      if (next == null) return AccountFeed(connection: connection, account: account, balances: balances, movements: movements);
+      if (next == null) {
+        return AccountFeed(connection: connection, account: account, balances: balances, movements: movements, pending: pending, ignoredStatuses: ignored);
+      }
       if (!visited.add(next)) break;
       cursor = next;
     }

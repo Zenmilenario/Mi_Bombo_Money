@@ -4,7 +4,7 @@ Desde el 10 de noviembre de 2026 esta es la app única de Doblón para Android y
 
 Primera versión para Android, en Flutter. Entra con la misma cuenta de Doblón que en el iPhone y muestra las mismas finanzas desde la nube (Supabase, función `finance_snapshot`).
 
-## Qué hace (0.9.0)
+## Qué hace (0.10.0)
 
 - **Entrada:** con la misma cuenta de Doblón; alta de cuenta nueva y bloqueo con huella o PIN del móvil.
 - **Inicio:**
@@ -32,11 +32,17 @@ Primera versión para Android, en Flutter. Entra con la misma cuenta de Doblón 
   - importar CSV, exportar CSV y copia de seguridad (guardar y restaurar).
 - **Don Bigotes:** en la barra superior. Dormido si no hay nada y con un número si hay avisos: revisión, posibles traspasos, cargos próximos, cuentas sin actualizar y pagos que no llegan del banco. Señala, nunca aconseja.
 - **Sin conexión:** copia local y cola de cambios; se suben sobre la copia más reciente de la nube.
-- **Aún no** respecto al iPhone:
-  - el modelo de IA que aprende categorías (las reglas sí están);
-  - el reconocimiento de aportaciones a inversión;
-  - las retenciones y el diagnóstico de lo recibido del banco;
-  - el equivalente a Apple Pay, que en Android sería leer avisos de pago con permiso.
+- **Inteligencia artificial** (`lib/learning.dart`, los mismos tres modelos y umbrales que el iPhone):
+  - propone la categoría a partir del concepto, en el formulario, en «Por revisar» y al importar un CSV;
+  - reconoce aportaciones a inversión, Round up y Saveback en los movimientos del banco («Reconocimiento de inversión» en el detalle), con las condiciones de la tarjeta;
+  - repite una corrección que has hecho varias veces (tipo, categoría y cuenta de destino) solo después de comprobar que acertó en meses posteriores; se puede desactivar y deshacer, y deshacerla también enseña;
+  - lo aprendido se guarda en el dispositivo y el perfil (`learning-<usuario>.json`), como en el iPhone: no va a la nube. Ajustes → Inteligencia artificial muestra cuánto ha aprendido.
+- **Lo que comunica el banco** (`lib/bank_activity.dart`):
+  - saldo contable y disponible, retenciones y pendientes en el detalle de la cuenta, con el saldo tras retenciones;
+  - pendientes del banco en Movimientos y aviso de Don Bigotes de «cargos en camino»;
+  - en Mis bancos, los últimos apuntes recibidos de cada cuenta y los que el banco envió con otro estado (cancelados, informativos…);
+  - se guarda solo en el dispositivo durante 7 días y se borra al cerrar sesión.
+- **Aún no** respecto al iPhone: el equivalente a Apple Pay, que en Android sería leer avisos de pago con permiso.
 
 ## Reglas compartidas con el iPhone
 

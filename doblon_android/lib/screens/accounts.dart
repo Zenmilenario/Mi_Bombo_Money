@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
+import '../bank_activity.dart';
 import '../banking.dart' show referenceSeconds;
 import '../data.dart';
 import '../edits.dart';
@@ -107,6 +109,58 @@ class _AccountCard extends StatelessWidget {
 }
 
 /// One account: balance, reserves, cards, latest movements and its actions.
+/// What the bank reported for a linked account: its balances and the movements it has not booked yet
+/// (Swift `AccountDetailView.bankActivitySections`).
+List<Widget> bankActivitySections(BuildContext context, BankActivity activity, Account account, Finances data, int balance) {
+  final pulso = Pulso.of(context);
+  final when = DateFormat("d MMM yyyy, HH:mm", 'es').format(activity.observedAt);
+  const caption = TextStyle(fontSize: 12);
+  final pending = activity.pendingMovements;
+  return [
+    const SectionTitle('Saldos comunicados por el banco'),
+    Card(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (activity.bookedBalance != null)
+          ListTile(title: const Text('Saldo contable'), trailing: Text(money(activity.bookedBalance!, currency: activity.currency))),
+        if (activity.availableBalance != null)
+          ListTile(title: const Text('Saldo disponible del banco'), trailing: Text(money(activity.availableBalance!, currency: activity.currency))),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: Text('Consulta del $when. El disponible del banco puede reflejar retenciones y se muestra separado de tus reservas en la app.', style: caption),
+        ),
+      ]),
+    ),
+    const SectionTitle('Pendientes del banco'),
+    Card(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        if (pending == null)
+          const ListTile(title: Text('Detalle de retenciones no disponible en esta consulta.'))
+        else if (pending.isEmpty)
+          const ListTile(title: Text('Sin retenciones ni movimientos pendientes comunicados en esta consulta.'))
+        else ...[
+          for (final m in pending)
+            ListTile(
+              title: Text(listTitle(m.description, isBanking: true), maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text([m.isHold ? 'Retenido' : 'Pendiente', if (m.date != null) m.date!.split('-').reversed.join('/')].join(' · ')),
+              trailing: Text(money(m.signedAmountMinor, signed: true, currency: m.currency),
+                  style: TextStyle(fontWeight: FontWeight.w700, color: m.signedAmountMinor < 0 ? pulso.expense : pulso.income)),
+            ),
+          ListTile(
+            title: const Text('Saldo tras retenciones', style: TextStyle(fontWeight: FontWeight.w700)),
+            trailing: Text(money(balance + heldMinor(activity, account, data), currency: activity.currency), style: const TextStyle(fontWeight: FontWeight.w700)),
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Text(
+                'Importes provisionales. Los cargos se reflejan en el historial y el presupuesto cuando el banco los contabiliza; también los ves en Movimientos.',
+                style: caption),
+          ),
+        ],
+      ]),
+    ),
+  ];
+}
+
 class AccountDetailScreen extends StatelessWidget {
   const AccountDetailScreen({super.key, required this.repository, required this.accountId});
   final FinanceRepository repository;
@@ -172,6 +226,8 @@ class AccountDetailScreen extends StatelessWidget {
                 ]),
               ),
             ),
+            if (account.bankIdentityKey != null && !account.isArchived)
+              if (repository.bankActivity[account.bankIdentityKey] case final activity?) ...bankActivitySections(context, activity, account, data, balance),
             SectionTitle('Dinero reservado'),
             Card(
               child: Column(children: [

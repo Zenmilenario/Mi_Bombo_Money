@@ -1,12 +1,16 @@
 // The screens build and react with fictitious data (no cloud involved).
+import 'package:doblon/bank_activity.dart';
 import 'package:doblon/data.dart';
 import 'package:doblon/finance.dart';
+import 'package:doblon/learning.dart';
 import 'package:doblon/models.dart';
 import 'package:doblon/screens/accounts.dart';
 import 'package:doblon/screens/budgets.dart';
 import 'package:doblon/screens/home.dart';
+import 'package:doblon/screens/learning.dart';
 import 'package:doblon/screens/manage.dart';
 import 'package:doblon/screens/tools.dart';
+import 'package:doblon/screens/transaction_detail.dart';
 import 'package:doblon/screens/transaction_form.dart';
 import 'package:doblon/screens/transactions.dart';
 import 'package:doblon/theme.dart';
@@ -109,5 +113,61 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: '${page.runtimeType} must open without errors');
     }
+  });
+
+  testWidgets('learning, holds and investment recognition show in their screens', (tester) async {
+    runTraining = <T>(T Function() work) async => work();
+    final data = Finances.fromDocument({
+      'accounts': [
+        {'id': 'a1', 'name': 'Banco ficticio', 'typeRaw': 'checking', 'openingDate': 0, 'openingBalanceMinor': 100000, 'bankIdentityKey': 'enable:x'},
+      ],
+      'categories': [
+        {'id': 'c1', 'name': 'Supermercado', 'kindRaw': 'expense'},
+        {'id': 'c2', 'name': 'Restaurantes', 'kindRaw': 'expense'},
+      ],
+      'transactions': [
+        {
+          'id': 'b1',
+          'date': 815184000,
+          'typeRaw': 'expense',
+          'amountMinor': 1200,
+          'descriptionText': 'Supermercado La Cesta compra',
+          'sourceAccountID': 'a1',
+          'bankEntryKey': 'enable-entry:x:1'
+        },
+      ],
+    });
+    final repository = repositoryWith(data)
+      ..learning = Learning()
+      ..bankActivity = {
+        'enable:x': BankActivity(
+            observedAt: DateTime.now(),
+            currency: 'EUR',
+            bookedBalance: 98800,
+            availableBalance: 96300,
+            pendingMovements: const [
+              PendingMovement(id: 'p1', date: '2026-11-09', signedAmountMinor: -2500, currency: 'EUR', description: 'Gasolinera retenida', status: 'HOLD'),
+            ]),
+      };
+    await tester.pumpWidget(app(LearningScreen(repository: repository)));
+    await tester.pumpAndSettle();
+    expect(find.text('Aprende de lo que confirmas'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Aplicar correcciones aprendidas'), 200, scrollable: find.byType(Scrollable).first);
+
+    await tester.pumpWidget(app(TransactionDetailScreen(repository: repository, transactionId: 'b1')));
+    await tester.pumpAndSettle();
+    expect(find.text('Usar propuesta de IA: Supermercado'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Reconocimiento de inversión'), 200, scrollable: find.byType(Scrollable).first);
+    expect(find.text('Identificar operación'), findsOneWidget);
+
+    await tester.pumpWidget(app(AccountDetailScreen(repository: repository, accountId: 'a1')));
+    await tester.pumpAndSettle();
+    expect(find.text('Saldos comunicados por el banco'), findsOneWidget);
+    expect(find.text('Gasolinera retenida'), findsOneWidget);
+    expect(find.text('Saldo tras retenciones'), findsOneWidget);
+
+    await tester.pumpWidget(app(Scaffold(body: TransactionsScreen(calc: FinanceCalculator(data), repository: repository))));
+    await tester.pumpAndSettle();
+    expect(find.text('1 movimiento pendiente del banco'), findsOneWidget);
   });
 }

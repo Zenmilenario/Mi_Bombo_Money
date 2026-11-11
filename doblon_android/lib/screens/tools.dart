@@ -7,10 +7,12 @@ import 'package:intl/intl.dart';
 
 import '../csv_import.dart';
 import '../data.dart';
+import '../edits.dart' show categorySupports;
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
 import 'forms.dart';
+import 'learning.dart' show proposeCategory;
 
 /// Importar movimientos CSV: pick a file, check every row, then import what is new.
 class CsvImportScreen extends StatefulWidget {
@@ -27,12 +29,54 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
   bool error = false;
   bool busy = false;
 
+  /// Categories the person chose for some rows (row index → category): they also teach the models.
+  final corrections = <int, String>{};
+
+  /// Swift «Elegir categoría» of a CSV row, with the AI proposal.
+  Future<void> _chooseCategory(int index, CsvPlanItem item, Finances data) async {
+    final options = data.categories.where((c) => categorySupports(c, item.draft.type)).toList();
+    final proposal = proposeCategory(widget.repository, item.draft.description, item.draft.type);
+    final chosen = await showModalBottomSheet<Category>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SizedBox(
+        height: MediaQuery.of(context).size.height * 0.7,
+        child: ListView(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text(item.draft.description, style: const TextStyle(fontWeight: FontWeight.w700)),
+          ),
+          FutureBuilder<Category?>(
+            future: proposal,
+            builder: (context, snapshot) => snapshot.data == null
+                ? const SizedBox.shrink()
+                : ListTile(
+                    leading: const Icon(Icons.auto_awesome),
+                    title: Text('Usar propuesta de IA: ${snapshot.data!.name}'),
+                    onTap: () => Navigator.pop(context, snapshot.data),
+                  ),
+          ),
+          if (options.isEmpty) const ListTile(title: Text('No hay categorías compatibles. Puedes crearlas en Ajustes → Categorías.')),
+          for (final c in options)
+            ListTile(
+              leading: CircleAvatar(radius: 8, backgroundColor: colorFromHex(c.colorHex)),
+              title: Text(c.name),
+              onTap: () => Navigator.pop(context, c),
+            ),
+        ]),
+      ),
+    );
+    if (chosen != null) setState(() => corrections[index] = chosen.id);
+  }
+
   Future<void> _pick() async {
     final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['csv', 'txt']);
     if (files.isEmpty) return;
     try {
       final result = parseCsv(decodeCsv(await files.first.readAsBytes()));
       setState(() {
+        corrections.clear();
         parsed = result;
         message = result.warnings.isEmpty ? null : result.warnings.take(5).join('\n');
         error = false;
@@ -58,7 +102,12 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
     final data = widget.repository.finances!;
     final accounts = data.accounts.where((a) => !a.isArchived).toList();
     accountId ??= accounts.isEmpty ? null : accounts.first.id;
-    final plan = parsed == null || accountId == null ? <CsvPlanItem>[] : planCsv(parsed!, data, accountId!);
+    final planned = parsed == null || accountId == null ? <CsvPlanItem>[] : planCsv(parsed!, data, accountId!);
+    final plan = [
+      for (var i = 0; i < planned.length; i++)
+        corrections[i] == null ? planned[i] : CsvPlanItem(planned[i].draft, planned[i].accountId, planned[i].destinationId, corrections[i], planned[i].status)
+    ];
+    bool importable(CsvPlanItem item) => item.status == 'new' || item.status == 'possible';
     int count(String status) => plan.where((p) => p.status == status).length;
     final format = DateFormat('dd/MM/yyyy');
     return Scaffold(
@@ -77,7 +126,10 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
             label: 'Cuenta (si el archivo no la indica)',
             value: accountId,
             options: {for (final a in accounts) a.id: a.name},
-            onChanged: (v) => setState(() => accountId = v),
+            onChanged: (v) => setState(() {
+              accountId = v;
+              corrections.clear();
+            }),
           ),
           const SizedBox(height: 12),
           Text('${count('new')} nuevos · ${count('possible')} posibles duplicados · ${count('duplicate')} ya estaban · ${count('invalid')} no válidos',
@@ -85,7 +137,7 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
           const SizedBox(height: 8),
           Card(
             child: Column(children: [
-              for (final item in plan.take(50))
+              for (final (index, item) in plan.take(50).indexed)
                 ListTile(
                   dense: true,
                   title: Text(item.draft.description, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -94,8 +146,9 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
                     'possible' => 'Posible duplicado: se marcará para revisar',
                     'duplicate' => 'Ya estaba: no se importa',
                     _ => 'Traspaso sin cuenta de destino: no se importa',
-                  }}'),
+                  }}${importable(item) && item.draft.type != TransactionType.transfer ? ' · ${data.category(item.categoryId)?.name ?? 'Sin categoría (toca para elegir)'}' : ''}'),
                   trailing: Text(money(item.draft.signedAmountMinor, signed: true)),
+                  onTap: importable(item) && item.draft.type != TransactionType.transfer && !busy ? () => _chooseCategory(index, item, data) : null,
                 ),
               if (plan.length > 50) Padding(padding: const EdgeInsets.all(12), child: Text('… y ${plan.length - 50} filas más')),
             ]),
@@ -106,7 +159,22 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
                 ? null
                 : () async {
                     setState(() => busy = true);
-                    await widget.repository.apply(importCsvOperation(plan, DateTime.now(), widget.repository.newId));
+                    // The ids are given in the order of the importable rows, to find the corrected ones afterwards.
+                    final ids = <String>[];
+                    await widget.repository.apply(importCsvOperation(plan, DateTime.now(), () {
+                      final id = widget.repository.newId();
+                      ids.add(id);
+                      return id;
+                    }));
+                    final rows = [for (final item in plan) if (importable(item)) item];
+                    final corrected = {
+                      for (var i = 0; i < rows.length && i < ids.length; i++)
+                        if (corrections[plan.indexOf(rows[i])] != null) ids[i]
+                    };
+                    final learning = widget.repository.learning, latest = widget.repository.finances;
+                    if (learning != null && latest != null && corrected.isNotEmpty) {
+                      await learning.confirmCategories(latest.transactions.where((t) => corrected.contains(t.id)).toList(), latest);
+                    }
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${count('new') + count('possible')} movimientos importados.')));
                     Navigator.of(context).pop();

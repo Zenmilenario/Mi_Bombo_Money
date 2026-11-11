@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../automation.dart';
+import '../bank_activity.dart';
 import '../data.dart';
 import '../edits.dart';
 import '../finance.dart';
@@ -84,14 +85,58 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final chosen = data.transactions.where((t) => selected.contains(t.id)).toList();
     final category = await pickCategory(context, data, chosen);
     if (category == null) return;
-    final op = categorizeOperation(chosen, category, DateTime.now());
-    final skipped = chosen.length - (op.data['ids'] as List).length;
-    await widget.repository.apply(op);
+    final skipped = chosen.where((t) => !categorySupports(category, t.type)).length;
+    await widget.repository.categorize(chosen, category);
     if (!mounted) return;
     setState(selected.clear);
     if (skipped > 0) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$skipped no admiten «${category.name}» y se han dejado como estaban.')));
     }
+  }
+
+  /// Charges and credits the bank has not booked yet (Swift `BankHoldsSection`), with the list filters.
+  List<Widget> _holds(Finances data) {
+    if (filter.categoryId != null || filter.onlyReview) return const [];
+    final q = filter.query.toLowerCase();
+    final holds = bankHolds(data, widget.repository.bankActivity).where((h) {
+      if (filter.accountId != null && h.account.id != filter.accountId) return false;
+      final type = filter.type;
+      if (type != null) {
+        if (type != TransactionType.expense && type != TransactionType.income) return false;
+        if ((type == TransactionType.income) != (h.movement.signedAmountMinor > 0)) return false;
+      }
+      if (q.isEmpty) return true;
+      return [h.movement.description, listTitle(h.movement.description, isBanking: true), h.account.name].any((t) => t.toLowerCase().contains(q));
+    }).toList();
+    if (holds.isEmpty) return const [];
+    final pulso = Pulso.of(context);
+    String day(String? raw) => raw == null ? '' : ' · ${raw.split('-').reversed.join('/')}';
+    return [
+      Card(
+        margin: const EdgeInsets.only(top: 8),
+        child: ExpansionTile(
+          leading: Icon(Icons.hourglass_bottom, color: pulso.warning),
+          title: Text(holds.length == 1 ? '1 movimiento pendiente del banco' : '${holds.length} movimientos pendientes del banco'),
+          subtitle: Text('Retenido: ${money(holds.fold(0, (sum, h) => sum + (h.movement.signedAmountMinor < 0 ? h.movement.signedAmountMinor : 0)), signed: true)}'),
+          children: [
+            for (final h in holds)
+              ListTile(
+                dense: true,
+                title: Text(listTitle(h.movement.description, isBanking: true), maxLines: 1, overflow: TextOverflow.ellipsis),
+                subtitle: Text('${h.movement.isHold ? 'Retenido' : 'Pendiente'}${day(h.movement.date)} · ${h.account.name}'),
+                trailing: Text(money(h.movement.signedAmountMinor, signed: true, currency: h.movement.currency),
+                    style: TextStyle(fontWeight: FontWeight.w700, color: h.movement.signedAmountMinor < 0 ? pulso.expense : pulso.income)),
+              ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Text(
+                  'Importes provisionales. Se reflejan en el historial y el presupuesto cuando el banco los contabiliza.',
+                  style: TextStyle(fontSize: 12)),
+            ),
+          ],
+        ),
+      ),
+    ];
   }
 
   /// Each pair can be joined into one transfer (it stops counting as income and expense) or left as it is.
@@ -247,6 +292,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                       const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Buscar concepto, cuenta o categoría', border: OutlineInputBorder()),
                   onChanged: (value) => setState(() => filter.query = value.trim()),
                 ),
+              if (!selecting) ..._holds(data),
               if (!selecting && ownTransferPairs(data).isNotEmpty)
                 Card(
                   margin: const EdgeInsets.only(top: 8),
