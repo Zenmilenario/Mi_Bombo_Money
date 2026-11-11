@@ -1,5 +1,11 @@
 # Doblón (Flutter)
 
+## Cifrado de invitados — preparado el 11/11/2026
+
+El lote iOS 0.7.16 (57) / Flutter 0.13.0 (9) incorpora cifrado de aplicación para las finanzas y el aprendizaje cloud de invitados, con código de recuperación guardado por la persona y excepción de desarrollo administrada en el servidor. La IA sigue entrenando y prediciendo en el dispositivo. No se comparten sus correcciones en un modelo colectivo. El Worker bancario sigue procesando los datos de conexión; este cifrado protege la copia activa en Supabase, no elimina el acceso técnico al tramo bancario.
+
+**Estado: local, no desplegado.** Requiere CI macOS, migración coordinada `20261111000300_client_encryption.sql`, registro privado de la identidad de desarrollo y prueba física. No instalar estos clientes contra un servidor sin la nueva política. Véase [Privacidad, recuperación y límites](../CloudBackend/privacy-encryption.md).
+
 Desde el 10 de noviembre de 2026 esta es la app única de Doblón para Android y, más adelante, para iPhone (ver la nota «Paridad iPhone y Android»).
 
 Primera versión para Android, en Flutter. Entra con la misma cuenta de Doblón que en el iPhone y muestra las mismas finanzas desde la nube (Supabase, función `finance_snapshot`).

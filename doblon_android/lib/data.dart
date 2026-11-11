@@ -14,6 +14,7 @@ import 'edits.dart';
 import 'contributions.dart';
 import 'learning.dart';
 import 'models.dart';
+import 'cloud_privacy.dart';
 
 /// Same cloud project and public key as the iPhone app (`CloudConfiguration.json`). The publishable key
 /// is public by design: every table is protected per user by row-level security.
@@ -128,7 +129,15 @@ class FinanceRepository extends ChangeNotifier {
 
   Future<LocalStore> _local() async => _store ??= LocalStore(await getApplicationSupportDirectory());
 
-  Future<CloudCopy> _fetch() async => CloudCopy.parse(await _client.rpc('finance_snapshot'));
+  CloudPrivacy? _privacySession;
+  Future<CloudPrivacy> _privacy() async {
+    final active = CloudPrivacy.sessions[_user];
+    if (active != null) return active;
+    final value = _privacySession ??= CloudPrivacy(_client);
+    if (!await value.prepare()) throw StateError('Desbloquea tus datos con el código de recuperación.');
+    return value;
+  }
+  Future<CloudCopy> _fetch() async => CloudCopy.parse(await (await _privacy()).fetch('finance'));
 
   /// Shows the device copy at once, then uploads pending changes and downloads the latest cloud copy.
   Future<void> refresh() async {
@@ -218,12 +227,7 @@ class FinanceRepository extends ChangeNotifier {
       checkProfile();
       final (document, result) = change(current.document);
       try {
-        final saved = await _client.rpc('finance_save_snapshot', params: {
-          'p_workspace': current.workspaceId,
-          'p_expected_revision': current.revision,
-          'p_document': document,
-          'p_timezone': 'Europe/Madrid',
-        });
+        final saved = await (await _privacy()).save('finance', current.workspaceId, current.revision, document);
         checkProfile();
         await _adopt(CloudCopy.parse(saved));
         notifyListeners();
@@ -337,7 +341,7 @@ class FinanceRepository extends ChangeNotifier {
       do {
         _learningAgain = false;
         for (var attempt = 0; attempt < 3; attempt++) {
-          final remote = Map<String, dynamic>.from(await _client.rpc('finance_learning_snapshot') as Map);
+          final remote = await (await _privacy()).fetch('learning');
           if (!current()) return;
           final cloud = Map<String, dynamic>.from(remote['document'] as Map);
           final merged = mergeLearning(learning.toShared(), cloud);
@@ -345,11 +349,7 @@ class FinanceRepository extends ChangeNotifier {
           if (!current()) return;
           if (canonicalLearningJson(merged) == canonicalLearningJson(cloud)) break;
           try {
-            await _client.rpc('finance_learning_save', params: {
-              'p_workspace': remote['workspace_id'],
-              'p_expected_revision': remote['revision'],
-              'p_document': merged,
-            });
+            await (await _privacy()).save('learning', remote['workspace_id'] as String, remote['revision'] as int, merged);
             break;
           } on PostgrestException catch (error) {
             if (error.code == '40001' || error.message.contains('cloud_revision_conflict')) continue;

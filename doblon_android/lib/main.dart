@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'data.dart';
 import 'preferences.dart';
 import 'screens/login.dart';
+import 'screens/cloud_privacy_gate.dart';
 import 'screens/shell.dart';
 import 'theme.dart';
 
@@ -51,7 +52,8 @@ class AuthGate extends StatelessWidget {
     final auth = Supabase.instance.client.auth;
     return StreamBuilder<AuthState>(
       stream: auth.onAuthStateChange,
-      builder: (context, _) => auth.currentSession == null ? const LoginScreen() : Shell(preferences: preferences),
+      builder: (context, _) => auth.currentSession == null ? const LoginScreen() : CloudPrivacyGate(
+        key: ValueKey(auth.currentUser!.id), child: Shell(preferences: preferences)),
     );
   }
 }

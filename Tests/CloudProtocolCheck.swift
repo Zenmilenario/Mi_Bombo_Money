@@ -222,6 +222,10 @@ struct CloudProtocolCheck {
         precondition(pending == nil,"A confirmation email is not an authenticated session")
         MockCloudProtocol.handler = { request in
             precondition(request.value(forHTTPHeaderField:"Authorization") == "Bearer fictional-access")
+            if request.url?.path == "/rest/v1/rpc/finance_privacy_profile" {
+                return (200,Data("{\"encryption_required\":false,\"workspace_id\":\"00000000-0000-4000-8000-000000000011\",\"key_check\":null}".utf8))
+            }
+            precondition(request.url?.path == "/rest/v1/rpc/finance_save_snapshot")
             return (400,Data("{\"code\":\"40001\"}".utf8))
         }
         do {

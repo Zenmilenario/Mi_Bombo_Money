@@ -6,6 +6,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E2EE00000000000000000001 /* CloudCipher.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2EE00000000000000000002 /* CloudCipher.swift */; };
 		A17F00112233445566770001 /* TransactionCorrectionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A17F00112233445566770002 /* TransactionCorrectionModel.swift */; };
 		A16F00112233445566770001 /* TransactionOperationModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F00112233445566770002 /* TransactionOperationModel.swift */; };
 		A16F00112233445566770003 /* TransactionOperationLearning.swift in Sources */ = {isa = PBXBuildFile; fileRef = A16F00112233445566770004 /* TransactionOperationLearning.swift */; };
@@ -75,6 +76,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		E2EE00000000000000000002 /* CloudCipher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCipher.swift; sourceTree = "<group>"; };
 		A17F00112233445566770002 /* TransactionCorrectionModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionCorrectionModel.swift; sourceTree = "<group>"; };
 		A16F00112233445566770002 /* TransactionOperationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionOperationModel.swift; sourceTree = "<group>"; };
 		A16F00112233445566770004 /* TransactionOperationLearning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionOperationLearning.swift; sourceTree = "<group>"; };
@@ -366,6 +368,7 @@
 				07894A7F26A22F26C22A6087 /* CloudAccountManager.swift */,
 				DA1CBF9E9192BD25C8E6CDB0 /* CloudBackupAdapter.swift */,
 				EF3F06AE53D10C9BC95B7825 /* CloudClient.swift */,
+				E2EE00000000000000000002 /* CloudCipher.swift */,
 				D77A9BD151BE6B1444C547CB /* CloudDocument.swift */,
 				48BD00230B6DFFB5560E6A4B /* CloudPKCEFlow.swift */,
 				3A0F6DD79C76F1067BA509B3 /* CloudSyncCoordinator.swift */,
@@ -443,6 +446,7 @@
 				527306F9FF1123D08D736733 /* CloudPKCEFlow.swift in Sources */,
 				C3DAB8D79CA375F6CA949E59 /* CloudDocument.swift in Sources */,
 				7BF2CAC15FEB19EB8638FE15 /* CloudClient.swift in Sources */,
+				E2EE00000000000000000001 /* CloudCipher.swift in Sources */,
 				849605C776918286229CCD56 /* CloudBackupAdapter.swift in Sources */,
 				B3A1C153334F75875B2007D5 /* CloudAutomaticSync.swift in Sources */,
 				9658E36C7AECFCC8F1042974 /* CloudAccountManager.swift in Sources */,
@@ -605,14 +609,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 56;
+				CURRENT_PROJECT_VERSION = 57;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.7.15;
+				MARKETING_VERSION = 0.7.16;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -629,14 +633,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 56;
+				CURRENT_PROJECT_VERSION = 57;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.7.15;
+				MARKETING_VERSION = 0.7.16;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

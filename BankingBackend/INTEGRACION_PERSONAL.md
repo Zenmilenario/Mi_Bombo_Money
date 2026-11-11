@@ -1,5 +1,23 @@
 # Conexión bancaria personal · versión 0.6.2
 
+## Alcance de las personas invitadas — revisión del 11 de noviembre de 2026
+
+**Estado comprobado en servicios reales, sin cambios:** el despliegue personal vigente es `e8e6f77c`. Sus bindings contienen las credenciales separadas del piloto, pero la lista bancaria tiene cero invitados. La consulta de metadatos de Enable Banking confirma que «Doblón Piloto» es Production, AIS e inactiva. No se activó, vinculó ni consultó ninguna cuenta bancaria durante esta revisión.
+
+**Dos controles distintos.** La edición iOS pública se elige al compilar (`DOBLON_PUBLIC`); oculta laboratorio/sandbox, medidor de pausas, detalles del servidor y diagnóstico de los últimos apuntes recibidos. Conserva movimientos, presupuestos, reservas, inversiones, tarjetas, nube, copias, CSV, aprendizaje y Apple Pay. La lista `SUPABASE_GUEST_IDS` controla el acceso al Worker bancario por identidad de Supabase; no cierra por sí sola el registro o el uso manual de la app. Instalar la edición personal tampoco convierte una cuenta invitada en propietaria del servidor.
+
+**Banca.** El invitado usa su aplicación piloto; nunca se recurre a las credenciales personales del creador. La banca es solo de consulta, sin pagos ni transferencias reales. El código fija seis conexiones activas por persona, consultas de hasta 90 días por intervalo y límites de solicitudes por usuario (60/minuto; inicio de autorizaciones, 5/minuto). La app utiliza una ventana de 90 días, conserva el historial ya importado y aplica esperas entre consultas y las restricciones del banco. Las cuentas deben estar asociadas, ser compatibles y tener autorización vigente. Esos límites también afectan al propietario; no son un recorte comercial exclusivo de invitados.
+
+Activar otra aplicación no autoriza acceso libre a cuentas ajenas. La producción restringida solo entrega las cuentas vinculadas y se presenta para evaluación y uso individual con cuentas propias; el piloto de participantes requiere acordar con Enable Banking el alcance adecuado. [Guía oficial](https://enablebanking.com/docs/api/linked-accounts/).
+
+**Datos e IA.** Las sesiones de usuarios normales quedan separadas por propietario: no pueden acceder por la app a datos o conexiones ajenos. Esto no equivale a cifrado de extremo a extremo frente al administrador. Quien administra Supabase conserva acceso técnico a los registros financieros y de aprendizaje. La separación de las conexiones en la API tampoco elimina los privilegios administrativos sobre la infraestructura. No se garantiza que el creador no pueda leer datos de participantes.
+
+Cada persona entrena con sus propias confirmaciones y comparte ese aprendizaje entre sus dispositivos mediante `finance_learning`. No hay un conjunto global de entrenamiento de invitados, anonimización automática ni flujo específico de consentimiento del estudio y retirada de aportaciones. Su feedback de uso no se convierte automáticamente en datos de entrenamiento para el TFM.
+
+**Android.** Flutter 0.12.0 permite conectar bancos y usa las mismas restricciones del servidor. Todavía no implementa el selector de ediciones ni los mismos filtros de herramientas de `DOBLON_PUBLIC`; no debe anunciarse como una separación visual idéntica a iOS. El equivalente a la captura Apple Pay no está implementado en Android.
+
+**Verificación local:** 15 pruebas de seguridad y separación multiusuario correctas. Esta revisión no certifica el alta física de ningún participante. Los apartados de versiones siguientes conservan su cronología; las indicaciones antiguas de «un solo par de credenciales» o «Android solo consulta» han quedado superadas por este estado.
+
 ## Doblón 0.7.14 (55) y servidor · aplicación piloto para personas invitadas
 
 Decidido el 10 de noviembre de 2026. El usuario creó en Enable Banking una segunda aplicación de producción, «Doblón Piloto», solo para las cuentas de las personas invitadas. Usa el mismo servidor y la misma dirección de retorno. Su propia aplicación personal sigue aparte, de modo que un problema con la piloto no afecta a sus bancos.

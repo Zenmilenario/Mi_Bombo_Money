@@ -31,6 +31,7 @@ class CloudStorageTests(unittest.TestCase):
         self.ids = {owner: {name: str(uuid4()) for name in TABLES} for owner in [A, B]}
         for owner, workspace in [(A, WA), (B, WB)]:
             self.db.execute('INSERT INTO auth.users(id) VALUES (%s)', (owner,))
+            self.db.execute('INSERT INTO finance_private.developer_plaintext_users VALUES (%s)', (owner,))
             self.insert('workspaces', dict(id=workspace, owner_id=owner, kind='personal', name='Personal'))
             for name in TABLES[1:]:
                 self.insert(name, self.record(name, owner, workspace))
@@ -99,6 +100,83 @@ class CloudStorageTests(unittest.TestCase):
         self.expect_sqlstate('23505', lambda: self.insert('accounts', dict(self.record('accounts', new=True), bank_identity_key=key)))
         self.expect_sqlstate('23505', lambda: self.insert('transactions', dict(self.record('transactions', new=True), bank_entry_key='enable-entry:fixture')))
         self.expect_sqlstate('23514', lambda: self.db.execute('UPDATE public.finance_accounts SET bank_identity_key=%s WHERE id=%s', ('raw-iban-not-allowed', self.ids[A]['accounts'])))
+
+    def guest(self):
+        self.as_user(None, 'postgres')
+        self.db.execute('DELETE FROM finance_private.developer_plaintext_users WHERE owner_id=%s', (B,))
+        self.as_user(B)
+
+    def envelope(self, key='00000000-0000-4000-8000-000000000099'):
+        # Fictitious opaque values: SQL validates shape, only the client authenticates the ciphertext.
+        return dict(v=1, alg='A256GCM', key_id=key, nonce='AAAAAAAAAAAAAAAA', tag='AAAAAAAAAAAAAAAAAAAAAA==', ciphertext='YWJj')
+
+    def enroll_guest(self, source=None):
+        source = source or self.db.execute('SELECT public.finance_encryption_source()').fetchone()[0]
+        self.db.execute('SELECT public.finance_enable_encryption(%s,%s,%s,%s,%s,%s)', (WB, source['finance']['revision'],
+            source['learning']['revision'], Jsonb(self.envelope()), Jsonb(self.envelope()), Jsonb(self.envelope())))
+
+    def test_guests_cannot_opt_out_or_use_old_plaintext_api(self):
+        self.guest()
+        profile = self.db.execute('SELECT public.finance_privacy_profile()').fetchone()[0]
+        self.assertTrue(profile['encryption_required'])
+        self.assertIsNone(profile['key_check'])
+        self.assertEqual(profile['workspace_id'], WB)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM public.finance_transactions').fetchone()[0], 0)
+        self.expect_sqlstate('42501', lambda: self.db.execute('SELECT public.finance_snapshot(NULL)'))
+        self.expect_sqlstate('42501', lambda: self.db.execute('SELECT public.finance_learning_snapshot()'))
+        self.expect_sqlstate('23503', lambda: self.insert('accounts', self.record('accounts', B, WB, new=True)))  # The BEFORE trigger cannot lock a guest's plaintext workspace.
+        self.expect_sqlstate('42501', lambda: self.db.execute('INSERT INTO finance_private.developer_plaintext_users VALUES (%s)', (B,)))
+        self.expect_sqlstate('42501', lambda: self.db.execute('SELECT finance_private.legacy_snapshot(NULL)'))
+
+    def test_enrollment_is_atomic_removes_live_plaintext_and_preserves_developer(self):
+        self.guest()
+        source = self.db.execute('SELECT public.finance_encryption_source()').fetchone()[0]
+        self.assertTrue(source['finance']['document']['transactions'])
+        self.enroll_guest(source)
+        self.expect_sqlstate('42501', lambda: self.db.execute('SELECT public.finance_encryption_source()'))
+        self.expect_sqlstate('40001', lambda: self.enroll_guest(source))
+        self.assertEqual(self.db.execute("SELECT public.finance_encrypted_snapshot('finance')").fetchone()[0]['document'], self.envelope())
+        self.assertEqual(self.db.execute("SELECT public.finance_encrypted_snapshot('learning')").fetchone()[0]['revision'], 1)
+        self.as_user(None, 'postgres')
+        for table in TABLES[1:] + ['learning']:
+            self.assertEqual(self.db.execute(sql.SQL('SELECT count(*) FROM public.{} WHERE owner_id=%s').format(sql.Identifier('finance_'+table)), (B,)).fetchone()[0], 0)
+        self.as_user(A)
+        self.assertFalse(self.db.execute('SELECT public.finance_privacy_profile()').fetchone()[0]['encryption_required'])
+        self.assertTrue(self.snapshot()['document']['transactions'])
+        self.assertEqual(self.db.execute('SELECT count(*) FROM public.finance_sealed_documents').fetchone()[0], 0)
+
+    def test_enrollment_revision_conflict_keeps_old_copy_and_no_ciphertext(self):
+        self.guest()
+        source = self.db.execute('SELECT public.finance_encryption_source()').fetchone()[0]
+        source['finance']['revision'] -= 1
+        self.expect_sqlstate('40001', lambda: self.enroll_guest(source))
+        self.assertTrue(self.db.execute('SELECT public.finance_encryption_source()').fetchone()[0]['finance']['document']['transactions'])
+        self.assertEqual(self.db.execute('SELECT count(*) FROM public.finance_encryption_keys').fetchone()[0], 0)
+
+    def test_encrypted_revisions_key_isolation_and_no_direct_writes(self):
+        self.guest(); self.enroll_guest()
+        def save(revision=1, workspace=WB, envelope=None):
+            return self.db.execute("SELECT public.finance_encrypted_save(%s,'finance',%s,%s)", (workspace, revision, Jsonb(envelope or self.envelope()))).fetchone()[0]
+        self.expect_sqlstate('40001', lambda: save(0))
+        self.assertEqual(save()['revision'], 2)
+        self.expect_sqlstate('40001', lambda: save())
+        self.expect_sqlstate('42501', lambda: save(2, WA))
+        self.expect_sqlstate('42501', lambda: save(2, envelope=self.envelope('00000000-0000-4000-8000-000000000098')))
+        self.expect_sqlstate('42501', lambda: self.db.execute("UPDATE public.finance_sealed_documents SET revision=999"))
+        self.as_user(A)
+        self.expect_sqlstate('42501', lambda: save(2, WB))
+
+    def test_malformed_envelope_cannot_replace_encrypted_copy(self):
+        self.guest(); self.enroll_guest()
+        for change in [{'nonce':'AA=='}, {'tag':'AA=='}, {'code':'secret-must-never-be-sent'}, {'alg':'none'}]:
+            bad = self.envelope() | change
+            self.expect_sqlstate('22023', lambda: self.db.execute("SELECT public.finance_encrypted_save(%s,'finance',1,%s)", (WB, Jsonb(bad))))
+        self.assertEqual(self.db.execute("SELECT public.finance_encrypted_snapshot('finance')").fetchone()[0]['revision'], 1)
+
+    def test_anonymous_cannot_access_encryption(self):
+        self.as_user(None, 'anon')
+        for query in ['SELECT public.finance_privacy_profile()', 'SELECT public.finance_encryption_source()', "SELECT public.finance_encrypted_snapshot('finance')"]:
+            self.expect_sqlstate('42501', lambda: self.db.execute(query))
 
     def test_user_sees_only_own_rows_in_every_table(self):
         for owner in [A,B]:
@@ -363,6 +441,7 @@ class CloudStorageTests(unittest.TestCase):
         owner, workspace, account, fund = (uuid4() for _ in range(4))
         with psycopg.connect(DSN, autocommit=True) as admin:
             admin.execute('INSERT INTO auth.users(id) VALUES (%s)', (owner,))
+            admin.execute('INSERT INTO finance_private.developer_plaintext_users VALUES (%s)', (owner,))
             admin.execute("INSERT INTO public.finance_workspaces(owner_id,id,kind,name) VALUES (%s,%s,'personal','Concurrency test')", (owner,workspace))
             admin.execute("INSERT INTO public.finance_accounts(owner_id,workspace_id,id,name,type,opening_date) VALUES (%s,%s,%s,'Account','checking',now())",(owner,workspace,account))
             admin.execute("INSERT INTO public.finance_reserved_funds(owner_id,workspace_id,id,name,amount_minor,account_id) VALUES (%s,%s,%s,'Fund',5000,%s)",(owner,workspace,fund,account))

@@ -109,6 +109,15 @@ final class CloudAccountManager: ObservableObject {
             throw CloudTransportError.authentication
         }
     }
+    func preparePrivacy() async throws -> CloudPrivacyStatus {
+        try await api().preparePrivacy(session: validSession())
+    }
+    func unlockPrivacy(code: String) async throws {
+        try await api().unlockPrivacy(session: validSession(), code: code)
+    }
+    func enrollPrivacy(code: String) async throws {
+        try await api().enrollPrivacy(session: validSession(), code: code)
+    }
     func snapshot(workspace: UUID? = nil) async throws -> CloudSnapshot {
         do { return try await api().snapshot(session: validSession(), workspace: workspace) }
         catch CloudTransportError.authentication {

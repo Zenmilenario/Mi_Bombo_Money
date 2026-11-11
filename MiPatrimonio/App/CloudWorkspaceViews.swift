@@ -43,7 +43,7 @@ struct FinanceWorkspaceRouter: View {
             if account.pendingLink != nil { CloudLinkConfirmationView() }
             else if cloudMode {
                 if let user = account.session?.user, !account.needsSignIn {
-                    CloudFinanceWorkspaceView().id(user.id)
+                    CloudPrivacyGateView { CloudFinanceWorkspaceView() }.id(user.id)
                 } else { CloudSignInView() }
             } else { RootTabView() }
         }
@@ -175,6 +175,71 @@ private struct CloudLinkConfirmationView: View {
             .navigationTitle("Acceso verificado")
             .onDisappear { password = ""; confirmation = "" }
         }
+    }
+}
+
+private struct CloudPrivacyGateView<Content: View>: View {
+    @EnvironmentObject private var account: CloudAccountManager
+    let content: () -> Content
+    init(@ViewBuilder content: @escaping () -> Content) { self.content = content }
+    @State private var ready = false
+    @State private var enrolled = false
+    @State private var checked = false
+    @State private var busy = false
+    @State private var saved = false
+    @State private var code = ""
+    @State private var recovery = ""
+    @State private var error: String?
+    var body: some View {
+        Group {
+            if ready { content() }
+            else {
+                NavigationStack {
+                    Form {
+                        Section {
+                            Label(enrolled ? "Desbloquea tus finanzas" : "Protege tus finanzas", systemImage: "lock.shield").font(.title2.bold())
+                            Text("Tus finanzas y lo que aprende tu IA se cifran antes de sincronizarse. La IA trabaja en este dispositivo. El servicio de conexión bancaria procesa los datos al descargarlos del banco.")
+                        }
+                        if checked {
+                            Section("Código de recuperación") {
+                                Text("Guárdalo en tu gestor de contraseñas. No lo compartas. Si pierdes el código y todos tus dispositivos conectados, no podremos recuperar tus datos. Restablecer la contraseña de acceso no recupera este código.")
+                                if enrolled {
+                                    SecureField("DBL1-…", text: $code).textInputAutocapitalization(.never).autocorrectionDisabled()
+                                } else {
+                                    Text(recovery).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+                                    Toggle("He guardado el código fuera de la app", isOn: $saved)
+                                }
+                            }
+                            Section { Button(enrolled ? "Desbloquear" : "Cifrar y continuar") { Task { await proceed() } }.disabled(busy || (!enrolled && !saved)) }
+                        }
+                        if let error { Section { Text(error).foregroundStyle(.red) } }
+                        if busy { ProgressView() }
+                        Button("Comprobar estado de la protección") { Task { await prepare() } }.disabled(busy)
+                        Button("Salir de la cuenta") { Task { await account.signOut() } }.disabled(busy)
+                    }.navigationTitle("Privacidad")
+                }
+            }
+        }.task { await prepare() }
+    }
+    private func prepare() async {
+        guard !busy, !ready else { return }
+        busy = true; error = nil
+        defer { busy = false }
+        do {
+            let state = try await account.preparePrivacy()
+            ready = state.ready; enrolled = state.enrolled; checked = true
+            if !ready, !enrolled, recovery.isEmpty { recovery = try CloudCipher.generate().recoveryCode }
+        } catch { self.error = error.localizedDescription }
+    }
+    private func proceed() async {
+        guard !busy else { return }
+        busy = true; error = nil
+        defer { busy = false }
+        do {
+            if enrolled { try await account.unlockPrivacy(code: code) }
+            else { try await account.enrollPrivacy(code: recovery) }
+            ready = true
+        } catch { self.error = error.localizedDescription }
     }
 }
 

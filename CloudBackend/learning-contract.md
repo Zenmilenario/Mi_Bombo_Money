@@ -1,5 +1,9 @@
 # Contrato de lo aprendido compartido (versión 1)
 
+## Transporte cifrado preparado — 11/11/2026
+
+Este contrato describe el **documento descifrado** que combinan los clientes. Para invitados, el lote pendiente de despliegue lo transporta mediante `finance_encrypted_snapshot` / `finance_encrypted_save` con tipo `learning`, sin cambiar su esquema ni el entrenamiento local. La identidad de desarrollo explícitamente exenta conserva las RPC relacionales. Ver [cifrado, migración y recuperación](privacy-encryption.md). No hay aprendizaje colectivo automático con datos de invitados.
+
 Lo que la persona enseña a los modelos de Doblón se comparte entre sus dispositivos (iPhone y Android). Son tres cosas: las categorías que confirma, las operaciones que identifica (aportación a inversión, Round up, Saveback) y las correcciones que hace en movimientos del banco. Se guarda en la tabla `finance_learning` de Supabase (migración `20261111000100_finance_learning.sql`) y no dentro del documento de finanzas. El motivo es que el protocolo de finanzas sustituye tablas enteras y descartaría los campos que no conoce.
 
 - **Funciones de la nube:**

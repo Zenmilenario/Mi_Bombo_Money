@@ -5,12 +5,14 @@ import 'package:doblon/data.dart';
 import 'package:doblon/banking.dart';
 import 'package:doblon/edits.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  FlutterSecureStorage.setMockInitialValues({});
 
   test('foreground refresh retries offline edits against the latest cloud copy without overwriting another device', () async {
     final directory = await Directory.systemTemp.createTemp('doblon-cloud-retry');
@@ -28,6 +30,10 @@ void main() {
     Map<String, dynamic> snapshot() => {'workspace_id': 'fictitious-workspace', 'revision': revision, 'document': document};
     final transport = MockClient((request) async {
       if (!online) throw http.ClientException('Fictitious offline');
+      if (request.url.path.endsWith('/finance_privacy_profile')) {
+        return http.Response(jsonEncode({'encryption_required': false, 'workspace_id': 'fictitious-workspace', 'key_check': null}),
+          200, request: request, headers: {'content-type': 'application/json'});
+      }
       if (request.url.path.endsWith('/finance_snapshot')) {
         return http.Response(jsonEncode(snapshot()), 200, request: request, headers: {'content-type': 'application/json'});
       }
