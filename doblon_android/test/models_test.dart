@@ -8,18 +8,43 @@ void main() {
     final finances = Finances.fromDocument({
       'formatVersion': 2,
       'accounts': [
-        {'id': 'a1', 'name': 'Cuenta ficticia', 'typeRaw': 'checking', 'openingBalanceMinor': 12345, 'openingDate': 815184000,
-         'includeInNetWorth': true, 'isArchived': false, 'sortOrder': 2},
+        {
+          'id': 'a1',
+          'name': 'Cuenta ficticia',
+          'typeRaw': 'checking',
+          'openingBalanceMinor': 12345,
+          'openingDate': 815184000,
+          'includeInNetWorth': true,
+          'isArchived': false,
+          'sortOrder': 2
+        },
         {'id': 'a0', 'name': 'Efectivo', 'typeRaw': 'cash', 'currencyCode': 'USD', 'openingBalanceMinor': 0, 'openingDate': 815184000, 'sortOrder': 1},
       ],
       'transactions': [
-        {'id': 't1', 'date': 815184000, 'typeRaw': 'expense', 'amountMinor': 450, 'descriptionText': 'Gasolinera ficticia',
-         'sourceAccountID': 'a1', 'externalID': 'applepay:abc', 'bankEntryKey': null},
-        {'id': 't2', 'date': 815270400, 'typeRaw': 'income', 'amountMinor': 1000, 'descriptionText': 'Nómina ficticia',
-         'sourceAccountID': 'a1', 'bankEntryKey': 'enable-entry:x'},
+        {
+          'id': 't1',
+          'date': 815184000,
+          'typeRaw': 'expense',
+          'amountMinor': 450,
+          'descriptionText': 'Gasolinera ficticia',
+          'sourceAccountID': 'a1',
+          'externalID': 'applepay:abc',
+          'bankEntryKey': null
+        },
+        {
+          'id': 't2',
+          'date': 815270400,
+          'typeRaw': 'income',
+          'amountMinor': 1000,
+          'descriptionText': 'Nómina ficticia',
+          'sourceAccountID': 'a1',
+          'bankEntryKey': 'enable-entry:x'
+        },
       ],
       'categories': [],
-      'unknownEntity': [{'id': 'x'}],
+      'unknownEntity': [
+        {'id': 'x'}
+      ],
     });
     expect(finances.accounts.map((a) => a.id), ['a0', 'a1'], reason: 'Sorted as on the iPhone');
     expect(finances.accounts.map((a) => a.currencyCode), ['USD', 'EUR'], reason: 'Missing currency means euros');

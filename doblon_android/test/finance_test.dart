@@ -47,7 +47,14 @@ void main() {
     final savings = account('ahorro', type: AccountType.savings);
     final investing = account('inversion', openingDate: date(2), type: AccountType.investment);
     final accounts = [current, savings, investing];
-    const kinds = [TransactionType.expense, TransactionType.income, TransactionType.transfer, TransactionType.fee, TransactionType.interest, TransactionType.transfer];
+    const kinds = [
+      TransactionType.expense,
+      TransactionType.income,
+      TransactionType.transfer,
+      TransactionType.fee,
+      TransactionType.interest,
+      TransactionType.transfer
+    ];
     final txs = <Transaction>[];
     for (var i = 0; i < 60; i++) {
       final kind = kinds[i % kinds.length];

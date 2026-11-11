@@ -51,14 +51,30 @@ jobs:
       - name: Comprobar protocolo, acceso y conflictos
         run: |
           mkdir -p build/cloud-check
-          xcrun swiftc -swift-version 5 -parse-as-library \
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
             MiPatrimonio/Core/Cloud/CloudDocument.swift \
             MiPatrimonio/Core/Services/ReservedLedger.swift \
+            MiPatrimonio/Core/Cloud/CloudCipher.swift \
             MiPatrimonio/Core/Cloud/CloudClient.swift \
             MiPatrimonio/Core/Cloud/CloudPKCEFlow.swift \
             MiPatrimonio/Core/Cloud/CloudAutomaticSync.swift \
             Tests/CloudProtocolCheck.swift -o build/cloud-check/CloudProtocolCheck
           build/cloud-check/CloudProtocolCheck
+      - name: Comprobar cifrado interoperable con Android
+        run: |
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
+            MiPatrimonio/Core/Cloud/CloudDocument.swift \
+            MiPatrimonio/Core/Services/ReservedLedger.swift \
+            MiPatrimonio/Core/Cloud/CloudCipher.swift \
+            MiPatrimonio/Core/Cloud/CloudClient.swift \
+            Tests/CloudCipherCheck.swift -o build/cloud-check/CloudCipherCheck
+          build/cloud-check/CloudCipherCheck
+      - name: Comprobar lo aprendido compartido con Android
+        run: |
+          xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
+            MiPatrimonio/Core/Services/LearningShare.swift \
+            Tests/LearningShareCheck.swift -o build/cloud-check/LearningShareCheck
+          build/cloud-check/LearningShareCheck
       - name: Comprobar integración con SwiftData
         run: |
           xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
@@ -70,6 +86,7 @@ jobs:
             MiPatrimonio/Core/Services/CategoryRuleService.swift \
             MiPatrimonio/Core/Services/CategoryDefaultsService.swift \
             MiPatrimonio/Core/Cloud/CloudDocument.swift \
+            MiPatrimonio/Core/Cloud/CloudCipher.swift \
             MiPatrimonio/Core/Cloud/CloudClient.swift \
             MiPatrimonio/Core/Cloud/CloudBackupAdapter.swift \
             Tests/CloudPersistenceCheck.swift -o build/cloud-check/CloudPersistenceCheck

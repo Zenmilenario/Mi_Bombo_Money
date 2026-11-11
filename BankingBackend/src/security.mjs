@@ -78,6 +78,20 @@ export function canonicalUser(user, env) {
   const value = String(user ?? '').toLowerCase();
   return value === String(env.SUPABASE_OWNER_ID ?? '').toLowerCase() ? env.SUPABASE_OWNER_ID : value;
 }
+/// Bank provider credentials for one user. The owner keeps the personal application; invited people use
+/// a separate pilot application (`ENABLE_GUEST_APP_ID` and `ENABLE_GUEST_PRIVATE_KEY`), so a problem
+/// with the pilot never touches the owner's banks. Without a pilot application, guests cannot reach
+/// the provider at all: they never fall back to the owner's application.
+export function providerEnvironment(env, user) {
+  if (env.PROVIDER_MODE !== 'production') return env;
+  if (String(user ?? '').toLowerCase() === String(env.SUPABASE_OWNER_ID ?? '').toLowerCase()) return env;
+  if (!allowedUsers(env).has(String(user ?? '').toLowerCase())) throw new Fault(403, 'owner_required');
+  if (!IDENTITY.test(env.ENABLE_GUEST_APP_ID ?? '') || !env.ENABLE_GUEST_PRIVATE_KEY
+      || env.ENABLE_GUEST_APP_ID.toLowerCase() === String(env.ENABLE_APP_ID ?? '').toLowerCase()) {
+    throw new Fault(503, 'guest_banking_not_configured');
+  }
+  return { ...env, ENABLE_APP_ID: env.ENABLE_GUEST_APP_ID, ENABLE_PRIVATE_KEY: env.ENABLE_GUEST_PRIVATE_KEY, GUEST_APPLICATION: true };
+}
 export function mode(env) {
   if (env.PROVIDER_MODE === 'production') {
     // A separate deployment is mandatory: the sandbox token can never unlock real accounts.

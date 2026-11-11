@@ -150,6 +150,7 @@ final class CloudSyncCoordinator: ObservableObject {
             }
             try finish(result, preserving: finalLocal)
             conflict = nil; pendingRemote = nil; pendingLocal = nil; pendingBase = nil
+            await shareLearning(account: account)
         } catch is CancellationError {
             status = "Guardado en este dispositivo"
             errorMessage = nil
@@ -198,6 +199,53 @@ final class CloudSyncCoordinator: ObservableObject {
         baseline = remote
         lastSync = .now
         status = (try CloudDocument.same(incoming, remote.document)) ? "Al día" : "Cambios pendientes de subir"
+    }
+
+    /// Shares what was taught with the person's other devices, Android included (CloudBackend/learning-contract.md).
+    /// It never affects the finances: on failure everything stays on this device until the next synchronization.
+    private func shareLearning(account: CloudAccountManager) async {
+        guard let container, let directory else { return }
+        let context = container.mainContext
+        let baseURL = directory.appendingPathComponent("learning-shared-base-v1.json")
+        do {
+            for _ in 0..<3 {
+                let remote = try await account.learningSnapshot()
+                try requireIdentity(account)
+                let cloud = try JSONDecoder().decode(SharedLearning.self, from: JSONEncoder().encode(remote.document))
+                let fetched = try context.fetch(FetchDescriptor<FinancialTransaction>())
+                let rows = Dictionary(fetched.map { (LearningCanonical.id($0.id), $0) }, uniquingKeysWith: { first, _ in first })
+                let base = (try? JSONDecoder().decode(SharedLearning.self, from: Data(contentsOf: baseURL))) ?? SharedLearning()
+                var exported = SharedLearning()
+                try TransactionLearning.exportShared(into: &exported, rows: rows, in: context)
+                try TransactionOperationLearning.exportShared(into: &exported, rows: rows, in: context)
+                // Only what this device could hold and no longer has becomes a removal.
+                let local = LearningShare.stamp(exported, base: base, now: LearningCanonical.ms(.now)) { section, key in
+                    guard let row = rows[key] else { return false }
+                    switch section {
+                    case "categories": return base.categories[key]?.signature == TransactionLearning.canonicalSignature(row)
+                    case "operations": return base.operations[key]?.signature == TransactionOperationLearning.canonicalIdentity(row)
+                    case "corrections": return base.corrections[key]?.signature == TransactionOperationLearning.canonicalIdentity(row)
+                    case "automatic": return base.automatic[key]?.signature == TransactionOperationLearning.canonicalIdentity(row)
+                    default: return false
+                    }
+                }
+                let merged = LearningShare.merge(local, cloud)
+                try TransactionLearning.adoptShared(merged, rows: rows, in: context)
+                try TransactionOperationLearning.adoptShared(merged, rows: rows, in: context)
+                // What arrived from another device is used at once (proposals and learnt corrections).
+                if merged != base { TransactionOperationLearning.feedbackDidSave(in: context) }
+                try JSONEncoder().encode(merged).write(to: baseURL, options: [.atomic, .completeFileProtection])
+                if merged == cloud { return }
+                do {
+                    _ = try await account.saveLearning(workspace: remote.workspaceID, revision: remote.revision,
+                        document: JSONDecoder().decode(CloudJSON.self, from: JSONEncoder().encode(merged)))
+                    try requireIdentity(account)
+                    return
+                } catch CloudTransportError.conflict { continue }
+            }
+        } catch {
+            // Kept on this device; shared on the next synchronization.
+        }
     }
 
     func retryOpening(account: CloudAccountManager) async {

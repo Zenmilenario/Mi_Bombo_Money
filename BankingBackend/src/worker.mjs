@@ -1,4 +1,4 @@
-import { Fault, authenticate, origin, mode, readJSON, limitedBytes, UUID, isState, json, securityHeaders, psuHeaders, allowedUsers } from './security.mjs';
+import { Fault, authenticate, origin, mode, readJSON, limitedBytes, UUID, isState, json, securityHeaders, psuHeaders, allowedUsers, providerEnvironment } from './security.mjs';
 import { rateLimit, newAuthorization, claimAuthorization, assertPendingAuthorization, saveConnection, connection, listConnections, ownerTag } from './store.mjs';
 import { acceptsBankName, banks, startAuthorization, exchange, demoConnection, accountData, revoke } from './provider.mjs';
 
@@ -45,9 +45,11 @@ async function callback(request, url, env) {
   const code = url.searchParams.get('code');
   if (typeof code !== 'string' || code.length < 1 || code.length > 4096) return appRedirect(pending.id, 'failed');
   try {
-    const value = await exchange(code, pending.bank, env);
+    // The code is exchanged with the application of the person who started the authorization.
+    const provider = providerEnvironment(env, mode(env) === 'production' ? pending.owner : undefined);
+    const value = await exchange(code, pending.bank, provider);
     try { await saveConnection(pending.id, value, env, mode(env) === 'production' ? pending.owner : undefined); }
-    catch (error) { await revoke(value, env); throw error; }
+    catch (error) { await revoke(value, provider); throw error; }
     return appRedirect(pending.id, 'ok');
   } catch { return appRedirect(pending.id, 'failed'); }
 }
@@ -105,16 +107,18 @@ export async function handle(request, env) {
   const verified = await authenticate(request, env);
   const user = mode(env) === 'production' ? verified : env.SUPABASE_OWNER_ID;
   await rateLimit(env, mode(env) === 'production' ? `user:${(await ownerTag(user)).slice(0, 32)}` : 'owner');
+  // Provider calls use this person's application: the owner's personal one or the pilot one for guests.
+  const provider = () => providerEnvironment(env, user);
   if (request.method === 'GET' && url.pathname === '/v1/status') return json({ mode: mode(env),
     liveBankingEnabled: mode(env) === 'production', accountingImportEnabled: mode(env) === 'production' });
-  if (request.method === 'GET' && url.pathname === '/v1/banks') return json({ banks: await banks(env) });
+  if (request.method === 'GET' && url.pathname === '/v1/banks') return json({ banks: await banks(provider()) });
   if (request.method === 'POST' && url.pathname === '/v1/authorizations') {
     await rateLimit(env, mode(env) === 'production' ? `authorizations:${(await ownerTag(user)).slice(0, 32)}` : 'authorizations', 5);
     const { bank } = await readJSON(request, ['bank']);
     if (!acceptsBankName(bank, env)) throw new Fault(400, 'unsupported_bank');
     if ((await listConnections(env, false, user)).length >= 6) throw new Fault(409, 'connection_limit');
     const pending = await newAuthorization(bank, env, user);
-    try { return json({ id: pending.id, authorizationURL: await startAuthorization(bank, pending.state, env) }, 201); }
+    try { return json({ id: pending.id, authorizationURL: await startAuthorization(bank, pending.state, provider()) }, 201); }
     catch (error) { await env.DB.prepare('DELETE FROM auth_requests WHERE id=?').bind(pending.id).run(); throw error; }
   }
   if (request.method === 'GET' && url.pathname === '/v1/connections') return json({ connections: (await listConnections(env, false, user)).map(projectConnection) });
@@ -124,7 +128,7 @@ export async function handle(request, env) {
     if (!match[2] && request.method === 'DELETE') {
       const targets = mode(env) === 'production' ? (await listConnections(env, true, user)).filter(c => c.bank === conn.bank) : [conn];
       for (const target of targets) {
-        await revoke(target, env);
+        await revoke(target, provider());
         await env.DB.prepare('DELETE FROM connections WHERE id=?').bind(target.id).run();
       }
       return new Response(null, { status: 204, headers: securityHeaders() });
@@ -138,7 +142,7 @@ export async function handle(request, env) {
       const next = url.searchParams.get('continuation');
       if (next && next.length > 1024) throw new Fault(400, 'invalid_request');
       const includePending = mode(env) === 'production' && url.searchParams.get('include_pending') === '1';
-      return json(await accountData(conn, account, from, to, next, env, fetch, psuHeaders(request), includePending));
+      return json(await accountData(conn, account, from, to, next, provider(), fetch, psuHeaders(request), includePending));
     }
   }
   // No proxy endpoint, arbitrary provider URL, payment or transaction-write routes exist.

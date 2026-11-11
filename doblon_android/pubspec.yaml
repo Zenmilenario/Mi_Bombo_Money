@@ -1,7 +1,7 @@
-name: doblon
-description: Doblón para Android. Consulta tus finanzas con la misma cuenta que en el iPhone.
+﻿name: doblon
+description: DoblÃ³n para Android. Consulta tus finanzas con la misma cuenta que en el iPhone.
 publish_to: none
-version: 0.1.1+2
+version: 0.13.0+9
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
@@ -13,7 +13,17 @@ dependencies:
     sdk: flutter
   supabase_flutter: ^2.8.0
   intl: any
-
+  http: ^1.2.0
+  url_launcher: ^6.3.0
+  crypto: ^3.0.3
+  cryptography: 2.9.0
+  flutter_secure_storage: 10.3.4
+  path_provider: ^2.1.0
+  uuid: ^4.4.0
+  shared_preferences: ^2.5.6
+  local_auth: ^3.0.2
+  fl_chart: ^1.3.1
+  file_picker: ^13.3.3
 dev_dependencies:
   flutter_test:
     sdk: flutter

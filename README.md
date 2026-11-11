@@ -6,7 +6,7 @@
 
 <p align="center">
   Tus cuentas, tus objetivos y tus decisiones, en un mismo lugar. Antes <em>Mi Bombo Money</em>.<br>
-  Una app de finanzas personales para iPhone y iPad, construida con SwiftUI.
+  Finanzas personales para iPhone y iPad con SwiftUI, y para Android con Flutter.
 </p>
 
 <p align="center">
@@ -24,6 +24,12 @@
 </p>
 
 ---
+
+## Cifrado de invitados — preparado el 11/11/2026
+
+El lote iOS 0.7.16 (57) / Flutter 0.13.0 (9) incorpora cifrado de aplicación para las finanzas y el aprendizaje cloud de invitados, con código de recuperación guardado por la persona y excepción de desarrollo administrada en el servidor. La IA sigue entrenando y prediciendo en el dispositivo. No se comparten sus correcciones en un modelo colectivo. El Worker bancario sigue procesando los datos de conexión; este cifrado protege la copia activa en Supabase, no elimina el acceso técnico al tramo bancario.
+
+**Estado: local, no desplegado.** Requiere CI macOS, migración coordinada `20261111000300_client_encryption.sql`, registro privado de la identidad de desarrollo y prueba física. No instalar estos clientes contra un servidor sin la nueva política. Véase [Privacidad, recuperación y límites](CloudBackend/privacy-encryption.md).
 
 ## Qué puedes hacer
 
@@ -46,7 +52,7 @@ La interfaz se adapta al espacio disponible y al tamaño de letra. Incluye apari
 
 **IA de categorías.** Un clasificador local aprende de ejemplos y de las confirmaciones del usuario para proponer categorías. Las propuestas requieren revisión; no equivalen a una contabilidad autónoma.
 
-**Versión actual: Doblón 0.7.x.** Rediseño completo («Pulso»): navegación con raíl lateral en iPad, Inicio con el disponible tras retenciones y el ritmo del mes, Movimientos y Ajustes en dos paneles, cuentas en tarjetas, retenidos del banco visibles y el compañero Don Bigotes. El aprendizaje sigue siendo local, sin llamadas a una IA externa. Detalle en [DISENO_VISUAL_2026_10_29.md](DISENO_VISUAL_2026_10_29.md).
+**Versiones en esta rama:** iOS nativo 0.7.15 y [Flutter 0.12.0](doblon_android/README.md), actualmente destinado a Android. Flutter es la base prevista para unificar las plataformas; el relevo de la app iOS todavía requiere compilación y pruebas en dispositivos. Ambas usan Supabase y el mismo servidor bancario. La interfaz «Pulso» incluye cuentas, reservas, inversiones, retenciones y el compañero Don Bigotes. [Diseño visual](DISENO_VISUAL_2026_10_29.md).
 
 Consulta el [alcance y la evaluación de los modelos](CloudBackend/APRENDIZAJE_CATEGORIAS.md) y la [integración bancaria personal](BankingBackend/INTEGRACION_PERSONAL.md).
 
@@ -68,15 +74,20 @@ Abre una **pull request en borrador** para que cada push de la rama ejecute todo
 
 [Subir desde Windows](SUBIR_DESDE_WINDOWS.md) · [Distribución e instalación de IPA](DISTRIBUCION_IPA.md)
 
+### Android
+
+Consulta [la app Flutter y su compilación](doblon_android/README.md). El workflow «Comprobar app Android» analiza el código, ejecuta todas las pruebas Flutter y genera el APK. Los cambios locales deben pasar también los checks de su nuevo commit.
+
 ## Cómo está construida
 
 | Componente | Tecnología y responsabilidad |
 | --- | --- |
 | **App iOS** | SwiftUI para la interfaz y SwiftData para la copia local. |
+| **App Flutter** | Android; formularios, cálculos, aprendizaje y copia local con cola de cambios. Destino futuro también iOS. |
 | **Sincronización** | Supabase Auth, PostgreSQL y aislamiento de datos por usuario. |
 | **Conexión bancaria** | Backend en Cloudflare Workers con D1 e integración con Enable Banking. |
 | **Aprendizaje** | Modelos locales de regresión logística multiclase; las correcciones alimentan el entrenamiento. |
-| **Comprobaciones** | GitHub Actions para compilación iOS y pruebas de cálculos, copias, nube y conexión bancaria. |
+| **Comprobaciones** | GitHub Actions para compilación iOS, análisis y APK Android, cálculos, copias, nube y conexión bancaria. |
 
 ## Documentación
 
@@ -97,6 +108,6 @@ Abre una **pull request en borrador** para que cada push de la rama ejecute todo
 
 Las credenciales bancarias se introducen en el proceso de autorización del banco. Las claves privadas del proveedor permanecen en el servidor y la app utiliza el llavero del dispositivo para sus credenciales de acceso.
 
-La sincronización financiera y las copias se documentan en sus guías. Las confirmaciones de aprendizaje son actualmente locales al dispositivo: todavía no se sincronizan ni forman parte de la exportación financiera.
+El entrenamiento y la inferencia se ejecutan en el dispositivo, sin enviar movimientos a una IA externa. Lo aprendido se comparte entre los dispositivos de la misma persona mediante `finance_learning`, separado del documento financiero y de su exportación. [Contrato de aprendizaje compartido](CloudBackend/learning-contract.md).
 
 El proyecto está en desarrollo. Los cambios preparados localmente deben superar los checks del commit correspondiente y probarse en un dispositivo antes de considerarse validados.

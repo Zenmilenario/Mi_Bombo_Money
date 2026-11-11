@@ -85,9 +85,8 @@ final class CloudAccountManager: ObservableObject {
         defer { busy = false }
         do {
             if linkRequiresPassword {
-                guard let password, password.count >= 10 else {
-                    throw CloudTransportError.requestRejected("Usa una contraseña de al menos 10 caracteres.")
-                }
+                guard let password else { throw CloudTransportError.requestRejected(CloudPasswordPolicy.ruleText) }
+                if let problem = CloudPasswordPolicy.problem(password) { throw CloudTransportError.requestRejected(problem) }
                 try await api().updatePassword(password, session: pendingLink)
             }
             try accept(pendingLink)
@@ -110,6 +109,15 @@ final class CloudAccountManager: ObservableObject {
             throw CloudTransportError.authentication
         }
     }
+    func preparePrivacy() async throws -> CloudPrivacyStatus {
+        try await api().preparePrivacy(session: validSession())
+    }
+    func unlockPrivacy(code: String) async throws {
+        try await api().unlockPrivacy(session: validSession(), code: code)
+    }
+    func enrollPrivacy(code: String) async throws {
+        try await api().enrollPrivacy(session: validSession(), code: code)
+    }
     func snapshot(workspace: UUID? = nil) async throws -> CloudSnapshot {
         do { return try await api().snapshot(session: validSession(), workspace: workspace) }
         catch CloudTransportError.authentication {
@@ -121,6 +129,20 @@ final class CloudAccountManager: ObservableObject {
         do { return try await api().save(session: validSession(), workspace: workspace, revision: revision, document: document) }
         catch CloudTransportError.authentication {
             do { return try await api().save(session: validSession(forceRefresh: true), workspace: workspace, revision: revision, document: document) }
+            catch CloudTransportError.authentication { needsSignIn = true; throw CloudTransportError.authentication }
+        }
+    }
+    func learningSnapshot() async throws -> CloudSnapshot {
+        do { return try await api().learningSnapshot(session: validSession()) }
+        catch CloudTransportError.authentication {
+            do { return try await api().learningSnapshot(session: validSession(forceRefresh: true)) }
+            catch CloudTransportError.authentication { needsSignIn = true; throw CloudTransportError.authentication }
+        }
+    }
+    func saveLearning(workspace: UUID, revision: Int64, document: CloudJSON) async throws -> CloudSnapshot {
+        do { return try await api().saveLearning(session: validSession(), workspace: workspace, revision: revision, document: document) }
+        catch CloudTransportError.authentication {
+            do { return try await api().saveLearning(session: validSession(forceRefresh: true), workspace: workspace, revision: revision, document: document) }
             catch CloudTransportError.authentication { needsSignIn = true; throw CloudTransportError.authentication }
         }
     }

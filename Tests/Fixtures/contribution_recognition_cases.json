@@ -1,0 +1,8 @@
+[
+  {"remaining":40000,"amounts":[20000,20000],"selected":[0,1]},
+  {"remaining":40000,"amounts":[20000,20000,40000],"selected":null},
+  {"remaining":30000,"amounts":[10000,20000,35000],"selected":[0,1]},
+  {"remaining":50000,"amounts":[20000,20000],"selected":[]},
+  {"remaining":1000,"amounts":[1000,1000],"selected":null},
+  {"remaining":75000,"amounts":[10000,25000,40000],"selected":[0,1,2]}
+]

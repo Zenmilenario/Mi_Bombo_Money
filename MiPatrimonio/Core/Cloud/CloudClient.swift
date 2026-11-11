@@ -54,6 +54,7 @@ actor CloudClient {
     private let transport: URLSession
     private var refreshTask: Task<CloudSession, Error>?
     private var refreshOwner: UUID?
+    private var privacyProfiles: [UUID: CloudJSON] = [:]
     init(configuration: CloudConfiguration, transport: URLSession? = nil) throws {
         guard configuration.isValid else { throw CloudTransportError.configuration }
         self.configuration = configuration
@@ -112,15 +113,135 @@ actor CloudClient {
         guard user.id == session.user.id else { throw CloudTransportError.invalidData }
     }
     func snapshot(session: CloudSession, workspace: UUID? = nil) async throws -> CloudSnapshot {
+        if try await encrypted(session) { return try await sealedSnapshot(session: session, kind: "finance", expectedWorkspace: workspace) }
         let data = try await send(path: "/rest/v1/rpc/finance_snapshot", token: session.accessToken,
             body: .object(["p_workspace":workspace.map { .string($0.uuidString) } ?? .null]))
         return try JSONDecoder().decode(CloudSnapshot.self, from: data)
     }
     func save(session: CloudSession, workspace: UUID, revision: Int64, document: CloudJSON) async throws -> CloudSnapshot {
+        if try await encrypted(session) { return try await sealedSave(session: session, workspace: workspace, revision: revision, document: CloudDocument.normalized(document), kind: "finance") }
         let data = try await send(path: "/rest/v1/rpc/finance_save_snapshot", token: session.accessToken,
             body: .object(["p_workspace":.string(workspace.uuidString),"p_expected_revision":.integer(revision),
                            "p_document":CloudDocument.normalized(document),"p_timezone":.string(TimeZone.autoupdatingCurrent.identifier)]))
         return try JSONDecoder().decode(CloudSnapshot.self, from: data)
+    }
+    /// What the person taught the models, shared by their devices (CloudBackend/learning-contract.md).
+    func learningSnapshot(session: CloudSession) async throws -> CloudSnapshot {
+        if try await encrypted(session) { return try await sealedSnapshot(session: session, kind: "learning") }
+        let data = try await send(path: "/rest/v1/rpc/finance_learning_snapshot", token: session.accessToken, body: .object([:]))
+        return try JSONDecoder().decode(CloudSnapshot.self, from: data)
+    }
+    func saveLearning(session: CloudSession, workspace: UUID, revision: Int64, document: CloudJSON) async throws -> CloudSnapshot {
+        if try await encrypted(session) { return try await sealedSave(session: session, workspace: workspace, revision: revision, document: document, kind: "learning") }
+        let data = try await send(path: "/rest/v1/rpc/finance_learning_save", token: session.accessToken,
+            body: .object(["p_workspace":.string(workspace.uuidString),"p_expected_revision":.integer(revision),"p_document":document]))
+        return try JSONDecoder().decode(CloudSnapshot.self, from: data)
+    }
+
+    private func privacyProfile(_ session: CloudSession, refresh: Bool = false) async throws -> CloudJSON {
+        if !refresh, let profile = privacyProfiles[session.user.id] { return profile }
+        let data = try await send(path: "/rest/v1/rpc/finance_privacy_profile", token: session.accessToken, body: .object([:]))
+        let profile = try JSONDecoder().decode(CloudJSON.self, from: data)
+        guard (profile.object["encryption_required"] == .bool(true) || profile.object["encryption_required"] == .bool(false)),
+              profile.object["workspace_id"]?.string.flatMap(UUID.init(uuidString:)) != nil else { throw CloudTransportError.invalidData }
+        privacyProfiles[session.user.id] = profile
+        return profile
+    }
+    private func encrypted(_ session: CloudSession) async throws -> Bool {
+        try await privacyProfile(session).object["encryption_required"] == .bool(true)
+    }
+    private func cipher(_ session: CloudSession) throws -> CloudCipher {
+        guard let saved = try CloudPrivacyKeyStore.read(owner: session.user.id), let code = saved.object["code"]?.string,
+              let id = saved.object["profile"]?.object["key_check"]?.object["key_id"]?.string else { throw CloudPrivacyError.recoveryRequired }
+        return try CloudCipher.recover(code, keyID: id)
+    }
+    func preparePrivacy(session: CloudSession) async throws -> CloudPrivacyStatus {
+        let profile: CloudJSON
+        do { profile = try await privacyProfile(session, refresh: true) }
+        catch CloudTransportError.unavailable {
+            guard let cached = try CloudPrivacyKeyStore.read(owner: session.user.id)?.object["profile"] else { throw CloudTransportError.unavailable }
+            profile = cached; privacyProfiles[session.user.id] = profile
+        }
+        if profile.object["encryption_required"] == .bool(false) {
+            try CloudPrivacyKeyStore.save(.object(["profile":profile]), owner: session.user.id)
+            return .init(ready: true, enrolled: false)
+        }
+        guard profile.object["key_check"] != .null, profile.object["key_check"] != nil else { return .init(ready: false, enrolled: false) }
+        guard let code = try CloudPrivacyKeyStore.read(owner: session.user.id)?.object["code"]?.string else { return .init(ready: false, enrolled: true) }
+        do { try await unlockPrivacy(session: session, code: code) }
+        catch CloudPrivacyError.invalidCode { return .init(ready: false, enrolled: true) }
+        catch CloudPrivacyError.invalidEnvelope { return .init(ready: false, enrolled: true) }
+        return .init(ready: true, enrolled: true)
+    }
+    func unlockPrivacy(session: CloudSession, code: String) async throws {
+        let profile = try await privacyProfile(session)
+        guard let check = profile.object["key_check"], let id = check.object["key_id"]?.string,
+              let workspace = profile.object["workspace_id"]?.string.flatMap(UUID.init(uuidString:)) else { throw CloudPrivacyError.recoveryRequired }
+        let candidate = try CloudCipher.recover(code, keyID: id)
+        guard try candidate.open(check, owner: session.user.id, workspace: workspace, kind: "key-check", revision: 0).object["check"]?.string == "doblon-key-v1" else { throw CloudPrivacyError.invalidCode }
+        try CloudPrivacyKeyStore.save(.object(["profile":profile,"code":.string(candidate.recoveryCode)]), owner: session.user.id)
+    }
+    func enrollPrivacy(session: CloudSession, code: String) async throws {
+        let profile = try await privacyProfile(session, refresh: true)
+        guard profile.object["encryption_required"] == .bool(true), profile.object["key_check"] == .null,
+              let workspace = profile.object["workspace_id"]?.string.flatMap(UUID.init(uuidString:)) else { throw CloudPrivacyError.recoveryRequired }
+        let candidate = try CloudCipher.recover(code, keyID: UUID().uuidString)
+        let data = try await send(path: "/rest/v1/rpc/finance_encryption_source", token: session.accessToken, body: .object([:]))
+        let source = try JSONDecoder().decode(CloudJSON.self, from: data)
+        let finance = try JSONDecoder().decode(CloudSnapshot.self, from: JSONEncoder().encode(source.object["finance"]))
+        let learning = try JSONDecoder().decode(CloudSnapshot.self, from: JSONEncoder().encode(source.object["learning"]))
+        guard finance.workspaceID == workspace, learning.workspaceID == workspace else { throw CloudTransportError.invalidData }
+        try validatePrivacyDocument(finance.document, kind: "finance")
+        try validatePrivacyDocument(learning.document, kind: "learning")
+        let f = try candidate.seal(finance.document, owner: session.user.id, workspace: workspace, kind: "finance", revision: 1)
+        let l = try candidate.seal(learning.document, owner: session.user.id, workspace: workspace, kind: "learning", revision: 1)
+        _ = try candidate.open(f, owner: session.user.id, workspace: workspace, kind: "finance", revision: 1)
+        _ = try candidate.open(l, owner: session.user.id, workspace: workspace, kind: "learning", revision: 1)
+        let check = try candidate.seal(.object(["check":.string("doblon-key-v1")]), owner: session.user.id, workspace: workspace, kind: "key-check", revision: 0)
+        var enrolled = profile.object; enrolled["key_check"] = check
+        try CloudPrivacyKeyStore.save(.object(["profile":.object(enrolled),"code":.string(candidate.recoveryCode)]), owner: session.user.id)
+        _ = try await send(path: "/rest/v1/rpc/finance_enable_encryption", token: session.accessToken, body: .object([
+            "p_workspace":.string(workspace.uuidString),"p_finance_revision":.integer(finance.revision),"p_learning_revision":.integer(learning.revision),
+            "p_finance":f,"p_learning":l,"p_key_check":check]))
+        privacyProfiles[session.user.id] = .object(enrolled)
+    }
+    private func decodeSealed(_ data: Data, session: CloudSession, kind: String, expectedWorkspace: UUID? = nil) throws -> CloudSnapshot {
+        let value = try JSONDecoder().decode(CloudSnapshot.self, from: data)
+        let ws = privacyProfiles[session.user.id]?.object["workspace_id"]?.string.flatMap(UUID.init(uuidString:))
+        guard value.workspaceID == ws, expectedWorkspace == nil || expectedWorkspace == ws else { throw CloudTransportError.invalidData }
+        let document = try cipher(session).open(value.document, owner: session.user.id, workspace: value.workspaceID, kind: kind, revision: value.revision)
+        try validatePrivacyDocument(document, kind: kind)
+        return CloudSnapshot(workspaceID: value.workspaceID, revision: value.revision, document: document)
+    }
+    private func sealedSnapshot(session: CloudSession, kind: String, expectedWorkspace: UUID? = nil) async throws -> CloudSnapshot {
+        let data = try await send(path: "/rest/v1/rpc/finance_encrypted_snapshot", token: session.accessToken, body: .object(["p_kind":.string(kind)]))
+        return try decodeSealed(data, session: session, kind: kind, expectedWorkspace: expectedWorkspace)
+    }
+    private func sealedSave(session: CloudSession, workspace: UUID, revision: Int64, document: CloudJSON, kind: String) async throws -> CloudSnapshot {
+        try validatePrivacyDocument(document, kind: kind)
+        let envelope = try cipher(session).seal(document, owner: session.user.id, workspace: workspace, kind: kind, revision: revision + 1)
+        let data = try await send(path: "/rest/v1/rpc/finance_encrypted_save", token: session.accessToken, body: .object([
+            "p_workspace":.string(workspace.uuidString),"p_kind":.string(kind),"p_expected_revision":.integer(revision),"p_envelope":envelope]))
+        return try decodeSealed(data, session: session, kind: kind, expectedWorkspace: workspace)
+    }
+    private func validatePrivacyDocument(_ document: CloudJSON, kind: String) throws {
+        if kind == "learning" {
+            guard document.object["version"] == .integer(1) else { throw CloudTransportError.invalidData }
+            return
+        }
+        guard document.object["formatVersion"] == .integer(2) else { throw CloudTransportError.invalidData }
+        for entity in CloudDocument.entities {
+            guard case .array? = document.object[entity] else { throw CloudTransportError.invalidData }
+        }
+        guard try CloudDocument.integrityConflicts(document).isEmpty else { throw CloudTransportError.invalidData }
+        for entry in document.object["transactions"]?.array ?? [] {
+            let row = entry.object
+            guard case .integer(let amount)? = row["amountMinor"], amount >= 0,
+                  let date = row["date"]?.double, date.isFinite,
+                  let type = row["typeRaw"]?.string, ["income","expense","interest","fee","transfer"].contains(type),
+                  row["sourceAccountID"]?.string != nil else { throw CloudTransportError.invalidData }
+            if type == "transfer" && (row["destinationAccountID"]?.string == nil || row["destinationAccountID"] == row["sourceAccountID"]) { throw CloudTransportError.invalidData }
+        }
     }
     private func send(path: String, query: String? = nil, token: String? = nil, body: CloudJSON? = nil, method: String = "POST") async throws -> Data {
         try Task.checkCancellation()

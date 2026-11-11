@@ -20,6 +20,15 @@ struct PasswordSecurityCheck {
         policy.becameActive()
         policy.unlockWithoutAuthentication() // App credentials can unlock content, never banking.
         precondition(policy.isUnlocked && !policy.hasRecentAuthentication(uptime: 10))
+        // The cloud's rule, the same as Supabase Auth and Android (doblon_android/test/password_policy_test.dart).
+        precondition(CloudPasswordPolicy.problem("Ficticia-2026") == nil)
+        precondition(CloudPasswordPolicy.problem("Fic~tic1aX") == nil)
+        precondition(CloudPasswordPolicy.problem("Fict-26a") == "A la contraseña le falta al menos 10 caracteres.")
+        precondition(CloudPasswordPolicy.problem("ficticia-2026") == "A la contraseña le falta una mayúscula.")
+        precondition(CloudPasswordPolicy.problem("FICTICIA-2026") == "A la contraseña le falta una minúscula.")
+        precondition(CloudPasswordPolicy.problem("Ficticia-dos") == "A la contraseña le falta un número.")
+        precondition(CloudPasswordPolicy.problem("Ficticia 2026")?.contains("un símbolo") == true, "A space is not a symbol")
+        precondition(CloudPasswordPolicy.problem("") == "A la contraseña le falta al menos 10 caracteres, una minúscula, una mayúscula, un número y un símbolo (por ejemplo ! ? # $ %).")
         print("Password checks passed: PBKDF2 reference vector, work bounds and device-owner authorization separation.")
     }
 }

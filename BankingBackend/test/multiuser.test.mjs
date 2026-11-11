@@ -107,3 +107,62 @@ test('sandbox keeps one shared space with no Supabase identity, including connec
   const pending = await newAuthorization('Banco de prueba', env);
   assert.equal((await claimAuthorization(pending.state, env)).bank, 'Banco de prueba');
 });
+
+test('invited people use the pilot application; the owner keeps the personal one; nobody falls back', async () => {
+  const { providerEnvironment } = await import('../src/security.mjs');
+  const { verifySandbox } = await import('../src/provider.mjs');
+  const { generateKeyPairSync } = await import('node:crypto');
+  const pem = () => generateKeyPairSync('rsa', { modulusLength: 4096 }).privateKey.export({ type: 'pkcs8', format: 'pem' });
+  const personalApp = crypto.randomUUID(), pilotApp = crypto.randomUUID();
+  const env = { ...environment(), ENABLE_APP_ID: personalApp, ENABLE_PRIVATE_KEY: pem() };
+  assert.equal(providerEnvironment(env, owner), env, 'The owner keeps the personal application');
+  assert.throws(() => providerEnvironment(env, guestA), { code: 'guest_banking_not_configured' }, 'No silent fallback to the owner application');
+  const configured = { ...env, ENABLE_GUEST_APP_ID: pilotApp, ENABLE_GUEST_PRIVATE_KEY: pem() };
+  const guest = providerEnvironment(configured, guestA.toUpperCase());
+  assert.equal(guest.ENABLE_APP_ID, pilotApp);
+  assert.equal(guest.ENABLE_PRIVATE_KEY, configured.ENABLE_GUEST_PRIVATE_KEY);
+  assert.equal(guest.DB, configured.DB, 'Same database: connections stay separated by user');
+  assert.equal(providerEnvironment(configured, owner).ENABLE_APP_ID, personalApp);
+  assert.throws(() => providerEnvironment(configured, stranger), { code: 'owner_required' });
+  assert.throws(() => providerEnvironment({ ...configured, ENABLE_GUEST_APP_ID: personalApp }, guestA), { code: 'guest_banking_not_configured' },
+    'The pilot must be a different application');
+  const sandbox = { PROVIDER_MODE: 'sandbox', ENABLE_APP_ID: personalApp };
+  assert.equal(providerEnvironment(sandbox, undefined), sandbox);
+
+  // Each request is signed with the application of the person who makes it.
+  const kid = options => JSON.parse(Buffer.from(options.headers.Authorization.split(' ')[1].split('.')[0], 'base64url').toString()).kid;
+  const application = (app, active) => async (url, options) => {
+    assert.equal(kid(options), app.kid, 'Signed with this application');
+    return Response.json({ environment: 'PRODUCTION', kid: app.kid, active, services: ['AIS'],
+      redirect_urls: [`${configured.PUBLIC_ORIGIN}/v1/callback`] });
+  };
+  await verifySandbox(guest, application({ kid: pilotApp }, true));
+  await verifySandbox(providerEnvironment(configured, owner), application({ kid: personalApp }, true));
+  await assert.rejects(verifySandbox(guest, application({ kid: pilotApp }, false)), { code: 'guest_application_inactive' },
+    'Until its first accounts are linked, guests are told so');
+  await assert.rejects(verifySandbox(providerEnvironment(configured, owner), application({ kid: personalApp }, false)),
+    { code: 'production_configuration_required' }, 'The owner keeps the usual message');
+});
+
+test('guest list and pilot credentials tools validate before touching the configuration', async () => {
+  const { updateGuests } = await import('../tools/guests.mjs');
+  const { pilotSecrets } = await import('../tools/pilot-app.mjs');
+  const { generateKeyPairSync } = await import('node:crypto');
+  assert.equal(updateGuests('', 'add', guestA.toUpperCase(), owner), guestA);
+  assert.equal(updateGuests(guestA, 'add', guestA, owner), guestA, 'Adding twice keeps one entry');
+  assert.equal(updateGuests(`${guestA},${guestB}`, 'remove', guestA, owner), guestB);
+  assert.throws(() => updateGuests('', 'add', 'no-es-un-id', owner), /no es válido/);
+  assert.throws(() => updateGuests('', 'add', owner, owner), /propio usuario/);
+  assert.throws(() => updateGuests(guestA, 'remove', guestB, owner), /no está en la lista/);
+  assert.equal(mode(environment(updateGuests(guestA, 'add', guestB, owner))), 'production', 'The result is a valid server list');
+
+  const pem = generateKeyPairSync('rsa', { modulusLength: 4096 }).privateKey.export({ type: 'pkcs8', format: 'pem' });
+  const pilot = crypto.randomUUID(), personal = crypto.randomUUID();
+  const secrets = pilotSecrets({ appID: pilot.toUpperCase(), pem, personalAppID: personal });
+  assert.deepEqual(Object.keys(secrets).sort(), ['ENABLE_GUEST_APP_ID', 'ENABLE_GUEST_PRIVATE_KEY']);
+  assert.equal(secrets.ENABLE_GUEST_APP_ID, pilot);
+  assert.throws(() => pilotSecrets({ appID: personal, pem, personalAppID: personal }), /aplicación personal/);
+  assert.throws(() => pilotSecrets({ appID: pilot, pem: 'no es una clave' }), error => !error.message.includes('no es una clave'));
+  const small = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' });
+  assert.throws(() => pilotSecrets({ appID: pilot, pem: small }), /4096/);
+});

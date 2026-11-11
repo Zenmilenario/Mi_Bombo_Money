@@ -1,5 +1,13 @@
 # Aprendizaje de categorías y modelo de datos
 
+## IA individual, común y datos cifrados — 11/11/2026
+
+El ajuste por persona es aprendizaje automático real; no depende de compartir los datos entre usuarios para ser IA. Se mantienen una base de arranque común y el aprendizaje personal, sincronizado entre sus propios dispositivos. El cifrado de invitados se aplica al documento financiero y al aprendizaje antes de enviarlos, y se descifran en el dispositivo antes de entrenar o predecir: los modelos y sus umbrales siguen siendo los mismos.
+
+En este lote no se ha creado un modelo colectivo que use las correcciones de invitados ni se han subido sus ejemplos a un dataset común. Esa fase queda pendiente de participación voluntaria y de protección de las actualizaciones (agregación segura y privacidad diferencial si se adopta aprendizaje federado). Compartir pesos sin esas medidas no garantiza anonimato. Los datos propios autorizados y los sintéticos permiten evolucionar la base común sin abrir los de invitados.
+
+Cifrado preparado localmente, pendiente de CI iOS y despliegue coordinado. Detalles y límites del servidor bancario: [Privacidad de invitados](privacy-encryption.md).
+
 Primera entrega preparada en 0.6.11, compilación 28. Actualizado el 7 de noviembre de 2026 con el aprendizaje por eventos de 0.6.18, compilación 35. Quedan pendientes la compilación iOS en GitHub y la comprobación en el dispositivo.
 
 ## Experiencia en la app

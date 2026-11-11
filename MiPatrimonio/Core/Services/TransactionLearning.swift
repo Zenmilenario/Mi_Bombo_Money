@@ -149,3 +149,46 @@ enum TransactionLearning {
         return examples
     }
 }
+
+// MARK: - Shared with the person's other devices (CloudBackend/learning-contract.md)
+
+extension TransactionLearning {
+    /// The canonical signature of a movement's current category, the same the Android app writes.
+    static func canonicalSignature(_ transaction: FinancialTransaction) -> String? {
+        guard let category = transaction.category else { return nil }
+        return LearningCanonical.categorySignature(type: transaction.type.rawValue, categoryID: category.id,
+                                                   description: transaction.descriptionText)
+    }
+
+    /// Adds the confirmed categories still valid for their movement, with canonical signatures.
+    static func exportShared(into shared: inout SharedLearning, rows: [String: FinancialTransaction], in context: ModelContext) throws {
+        guard let url = location(in: context) else { return }
+        let history = try Self.history(at: url)
+        shared.since = [shared.since, LearningCanonical.ms(history.since)].compactMap { $0 }.min()
+        for (id, saved) in history.confirmations {
+            guard let row = rows[LearningCanonical.id(id)], let category = row.category,
+                  saved == signature(row, category: category), let canonical = canonicalSignature(row) else { continue }
+            shared.categories[LearningCanonical.id(id)] = .init(signature: canonical, at: 0)
+        }
+    }
+
+    /// Keeps the combined confirmations: a valid one with this device's signature, a removal is applied, and one
+    /// whose movement is not here or changed is left to the shared copy.
+    static func adoptShared(_ shared: SharedLearning, rows: [String: FinancialTransaction], in context: ModelContext) throws {
+        guard let url = location(in: context) else { return }
+        var history = try Self.history(at: url)
+        let before = history.confirmations
+        if let since = shared.since { history.since = min(history.since, LearningCanonical.date(since)) }
+        for (key, entry) in shared.categories {
+            guard let row = rows[key] else { continue }
+            if let canonical = entry.signature {
+                guard let category = row.category, canonicalSignature(row) == canonical else { continue }
+                history.confirmations[row.id] = signature(row, category: category)
+            } else {
+                history.confirmations.removeValue(forKey: row.id)
+            }
+        }
+        guard history.confirmations != before || shared.since != nil else { return }
+        try Self.save(history, at: url)
+    }
+}

@@ -37,24 +37,16 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Generar la parte nativa de Android
+      - name: Comprobar la parte nativa de Android
         shell: bash
         run: |
           set -euo pipefail
-          # The Android project is generated here (no Flutter on the Windows development machine).
-          # Existing Dart code is kept; the example test that `flutter create` adds is removed.
-          flutter create --platforms=android --org com.zenmilenario --project-name doblon --no-pub .
-          rm -f test/widget_test.dart
+          # The native projects are committed (generated with Flutter on the development PC).
           MANIFEST=android/app/src/main/AndroidManifest.xml
-          sed -i 's/android:label="doblon"/android:label="Doblón"/' "$MANIFEST"
-          grep -q 'android.permission.INTERNET' "$MANIFEST" || \
-            sed -i '0,/<manifest[^>]*>/s//&\n    <uses-permission android:name="android.permission.INTERNET"\/>/' "$MANIFEST"
           grep -q 'android.permission.INTERNET' "$MANIFEST"
           grep -q 'android:label="Doblón"' "$MANIFEST"
-          # Launcher icons are committed already resized (assets/launcher): no image tools needed on the runner.
-          for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
-            cp "assets/launcher/ic_launcher_${density}.png" "android/app/src/main/res/mipmap-${density}/ic_launcher.png"
-          done
+          grep -q 'mibombomoney-bank' "$MANIFEST"
+          test -f android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
 
       - run: flutter pub get
 

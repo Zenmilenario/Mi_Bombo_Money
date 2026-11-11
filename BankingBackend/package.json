@@ -12,7 +12,9 @@
     "dev": "wrangler dev --local --ip 127.0.0.1",
     "check": "wrangler deploy --dry-run",
     "deploy": "wrangler deploy",
-    "setup": "node tools/setup.mjs"
+    "setup": "node tools/setup.mjs",
+    "pilot-app": "node tools/pilot-app.mjs",
+    "guests": "node tools/guests.mjs"
   },
   "devDependencies": {
     "miniflare": "5.20261023.1-beta",
