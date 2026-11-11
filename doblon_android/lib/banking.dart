@@ -210,14 +210,29 @@ class BankingClient {
   }
 }
 
+/// A downloaded movement that may be one already recorded by hand: the person decides.
+class BankProposal {
+  BankProposal({required this.key, required this.bank, required this.date, required this.amountMinor, required this.description, required this.candidateIds});
+  final String key;
+  final String bank;
+  final DateTime date;
+  final int amountMinor;
+  final String description;
+  final List<String> candidateIds;
+}
+
 class ImportResult {
-  ImportResult({this.inserted = 0, this.alreadyImported = 0, this.newAccounts = 0, this.skippedAccounts = 0});
+  ImportResult({this.inserted = 0, this.alreadyImported = 0, this.newAccounts = 0, this.skippedAccounts = 0, this.matched = 0});
   int inserted;
   int alreadyImported;
   int newAccounts;
   int skippedAccounts;
+  int matched;
+  final List<BankProposal> proposals = [];
   String get summary => [
         inserted == 1 ? '1 movimiento nuevo' : '$inserted movimientos nuevos',
+        if (matched > 0) matched == 1 ? '1 unido a lo que ya tenías' : '$matched unidos a lo que ya tenías',
+        if (proposals.isNotEmpty) proposals.length == 1 ? '1 por revisar' : '${proposals.length} por revisar',
         if (alreadyImported > 0) '$alreadyImported ya estaban',
         if (newAccounts > 0) newAccounts == 1 ? '1 cuenta añadida' : '$newAccounts cuentas añadidas',
         if (skippedAccounts > 0) '$skippedAccounts en otra moneda sin incorporar',
@@ -245,7 +260,9 @@ int? bookedBalance(List<BankBalance> balances) {
 /// - Movements without a bank reference (Trade Republic) get the iPhone's generated key: date, amount and
 ///   order of appearance.
 /// - Accounts in another currency are left out, as on the iPhone.
-(Map<String, dynamic>, ImportResult) importFeeds(Map<String, dynamic> document, List<AccountFeed> feeds, DateTime observedAt, {String server = bankingServer}) {
+/// `decisions` answers earlier proposals: movement key → "new" or the ID of the record it is.
+(Map<String, dynamic>, ImportResult) importFeeds(Map<String, dynamic> document, List<AccountFeed> feeds, DateTime observedAt,
+    {String server = bankingServer, Map<String, String> decisions = const {}}) {
   final next = jsonDecode(jsonEncode(document)) as Map<String, dynamic>;
   List<Map<String, dynamic>> rows(String key) => ((next[key] ??= <dynamic>[]) as List).cast<Map<String, dynamic>>();
   final accounts = rows('accounts');
@@ -321,8 +338,48 @@ int? bookedBalance(List<BankBalance> balances) {
         result.alreadyImported++;
         continue;
       }
+      // A record of this account, same kind and amount, without bank key, on nearby days (an Apple Pay
+      // payment from the iPhone may arrive up to 7 days later): the same movement recorded by hand.
+      final kind = row.signedAmountMinor < 0 ? 'expense' : 'income';
+      bool sameKind(Object? raw) => kind == 'expense' ? (raw == 'expense' || raw == 'fee') : (raw == 'income' || raw == 'interest');
+      final candidates = transactions.where((t) {
+        if (t['bankEntryKey'] != null || '${t['sourceAccountID']}'.toLowerCase() != localId.toLowerCase()) return false;
+        if (t['destinationAccountID'] != null || !sameKind(t['typeRaw']) || (t['amountMinor'] as num?)?.toInt() != row.signedAmountMinor.abs()) return false;
+        final seconds = (t['date'] as num?) ?? 0;
+        final delay = referenceSeconds(booking) - seconds;
+        final awaiting = '${t['externalID'] ?? ''}'.startsWith('applepay:');
+        return awaiting ? delay >= -86400 && delay <= 7 * 86400 : delay.abs() <= 3 * 86400;
+      }).toList();
+      final decision = decisions[key];
+      String? matchId;
+      if (decision != null && decision != 'new') {
+        if (candidates.any((t) => '${t['id']}' == decision)) matchId = decision;
+      } else if (decision == null && candidates.isNotEmpty) {
+        final awaiting = candidates.where((t) => '${t['externalID'] ?? ''}'.startsWith('applepay:')).toList();
+        if (candidates.length == 1 && awaiting.length == 1) {
+          matchId = '${awaiting.single['id']}';
+        } else {
+          result.proposals.add(BankProposal(
+              key: key,
+              bank: feed.connection.bank,
+              date: booking,
+              amountMinor: row.signedAmountMinor,
+              description: row.description.trim(),
+              candidateIds: [for (final t in candidates) '${t['id']}']));
+          continue;
+        }
+      }
       knownKeys.add(key);
       knownIds.add(id);
+      if (matchId != null) {
+        final record = candidates.firstWhere((t) => '${t['id']}' == matchId);
+        record['bankEntryKey'] = key;
+        record['isReconciled'] = true;
+        record['updatedAt'] = now;
+        if ('${record['externalID'] ?? ''}'.startsWith('applepay:')) record['externalID'] = null;
+        result.matched++;
+        continue;
+      }
       transactions.add({
         'id': id,
         'date': referenceSeconds(booking),

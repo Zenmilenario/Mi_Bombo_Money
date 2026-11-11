@@ -2,6 +2,11 @@
 import 'package:doblon/data.dart';
 import 'package:doblon/finance.dart';
 import 'package:doblon/models.dart';
+import 'package:doblon/screens/accounts.dart';
+import 'package:doblon/screens/budgets.dart';
+import 'package:doblon/screens/home.dart';
+import 'package:doblon/screens/manage.dart';
+import 'package:doblon/screens/tools.dart';
 import 'package:doblon/screens/transaction_form.dart';
 import 'package:doblon/screens/transactions.dart';
 import 'package:doblon/theme.dart';
@@ -74,5 +79,35 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('1 seleccionados'), findsOneWidget);
     expect(find.text('Categorizar 1'), findsOneWidget);
+  });
+
+  testWidgets('every new screen opens with fictitious data', (tester) async {
+    final data = sample();
+    final repository = repositoryWith(data);
+    final calc = FinanceCalculator(data);
+    final pages = <Widget>[
+      Scaffold(body: HomeScreen(calc: calc, month: DateTime.now(), onMonth: (_) {})),
+      Scaffold(body: AccountsScreen(calc: calc, repository: repository)),
+      AccountDetailScreen(repository: repository, accountId: 'a1'),
+      AccountFormScreen(repository: repository),
+      Scaffold(body: BudgetsScreen(calc: calc, month: DateTime.now(), onMonth: (_) {}, repository: repository)),
+      BudgetEditorScreen(repository: repository, category: data.category('c1')!, month: DateTime.now()),
+      GoalFormScreen(repository: repository),
+      CategoriesScreen(repository: repository),
+      RulesScreen(repository: repository),
+      RuleFormScreen(repository: repository),
+      RecurringScreen(repository: repository),
+      RecurringFormScreen(repository: repository),
+      InstitutionsScreen(repository: repository),
+      CardFormScreen(repository: repository, accountId: 'a1'),
+      ReserveFormScreen(repository: repository, accountId: 'a1'),
+      CsvImportScreen(repository: repository),
+      BackupScreen(repository: repository),
+    ];
+    for (final page in pages) {
+      await tester.pumpWidget(app(page));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: '${page.runtimeType} must open without errors');
+    }
   });
 }

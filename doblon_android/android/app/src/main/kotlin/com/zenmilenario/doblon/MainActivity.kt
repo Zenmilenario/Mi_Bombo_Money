@@ -1,5 +1,6 @@
 package com.zenmilenario.doblon
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// FlutterFragmentActivity: the app lock (fingerprint or the phone's PIN) needs a fragment activity.
+class MainActivity : FlutterFragmentActivity()

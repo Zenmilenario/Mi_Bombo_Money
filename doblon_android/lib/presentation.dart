@@ -7,7 +7,11 @@ final _formats = <String, NumberFormat>{};
 /// 123456 → "1.234,56 €". `currency` is the account's ISO code: a USD account shows dollars, not euros.
 /// Totals that add several accounts (net worth, available) are shown in euros, as on the iPhone.
 /// `signed` adds "+" to positive amounts.
+/// When true (Ajustes › Ocultar importes), every amount is shown as dots.
+bool amountsHidden = false;
+
 String money(int minor, {bool signed = false, String currency = 'EUR'}) {
+  if (amountsHidden) return '•••••';
   final format = _formats[currency] ??= NumberFormat.simpleCurrency(locale: 'es_ES', name: currency, decimalDigits: 2);
   final text = format.format(minor / 100);
   return signed && minor > 0 ? '+$text' : text;

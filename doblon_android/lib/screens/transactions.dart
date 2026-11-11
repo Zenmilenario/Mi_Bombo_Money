@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../automation.dart';
 import '../data.dart';
 import '../edits.dart';
 import '../finance.dart';
@@ -91,6 +92,39 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     if (skipped > 0) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$skipped no admiten «${category.name}» y se han dejado como estaban.')));
     }
+  }
+
+  /// Each pair can be joined into one transfer (it stops counting as income and expense) or left as it is.
+  Future<void> _showPairs(Finances data) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
+          const Text('Si son la misma operación entre tus cuentas, únelas en un traspaso: dejará de contar como gasto e ingreso.'),
+          const SizedBox(height: 12),
+          for (final pair in ownTransferPairs(data))
+            Card(
+              child: Column(children: [
+                TransactionTile(transaction: pair.debit, data: data),
+                TransactionTile(transaction: pair.credit, data: data),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton.icon(
+                    icon: const Icon(Icons.merge_type),
+                    label: const Text('Unir como traspaso'),
+                    onPressed: () async {
+                      Navigator.pop(context);
+                      await widget.repository.apply(joinOwnTransfer(pair, data, DateTime.now()));
+                    },
+                  ),
+                ),
+              ]),
+            ),
+        ]),
+      ),
+    );
   }
 
   Future<void> _chooseFilters(Finances data) async {
@@ -212,6 +246,19 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   decoration:
                       const InputDecoration(prefixIcon: Icon(Icons.search), hintText: 'Buscar concepto, cuenta o categoría', border: OutlineInputBorder()),
                   onChanged: (value) => setState(() => filter.query = value.trim()),
+                ),
+              if (!selecting && ownTransferPairs(data).isNotEmpty)
+                Card(
+                  margin: const EdgeInsets.only(top: 8),
+                  child: ListTile(
+                    leading: Icon(Icons.swap_horiz, color: pulso.savings),
+                    title: Text(ownTransferPairs(data).length == 1
+                        ? '1 posible traspaso entre tus cuentas'
+                        : '${ownTransferPairs(data).length} posibles traspasos entre tus cuentas'),
+                    subtitle: const Text('Un cargo y un abono del mismo importe'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _showPairs(data),
+                  ),
                 ),
               const SizedBox(height: 8),
               SingleChildScrollView(

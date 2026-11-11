@@ -76,17 +76,20 @@ void main() {
     expect(draft(type: TransactionType.transfer, destination: accountA).validate(data), contains('distintas'));
     expect(draft(category: 'ingreso').validate(data), contains('categoría'));
     expect(draft(category: 'gasto').validate(data), isNull);
-    final reserved = Transaction(
-        id: 'r',
-        date: now,
-        type: TransactionType.expense,
-        amountMinor: 5000,
-        descriptionText: 'Pago reservado',
-        sourceAccountId: accountA,
-        reservedFundId: 'fondo',
-        reservedAmountMinor: 3000);
-    expect(draft(amount: 2000).validate(data, editing: reserved), contains('reservado'), reason: 'Never below the reserved part');
-    expect(draft(type: TransactionType.income).validate(data, editing: reserved), contains('gasto'));
+    final withFund = Finances.fromDocument({
+      ...document(),
+      'reservedFunds': [
+        {'id': 'fondo', 'name': 'Viaje', 'amountMinor': 4000, 'accountID': accountA}
+      ],
+    });
+    TransactionDraft reservedDraft({int amount = 5000, int reserved = 3000, TransactionType type = TransactionType.expense}) =>
+        draft(amount: amount, type: type)
+          ..reservedFundId = 'fondo'
+          ..reservedAmountMinor = reserved;
+    expect(reservedDraft().validate(withFund), isNull);
+    expect(reservedDraft(amount: 2000).validate(withFund), contains('reservado'), reason: 'Never below the reserved part');
+    expect(reservedDraft(type: TransactionType.income).validate(withFund), contains('gasto'));
+    expect(reservedDraft(reserved: 4500).validate(withFund), contains('suficiente'), reason: 'More than the reserve holds');
   });
 
   test('a new movement goes to the cloud with every required field, and twins are flagged', () {

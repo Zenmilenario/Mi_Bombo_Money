@@ -4,27 +4,39 @@ Desde el 10 de noviembre de 2026 esta es la app única de Doblón para Android y
 
 Primera versión para Android, en Flutter. Entra con la misma cuenta de Doblón que en el iPhone y muestra las mismas finanzas desde la nube (Supabase, función `finance_snapshot`).
 
-## Qué hace
+## Qué hace (0.9.0)
 
-- **Entrar o crear cuenta** con correo y contraseña, con la curiosidad del día; sin datos antes de entrar.
-- **Inicio:** patrimonio, disponible (descontando reservas), invertido, ingresos, gastos y ahorro del mes, presupuestos y últimos movimientos.
-- **Movimientos:** todos, agrupados por día, con buscador. Conceptos del banco legibles y la etiqueta «Pendiente del banco» de los pagos con Apple Pay.
-- **Cuentas:** saldo de cada cuenta y dinero reservado.
-- **Presupuestos:** por mes, con el arrastre del mes anterior y lo pagado con reservas excluido.
-- **Mis bancos (0.2.0, en Ajustes):**
-  - conectar un banco en su propia web y volver a Doblón;
-  - ver las conexiones y desconectarlas;
-  - «Actualizar movimientos», que descarga 90 días y guarda en la nube lo nuevo.
-  Usa las mismas claves que el iPhone, así que nada se duplica entre dispositivos. Guarda con el control de versiones de la nube: si otro dispositivo guardó a la vez, vuelve a leer y reintenta.
-- **Movimientos completos (0.3.0):**
-  - apuntar, editar y borrar (gasto, comisión, ingreso, interés y traspaso entre cuentas);
-  - categorizar uno o varios (pulsación larga);
-  - «Por revisar» (sin categoría, categoría incompatible, posible duplicado), con «Conservar: no es un duplicado»;
-  - filtros por periodo, tipo, cuenta y categoría;
-  - detalle de cada movimiento.
-  Las reglas son las del iPhone: huella, posibles duplicados, categorías compatibles y límites de lo pagado con dinero reservado.
-- **Sin conexión:** la app guarda en el móvil la última copia y los cambios pendientes. Se ven al momento y se suben a la nube cuando hay red, aplicados sobre la copia más reciente para no pisar lo que haya guardado otro dispositivo.
-- **Aún no** (siguientes lotes): cuentas, presupuestos y objetivos editables, periódicos, reglas, Don Bigotes, revisión bancaria completa, CSV, copias de seguridad y bloqueo.
+- **Entrada:** con la misma cuenta de Doblón; alta de cuenta nueva y bloqueo con huella o PIN del móvil.
+- **Inicio:**
+  - patrimonio con su gráfico de 12 meses y la variación del mes;
+  - disponible e invertido, y lo disponible al día hasta fin de mes;
+  - ingresos, gastos y ahorro del mes, presupuestos y últimos movimientos.
+- **Movimientos:**
+  - apuntar, editar y borrar; categorizar uno o varios;
+  - «Por revisar»: duplicados, sin categoría o con categoría incompatible;
+  - filtros, detalle y emparejado de traspasos entre tus cuentas;
+  - categoría sugerida por tus reglas, con opción de recordar la regla;
+  - pagos con dinero reservado.
+- **Cuentas:**
+  - crear, editar, archivar y recuperar cuentas;
+  - actualizar el saldo a mano;
+  - tarjetas, dinero reservado y últimos movimientos de cada cuenta.
+- **Presupuestos:**
+  - límite solo de este mes o de todos los meses (guardar o arrastrar lo que sobra);
+  - gasto sin presupuesto;
+  - objetivos de ahorro, a mano o siguiendo el saldo de una cuenta.
+- **Ajustes:**
+  - Mis bancos: conectar, actualizar, revisar coincidencias con lo apuntado y desconectar;
+  - categorías, reglas de categorización, cargos y aportaciones periódicas (se apuntan solos al abrir), y bancos y entidades;
+  - apariencia, ocultar importes, Don Bigotes y bloqueo;
+  - importar CSV, exportar CSV y copia de seguridad (guardar y restaurar).
+- **Don Bigotes:** en la barra superior. Dormido si no hay nada y con un número si hay avisos: revisión, posibles traspasos, cargos próximos, cuentas sin actualizar y pagos que no llegan del banco. Señala, nunca aconseja.
+- **Sin conexión:** copia local y cola de cambios; se suben sobre la copia más reciente de la nube.
+- **Aún no** respecto al iPhone:
+  - el modelo de IA que aprende categorías (las reglas sí están);
+  - el reconocimiento de aportaciones a inversión;
+  - las retenciones y el diagnóstico de lo recibido del banco;
+  - el equivalente a Apple Pay, que en Android sería leer avisos de pago con permiso.
 
 ## Reglas compartidas con el iPhone
 

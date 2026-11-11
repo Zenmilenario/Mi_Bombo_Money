@@ -126,9 +126,13 @@ class FinanceRepository extends ChangeNotifier {
     }
   }
 
+  /// The cloud document with the pending changes applied: what the screens show and the forms edit.
+  Map<String, dynamic>? document;
+
   void _show(CloudCopy value) {
     copy = value;
-    finances = Finances.fromDocument(withPending(value.document, pending));
+    document = withPending(value.document, pending);
+    finances = Finances.fromDocument(document!);
   }
 
   Future<void> _adopt(CloudCopy value) async {
@@ -215,6 +219,7 @@ class FinanceRepository extends ChangeNotifier {
     if (user != null) await (await _local()).clear(user);
     finances = null;
     copy = null;
+    document = null;
     pending = [];
     error = null;
     loadedAt = null;

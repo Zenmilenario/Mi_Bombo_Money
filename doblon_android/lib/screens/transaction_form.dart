@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
+import '../automation.dart';
 import '../data.dart';
+import '../finance.dart' show ReservedEntry, reservedBalances;
 import '../edits.dart';
 import '../models.dart';
 import '../theme.dart';
@@ -35,8 +37,12 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   final _amount = TextEditingController();
   final _description = TextEditingController();
   final _notes = TextEditingController();
+  final _reserved = TextEditingController();
   String? _message;
   bool _saving = false;
+  // A category the person picked is never replaced by a rule's suggestion.
+  late bool _categoryChosen = widget.editing?.categoryId != null;
+  bool _remember = false;
 
   Finances get data => widget.repository.finances!;
 
@@ -55,7 +61,10 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
       categoryId: t?.categoryId,
       notes: t?.notes ?? '',
       isReconciled: t?.isReconciled ?? false,
+      reservedFundId: t?.reservedFundId,
+      reservedAmountMinor: t?.reservedAmountMinor,
     );
+    if (t?.reservedAmountMinor != null) _reserved.text = (t!.reservedAmountMinor! / 100).toStringAsFixed(2).replaceAll('.', ',');
     if (t != null) _amount.text = (t.amountMinor / 100).toStringAsFixed(2).replaceAll('.', ',');
     _description.text = draft.description;
     _notes.text = draft.notes;
@@ -66,6 +75,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     _amount.dispose();
     _description.dispose();
     _notes.dispose();
+    _reserved.dispose();
     super.dispose();
   }
 
@@ -73,16 +83,70 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     draft
       ..amountMinor = parseAmount(_amount.text) ?? 0
       ..description = _description.text
-      ..notes = _notes.text;
+      ..notes = _notes.text
+      ..reservedAmountMinor = draft.reservedFundId == null ? null : parseAmount(_reserved.text);
     final problem = draft.validate(data, editing: widget.editing);
     if (problem != null) {
       setState(() => _message = problem);
       return;
     }
     setState(() => _saving = true);
-    final op = saveOperation(draft, data, DateTime.now(), editing: widget.editing, newId: widget.repository.newId());
-    await widget.repository.apply(op);
+    final now = DateTime.now();
+    final op = saveOperation(draft, data, now, editing: widget.editing, newId: widget.repository.newId());
+    final category = data.category(draft.categoryId);
+    final rule = _remember && category != null ? rememberRule(draft.description, draft.type, category, data, now, widget.repository.newId()) : null;
+    await widget.repository.apply(rule == null ? op : batchOperation([op, rule]));
     if (mounted) Navigator.of(context).pop(true);
+  }
+
+  /// The reserves that have money in the chosen account (plus the one already used by this movement).
+  List<Widget> _reserveFields() {
+    final options = data.reservedFunds.where((fund) {
+      if (fund.id == draft.reservedFundId) return true;
+      if (fund.accountId == null || draft.sourceAccountId == null) return false;
+      final entries = [
+        for (final t in data.transactions)
+          if (t.reservedFundId == fund.id &&
+              t.sourceAccountId != null &&
+              t.reservedAmountMinor != null &&
+              (t.type.countsAsExpense || t.type == TransactionType.transfer))
+            ReservedEntry(
+                id: t.id,
+                date: t.date,
+                source: t.sourceAccountId!,
+                destination: t.type == TransactionType.transfer ? t.destinationAccountId : null,
+                amount: t.reservedAmountMinor!),
+      ];
+      return (reservedBalances(fund.accountId!, fund.amountMinor, entries)?[draft.sourceAccountId] ?? 0) > 0;
+    }).toList();
+    if (options.isEmpty) return const [];
+    return [
+      DropdownButtonFormField<String?>(
+        initialValue: draft.reservedFundId,
+        isExpanded: true,
+        decoration: const InputDecoration(labelText: 'Pagar con dinero reservado', border: OutlineInputBorder()),
+        items: [
+          const DropdownMenuItem<String?>(value: null, child: Text('No')),
+          for (final f in options) DropdownMenuItem<String?>(value: f.id, child: Text(f.name)),
+        ],
+        onChanged: (v) => setState(() {
+          draft.reservedFundId = v;
+          if (v != null && _reserved.text.trim().isEmpty) _reserved.text = _amount.text;
+        }),
+      ),
+      if (draft.reservedFundId != null) ...[
+        const SizedBox(height: 12),
+        TextField(
+          controller: _reserved,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+          decoration: const InputDecoration(labelText: 'Parte pagada con la reserva (€)', border: OutlineInputBorder()),
+        ),
+        const SizedBox(height: 4),
+        Text('Esa parte no cuenta en tus presupuestos.', style: Theme.of(context).textTheme.bodySmall),
+      ],
+      const SizedBox(height: 12),
+    ];
   }
 
   @override
@@ -147,6 +211,11 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 controller: _description,
                 textCapitalization: TextCapitalization.sentences,
                 decoration: const InputDecoration(labelText: 'Concepto', border: OutlineInputBorder()),
+                onChanged: (text) {
+                  if (_categoryChosen) return;
+                  final suggested = matchRule(text, draft.type, data);
+                  if (suggested?.id != draft.categoryId) setState(() => draft.categoryId = suggested?.id);
+                },
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
@@ -185,7 +254,10 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                           Expanded(child: Text(c.name, overflow: TextOverflow.ellipsis)),
                         ])),
                 ],
-                onChanged: (value) => setState(() => draft.categoryId = value),
+                onChanged: (value) => setState(() {
+                  draft.categoryId = value;
+                  _categoryChosen = true;
+                }),
               ),
               const SizedBox(height: 12),
               ListTile(
@@ -200,6 +272,14 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                   }
                 },
               ),
+              if (draft.categoryId != null && draft.type != TransactionType.transfer && _categoryChosen && _description.text.trim().length >= 3)
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  value: _remember,
+                  onChanged: (v) => setState(() => _remember = v ?? false),
+                  title: Text('Recordar: «${_description.text.trim()}» será siempre de esta categoría'),
+                ),
+              if (draft.type.countsAsExpense) ..._reserveFields(),
               TextField(
                 controller: _notes,
                 maxLines: 3,

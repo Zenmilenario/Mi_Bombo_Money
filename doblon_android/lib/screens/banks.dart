@@ -4,7 +4,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../banking.dart';
 import '../data.dart';
+import '../models.dart';
+import '../presentation.dart';
 import '../theme.dart';
+import 'widgets.dart';
 
 /// Mis bancos: connect a bank in its own website, see the connections and bring their movements in.
 class BanksScreen extends StatefulWidget {
@@ -128,7 +131,13 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
         }
         if (feeds.isEmpty) return 'No hay cuentas conectadas que actualizar.';
         final result = await widget.repository.update((document) => importFeeds(document, feeds, now));
-        return result.summary;
+        if (result.proposals.isEmpty || !mounted) return result.summary;
+        // Some downloaded movements may be ones recorded by hand: the person decides, then they are brought in.
+        final decisions = await Navigator.of(context)
+            .push<Map<String, String>>(MaterialPageRoute(builder: (_) => BankReviewScreen(proposals: result.proposals, data: widget.repository.finances!)));
+        if (decisions == null) return '${result.summary}. Los que esperan revisión se incorporarán en la próxima actualización.';
+        final second = await widget.repository.update((document) => importFeeds(document, feeds, now, decisions: decisions));
+        return 'Revisión incorporada: ${second.summary}';
       });
 
   Future<void> _disconnect(RemoteConnection connection) async {
@@ -238,6 +247,66 @@ class _BankPickerState extends State<_BankPicker> {
             itemCount: visible.length,
             itemBuilder: (context, index) => ListTile(title: Text(visible[index]), onTap: () => Navigator.pop(context, visible[index])),
           ),
+        ),
+      ]),
+    );
+  }
+}
+
+/// The downloaded movements that may be ones already recorded by hand: for each, "it is this one" or "new".
+class BankReviewScreen extends StatefulWidget {
+  const BankReviewScreen({super.key, required this.proposals, required this.data});
+  final List<BankProposal> proposals;
+  final Finances data;
+  @override
+  State<BankReviewScreen> createState() => _BankReviewScreenState();
+}
+
+class _BankReviewScreenState extends State<BankReviewScreen> {
+  // Preselected: the first (closest) candidate, as the iPhone suggests.
+  late final Map<String, String> decisions = {for (final p in widget.proposals) p.key: p.candidateIds.first};
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    return Scaffold(
+      appBar: AppBar(title: const Text('Revisar la descarga', style: TextStyle(fontWeight: FontWeight.w700))),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        const Text('Estos movimientos del banco se parecen a otros que ya tenías apuntados. Elige si son el mismo (se unen, sin duplicarse) o uno nuevo.'),
+        const SizedBox(height: 12),
+        for (final p in widget.proposals)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('${p.bank} · ${p.date.day}/${p.date.month}/${p.date.year}', style: Theme.of(context).textTheme.labelMedium),
+                Text(listTitle(p.description, isBanking: true), style: const TextStyle(fontWeight: FontWeight.w700)),
+                Text(money(p.amountMinor, signed: true),
+                    style: TextStyle(color: p.amountMinor < 0 ? pulso.expense : pulso.income, fontWeight: FontWeight.w700)),
+                const Divider(),
+                RadioGroup<String>(
+                  groupValue: decisions[p.key],
+                  onChanged: (v) => setState(() => decisions[p.key] = v ?? 'new'),
+                  child: Column(children: [
+                    for (final id in p.candidateIds)
+                      if (widget.data.transactions.where((t) => t.id == id).firstOrNull case final t?)
+                        RadioListTile<String>(
+                          contentPadding: EdgeInsets.zero,
+                          value: id,
+                          title: const Text('Es este que ya tenía:'),
+                          subtitle: IgnorePointer(child: TransactionTile(transaction: t, data: widget.data)),
+                        ),
+                    const RadioListTile<String>(contentPadding: EdgeInsets.zero, value: 'new', title: Text('Es un movimiento nuevo')),
+                  ]),
+                ),
+              ]),
+            ),
+          ),
+        const SizedBox(height: 12),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(decisions),
+          style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+          child: const Text('Incorporar'),
         ),
       ]),
     );
