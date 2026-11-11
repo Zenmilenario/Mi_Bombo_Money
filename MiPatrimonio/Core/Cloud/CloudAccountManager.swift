@@ -124,6 +124,20 @@ final class CloudAccountManager: ObservableObject {
             catch CloudTransportError.authentication { needsSignIn = true; throw CloudTransportError.authentication }
         }
     }
+    func learningSnapshot() async throws -> CloudSnapshot {
+        do { return try await api().learningSnapshot(session: validSession()) }
+        catch CloudTransportError.authentication {
+            do { return try await api().learningSnapshot(session: validSession(forceRefresh: true)) }
+            catch CloudTransportError.authentication { needsSignIn = true; throw CloudTransportError.authentication }
+        }
+    }
+    func saveLearning(workspace: UUID, revision: Int64, document: CloudJSON) async throws -> CloudSnapshot {
+        do { return try await api().saveLearning(session: validSession(), workspace: workspace, revision: revision, document: document) }
+        catch CloudTransportError.authentication {
+            do { return try await api().saveLearning(session: validSession(forceRefresh: true), workspace: workspace, revision: revision, document: document) }
+            catch CloudTransportError.authentication { needsSignIn = true; throw CloudTransportError.authentication }
+        }
+    }
     func signOut() async {
         guard !busy else { return }
         busy = true; message = nil

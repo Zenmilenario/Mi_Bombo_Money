@@ -1,0 +1,428 @@
+{
+  "_comment": "Casos ficticios del formato común de lo aprendido (CloudBackend/learning-contract.md). Los comprueban la app de Android (test/learning_share_test.dart) y la del iPhone (Tests/LearningShareCheck.swift).",
+  "signatures": [
+    {
+      "transaction": {
+        "id": "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7",
+        "typeRaw": "expense",
+        "amountMinor": 12345,
+        "date": 815184000.123,
+        "descriptionText": "Compra ficticia Ñandú",
+        "sourceAccountID": "0a1b2c3d-4e5f-4a6b-8c7d-8e9fa0b1c2d3",
+        "destinationAccountID": null,
+        "categoryID": "aa11bb22-cc33-4d44-8e55-ff6677889900",
+        "bankEntryKey": "enable-entry:ficticio:1",
+        "sourceCurrency": "EUR",
+        "destinationCurrency": null
+      },
+      "expected": {
+        "dateMs": 1793491200123,
+        "categorySignature": "32c6256cb7417fcb59051e8c4c32744327c8f20b0b33b744ae3ffc308231e03f",
+        "identity": "2d8e2c3c897e01379641f262780006372187623457b62f1afa568f8294422056",
+        "accountKey": "483a4629e581e2f5b3cff9dae6dc5707682922608eb48b7e75bdd7522069cc54"
+      }
+    },
+    {
+      "transaction": {
+        "id": "7f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f8",
+        "typeRaw": "transfer",
+        "amountMinor": 12345,
+        "date": 815270400.0,
+        "descriptionText": "Compra ficticia Ñandú",
+        "sourceAccountID": "0a1b2c3d-4e5f-4a6b-8c7d-8e9fa0b1c2d3",
+        "destinationAccountID": "1a1b2c3d-4e5f-4a6b-8c7d-8e9fa0b1c2d4",
+        "categoryID": null,
+        "bankEntryKey": "enable-entry:ficticio:1",
+        "sourceCurrency": "EUR",
+        "destinationCurrency": "EUR"
+      },
+      "expected": {
+        "dateMs": 1793577600000,
+        "categorySignature": null,
+        "identity": "069d6036311a1dadd1ac6913e0a7d2272c1241251b22a0eb57a952e7d0af7e61",
+        "accountKey": "483a4629e581e2f5b3cff9dae6dc5707682922608eb48b7e75bdd7522069cc54"
+      }
+    }
+  ],
+  "merges": [
+    {
+      "name": "Gana el cambio más reciente de cada entrada y los borrados se conservan",
+      "local": {
+        "version": 1,
+        "since": 100,
+        "categories": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "s1",
+            "at": 10
+          },
+          "7f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f8": {
+            "signature": "s2",
+            "at": 5
+          }
+        },
+        "operations": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "i1",
+            "kind": "roundUp",
+            "at": 30
+          }
+        },
+        "reviewed": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": 50,
+          "7f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f8": 40
+        },
+        "automation": {
+          "enabled": false,
+          "at": 9
+        },
+        "enabledAt": 300
+      },
+      "remote": {
+        "version": 1,
+        "since": 80,
+        "categories": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "s0",
+            "at": 20
+          },
+          "8f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f9": {
+            "signature": null,
+            "at": 7
+          }
+        },
+        "operations": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": null,
+            "kind": null,
+            "at": 25
+          }
+        },
+        "reviewed": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": 45,
+          "8f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f9": 60
+        },
+        "automation": {
+          "enabled": true,
+          "at": 12
+        },
+        "enabledAt": 200
+      },
+      "expected": {
+        "version": 1,
+        "since": 80,
+        "categories": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "s0",
+            "at": 20
+          },
+          "7f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f8": {
+            "signature": "s2",
+            "at": 5
+          },
+          "8f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f9": {
+            "signature": null,
+            "at": 7
+          }
+        },
+        "operations": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "i1",
+            "kind": "roundUp",
+            "at": 30
+          }
+        },
+        "reviewed": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": 45,
+          "7f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f8": 40,
+          "8f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f9": 60
+        },
+        "automation": {
+          "enabled": true,
+          "at": 12
+        },
+        "enabledAt": 200
+      }
+    },
+    {
+      "name": "Ante la misma fecha gana la nube",
+      "local": {
+        "version": 1,
+        "categories": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "local",
+            "at": 10
+          }
+        },
+        "automation": {
+          "enabled": false,
+          "at": 12
+        }
+      },
+      "remote": {
+        "version": 1,
+        "categories": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "cloud",
+            "at": 10
+          }
+        },
+        "automation": {
+          "enabled": true,
+          "at": 12
+        }
+      },
+      "expected": {
+        "version": 1,
+        "categories": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "cloud",
+            "at": 10
+          }
+        },
+        "automation": {
+          "enabled": true,
+          "at": 12
+        }
+      }
+    },
+    {
+      "name": "Condiciones, correcciones y automáticas por entrada",
+      "local": {
+        "version": 1,
+        "terms": {
+          "0a1b2c3d-4e5f-4a6b-8c7d-8e9fa0b1c2d3|1767225600000": {
+            "account": "0a1b2c3d-4e5f-4a6b-8c7d-8e9fa0b1c2d3",
+            "savebackPercent": 1.5,
+            "roundUpMultiplier": 2,
+            "validFrom": 1767225600000,
+            "at": 40
+          }
+        },
+        "corrections": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "example": {
+              "input": {
+                "text": "Plan inversion",
+                "amountMinor": 10000,
+                "isCredit": false,
+                "day": 5,
+                "weekday": 2,
+                "month": "2026-5",
+                "accountKey": "483a4629e581e2f5b3cff9dae6dc5707682922608eb48b7e75bdd7522069cc54"
+              },
+              "action": {
+                "type": "transfer",
+                "destinationID": "1a1b2c3d-4e5f-4a6b-8c7d-8e9fa0b1c2d4",
+                "categoryID": null
+              }
+            },
+            "signature": "c1",
+            "prior": null,
+            "at": 50
+          }
+        },
+        "automatic": {
+          "7f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f8": {
+            "before": {
+              "type": "expense",
+              "destinationID": null,
+              "categoryID": null
+            },
+            "after": {
+              "type": "transfer",
+              "destinationID": "1a1b2c3d-4e5f-4a6b-8c7d-8e9fa0b1c2d4",
+              "categoryID": null
+            },
+            "signature": "a1",
+            "fingerprint": "f",
+            "validated": 3,
+            "at": 60
+          }
+        }
+      },
+      "remote": {
+        "version": 1,
+        "terms": {
+          "0a1b2c3d-4e5f-4a6b-8c7d-8e9fa0b1c2d3|1767225600000": {
+            "account": "0a1b2c3d-4e5f-4a6b-8c7d-8e9fa0b1c2d3",
+            "savebackPercent": 1,
+            "roundUpMultiplier": 1,
+            "validFrom": 1767225600000,
+            "at": 30
+          }
+        },
+        "corrections": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "example": null,
+            "signature": null,
+            "prior": null,
+            "at": 55
+          }
+        },
+        "automatic": {
+          "7f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f8": {
+            "at": 70
+          }
+        }
+      },
+      "expected": {
+        "version": 1,
+        "terms": {
+          "0a1b2c3d-4e5f-4a6b-8c7d-8e9fa0b1c2d3|1767225600000": {
+            "account": "0a1b2c3d-4e5f-4a6b-8c7d-8e9fa0b1c2d3",
+            "savebackPercent": 1.5,
+            "roundUpMultiplier": 2,
+            "validFrom": 1767225600000,
+            "at": 40
+          }
+        },
+        "corrections": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "example": null,
+            "signature": null,
+            "prior": null,
+            "at": 55
+          }
+        },
+        "automatic": {
+          "7f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f8": {
+            "at": 70
+          }
+        }
+      }
+    }
+  ],
+  "stamps": [
+    {
+      "name": "Solo lo que cambió en este dispositivo recibe la fecha actual",
+      "now": 1000,
+      "exported": {
+        "version": 1,
+        "since": 100,
+        "categories": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "s1"
+          },
+          "7f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f8": {
+            "signature": "s2-nuevo"
+          },
+          "c4": {
+            "signature": "s4"
+          }
+        },
+        "automation": {
+          "enabled": true
+        }
+      },
+      "base": {
+        "version": 1,
+        "since": 100,
+        "categories": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "s1",
+            "at": 10
+          },
+          "7f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f8": {
+            "signature": "s2",
+            "at": 11
+          },
+          "8f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f9": {
+            "signature": "s3",
+            "at": 12
+          },
+          "c5": {
+            "signature": "s5",
+            "at": 13
+          },
+          "c6": {
+            "signature": null,
+            "at": 14
+          }
+        },
+        "automation": {
+          "enabled": true,
+          "at": 0
+        }
+      },
+      "representable": [
+        "categories:8f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f9"
+      ],
+      "expected": {
+        "version": 1,
+        "since": 100,
+        "categories": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "s1",
+            "at": 10
+          },
+          "7f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f8": {
+            "signature": "s2-nuevo",
+            "at": 1000
+          },
+          "c4": {
+            "signature": "s4",
+            "at": 1000
+          },
+          "8f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f9": {
+            "signature": null,
+            "at": 1000
+          },
+          "c5": {
+            "signature": "s5",
+            "at": 13
+          },
+          "c6": {
+            "signature": null,
+            "at": 14
+          }
+        },
+        "automation": {
+          "enabled": true,
+          "at": 0
+        }
+      }
+    },
+    {
+      "name": "Sin copia anterior, lo exportado es nuevo y el ajuste por defecto no pisa al de otro dispositivo",
+      "now": 2000,
+      "exported": {
+        "version": 1,
+        "since": 100,
+        "operations": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "i1",
+            "kind": "saveback"
+          }
+        },
+        "automation": {
+          "enabled": true
+        },
+        "reviewed": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": 1500
+        }
+      },
+      "base": {
+        "version": 1
+      },
+      "representable": [],
+      "expected": {
+        "version": 1,
+        "since": 100,
+        "operations": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": {
+            "signature": "i1",
+            "kind": "saveback",
+            "at": 2000
+          }
+        },
+        "automation": {
+          "enabled": true,
+          "at": 0
+        },
+        "reviewed": {
+          "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": 1500
+        }
+      }
+    }
+  ]
+}

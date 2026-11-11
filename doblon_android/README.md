@@ -4,7 +4,7 @@ Desde el 10 de noviembre de 2026 esta es la app única de Doblón para Android y
 
 Primera versión para Android, en Flutter. Entra con la misma cuenta de Doblón que en el iPhone y muestra las mismas finanzas desde la nube (Supabase, función `finance_snapshot`).
 
-## Qué hace (0.10.0)
+## Qué hace (0.11.0)
 
 - **Entrada:** con la misma cuenta de Doblón; alta de cuenta nueva y bloqueo con huella o PIN del móvil.
 - **Inicio:**
@@ -36,7 +36,7 @@ Primera versión para Android, en Flutter. Entra con la misma cuenta de Doblón 
   - propone la categoría a partir del concepto, en el formulario, en «Por revisar» y al importar un CSV;
   - reconoce aportaciones a inversión, Round up y Saveback en los movimientos del banco («Reconocimiento de inversión» en el detalle), con las condiciones de la tarjeta;
   - repite una corrección que has hecho varias veces (tipo, categoría y cuenta de destino) solo después de comprobar que acertó en meses posteriores; se puede desactivar y deshacer, y deshacerla también enseña;
-  - lo aprendido se guarda en el dispositivo y el perfil (`learning-<usuario>.json`), como en el iPhone: no va a la nube. Ajustes → Inteligencia artificial muestra cuánto ha aprendido.
+  - lo aprendido se comparte entre el iPhone y el Android a través de la nube privada de la persona (tabla `finance_learning`, contrato en `CloudBackend/learning-contract.md`). En el móvil se guarda como `learning-<usuario>.json` y se combina con la nube al abrir la app y unos segundos después de cada cambio. Ajustes → Inteligencia artificial muestra cuánto ha aprendido.
 - **Lo que comunica el banco** (`lib/bank_activity.dart`):
   - saldo contable y disponible, retenciones y pendientes en el detalle de la cuenta, con el saldo tras retenciones;
   - pendientes del banco en Movimientos y aviso de Don Bigotes de «cargos en camino»;

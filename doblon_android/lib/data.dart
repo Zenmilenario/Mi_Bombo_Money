@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -106,7 +107,9 @@ class FinanceRepository extends ChangeNotifier {
       pending = await store.loadPending(user);
       final saved = await store.loadCopy(user);
       if (saved != null) _show(saved);
-      learning = await Learning.open(store.directory, user);
+      learning = await Learning.open(store.directory, user)
+        // What is taught here reaches the person's other devices a moment later.
+        ..onChange = _scheduleLearningSync;
       bankActivity = await BankActivityStore(store.directory).load(user);
     }
     loading = true;
@@ -118,6 +121,7 @@ class FinanceRepository extends ChangeNotifier {
       } else {
         await _adopt(await _fetch());
       }
+      unawaited(syncLearning());
     } on AuthException {
       error = 'Tu sesión ha caducado. Vuelve a entrar.';
     } catch (_) {
@@ -247,6 +251,55 @@ class FinanceRepository extends ChangeNotifier {
     notifyListeners();
   }
 
+  Timer? _learningTimer;
+  bool _syncingLearning = false;
+  bool _learningAgain = false;
+
+  void _scheduleLearningSync() {
+    _learningTimer?.cancel();
+    _learningTimer = Timer(const Duration(seconds: 2), () => unawaited(syncLearning()));
+  }
+
+  /// Combines what was taught on this device with what the other devices taught (CloudBackend/learning-contract.md)
+  /// and saves the result in both places. Without connection it waits for the next opening or change.
+  Future<void> syncLearning() async {
+    final learning = this.learning;
+    if (learning == null || _user == null) return;
+    if (_syncingLearning) {
+      _learningAgain = true;
+      return;
+    }
+    _syncingLearning = true;
+    try {
+      do {
+        _learningAgain = false;
+        for (var attempt = 0; attempt < 3; attempt++) {
+          final remote = Map<String, dynamic>.from(await Supabase.instance.client.rpc('finance_learning_snapshot') as Map);
+          final cloud = Map<String, dynamic>.from(remote['document'] as Map);
+          final merged = mergeLearning(learning.toShared(), cloud);
+          await learning.store(merged);
+          if (canonicalLearningJson(merged) == canonicalLearningJson(cloud)) break;
+          try {
+            await Supabase.instance.client.rpc('finance_learning_save', params: {
+              'p_workspace': remote['workspace_id'],
+              'p_expected_revision': remote['revision'],
+              'p_document': merged,
+            });
+            break;
+          } on PostgrestException catch (error) {
+            if (error.code == '40001' || error.message.contains('cloud_revision_conflict')) continue;
+            rethrow;
+          }
+        }
+      } while (_learningAgain);
+      notifyListeners();
+    } catch (_) {
+      // Kept on this device; it is shared on the next attempt.
+    } finally {
+      _syncingLearning = false;
+    }
+  }
+
   /// Tells the screens that something kept outside the document changed (what was learnt, bank reports).
   void changed() => notifyListeners();
 
@@ -278,6 +331,7 @@ class FinanceRepository extends ChangeNotifier {
       await BankActivityStore(store.directory).clear(user);
     }
     bankActivity = {};
+    _learningTimer?.cancel();
     learning = null;
     finances = null;
     copy = null;

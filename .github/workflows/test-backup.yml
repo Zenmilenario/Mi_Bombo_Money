@@ -123,6 +123,7 @@ jobs:
             MiPatrimonio/Core/Services/ReservedLedger.swift \
             MiPatrimonio/Core/Services/TransactionOperationModel.swift \
             MiPatrimonio/Core/Services/TransactionOperationLearning.swift \
+            MiPatrimonio/Core/Services/LearningShare.swift \
             MiPatrimonio/Core/Services/TransactionCorrectionModel.swift \
             MiPatrimonio/Core/Services/CategoryRuleService.swift \
             MiPatrimonio/Core/Services/DuplicateDetectionService.swift \
@@ -149,6 +150,7 @@ jobs:
             MiPatrimonio/Core/Services/TransactionOperationModel.swift \
             MiPatrimonio/Core/Services/TransactionCorrectionModel.swift \
             MiPatrimonio/Core/Services/TransactionOperationLearning.swift \
+            MiPatrimonio/Core/Services/LearningShare.swift \
             Tests/TransactionAutomaticCorrectionCheck.swift -o build/finance-check/TransactionAutomaticCorrectionCheck
           build/finance-check/TransactionAutomaticCorrectionCheck
 

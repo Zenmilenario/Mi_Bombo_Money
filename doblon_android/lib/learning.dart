@@ -597,7 +597,92 @@ class AutomationStatus {
   final int validatedPredictions;
 }
 
-/// Everything the person has taught on this device and profile, and the models trained from it.
+// ================================================================ the shared document
+
+/// Canonical signatures of the shared learning (CloudBackend/learning-contract.md): the same on both apps.
+String learningCategorySignature(String type, String categoryId, String description) => sha256Hex('$type|$categoryId|$description');
+
+String learningIdentity(
+        {required String id,
+        required String type,
+        required int amountMinor,
+        required int dateMs,
+        required String description,
+        String? sourceId,
+        String? destinationId,
+        String? sourceCurrency,
+        String? destinationCurrency,
+        String? bankEntryKey}) =>
+    sha256Hex([
+      id,
+      type,
+      '$amountMinor',
+      '$dateMs',
+      description,
+      sourceId ?? '',
+      destinationId ?? '',
+      sourceCurrency ?? '',
+      destinationCurrency ?? '',
+      bankEntryKey ?? '',
+    ].join('|'));
+
+String learningAccountKey(String accountId, String currency) => sha256Hex('$accountId|$currency');
+
+const _entrySections = ['categories', 'operations', 'terms', 'corrections', 'automatic'];
+
+int _at(Object? entry) => entry is Map ? ((entry['at'] as num?)?.toInt() ?? 0) : 0;
+Map<String, dynamic> _section(Map<String, dynamic> doc, String key) => doc[key] is Map ? Map<String, dynamic>.from(doc[key] as Map) : {};
+
+/// Combines two learning documents: per entry the newest change wins (the cloud's on a tie), reviews are
+/// joined, and the earliest dates are kept (contract «Combinación»).
+Map<String, dynamic> mergeLearning(Map<String, dynamic> local, Map<String, dynamic> remote) {
+  final result = <String, dynamic>{'version': 1};
+  for (final key in ['since', 'enabledAt']) {
+    final values = [local[key], remote[key]].whereType<num>().map((v) => v.toInt());
+    if (values.isNotEmpty) result[key] = values.reduce(math.min);
+  }
+  final mine = local['automation'], theirs = remote['automation'];
+  if (mine is Map || theirs is Map) result['automation'] = theirs is Map && _at(theirs) >= _at(mine) ? theirs : mine;
+  for (final key in _entrySections) {
+    final a = _section(local, key), b = _section(remote, key);
+    final merged = <String, dynamic>{};
+    for (final id in {...a.keys, ...b.keys}) {
+      final left = a[id], right = b[id];
+      merged[id] = right == null ? left : (left == null || _at(right) >= _at(left) ? right : left);
+    }
+    if (merged.isNotEmpty) result[key] = merged;
+  }
+  final a = _section(local, 'reviewed'), b = _section(remote, 'reviewed');
+  final reviewed = <String, dynamic>{
+    for (final id in {...a.keys, ...b.keys}) id: [a[id], b[id]].whereType<num>().map((v) => v.toInt()).reduce(math.min)
+  };
+  if (reviewed.isNotEmpty) result['reviewed'] = reviewed;
+  return result;
+}
+
+/// The same document written the same way: keys sorted, nulls and empty sections left out, and whole
+/// numbers without decimals. Two documents with the same content give the same text.
+String canonicalLearningJson(Object? value) {
+  Object? clean(Object? v) {
+    if (v is Map) {
+      final keys = v.keys.map((k) => '$k').toList()..sort();
+      final result = <String, Object?>{};
+      for (final k in keys) {
+        final item = clean(v[k]);
+        if (item == null || (item is Map && item.isEmpty)) continue;
+        result[k] = item;
+      }
+      return result;
+    }
+    if (v is List) return [for (final x in v) clean(x)];
+    if (v is double && v == v.roundToDouble() && v.abs() < 9e15) return v.toInt();
+    return v;
+  }
+
+  return jsonEncode(clean(value));
+}
+
+/// Everything the person has taught, shared by their devices, and the models trained from it.
 class Learning {
   Learning({File? file, DateTime? since}) : _file = file {
     // Milliseconds, as it is saved: the date read back is exactly the same.
@@ -605,6 +690,9 @@ class Learning {
   }
 
   final File? _file;
+
+  /// Called after every change that should reach the person's other devices.
+  void Function()? onChange;
 
   // Categories (Swift `TransactionLearning.History`).
   late DateTime since;
@@ -615,10 +703,23 @@ class Learning {
   final Map<String, List<CardTerms>> _terms = {};
   final Map<String, _HumanCorrection> _corrections = {};
   final Map<String, _HumanCorrection> _priorCorrections = {};
-  final Set<String> _manualReviewIds = {};
+  final Map<String, int> _reviewed = {};
   final Map<String, _Automatic> _automatic = {};
   bool automationEnabled = true;
   DateTime? enabledAt;
+
+  /// When each entry last changed, also for removed ones (so the removal reaches the other devices).
+  final Map<String, Map<String, int>> _changedAt = {for (final s in _entrySections) s: {}};
+  int _automationAt = 0;
+
+  /// Entries received from another device that this one cannot interpret: kept and passed on unchanged.
+  final Map<String, Map<String, dynamic>> _foreign = {for (final s in _entrySections) s: {}};
+
+  int get _now => DateTime.now().millisecondsSinceEpoch;
+  void _touch(String section, String key) {
+    _changedAt[section]![key] = _now;
+    _foreign[section]!.remove(key);
+  }
 
   /// Opens the person's learning, creating it the first time (its date limits the historic examples).
   static Future<Learning> open(Directory directory, String user) async {
@@ -626,9 +727,9 @@ class Learning {
     final learning = Learning(file: file);
     try {
       if (await file.exists()) {
-        learning._read(jsonDecode(await file.readAsString()) as Map<String, dynamic>);
+        learning.adopt(jsonDecode(await file.readAsString()) as Map<String, dynamic>);
       } else {
-        await learning._save();
+        await learning._save(share: false);
       }
     } catch (_) {
       // A damaged file is not used; the movements are unaffected and learning starts again.
@@ -636,57 +737,128 @@ class Learning {
     return learning;
   }
 
-  void _read(Map<String, dynamic> j) {
-    Map<String, dynamic> map(Object? v) => v is Map ? Map<String, dynamic>.from(v) : {};
-    since = DateTime.fromMillisecondsSinceEpoch((j['since'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch);
-    confirmations.addAll(map(j['confirmations']).map((k, v) => MapEntry(k, '$v')));
-    map(j['records']).forEach((k, v) {
-      final kind = OperationKind.values.where((x) => x.name == v['kind']).firstOrNull;
-      if (kind != null) _records[k] = _Record('${v['signature']}', kind);
-    });
-    map(j['terms']).forEach((k, v) => _terms[k] = [for (final t in (v as List)) CardTerms.fromJson(Map<String, dynamic>.from(t as Map))]);
-    map(j['corrections']).forEach((k, v) => _corrections[k] = _HumanCorrection.fromJson(Map<String, dynamic>.from(v as Map)));
-    map(j['priorCorrections']).forEach((k, v) => _priorCorrections[k] = _HumanCorrection.fromJson(Map<String, dynamic>.from(v as Map)));
-    _manualReviewIds.addAll(((j['manualReviewIDs'] as List?) ?? const []).map((e) => '$e'));
-    map(j['automatic']).forEach((k, v) => _automatic[k] = _Automatic.fromJson(Map<String, dynamic>.from(v as Map)));
-    automationEnabled = j['automationEnabled'] != false;
+  /// Replaces what is known with a shared document (read from the device or combined with the cloud).
+  void adopt(Map<String, dynamic> j) {
+    confirmations.clear();
+    _records.clear();
+    _terms.clear();
+    _corrections.clear();
+    _priorCorrections.clear();
+    _reviewed.clear();
+    _automatic.clear();
+    for (final s in _entrySections) {
+      _changedAt[s]!.clear();
+      _foreign[s]!.clear();
+    }
+    Map<String, dynamic> obj(Object? v) => v is Map ? Map<String, dynamic>.from(v) : {};
+    if (j['since'] is num) since = DateTime.fromMillisecondsSinceEpoch((j['since'] as num).toInt());
     enabledAt = j['enabledAt'] is num ? DateTime.fromMillisecondsSinceEpoch((j['enabledAt'] as num).toInt()) : null;
+    final automation = obj(j['automation']);
+    automationEnabled = automation['enabled'] != false;
+    _automationAt = _at(automation);
+    void each(String section, void Function(String key, Map<String, dynamic> entry) read) {
+      obj(j[section]).forEach((key, value) {
+        final entry = obj(value);
+        _changedAt[section]![key] = _at(entry);
+        try {
+          read(key, entry);
+        } catch (_) {
+          _foreign[section]![key] = entry;
+        }
+      });
+    }
+
+    each('categories', (key, e) {
+      if (e['signature'] is String) confirmations[key] = e['signature'] as String;
+    });
+    each('operations', (key, e) {
+      if (e['signature'] is! String) return;
+      final kind = OperationKind.values.where((x) => x.name == e['kind']).firstOrNull;
+      if (kind == null) throw const FormatException('kind');
+      _records[key] = _Record(e['signature'] as String, kind);
+    });
+    each('terms', (key, e) {
+      _terms.putIfAbsent('${e['account']}', () => []).add(CardTerms.fromJson(e));
+    });
+    each('corrections', (key, e) {
+      if (e['example'] is Map && e['signature'] is String) {
+        _corrections[key] = _HumanCorrection(CorrectionExample.fromJson(obj(e['example'])), e['signature'] as String);
+      }
+      final prior = obj(e['prior']);
+      if (prior['example'] is Map && prior['signature'] is String) _priorCorrections[key] = _HumanCorrection.fromJson(prior);
+    });
+    each('automatic', (key, e) {
+      if (e['after'] is Map) _automatic[key] = _Automatic.fromJson(e);
+    });
+    obj(j['reviewed']).forEach((key, value) {
+      if (value is num) _reviewed[key] = value.toInt();
+    });
   }
 
-  Map<String, dynamic> toJson() => {
-        'version': 1,
-        'since': since.millisecondsSinceEpoch,
-        'confirmations': confirmations,
-        'records': _records.map((k, v) => MapEntry(k, {'signature': v.signature, 'kind': v.kind.name})),
-        'terms': _terms.map((k, v) => MapEntry(k, [for (final t in v) t.toJson()])),
-        'corrections': _corrections.map((k, v) => MapEntry(k, v.toJson())),
-        'priorCorrections': _priorCorrections.map((k, v) => MapEntry(k, v.toJson())),
-        'manualReviewIDs': _manualReviewIds.toList()..sort(),
-        'automatic': _automatic.map((k, v) => MapEntry(k, v.toJson())),
-        'automationEnabled': automationEnabled,
-        if (enabledAt != null) 'enabledAt': enabledAt!.millisecondsSinceEpoch,
-      };
+  /// The shared document (CloudBackend/learning-contract.md).
+  Map<String, dynamic> toShared() {
+    Map<String, dynamic> section(String name, Map<String, dynamic> Function(String key) entry) {
+      final result = <String, dynamic>{..._foreign[name]!};
+      for (final key in _changedAt[name]!.keys) {
+        if (_foreign[name]!.containsKey(key)) continue;
+        result[key] = {...entry(key), 'at': _changedAt[name]![key]};
+      }
+      return result;
+    }
+
+    final termsByKey = <String, (String, CardTerms)>{
+      for (final entry in _terms.entries)
+        for (final t in entry.value) '${entry.key}|${t.validFrom.millisecondsSinceEpoch}': (entry.key, t)
+    };
+    return {
+      'version': 1,
+      'since': since.millisecondsSinceEpoch,
+      if (enabledAt != null) 'enabledAt': enabledAt!.millisecondsSinceEpoch,
+      'automation': {'enabled': automationEnabled, 'at': _automationAt},
+      'categories': section('categories', (k) => {'signature': confirmations[k]}),
+      'operations': section('operations', (k) => {'signature': _records[k]?.signature, 'kind': _records[k]?.kind.name}),
+      'terms': section('terms', (k) {
+        final found = termsByKey[k];
+        return found == null ? <String, dynamic>{} : {'account': found.$1, ...found.$2.toJson()};
+      }),
+      'corrections': section('corrections', (k) => {
+            'example': _corrections[k]?.example.toJson(),
+            'signature': _corrections[k]?.signature,
+            'prior': _priorCorrections[k]?.toJson(),
+          }),
+      'automatic': section('automatic', (k) => _automatic[k]?.toJson() ?? <String, dynamic>{}),
+      'reviewed': {..._reviewed},
+    };
+  }
 
   /// Written to a temporary file and renamed. Any change invalidates the trained models.
-  Future<void> _save({bool invalidate = true}) async {
+  Future<void> _save({bool invalidate = true, bool share = true}) async {
     if (invalidate) {
       _categoryJob = null;
       _operationJob = null;
       _correctionJob = null;
     }
     final file = _file;
-    if (file == null) return;
-    final temporary = File('${file.path}.tmp');
-    await temporary.writeAsString(jsonEncode(toJson()), flush: true);
-    await temporary.rename(file.path);
+    if (file != null) {
+      final temporary = File('${file.path}.tmp');
+      await temporary.writeAsString(jsonEncode(toShared()), flush: true);
+      await temporary.rename(file.path);
+    }
+    if (share) onChange?.call();
+  }
+
+  /// Keeps the result of combining with the cloud, without announcing it as a new change.
+  Future<void> store(Map<String, dynamic> document) async {
+    adopt(document);
+    await _save(share: false);
   }
 
   /// Copy of everything taught, to keep it in a backup.
-  String export() => const JsonEncoder.withIndent('  ').convert(toJson());
+  String export() => const JsonEncoder.withIndent('  ').convert(toShared());
 
   // ---------------------------------------------------------------- categories
 
-  String _categorySignature(Transaction t, String categoryId) => sha256Hex([t.type.name, categoryId, t.descriptionText].join('|'));
+  String _categorySignature(Transaction t, String categoryId) => learningCategorySignature(t.type.name, categoryId, t.descriptionText);
 
   /// Records the categories the person chose (Swift `TransactionLearning.confirm`), after the save.
   Future<void> confirmCategories(List<Transaction> rows, Finances data, {bool recordCorrection = true}) async {
@@ -695,9 +867,10 @@ class Learning {
     for (final t in rows) {
       final category = data.category(t.categoryId);
       if (t.type == TransactionType.transfer || category == null || !categorySupports(category, t.type)) {
-        confirmations.remove(t.id);
+        if (confirmations.remove(t.id) != null) _touch('categories', t.id);
       } else {
         confirmations[t.id] = _categorySignature(t, category.id);
+        _touch('categories', t.id);
       }
     }
     await _save();
@@ -812,7 +985,7 @@ class Learning {
         day: day.day,
         weekday: day.weekday % 7 + 1,
         month: '${day.year}-${day.month}',
-        accountKey: sha256Hex('${account.id}|${account.currencyCode}'),
+        accountKey: learningAccountKey(account.id, account.currencyCode),
         savebackPercent: terms?.savebackPercent,
         roundUpMultiplier: terms?.roundUpMultiplier);
   }
@@ -830,18 +1003,17 @@ class Learning {
       destinationId = destination?.id ?? '';
       destinationCurrency = destination?.currencyCode ?? '';
     }
-    return sha256Hex([
-      t.id,
-      applying?.type ?? t.type.name,
-      '${t.amountMinor}',
-      '${referenceSeconds(t.date)}',
-      t.descriptionText,
-      source?.id ?? '',
-      destinationId,
-      source?.currencyCode ?? '',
-      destinationCurrency,
-      t.bankEntryKey ?? '',
-    ].join('|'));
+    return learningIdentity(
+        id: t.id,
+        type: applying?.type ?? t.type.name,
+        amountMinor: t.amountMinor,
+        dateMs: t.date.millisecondsSinceEpoch,
+        description: t.descriptionText,
+        sourceId: source?.id,
+        destinationId: destinationId,
+        sourceCurrency: source?.currencyCode,
+        destinationCurrency: destinationCurrency,
+        bankEntryKey: t.bankEntryKey);
   }
 
   /// Movements identified as Round up, Saveback or investment: they do not teach categories.
@@ -886,6 +1058,7 @@ class Learning {
     } else {
       _records[t.id] = _Record(_signature(t, data), kind);
     }
+    _touch('operations', t.id);
     await _save();
   }
 
@@ -894,6 +1067,7 @@ class Learning {
     if (!value.valid || account == null || !supports(t, data)) throw StateError('invalid');
     final list = _terms.putIfAbsent(account, () => [])..removeWhere((x) => x.validFrom == value.validFrom);
     list.add(value);
+    _touch('terms', '$account|${value.validFrom.millisecondsSinceEpoch}');
     await _save();
   }
 
@@ -925,7 +1099,7 @@ class Learning {
   /// Learns the action the person wanted, if the bank facts did not change (Swift `rememberEdit`).
   Future<bool> rememberEdit(EditSnapshot? before, Transaction row, Finances data, {bool explicitlyReviewed = false}) async {
     if (before == null) return false;
-    _manualReviewIds.add(row.id);
+    _reviewed.putIfAbsent(row.id, () => _now);
     final desired = CorrectionAction.of(row);
     final learnable = (explicitlyReviewed || desired != before.action) &&
         supports(row, data) &&
@@ -942,8 +1116,12 @@ class Learning {
       if (previous != null && previous.signature == before.signature && previous.example.action == before.action) _priorCorrections[row.id] = previous;
       final signature = _signature(row, data);
       _corrections[row.id] = _HumanCorrection(CorrectionExample(before.input, desired), signature);
-      enabledAt ??= DateTime.now();
-      if (before.kind != null) _records[row.id] = _Record(signature, before.kind!);
+      _touch('corrections', row.id);
+      enabledAt ??= DateTime.fromMillisecondsSinceEpoch(_now);
+      if (before.kind != null) {
+        _records[row.id] = _Record(signature, before.kind!);
+        _touch('operations', row.id);
+      }
     }
     await _save();
     return true;
@@ -970,6 +1148,7 @@ class Learning {
 
   Future<void> setAutomationEnabled(bool enabled) async {
     automationEnabled = enabled;
+    _automationAt = _now;
     await _save();
   }
 
@@ -1049,7 +1228,7 @@ class Learning {
             row.destinationAccountId == null &&
             !_corrections.containsKey(row.id) &&
             !_records.containsKey(row.id) &&
-            !_manualReviewIds.contains(row.id) &&
+            !_reviewed.containsKey(row.id) &&
             pendingAudit(row) &&
             supports(row, data))
         .toList();
@@ -1070,6 +1249,7 @@ class Learning {
       final action = decision.action;
       final type = TransactionType.values.byName(action.type);
       _automatic[row.id] = _Automatic(CorrectionAction.of(row), action, _signature(row, data, applying: action), row.fingerprint, decision.validatedPredictions);
+      _touch('automatic', row.id);
       ops.add(Operation('patch', {
         'id': row.id,
         'fields': {

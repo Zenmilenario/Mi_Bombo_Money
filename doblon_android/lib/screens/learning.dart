@@ -39,7 +39,7 @@ class LearningScreen extends StatelessWidget {
                             '• Si un movimiento del banco es una aportación a inversión, un Round up o un Saveback.\n'
                             '• Las correcciones que haces en movimientos del banco (tipo, categoría y cuenta de destino).\n\n'
                             'Con ello propone categorías y reconoce operaciones. Solo repite una corrección por su cuenta cuando la has hecho varias veces y ha acertado al comprobarla con meses posteriores.\n\n'
-                            'Lo aprendido se guarda en este dispositivo y en tu perfil; no se envía a la nube ni a nadie.'),
+                            'Lo aprendido se comparte entre tus dispositivos (iPhone y Android) a través de tu nube privada: solo lo ves tú y no se usa para entrenar ningún modelo ajeno.'),
                       ]),
                     ),
                   ),
@@ -202,7 +202,7 @@ class _OperationReviewCardState extends State<OperationReviewCard> {
       await learning!.saveTerms(terms, widget.transaction, data!);
       setState(() {
         _error = null;
-        _termsMessage = 'Condiciones guardadas para esta cuenta en este dispositivo.';
+        _termsMessage = 'Condiciones guardadas para esta cuenta.';
       });
       await _load(force: true);
     } catch (_) {
@@ -302,7 +302,7 @@ class _OperationReviewCardState extends State<OperationReviewCard> {
             ),
           ),
           const Text(
-              'Identificar el beneficio guarda su etiqueta. Corregir el tipo, la categoría o el destino del movimiento también enseña la acción que deseas para futuros apuntes. El aprendizaje se guarda en este dispositivo y perfil.',
+              'Identificar el beneficio guarda su etiqueta. Corregir el tipo, la categoría o el destino del movimiento también enseña la acción que deseas para futuros apuntes. El aprendizaje se comparte con tus otros dispositivos.',
               style: caption),
           if (confirmed == OperationKind.saveback)
             const Padding(

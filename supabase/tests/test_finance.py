@@ -330,6 +330,35 @@ class CloudStorageTests(unittest.TestCase):
         self.save_snapshot(before)
         self.assertEqual(str(self.db.execute('SELECT owner_id FROM public.finance_accounts').fetchone()[0]),A)
 
+    def learning(self):
+        return self.db.execute('SELECT public.finance_learning_snapshot()').fetchone()[0]
+
+    def save_learning(self, workspace, revision, document):
+        return self.db.execute('SELECT public.finance_learning_save(%s,%s,%s)', (workspace, revision, Jsonb(document))).fetchone()[0]
+
+    def test_learning_is_private_versioned_and_validated(self):
+        table = 'public.finance_learning'
+        self.assertEqual(self.db.execute('SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid=%s::regclass', (table,)).fetchone(), (True, True))
+        for role, privilege in [('anon','SELECT'),('anon','INSERT'),('anon','UPDATE'),('authenticated','DELETE'),('authenticated','TRUNCATE')]:
+            self.assertFalse(self.db.execute('SELECT has_table_privilege(%s,%s,%s)', (role,table,privilege)).fetchone()[0])
+        empty = self.learning()
+        self.assertEqual((empty['workspace_id'], empty['revision'], empty['document']), (WA, 0, {'version': 1}))
+        taught = {'version': 1, 'since': 1, 'categories': {'tx-ficticio': {'signature': 'abc', 'at': 2}}}
+        first = self.save_learning(WA, 0, taught)
+        self.assertEqual((first['revision'], first['document']), (1, taught))
+        self.expect_sqlstate('40001', lambda: self.save_learning(WA, 0, taught))
+        self.assertEqual(self.save_learning(WA, 1, {'version': 1})['revision'], 2)
+        self.expect_sqlstate('40001', lambda: self.save_learning(WA, 1, taught))
+        self.expect_sqlstate('22023', lambda: self.save_learning(WA, 2, {'version': 2}))
+        self.expect_sqlstate('22023', lambda: self.save_learning(WA, 2, {'version': 1, 'large': 'x' * 6000000}))
+        self.assertEqual(self.learning()['revision'], 2)
+        self.as_user(B)
+        self.assertEqual(self.learning()['revision'], 0, "Another person's learning is never visible")
+        self.expect_sqlstate('42501', lambda: self.save_learning(WA, 2, taught))
+        self.assertEqual(self.db.execute('SELECT count(*) FROM public.finance_learning').fetchone()[0], 0)
+        self.as_user(None, 'anon')
+        self.expect_sqlstate('42501', lambda: self.db.execute('SELECT public.finance_learning_snapshot()'))
+
     def test_concurrent_payments_cannot_double_spend_a_reserve(self):
         owner, workspace, account, fund = (uuid4() for _ in range(4))
         with psycopg.connect(DSN, autocommit=True) as admin:

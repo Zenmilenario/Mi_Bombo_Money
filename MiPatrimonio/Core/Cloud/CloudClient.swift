@@ -122,6 +122,16 @@ actor CloudClient {
                            "p_document":CloudDocument.normalized(document),"p_timezone":.string(TimeZone.autoupdatingCurrent.identifier)]))
         return try JSONDecoder().decode(CloudSnapshot.self, from: data)
     }
+    /// What the person taught the models, shared by their devices (CloudBackend/learning-contract.md).
+    func learningSnapshot(session: CloudSession) async throws -> CloudSnapshot {
+        let data = try await send(path: "/rest/v1/rpc/finance_learning_snapshot", token: session.accessToken, body: .object([:]))
+        return try JSONDecoder().decode(CloudSnapshot.self, from: data)
+    }
+    func saveLearning(session: CloudSession, workspace: UUID, revision: Int64, document: CloudJSON) async throws -> CloudSnapshot {
+        let data = try await send(path: "/rest/v1/rpc/finance_learning_save", token: session.accessToken,
+            body: .object(["p_workspace":.string(workspace.uuidString),"p_expected_revision":.integer(revision),"p_document":document]))
+        return try JSONDecoder().decode(CloudSnapshot.self, from: data)
+    }
     private func send(path: String, query: String? = nil, token: String? = nil, body: CloudJSON? = nil, method: String = "POST") async throws -> Data {
         try Task.checkCancellation()
         var components = URLComponents(url: configuration.url, resolvingAgainstBaseURL: false)!

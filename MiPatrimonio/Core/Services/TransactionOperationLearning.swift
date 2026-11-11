@@ -424,3 +424,168 @@ enum TransactionOperationLearning {
         correctionTraining = nil
     }
 }
+
+// MARK: - Shared with the person's other devices (CloudBackend/learning-contract.md)
+
+extension TransactionOperationLearning {
+    /// The canonical identity of a bank movement in its current state, the same the Android app writes.
+    static func canonicalIdentity(_ row: FinancialTransaction) -> String {
+        LearningCanonical.identity(id: row.id, type: row.typeRaw, amountMinor: row.amountMinor, date: row.date,
+            description: row.descriptionText, sourceID: row.sourceAccount?.id, destinationID: row.destinationAccount?.id,
+            sourceCurrency: row.sourceAccount?.currencyCode, destinationCurrency: row.destinationAccount?.currencyCode,
+            bankEntryKey: row.bankEntryKey)
+    }
+
+    /// This device's account keys (UUID in capitals) mapped to the shared ones (UUID in lower case), both ways.
+    private static func accountKeys(in context: ModelContext) throws -> (shared: [String: String], local: [String: String]) {
+        var shared: [String: String] = [:], local: [String: String] = [:]
+        for account in try context.fetch(FetchDescriptor<FinancialAccount>()) {
+            let mine = hash(account.id.uuidString + "|" + account.currencyCode)
+            let common = LearningCanonical.accountKey(accountID: account.id, currency: account.currencyCode)
+            shared[mine] = common
+            local[common] = mine
+        }
+        return (shared, local)
+    }
+
+    private static func sharedAction(_ action: TransactionCorrectionModel.Action) -> SharedLearning.Action {
+        SharedLearning.Action(type: action.type, destinationID: action.destinationID.map(LearningCanonical.id),
+                              categoryID: action.categoryID.map(LearningCanonical.id))
+    }
+
+    private static func localAction(_ action: SharedLearning.Action) -> TransactionCorrectionModel.Action? {
+        var destination: UUID?
+        var category: UUID?
+        if let text = action.destinationID {
+            guard let value = UUID(uuidString: text) else { return nil }
+            destination = value
+        }
+        if let text = action.categoryID {
+            guard let value = UUID(uuidString: text) else { return nil }
+            category = value
+        }
+        return TransactionCorrectionModel.Action(type: action.type, destinationID: destination, categoryID: category)
+    }
+
+    private static func sharedExample(_ example: TransactionCorrectionModel.Example, keys: [String: String]) -> SharedLearning.Example? {
+        let input = example.input
+        guard let accountKey = keys[input.accountKey] else { return nil }
+        return SharedLearning.Example(input: SharedLearning.Input(text: input.text, amountMinor: input.amountMinor,
+            isCredit: input.isCredit, day: input.day, weekday: input.weekday, month: input.month, accountKey: accountKey,
+            savebackPercent: input.savebackPercent, roundUpMultiplier: input.roundUpMultiplier), action: sharedAction(example.action))
+    }
+
+    private static func localExample(_ example: SharedLearning.Example, keys: [String: String]) -> TransactionCorrectionModel.Example? {
+        let input = example.input
+        guard let accountKey = keys[input.accountKey], let action = localAction(example.action) else { return nil }
+        return TransactionCorrectionModel.Example(input: TransactionOperationModel.Input(text: input.text, amountMinor: input.amountMinor,
+            isCredit: input.isCredit, day: input.day, weekday: input.weekday, month: input.month, accountKey: accountKey,
+            savebackPercent: input.savebackPercent, roundUpMultiplier: input.roundUpMultiplier), action: action)
+    }
+
+    /// Adds the identifications, card conditions, corrections, reviews and automatic corrections still valid for
+    /// their movement, with canonical identifiers.
+    static func exportShared(into shared: inout SharedLearning, rows: [String: FinancialTransaction], in context: ModelContext) throws {
+        guard let location = location(in: context) else { return }
+        let history = try read(location)
+        let keys = try accountKeys(in: context).shared
+        shared.automation = SharedLearning.Toggle(enabled: history.automationEnabled, at: 0)
+        if let enabledAt = history.enabledAt { shared.enabledAt = LearningCanonical.ms(enabledAt) }
+        func current(_ id: UUID, _ saved: String) -> FinancialTransaction? {
+            guard let row = rows[LearningCanonical.id(id)], saved == signature(row) else { return nil }
+            return row
+        }
+        for (id, record) in history.records {
+            guard let row = current(id, record.signature) else { continue }
+            shared.operations[LearningCanonical.id(id)] = SharedLearning.OperationEntry(signature: canonicalIdentity(row),
+                kind: record.kind.rawValue, at: 0)
+        }
+        for (accountID, list) in history.terms {
+            for terms in list where terms.valid {
+                let from = LearningCanonical.ms(terms.validFrom)
+                shared.terms[LearningCanonical.id(accountID) + "|" + String(from)] = SharedLearning.TermsEntry(
+                    account: LearningCanonical.id(accountID), savebackPercent: terms.savebackPercent,
+                    roundUpMultiplier: terms.roundUpMultiplier, validFrom: from, at: 0)
+            }
+        }
+        for (id, correction) in history.corrections {
+            guard let row = current(id, correction.signature),
+                  let example = sharedExample(correction.example, keys: keys) else { continue }
+            var prior: SharedLearning.Prior?
+            if let previous = history.priorCorrections[id], previous.signature == signature(row),
+               let value = sharedExample(previous.example, keys: keys) {
+                prior = SharedLearning.Prior(example: value, signature: canonicalIdentity(row))
+            }
+            shared.corrections[LearningCanonical.id(id)] = SharedLearning.CorrectionEntry(example: example,
+                signature: canonicalIdentity(row), prior: prior, at: 0)
+        }
+        for id in history.manualReviewIDs { shared.reviewed[LearningCanonical.id(id)] = 0 }
+        for (id, audit) in history.automatic {
+            guard let row = current(id, audit.signature) else { continue }
+            shared.automatic[LearningCanonical.id(id)] = SharedLearning.AutomaticEntry(before: sharedAction(audit.before),
+                after: sharedAction(audit.after), signature: canonicalIdentity(row), fingerprint: audit.fingerprint,
+                validated: audit.validated, at: 0)
+        }
+    }
+
+    /// Keeps the combined learning: valid entries with this device's signatures, removals applied, and entries whose
+    /// movement is not here or changed left to the shared copy.
+    static func adoptShared(_ shared: SharedLearning, rows: [String: FinancialTransaction], in context: ModelContext) throws {
+        guard let location = location(in: context) else { return }
+        var history = try read(location)
+        let keys = try accountKeys(in: context).local
+        if let automation = shared.automation { history.automationEnabled = automation.enabled }
+        if let enabledAt = shared.enabledAt {
+            let date = LearningCanonical.date(enabledAt)
+            history.enabledAt = min(history.enabledAt ?? date, date)
+        }
+        for (key, entry) in shared.operations {
+            guard let row = rows[key] else { continue }
+            guard let canonical = entry.signature else {
+                history.records.removeValue(forKey: row.id)
+                continue
+            }
+            guard canonicalIdentity(row) == canonical, let raw = entry.kind,
+                  let kind = TransactionOperationKind(rawValue: raw) else { continue }
+            history.records[row.id] = Record(signature: signature(row), kind: kind)
+        }
+        for entry in shared.terms.values {
+            guard let account = UUID(uuidString: entry.account) else { continue }
+            let terms = TransactionOperationModel.CardTerms(savebackPercent: entry.savebackPercent,
+                roundUpMultiplier: entry.roundUpMultiplier, validFrom: LearningCanonical.date(entry.validFrom))
+            guard terms.valid else { continue }
+            var list = history.terms[account] ?? []
+            list.removeAll { LearningCanonical.ms($0.validFrom) == entry.validFrom }
+            list.append(terms)
+            history.terms[account] = list
+        }
+        for (key, entry) in shared.corrections {
+            guard let row = rows[key] else { continue }
+            guard let example = entry.example, let canonical = entry.signature else {
+                history.corrections.removeValue(forKey: row.id)
+                history.priorCorrections.removeValue(forKey: row.id)
+                continue
+            }
+            guard canonicalIdentity(row) == canonical, let value = localExample(example, keys: keys) else { continue }
+            history.corrections[row.id] = HumanCorrection(example: value, signature: signature(row))
+            if let prior = entry.prior, prior.signature == canonical, let previous = localExample(prior.example, keys: keys) {
+                history.priorCorrections[row.id] = HumanCorrection(example: previous, signature: signature(row))
+            }
+        }
+        for key in shared.reviewed.keys {
+            if let id = UUID(uuidString: key) { history.manualReviewIDs.insert(id) }
+        }
+        for (key, entry) in shared.automatic {
+            guard let row = rows[key] else { continue }
+            guard let afterShared = entry.after, let after = localAction(afterShared) else {
+                history.automatic.removeValue(forKey: row.id)
+                continue
+            }
+            guard canonicalIdentity(row) == entry.signature, let beforeShared = entry.before,
+                  let before = localAction(beforeShared) else { continue }
+            history.automatic[row.id] = AutomaticCorrection(before: before, after: after, signature: signature(row),
+                fingerprint: entry.fingerprint ?? row.fingerprint, validated: entry.validated ?? 0)
+        }
+        try write(history, at: location)
+    }
+}

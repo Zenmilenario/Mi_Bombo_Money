@@ -59,6 +59,12 @@ jobs:
             MiPatrimonio/Core/Cloud/CloudAutomaticSync.swift \
             Tests/CloudProtocolCheck.swift -o build/cloud-check/CloudProtocolCheck
           build/cloud-check/CloudProtocolCheck
+      - name: Comprobar lo aprendido compartido con Android
+        run: |
+          xcrun swiftc -swift-version 5 -parse-as-library \
+            MiPatrimonio/Core/Services/LearningShare.swift \
+            Tests/LearningShareCheck.swift -o build/cloud-check/LearningShareCheck
+          build/cloud-check/LearningShareCheck
       - name: Comprobar integración con SwiftData
         run: |
           xcrun swiftc -swift-version 5 -target "$(uname -m)-apple-macosx14.0" -parse-as-library \
