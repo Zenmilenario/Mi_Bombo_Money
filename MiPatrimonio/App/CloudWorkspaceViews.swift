@@ -81,7 +81,7 @@ struct CloudSignInView: View {
                         .onSubmit(submit)
                     if creating {
                         SecureField("Repite la contraseña", text: $confirmation).textContentType(.newPassword)
-                        Text("Al menos 10 caracteres. Confirma tu correo desde este mismo dispositivo.")
+                        Text(CloudPasswordPolicy.ruleText + " Confirma tu correo desde este mismo dispositivo.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Button(action: submit) {
@@ -123,8 +123,9 @@ struct CloudSignInView: View {
     private func submit() {
         validation = nil
         guard email.contains("@"), !password.isEmpty else { validation = "Introduce tu correo y contraseña."; return }
-        if creating && (password.count < 10 || password != confirmation) {
-            validation = "Usa al menos 10 caracteres y repite la misma contraseña."; return
+        if creating {
+            if let problem = CloudPasswordPolicy.problem(password) { validation = problem; return }
+            guard password == confirmation else { validation = "Repite la misma contraseña."; return }
         }
         let enteredPassword = password
         Task {
@@ -153,15 +154,16 @@ private struct CloudLinkConfirmationView: View {
                     Section("Contraseña de tu cuenta cloud") {
                         SecureField("Nueva contraseña", text: $password).textContentType(.newPassword)
                         SecureField("Repite la contraseña", text: $confirmation).textContentType(.newPassword)
-                        Text("Al menos 10 caracteres.").font(.caption)
+                        Text(CloudPasswordPolicy.ruleText).font(.caption)
                     }
                 }
                 if let message = validation ?? account.message { Section { Text(message) } }
                 Section {
                     Button(account.linkRequiresPassword ? "Guardar contraseña y entrar" : "Continuar con esta cuenta") {
                         validation = nil
-                        guard !account.linkRequiresPassword || (password.count >= 10 && password == confirmation) else {
-                            validation = "Usa al menos 10 caracteres y repite la misma contraseña."; return
+                        if account.linkRequiresPassword {
+                            if let problem = CloudPasswordPolicy.problem(password) { validation = problem; return }
+                            guard password == confirmation else { validation = "Repite la misma contraseña."; return }
                         }
                         let entered = password
                         Task { await account.confirmLink(password: entered); password = ""; confirmation = "" }

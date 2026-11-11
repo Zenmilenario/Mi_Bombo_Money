@@ -74,3 +74,25 @@ struct AuthenticationCompletionGate {
         return true
     }
 }
+
+/// The cloud's password rule (Supabase Auth, set on 11 November 2026): at least 10 characters with lower case,
+/// upper case, digits and symbols. The Android app checks the same rule (`password_policy.dart`) before sending.
+enum CloudPasswordPolicy {
+    static let minimumLength = 10
+    /// The symbols Supabase counts as such.
+    static let symbols = Set(#"!@#$%^&*()_+-=[]{};'\:"|<>?,./`~"#)
+    static let ruleText = "Al menos 10 caracteres, con mayúsculas, minúsculas, números y algún símbolo (por ejemplo ! ? # $ %)."
+
+    /// What a new password lacks to be accepted by the cloud, or nil when it is valid.
+    static func problem(_ password: String) -> String? {
+        var missing: [String] = []
+        if password.count < minimumLength { missing.append("al menos 10 caracteres") }
+        if !password.contains(where: { ("a"..."z").contains($0) }) { missing.append("una minúscula") }
+        if !password.contains(where: { ("A"..."Z").contains($0) }) { missing.append("una mayúscula") }
+        if !password.contains(where: { ("0"..."9").contains($0) }) { missing.append("un número") }
+        if !password.contains(where: symbols.contains) { missing.append("un símbolo (por ejemplo ! ? # $ %)") }
+        guard let last = missing.last else { return nil }
+        let list = missing.count == 1 ? last : missing.dropLast().joined(separator: ", ") + " y " + last
+        return "A la contraseña le falta " + list + "."
+    }
+}

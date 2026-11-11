@@ -85,9 +85,8 @@ final class CloudAccountManager: ObservableObject {
         defer { busy = false }
         do {
             if linkRequiresPassword {
-                guard let password, password.count >= 10 else {
-                    throw CloudTransportError.requestRejected("Usa una contraseña de al menos 10 caracteres.")
-                }
+                guard let password else { throw CloudTransportError.requestRejected(CloudPasswordPolicy.ruleText) }
+                if let problem = CloudPasswordPolicy.problem(password) { throw CloudTransportError.requestRejected(problem) }
                 try await api().updatePassword(password, session: pendingLink)
             }
             try accept(pendingLink)

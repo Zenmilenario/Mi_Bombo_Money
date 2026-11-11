@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../password_policy.dart';
 import '../presentation.dart';
 import '../theme.dart';
 
@@ -29,8 +30,14 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _submit() async {
     final email = _email.text.trim();
     final password = _password.text;
-    if (email.isEmpty || password.length < 8) {
-      setState(() => _message = 'Escribe tu correo y una contraseña de al menos 8 caracteres.');
+    if (email.isEmpty || password.isEmpty) {
+      setState(() => _message = 'Escribe tu correo y tu contraseña.');
+      return;
+    }
+    // A new account follows the cloud's rule; an existing password is checked only by the cloud.
+    final problem = _creating ? passwordProblem(password) : null;
+    if (problem != null) {
+      setState(() => _message = problem);
       return;
     }
     setState(() {
@@ -103,7 +110,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     controller: _password,
                     obscureText: true,
                     autofillHints: [_creating ? AutofillHints.newPassword : AutofillHints.password],
-                    decoration: const InputDecoration(labelText: 'Contraseña', border: OutlineInputBorder()),
+                    decoration: InputDecoration(
+                        labelText: 'Contraseña', border: const OutlineInputBorder(), helperText: _creating ? passwordRuleText : null, helperMaxLines: 3),
                     onSubmitted: (_) => _submit(),
                   ),
                   if (_message != null) ...[
