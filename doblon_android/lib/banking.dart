@@ -2,6 +2,7 @@
 // (`BankingConnectionClient.swift`, `PersonalBankingPlan.swift`, `PersonalBankingImporter.swift`), so a
 // movement downloaded on either device is the same record and is never imported twice.
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
@@ -27,8 +28,9 @@ String accountIdentity(String remoteAccountId, {String server = bankingServer}) 
 String entryPrefix(String remoteAccountId, {String server = bankingServer}) => 'enable-entry:${sha256Hex(server)}:$remoteAccountId:';
 
 class BankingError implements Exception {
-  BankingError(this.code);
+  BankingError(this.code, {this.retryAfter});
   final String code;
+  final Duration? retryAfter;
 
   /// The same wording as the iPhone app for the codes a person can act on.
   String get message => switch (code) {
@@ -48,6 +50,7 @@ class BankingError implements Exception {
         'unauthorized' || 'identity_unavailable' => 'No se ha podido verificar tu sesión. Sal y vuelve a entrar.',
         'connection_not_found' => 'La conexión ha caducado o ya se ha desconectado.',
         'cloud_conflict' => 'Tus datos han cambiado en otro dispositivo mientras se guardaban. Vuelve a actualizar.',
+        'contribution_transfer_review' => 'Hay un abono en la cuenta de destino. Revisa primero el traspaso para evitar duplicarlo.',
         'network' => 'No hay conexión con el servidor. Comprueba internet y vuelve a intentarlo.',
         _ => 'No se ha podido completar la operación con el banco. Inténtalo de nuevo más tarde.',
       };
@@ -128,6 +131,37 @@ class AccountFeed {
   /// Entries with a status that is not imported, counted by status (diagnostic only).
   final Map<String, int>? ignoredStatuses;
 
+  Map<String, dynamic> toJson() => {
+        'connection': {'id': connection.id, 'bank': connection.bank, 'validUntil': connection.validUntil, 'accounts': []},
+        'account': {'id': account.id, 'currency': account.currency, 'lastFour': account.lastFour, 'ownershipKey': account.ownershipKey},
+        'balances': [
+          for (final b in balances) {'amountMinor': b.amountMinor, 'currency': b.currency, 'type': b.type}
+        ],
+        'movements': [
+          for (final m in movements)
+            {
+              'id': m.id,
+              'bookingDate': m.bookingDate,
+              'signedAmountMinor': m.signedAmountMinor,
+              'currency': m.currency,
+              'description': m.description,
+              'counterpartyKey': m.counterpartyKey,
+              'transferKey': m.transferKey
+            }
+        ],
+        'pending': pending?.map((m) => m.toJson()).toList(),
+        'ignored': ignoredStatuses,
+      };
+
+  factory AccountFeed.fromJson(Map<String, dynamic> json) => AccountFeed(
+        connection: RemoteConnection.fromJson(Map<String, dynamic>.from(json['connection'] as Map)),
+        account: RemoteAccount.fromJson(Map<String, dynamic>.from(json['account'] as Map)),
+        balances: [for (final b in json['balances'] as List) BankBalance((b['amountMinor'] as num).toInt(), '${b['currency']}', '${b['type']}')],
+        movements: [for (final m in json['movements'] as List) Movement.fromJson(Map<String, dynamic>.from(m as Map))],
+        pending: json['pending'] is List ? [for (final m in json['pending'] as List) PendingMovement.fromJson(Map<String, dynamic>.from(m as Map))] : null,
+        ignoredStatuses: json['ignored'] is Map ? Map<String, int>.from(json['ignored'] as Map) : null,
+      );
+
   /// What this query reported besides the booked movements, kept on the device.
   BankActivity activity(DateTime observedAt) => BankActivity.fromFeed(
       accountCurrency: account.currency,
@@ -146,6 +180,7 @@ class BankingClient {
   final String accessToken;
   final String server;
   final http.Client _http;
+  void close() => _http.close();
 
   Future<dynamic> _send(String method, String path, {Map<String, String>? query, Object? body, bool userInitiated = false}) async {
     final uri = Uri.parse(server).replace(path: path, queryParameters: query);
@@ -165,7 +200,7 @@ class BankingClient {
     } catch (_) {
       throw BankingError('network');
     }
-    final response = await http.Response.fromStream(streamed);
+    final response = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 45), onTimeout: () => throw BankingError('network'));
     if (response.statusCode == 204) return null;
     dynamic decoded;
     try {
@@ -173,7 +208,20 @@ class BankingClient {
     } catch (_) {
       throw BankingError('invalid_response');
     }
-    if (response.statusCode >= 400) throw BankingError(decoded is Map ? '${decoded['error']}' : 'service_unavailable');
+    if (response.statusCode >= 400) {
+      final retry = response.headers['retry-after'] ?? '';
+      final seconds = int.tryParse(retry);
+      DateTime? date;
+      if (seconds == null && retry.isNotEmpty) {
+        try {
+          date = HttpDate.parse(retry);
+        } catch (_) {
+          date = DateTime.tryParse(retry);
+        }
+      }
+      final delay = seconds == null ? date?.difference(DateTime.now()) : Duration(seconds: seconds);
+      throw BankingError(decoded is Map ? '${decoded['error']}' : 'service_unavailable', retryAfter: delay);
+    }
     return decoded;
   }
 
@@ -263,6 +311,7 @@ class ImportResult {
   int skippedAccounts;
   int matched;
   final List<BankProposal> proposals = [];
+  int unlinkedAccounts = 0;
   String get summary => [
         inserted == 1 ? '1 movimiento nuevo' : '$inserted movimientos nuevos',
         if (matched > 0) matched == 1 ? '1 unido a lo que ya tenías' : '$matched unidos a lo que ya tenías',
@@ -270,6 +319,7 @@ class ImportResult {
         if (alreadyImported > 0) '$alreadyImported ya estaban',
         if (newAccounts > 0) newAccounts == 1 ? '1 cuenta añadida' : '$newAccounts cuentas añadidas',
         if (skippedAccounts > 0) '$skippedAccounts en otra moneda sin incorporar',
+        if (unlinkedAccounts > 0) '$unlinkedAccounts cuentas sin asociar',
       ].join(' · ');
 }
 
@@ -289,14 +339,15 @@ int? bookedBalance(List<BankBalance> balances) {
 /// Adds the downloaded movements and balances to the cloud document (the raw `finance_snapshot` document,
 /// so every field the iPhone stores is kept as it is). Pure: returns a new document.
 ///
-/// - Each remote account is matched by its bank identity; the first time, a new account is created.
+/// - Only explicitly associated accounts are imported. `accountChoices` links an existing ID or creates
+///   an account with "new" after the person chooses it; archived associations are never recreated.
 /// - A movement whose key is already stored is skipped (it may have been edited by the person).
 /// - Movements without a bank reference (Trade Republic) get the iPhone's generated key: date, amount and
 ///   order of appearance.
 /// - Accounts in another currency are left out, as on the iPhone.
 /// `decisions` answers earlier proposals: movement key → "new" or the ID of the record it is.
 (Map<String, dynamic>, ImportResult) importFeeds(Map<String, dynamic> document, List<AccountFeed> feeds, DateTime observedAt,
-    {String server = bankingServer, Map<String, String> decisions = const {}}) {
+    {String server = bankingServer, Map<String, String> decisions = const {}, Map<String, String> accountChoices = const {}}) {
   final next = jsonDecode(jsonEncode(document)) as Map<String, dynamic>;
   List<Map<String, dynamic>> rows(String key) => ((next[key] ??= <dynamic>[]) as List).cast<Map<String, dynamic>>();
   final accounts = rows('accounts');
@@ -325,8 +376,31 @@ int? bookedBalance(List<BankBalance> balances) {
       continue;
     }
     final identity = accountIdentity(feed.account.id, server: server);
-    var account = accounts.where((a) => a['bankIdentityKey'] == identity && a['isArchived'] != true).firstOrNull;
+    var account = accounts.where((a) => a['bankIdentityKey'] == identity).firstOrNull;
+    if (account?['isArchived'] == true) {
+      result.unlinkedAccounts++;
+      continue;
+    }
+    final choice = accountChoices[feed.account.id];
+    if (account == null && choice != null && choice != 'new') {
+      account = accounts.where((a) => '${a['id']}'.toLowerCase() == choice.toLowerCase()).firstOrNull;
+      if (account == null ||
+          account['isArchived'] == true ||
+          account['bankIdentityKey'] != null ||
+          (account['currencyCode'] ?? 'EUR') != 'EUR' ||
+          account['typeRaw'] == 'investment' ||
+          account['typeRaw'] == 'creditCard') {
+        throw BankingError('cloud_conflict');
+      }
+      account['bankIdentityKey'] = identity;
+      account['updatedAt'] = now;
+    }
+    if (account == null && choice != 'new') {
+      result.unlinkedAccounts++;
+      continue;
+    }
     if (account == null) {
+      if (accounts.any((a) => '${a['id']}'.toLowerCase() == stableUuid('$identity|account'))) throw BankingError('cloud_conflict');
       account = {
         'id': stableUuid('$identity|account'),
         'name': '${feed.connection.bank} •••• ${feed.account.lastFour}',
@@ -387,7 +461,8 @@ int? bookedBalance(List<BankBalance> balances) {
       final decision = decisions[key];
       String? matchId;
       if (decision != null && decision != 'new') {
-        if (candidates.any((t) => '${t['id']}' == decision)) matchId = decision;
+        if (!candidates.any((t) => '${t['id']}' == decision)) throw BankingError('cloud_conflict');
+        matchId = decision;
       } else if (decision == null && candidates.isNotEmpty) {
         final awaiting = candidates.where((t) => '${t['externalID'] ?? ''}'.startsWith('applepay:')).toList();
         if (candidates.length == 1 && awaiting.length == 1) {

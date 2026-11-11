@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'bank_activity.dart';
 import 'banking.dart' show referenceSeconds;
 import 'edits.dart';
+import 'contributions.dart' show contributionPeriod;
 import 'models.dart';
 import 'presentation.dart' show money;
 
@@ -86,6 +87,20 @@ Operation? postDueMovements(Finances data, DateTime now) {
       if (_startOfDay(scheduled).isBefore(_startOfDay(firstAccountDate))) continue;
       final id = occurrenceId(rule.id, scheduled);
       if (posted.any((t) => t.id == id || (t.recurringMovementId == rule.id && _sameDay(t.date, scheduled)))) continue;
+      if (rule.type == TransactionType.transfer && destination?.type == AccountType.investment) {
+        final (start, end) = contributionPeriod(rule, scheduled);
+        final confirmed = posted
+            .where((t) =>
+                t.type == TransactionType.transfer &&
+                t.recurringMovementId == rule.id &&
+                t.bankEntryKey != null &&
+                t.sourceAccountId == source.id &&
+                t.destinationAccountId == destination!.id &&
+                !t.date.isBefore(start) &&
+                t.date.isBefore(end))
+            .fold(0, (sum, t) => sum + t.amountMinor);
+        if (confirmed >= rule.amountMinor) continue;
+      }
       final date = _startOfDay(scheduled).isBefore(firstAccountDate) ? firstAccountDate : _startOfDay(scheduled);
       final record = {
         'id': id,

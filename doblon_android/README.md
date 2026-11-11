@@ -4,7 +4,23 @@ Desde el 10 de noviembre de 2026 esta es la app única de Doblón para Android y
 
 Primera versión para Android, en Flutter. Entra con la misma cuenta de Doblón que en el iPhone y muestra las mismas finanzas desde la nube (Supabase, función `finance_snapshot`).
 
-## Qué hace (0.11.0)
+## Fiabilidad y paridad (0.12.0, compilación 8)
+
+Lote preparado el 11 de noviembre de 2026 en `claude/flutter-lote-1`. Corrige Flutter, actualmente usado en Android. No modifica el cliente Swift instalado en iOS, el Worker ni el esquema SQL.
+
+- **Aislamiento bancario:** cada cuenta se descarga e incorpora por separado. El fallo de una descarga o de su guardado no descarta las demás. Las esperas y los errores se muestran por banco. Las consultas tienen tiempo máximo de respuesta.
+- **Actualización automática:** al abrir, volver a primer plano y cada 30 segundos mientras está abierta se comprueba qué trabajo corresponde. Eso no implica una consulta al banco cada 30 segundos: las descargas correctas esperan seis horas; los fallos, diez minutos; se respetan `Retry-After` y un mínimo de un minuto entre intentos, incluso manuales. Los plazos se guardan por perfil y sobreviven al cierre.
+- **Selección de cuentas:** solo se descargan las asociadas explícitamente. Mis bancos permite elegir una cuenta existente o crear otra. Las secundarias quedan fuera hasta seleccionarlas. Una cuenta archivada no se recrea ni se duplica; se recupera desde Cuentas.
+- **Revisión recuperable:** la descarga pendiente de incorporar se guarda en el almacenamiento privado del perfil. Si falla la nube se reintenta sin pedirla otra vez al banco. Las coincidencias guardadas siguen disponibles tras reabrir. Una revisión pendiente ya guardada no reescribe la nube en cada comprobación. Se conserva hasta resolverla o cerrar sesión; está fuera de las copias financieras y del aprendizaje.
+- **Reservas entre cuentas:** el formulario admite trasladar una reserva junto con una transferencia. Su pago posterior consume la reserva de destino y queda fuera del presupuesto. Se valida toda la secuencia para impedir que editar un traslado deje sin respaldo un pago posterior.
+- **Aportaciones fraccionadas:** Movimientos ofrece «Revisar aportaciones» cuando varios cargos pueden cubrir un plan periódico de inversión. No fija importes ni nombres de personas: usa cuentas, frecuencia, período y suma pendiente. La persona confirma; una combinación de importes por sí sola no demuestra que sean inversiones. La operación sustituye los apuntes previstos por los cargos reales de forma conjunta, conserva sus claves bancarias y vuelve a validar la copia cloud antes de guardar. Los casos ambiguos requieren selección; un abono de destino coincidente exige revisar primero el traspaso. La IA no transforma por su cuenta los candidatos de esa conciliación.
+- **Recuperación cloud:** reintenta los cambios guardados sin internet y recupera cambios de otro dispositivo en primer plano. Las escrituras locales y financieras se coordinan para evitar archivos temporales concurrentes y sobrescrituras de una copia antigua. Se comprueba el perfil antes de incorporar resultados asíncronos.
+
+Regresiones: `test/bank_sync_test.dart`, `test/banking_safety_test.dart`, `test/contributions_test.dart`, `test/cloud_retry_test.dart` y `test/screens_test.dart`. Los casos ficticios de combinaciones están en `Tests/Fixtures/contribution_recognition_cases.json`. Todos se ejecutan en el workflow Android mediante `flutter test`. Queda validar el commit en GitHub y los recorridos físicos en Android; compilar Flutter para iOS y reemplazar Swift sigue pendiente.
+
+Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin incidencias, tres controles de activación CI correctos y APK Release 0.12.0 (8) compilado. No equivale a comprobar conexiones bancarias reales ni la instalación en un dispositivo.
+
+## Qué hace
 
 - **Entrada:** con la misma cuenta de Doblón; alta de cuenta nueva y bloqueo con huella o PIN del móvil.
 - **Inicio:**
@@ -61,7 +77,9 @@ El APK va firmado con la clave de depuración de Flutter: se instala directament
 Con Flutter instalado en local: (las carpetas `android/` e `ios/` ya están en el repositorio)
 
 ```bash
-flutter create --platforms=android --org com.zenmilenario --project-name doblon .
+flutter pub get
+flutter analyze
 flutter test
+flutter build apk --release
 flutter run
 ```

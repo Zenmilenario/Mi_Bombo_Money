@@ -198,7 +198,13 @@ class TransactionDraft {
     final fundId = reservedFundId;
     if (fundId != null) {
       final reserved = reservedAmountMinor ?? 0;
-      if (!type.countsAsExpense) return 'Este movimiento se paga con dinero reservado: debe ser un gasto o una comisión.';
+      if (!type.countsAsExpense && type != TransactionType.transfer) return 'La reserva se puede usar en un gasto o trasladar entre tus cuentas.';
+      if (type == TransactionType.transfer) {
+        final destination = data.account(destinationAccountId)!;
+        if (destination.currencyCode != source.currencyCode || destination.type == AccountType.investment || destination.type.isLiability) {
+          return 'Traslada la reserva a una cuenta de efectivo de la misma moneda.';
+        }
+      }
       if (reserved <= 0) return 'Escribe la parte pagada con dinero reservado.';
       if (reserved > amountMinor) return 'El importe no puede ser menor que la parte pagada con dinero reservado.';
       final fund = data.reservedFunds.where((f) => f.id == fundId).firstOrNull;
@@ -217,7 +223,12 @@ class TransactionDraft {
                 source: t.sourceAccountId!,
                 destination: t.type == TransactionType.transfer ? t.destinationAccountId : null,
                 amount: t.reservedAmountMinor!),
-        ReservedEntry(id: editing?.id ?? 'nuevo', date: date, source: sourceAccountId!, amount: reserved),
+        ReservedEntry(
+            id: editing?.id ?? 'nuevo',
+            date: date,
+            source: sourceAccountId!,
+            destination: type == TransactionType.transfer ? destinationAccountId : null,
+            amount: reserved),
       ];
       if (reservedBalances(fund.accountId!, fund.amountMinor, entries) == null) {
         return 'No hay suficiente dinero de esa reserva en esta cuenta en esa fecha.';
@@ -265,8 +276,9 @@ Operation saveOperation(TransactionDraft draft, Finances data, DateTime now, {Tr
     'sourceAccountID': source,
     'destinationAccountID': destination,
     'categoryID': draft.categoryId,
-    'reservedFundID': draft.type.countsAsExpense ? draft.reservedFundId : null,
-    'reservedAmountMinor': draft.type.countsAsExpense && draft.reservedFundId != null ? draft.reservedAmountMinor : null,
+    'reservedFundID': draft.type.countsAsExpense || draft.type == TransactionType.transfer ? draft.reservedFundId : null,
+    'reservedAmountMinor':
+        (draft.type.countsAsExpense || draft.type == TransactionType.transfer) && draft.reservedFundId != null ? draft.reservedAmountMinor : null,
     'updatedAt': referenceSeconds(now),
   };
   if (editing != null) {

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -31,6 +32,9 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   FinanceCalculator? _calculator;
   Object? _calculatedFrom;
   bool _postedToday = false;
+  bool _opening = false;
+  bool _foreground = true;
+  Timer? _refreshTimer;
 
   @override
   void initState() {
@@ -39,30 +43,43 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     repository.addListener(_changed);
     widget.preferences.addListener(_changed);
     _open();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (_foreground) unawaited(_open());
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     repository.removeListener(_changed);
+    _refreshTimer?.cancel();
+    repository.dispose();
     widget.preferences.removeListener(_changed);
     super.dispose();
   }
 
   /// Downloads, then posts the periodic movements that are due (once per opening), as the iPhone does.
   Future<void> _open() async {
-    await repository.refresh();
-    if (repository.finances == null || repository.error != null) return;
-    if (!_postedToday) {
-      _postedToday = true;
-      await postDue(repository);
+    if (_opening || !mounted) return;
+    _opening = true;
+    try {
+      await repository.refresh();
+      if (!mounted || repository.finances == null || repository.error != null) return;
+      if (!_postedToday) {
+        _postedToday = true;
+        await postDue(repository);
+      }
+      // Corrections the person taught several times are repeated on new bank movements (as on the iPhone).
+      await repository.applyLearnedCorrections();
+      unawaited(repository.synchronizeBanks());
+    } finally {
+      _opening = false;
     }
-    // Corrections the person taught several times are repeated on new bank movements (as on the iPhone).
-    await repository.applyLearnedCorrections();
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
     if (state == AppLifecycleState.resumed) {
       _postedToday = false;
       _open();
@@ -131,7 +148,9 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     final pulso = Pulso.of(context);
     final notes = calc == null || !widget.preferences.companionEnabled
         ? <CompanionNote>[]
-        : companionNotes(calc.data, DateTime.now(), holds: bankHolds(calc.data, repository.bankActivity)).where((n) => !widget.preferences.dismissedNotes.contains(n.id)).toList();
+        : companionNotes(calc.data, DateTime.now(), holds: bankHolds(calc.data, repository.bankActivity))
+            .where((n) => !widget.preferences.dismissedNotes.contains(n.id))
+            .toList();
     final Widget body;
     if (calc == null) {
       body = Center(

@@ -4,8 +4,8 @@
 //   Saveback in bank movements.
 // - `CorrectionModel` (Swift `TransactionCorrectionModel`): repeats a complete correction the person made
 //   several times (type, category and destination account), only after checking it against later months.
-// What the person confirms is the training data. It is kept on this device and profile (`Learning`), as on
-// the iPhone: it never reaches the cloud document, other people or a global model.
+// Confirmations train on this device and profile (`Learning`), as on the iPhone. The private learning
+// document is shared through finance_learning with that person's devices, apart from their finances.
 
 import 'dart:convert';
 import 'dart:io';

@@ -9,7 +9,9 @@ import 'package:uuid/uuid.dart';
 
 import 'bank_activity.dart';
 import 'banking.dart';
+import 'bank_sync.dart';
 import 'edits.dart';
+import 'contributions.dart';
 import 'learning.dart';
 import 'models.dart';
 
@@ -39,6 +41,7 @@ class CloudCopy {
 class LocalStore {
   LocalStore(this.directory);
   final Directory directory;
+  final Map<String, Future<void>> _diskWrites = {};
 
   File _file(String user, String name) => File('${directory.path}${Platform.pathSeparator}$name-$user.json');
 
@@ -60,18 +63,32 @@ class LocalStore {
   }
 
   /// Written to a temporary file and renamed, so a crash never leaves half a file.
-  Future<void> _write(File file, Object value) async {
-    final temporary = File('${file.path}.tmp');
-    await temporary.writeAsString(jsonEncode(value), flush: true);
-    await temporary.rename(file.path);
+  Future<void> _write(File file, Object value) {
+    final text = jsonEncode(value);
+    final task = (_diskWrites[file.path] ?? Future<void>.value()).then((_) async {
+      final temporary = File('${file.path}.tmp');
+      await temporary.writeAsString(text, flush: true);
+      await temporary.rename(file.path);
+    });
+    _diskWrites[file.path] = task.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return task;
   }
 
   Future<void> saveCopy(String user, CloudCopy copy) => _write(_file(user, 'cloud'), copy.toJson());
   Future<void> savePending(String user, List<Operation> pending) => _write(_file(user, 'pending'), [for (final op in pending) op.toJson()]);
 
+  Future<Map<String, dynamic>> loadBankState(String user) async {
+    final file = _file(user, 'bank-sync');
+    if (!await file.exists()) return {};
+    return Map<String, dynamic>.from(jsonDecode(await file.readAsString()) as Map);
+  }
+
+  Future<void> saveBankState(String user, Map<String, dynamic> value) => _write(_file(user, 'bank-sync'), value);
+
   Future<void> clear(String user) async {
-    for (final name in ['cloud', 'pending']) {
+    for (final name in ['cloud', 'pending', 'bank-sync']) {
       final file = _file(user, name);
+      await _diskWrites[file.path];
       if (await file.exists()) await file.delete();
     }
   }
@@ -79,9 +96,13 @@ class LocalStore {
 
 /// Downloads and saves the person's finances with the same functions the iPhone uses to sync.
 class FinanceRepository extends ChangeNotifier {
-  FinanceRepository({LocalStore? store}) : _store = store;
+  FinanceRepository({LocalStore? store, SupabaseClient? cloudClient})
+      : _store = store,
+        _cloud = cloudClient;
 
   LocalStore? _store;
+  final SupabaseClient? _cloud;
+  SupabaseClient get _client => _cloud ?? Supabase.instance.client;
   Finances? finances;
   CloudCopy? copy;
   List<Operation> pending = [];
@@ -89,37 +110,63 @@ class FinanceRepository extends ChangeNotifier {
   bool loading = false;
   DateTime? loadedAt;
   bool _opened = false;
+  bool _disposed = false;
+  int _generation = 0;
+  Future<void> _writes = Future.value();
+  final bankSchedule = BankSyncSchedule();
+  late final _bankSync = BankSynchronizer(bankSchedule);
+  List<RemoteConnection> bankConnections = [];
+  BankSyncResult? bankResult;
+  final Map<String, Map<String, dynamic>> _bankReviews = {};
 
-  String? get _user => Supabase.instance.client.auth.currentUser?.id;
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  String? get _user => _client.auth.currentUser?.id;
 
   Future<LocalStore> _local() async => _store ??= LocalStore(await getApplicationSupportDirectory());
 
-  Future<CloudCopy> _fetch() async => CloudCopy.parse(await Supabase.instance.client.rpc('finance_snapshot'));
+  Future<CloudCopy> _fetch() async => CloudCopy.parse(await _client.rpc('finance_snapshot'));
 
   /// Shows the device copy at once, then uploads pending changes and downloads the latest cloud copy.
   Future<void> refresh() async {
     if (loading) return;
     final user = _user;
     if (user == null) return;
-    if (!_opened) {
-      _opened = true;
-      final store = await _local();
-      pending = await store.loadPending(user);
-      final saved = await store.loadCopy(user);
-      if (saved != null) _show(saved);
-      learning = await Learning.open(store.directory, user)
-        // What is taught here reaches the person's other devices a moment later.
-        ..onChange = _scheduleLearningSync;
-      bankActivity = await BankActivityStore(store.directory).load(user);
-    }
+    final generation = _generation;
     loading = true;
     error = null;
     notifyListeners();
     try {
+      if (!_opened) {
+        final store = await _local();
+        final savedPending = await store.loadPending(user);
+        final saved = await store.loadCopy(user);
+        if (_disposed || generation != _generation || user != _user) return;
+        pending = savedPending;
+        if (saved != null) _show(saved);
+        learning = await Learning.open(store.directory, user)
+          // What is taught here reaches the person's other devices a moment later.
+          ..onChange = _scheduleLearningSync;
+        bankActivity = await BankActivityStore(store.directory).load(user);
+        final bankState = await store.loadBankState(user);
+        if (_disposed || generation != _generation || user != _user) return;
+        bankSchedule.load(bankState);
+        if (bankState['reviews'] is Map) {
+          for (final entry in (bankState['reviews'] as Map).entries) {
+            _bankReviews['${entry.key}'] = Map<String, dynamic>.from(entry.value as Map);
+          }
+        }
+        _opened = true;
+      }
       if (pending.isNotEmpty) {
         await _upload();
       } else {
-        await _adopt(await _fetch());
+        final fetched = await _fetch();
+        if (_disposed || generation != _generation || user != _user) return;
+        await _adopt(fetched);
       }
       unawaited(syncLearning());
     } on AuthException {
@@ -153,17 +200,31 @@ class FinanceRepository extends ChangeNotifier {
   /// Applies `change` to the latest cloud document and saves it with the expected revision. If another
   /// device saved in between, the cloud refuses (revision conflict): the change is applied again on the
   /// new document, up to three times, so nothing saved elsewhere is overwritten.
-  Future<T> update<T>((Map<String, dynamic>, T) Function(Map<String, dynamic> document) change) async {
+  Future<T> update<T>((Map<String, dynamic>, T) Function(Map<String, dynamic> document) change) {
+    final user = _user, generation = _generation;
+    final task = _writes.then((_) => _update(change, user, generation));
+    _writes = task.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return task;
+  }
+
+  Future<T> _update<T>((Map<String, dynamic>, T) Function(Map<String, dynamic>) change, String? user, int generation) async {
+    void checkProfile() {
+      if (_disposed || generation != _generation || user == null || user != _user) throw BankingError('unauthorized');
+    }
+
     for (var attempt = 0; attempt < 3; attempt++) {
+      checkProfile();
       final current = await _fetch();
+      checkProfile();
       final (document, result) = change(current.document);
       try {
-        final saved = await Supabase.instance.client.rpc('finance_save_snapshot', params: {
+        final saved = await _client.rpc('finance_save_snapshot', params: {
           'p_workspace': current.workspaceId,
           'p_expected_revision': current.revision,
           'p_document': document,
           'p_timezone': 'Europe/Madrid',
         });
+        checkProfile();
         await _adopt(CloudCopy.parse(saved));
         notifyListeners();
         return result;
@@ -264,7 +325,9 @@ class FinanceRepository extends ChangeNotifier {
   /// and saves the result in both places. Without connection it waits for the next opening or change.
   Future<void> syncLearning() async {
     final learning = this.learning;
-    if (learning == null || _user == null) return;
+    final user = _user, generation = _generation;
+    bool current() => !_disposed && user == _user && generation == _generation;
+    if (learning == null || user == null || !current()) return;
     if (_syncingLearning) {
       _learningAgain = true;
       return;
@@ -274,13 +337,15 @@ class FinanceRepository extends ChangeNotifier {
       do {
         _learningAgain = false;
         for (var attempt = 0; attempt < 3; attempt++) {
-          final remote = Map<String, dynamic>.from(await Supabase.instance.client.rpc('finance_learning_snapshot') as Map);
+          final remote = Map<String, dynamic>.from(await _client.rpc('finance_learning_snapshot') as Map);
+          if (!current()) return;
           final cloud = Map<String, dynamic>.from(remote['document'] as Map);
           final merged = mergeLearning(learning.toShared(), cloud);
           await learning.store(merged);
+          if (!current()) return;
           if (canonicalLearningJson(merged) == canonicalLearningJson(cloud)) break;
           try {
-            await Supabase.instance.client.rpc('finance_learning_save', params: {
+            await _client.rpc('finance_learning_save', params: {
               'p_workspace': remote['workspace_id'],
               'p_expected_revision': remote['revision'],
               'p_document': merged,
@@ -305,13 +370,138 @@ class FinanceRepository extends ChangeNotifier {
 
   bool _correcting = false;
 
+  bool linked(RemoteAccount account) => finances?.accounts.any((a) => !a.isArchived && a.bankIdentityKey == accountIdentity(account.id)) ?? false;
+
+  Future<void> _saveBankState(String user) async => (await _local()).saveBankState(user, {
+        ...bankSchedule.toJson(),
+        'reviews': _bankReviews,
+      });
+
+  /// Saved previews remain reviewable after reopening, without another request to the bank.
+  List<BankProposal> get bankProposals {
+    final doc = document;
+    if (doc == null) return [];
+    final proposals = <BankProposal>[];
+    for (final entry in _bankReviews.values) {
+      final feed = AccountFeed.fromJson(entry['feed'] as Map<String, dynamic>);
+      if (linked(feed.account)) proposals.addAll(importFeeds(doc, [feed], DateTime.fromMillisecondsSinceEpoch(entry['at'] as int)).$2.proposals);
+    }
+    return proposals;
+  }
+
+  Future<ImportResult> _incorporateFeed(AccountFeed feed, DateTime date, String user, {Map<String, String> decisions = const {}}) async {
+    final generation = _generation;
+    void checkProfile() {
+      if (_disposed || generation != _generation || _user != user) throw BankingError('unauthorized');
+    }
+
+    checkProfile();
+    final key = accountIdentity(feed.account.id);
+    _bankReviews[key] = {'feed': feed.toJson(), 'at': date.millisecondsSinceEpoch, 'committed': false};
+    await _saveBankState(user);
+    checkProfile();
+    final result = await update((doc) => importFeeds(withPending(doc, pending), [feed], date, decisions: decisions));
+    checkProfile();
+    await recordBankActivity([feed], date);
+    checkProfile();
+    if (result.proposals.isEmpty) {
+      _bankReviews.remove(key);
+    } else {
+      _bankReviews[key]!['committed'] = true;
+    }
+    bankSchedule.failures.remove(key);
+    await _saveBankState(user);
+    return result;
+  }
+
+  Future<void> reconcileContribution(ContributionProposal proposal, Set<String> selected) async {
+    await _upload();
+    if (pending.isNotEmpty) throw BankingError('network');
+    final data = finances!;
+    final before = {for (final row in data.transactions.where((t) => selected.contains(t.id))) row.id: learning?.captureEdit(row, data)};
+    await update((document) {
+      final operation = confirmContribution(proposal, selected, Finances.fromDocument(document), DateTime.now());
+      return (withPending(document, [operation]), null);
+    });
+    final updated = finances!;
+    for (final row in updated.transactions.where((t) => selected.contains(t.id))) {
+      await learning?.rememberEdit(before[row.id], row, updated, explicitlyReviewed: true);
+      await learning?.confirmKind(OperationKind.investment, row, updated);
+    }
+    notifyListeners();
+  }
+
+  Future<void> reviewBankDownloads(Map<String, String> decisions) async {
+    final user = _user;
+    if (user == null) return;
+    for (final entry in List<Map<String, dynamic>>.from(_bankReviews.values)) {
+      final feed = AccountFeed.fromJson(entry['feed'] as Map<String, dynamic>);
+      if (!linked(feed.account)) continue;
+      await _incorporateFeed(feed, DateTime.fromMillisecondsSinceEpoch(entry['at'] as int), user, decisions: decisions);
+    }
+    notifyListeners();
+  }
+
+  bool _synchronizingBanks = false;
+  DateTime? _connectionsReadAt;
+
+  Future<BankSyncResult?> synchronizeBanks({bool manual = false, String? bank, BankingClient? client}) async {
+    final user = _user, generation = _generation;
+    if (user == null || finances == null || _synchronizingBanks) return bankResult;
+    _synchronizingBanks = true;
+    bool current() => !_disposed && generation == _generation && user == _user;
+    final api = client ?? BankingClient(_client.auth.currentSession!.accessToken);
+    try {
+      if (manual || _connectionsReadAt == null || DateTime.now().difference(_connectionsReadAt!) >= const Duration(minutes: 1)) {
+        bankConnections = await api.connections();
+        _connectionsReadAt = DateTime.now();
+      }
+      if (!current()) return null;
+      // Retry saved previews against the latest cloud copy before asking the bank for them again.
+      for (final entry in List<Map<String, dynamic>>.from(_bankReviews.values)) {
+        if (entry['committed'] == true) continue;
+        final feed = AccountFeed.fromJson(entry['feed'] as Map<String, dynamic>);
+        if (linked(feed.account) && (bank == null || feed.connection.bank == bank)) {
+          try {
+            await _incorporateFeed(feed, DateTime.fromMillisecondsSinceEpoch(entry['at'] as int), user);
+          } catch (_) {/* Each bank retries independently. */}
+        }
+      }
+      final result = await _bankSync.run(
+          client: api,
+          connections: bankConnections,
+          isLinked: linked,
+          incorporate: (feed, date) => _incorporateFeed(feed, date, user),
+          persist: () => _saveBankState(user),
+          isCurrent: current,
+          manual: manual,
+          onlyBank: bank);
+      if (!current()) return null;
+      bankResult = result;
+      await applyLearnedCorrections();
+      notifyListeners();
+      return result;
+    } catch (error) {
+      if (!current()) return null;
+      final result = BankSyncResult()..errors['Conexión'] = error is BankingError ? error.message : 'No se ha podido consultar la conexión bancaria.';
+      bankResult = result;
+      notifyListeners();
+      return result;
+    } finally {
+      _synchronizingBanks = false;
+      if (client == null) api.close();
+    }
+  }
+
   /// Repeats the corrections the person taught on new bank movements, when the model has proved itself.
   Future<int> applyLearnedCorrections({Set<String>? only}) async {
     final data = finances;
     if (_correcting || data == null || learning == null || pending.isNotEmpty) return 0;
     _correcting = true;
     try {
-      final op = await learning!.learnedCorrections(data, DateTime.now(), only: only);
+      final protected = contributionProposals(data, DateTime.now()).expand((p) => p.candidates).map((t) => t.id).toSet();
+      final eligible = data.transactions.where((t) => !protected.contains(t.id) && (only == null || only.contains(t.id))).map((t) => t.id).toSet();
+      final op = await learning!.learnedCorrections(data, DateTime.now(), only: eligible);
       if (op == null) return 0;
       await apply(op);
       return (op.data['ops'] as List).length;
@@ -323,6 +513,7 @@ class FinanceRepository extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    _generation++;
     final user = _user;
     if (user != null) {
       final store = await _local();
@@ -331,6 +522,11 @@ class FinanceRepository extends ChangeNotifier {
       await BankActivityStore(store.directory).clear(user);
     }
     bankActivity = {};
+    bankConnections = [];
+    _connectionsReadAt = null;
+    bankResult = null;
+    _bankReviews.clear();
+    bankSchedule.load({});
     _learningTimer?.cancel();
     learning = null;
     finances = null;
@@ -341,5 +537,13 @@ class FinanceRepository extends ChangeNotifier {
     loadedAt = null;
     _opened = false;
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    _generation++;
+    _learningTimer?.cancel();
+    super.dispose();
   }
 }

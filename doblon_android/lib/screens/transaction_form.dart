@@ -136,7 +136,8 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
       if (fund.accountId == null || draft.sourceAccountId == null) return false;
       final entries = [
         for (final t in data.transactions)
-          if (t.reservedFundId == fund.id &&
+          if (t.id != widget.editing?.id &&
+              t.reservedFundId == fund.id &&
               t.sourceAccountId != null &&
               t.reservedAmountMinor != null &&
               (t.type.countsAsExpense || t.type == TransactionType.transfer))
@@ -147,14 +148,16 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 destination: t.type == TransactionType.transfer ? t.destinationAccountId : null,
                 amount: t.reservedAmountMinor!),
       ];
-      return (reservedBalances(fund.accountId!, fund.amountMinor, entries)?[draft.sourceAccountId] ?? 0) > 0;
+      return (reservedBalances(fund.accountId!, fund.amountMinor, entries, through: draft.date)?[draft.sourceAccountId] ?? 0) > 0;
     }).toList();
     if (options.isEmpty) return const [];
     return [
       DropdownButtonFormField<String?>(
         initialValue: draft.reservedFundId,
         isExpanded: true,
-        decoration: const InputDecoration(labelText: 'Pagar con dinero reservado', border: OutlineInputBorder()),
+        decoration: InputDecoration(
+            labelText: draft.type == TransactionType.transfer ? 'Trasladar dinero reservado' : 'Pagar con dinero reservado',
+            border: const OutlineInputBorder()),
         items: [
           const DropdownMenuItem<String?>(value: null, child: Text('No')),
           for (final f in options) DropdownMenuItem<String?>(value: f.id, child: Text(f.name)),
@@ -170,10 +173,13 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
           controller: _reserved,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
-          decoration: const InputDecoration(labelText: 'Parte pagada con la reserva (€)', border: OutlineInputBorder()),
+          decoration: InputDecoration(
+              labelText: draft.type == TransactionType.transfer ? 'Parte de la reserva que se traslada (€)' : 'Parte pagada con la reserva (€)',
+              border: const OutlineInputBorder()),
         ),
         const SizedBox(height: 4),
-        Text('Esa parte no cuenta en tus presupuestos.', style: Theme.of(context).textTheme.bodySmall),
+        Text(draft.type == TransactionType.transfer ? 'La reserva acompaña al dinero hasta la cuenta de destino.' : 'Esa parte no cuenta en tus presupuestos.',
+            style: Theme.of(context).textTheme.bodySmall),
       ],
       const SizedBox(height: 12),
     ];
@@ -326,7 +332,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                   onChanged: (v) => setState(() => _remember = v ?? false),
                   title: Text('Recordar: «${_description.text.trim()}» será siempre de esta categoría'),
                 ),
-              if (draft.type.countsAsExpense) ..._reserveFields(),
+              if (draft.type.countsAsExpense || draft.type == TransactionType.transfer) ..._reserveFields(),
               TextField(
                 controller: _notes,
                 maxLines: 3,

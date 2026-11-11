@@ -75,11 +75,40 @@ void main() {
     expect(find.text('Gasolinera ficticia'), findsOneWidget);
   });
 
+  testWidgets('a transfer can carry the selected reserve to another cash account', (tester) async {
+    final data = Finances.fromDocument({
+      'accounts': [
+        {'id': 'source', 'name': 'Origen ficticio', 'typeRaw': 'checking', 'openingDate': 0, 'openingBalanceMinor': 100000},
+        {'id': 'destination', 'name': 'Destino ficticio', 'typeRaw': 'checking', 'openingDate': 0}
+      ],
+      'reservedFunds': [
+        {'id': 'reserve', 'name': 'Reserva ficticia', 'accountID': 'source', 'amountMinor': 30000}
+      ]
+    });
+    await tester.pumpWidget(app(TransactionFormScreen(repository: repositoryWith(data))));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Traspaso'));
+    await tester.pumpAndSettle();
+    final reserveField = find.ancestor(of: find.text('Trasladar dinero reservado'), matching: find.byType(DropdownButtonFormField<String?>));
+    await tester.ensureVisible(reserveField);
+    await tester.pumpAndSettle();
+    await tester.tap(reserveField);
+    await tester.pumpAndSettle();
+    expect(find.text('Reserva ficticia'), findsOneWidget);
+    await tester.tap(find.text('Reserva ficticia'));
+    await tester.pumpAndSettle();
+    expect(find.text('Parte de la reserva que se traslada (€)'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a long press starts selecting to categorize several', (tester) async {
     final data = sample();
     await tester.pumpWidget(app(Scaffold(body: TransactionsScreen(calc: FinanceCalculator(data), repository: repositoryWith(data)))));
     await tester.pumpAndSettle();
-    await tester.longPress(find.text('Gasolinera ficticia'));
+    final movement = find.ancestor(of: find.text('Gasolinera ficticia'), matching: find.byType(InkWell)).last;
+    await tester.ensureVisible(movement);
+    await tester.pumpAndSettle();
+    await tester.longPress(movement);
     await tester.pumpAndSettle();
     expect(find.text('1 seleccionados'), findsOneWidget);
     expect(find.text('Categorizar 1'), findsOneWidget);
@@ -140,14 +169,9 @@ void main() {
     final repository = repositoryWith(data)
       ..learning = Learning()
       ..bankActivity = {
-        'enable:x': BankActivity(
-            observedAt: DateTime.now(),
-            currency: 'EUR',
-            bookedBalance: 98800,
-            availableBalance: 96300,
-            pendingMovements: const [
-              PendingMovement(id: 'p1', date: '2026-11-09', signedAmountMinor: -2500, currency: 'EUR', description: 'Gasolinera retenida', status: 'HOLD'),
-            ]),
+        'enable:x': BankActivity(observedAt: DateTime.now(), currency: 'EUR', bookedBalance: 98800, availableBalance: 96300, pendingMovements: const [
+          PendingMovement(id: 'p1', date: '2026-11-09', signedAmountMinor: -2500, currency: 'EUR', description: 'Gasolinera retenida', status: 'HOLD'),
+        ]),
       };
     await tester.pumpWidget(app(LearningScreen(repository: repository)));
     await tester.pumpAndSettle();

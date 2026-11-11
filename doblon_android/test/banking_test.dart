@@ -33,7 +33,8 @@ void main() {
         [
           feed('Banco Ficticio', account, [row('ref-001', '2026-11-08', -450, 'GASOLINERA FICTICIA'), row('ref-002', '2026-11-09', 120000, 'NOMINA FICTICIA')]),
         ],
-        observed);
+        observed,
+        accountChoices: {'cuenta-ficticia-1': 'new'});
     expect(result.inserted, 2);
     expect(result.newAccounts, 1);
     final finances = Finances.fromDocument(document);
@@ -58,7 +59,8 @@ void main() {
         [
           feed('Banco Ficticio', account, [row('ref-001', '2026-11-08', -450)])
         ],
-        observed);
+        observed,
+        accountChoices: {'cuenta-ficticia-1': 'new'});
     ((first['transactions'] as List).single as Map)['descriptionText'] = 'Mi texto';
     ((first['transactions'] as List).single as Map)['amountMinor'] = 999;
     final (second, result) = importFeeds(
@@ -91,7 +93,8 @@ void main() {
         [
           feed('Banco Ficticio', account, [row('ref-001', '2026-11-08', -450)])
         ],
-        observed);
+        observed,
+        accountChoices: {'cuenta-ficticia-1': 'new'});
     expect(result.inserted, 0);
     expect(result.newAccounts, 0);
     expect((next['transactions'] as List).length, 1);
@@ -100,11 +103,11 @@ void main() {
   test('Trade Republic rows without reference get the iPhone generated keys, stable across downloads', () {
     final tr = RemoteAccount(id: 'tr-ficticia', currency: 'EUR', lastFour: '1111');
     final rows = [row(null, '2026-11-05', -350), row(null, '2026-11-05', -350), row(null, '2026-11-06', 2000)];
-    final (first, result) = importFeeds(emptyDocument(), [feed('Trade Republic', tr, rows)], observed);
+    final (first, result) = importFeeds(emptyDocument(), [feed('Trade Republic', tr, rows)], observed, accountChoices: {'tr-ficticia': 'new'});
     expect(result.inserted, 3, reason: 'Two equal payments on one day are two movements');
     final keys = (first['transactions'] as List).map((t) => (t as Map)['bankEntryKey']).toSet();
     expect(keys, contains('${entryPrefix('tr-ficticia')}local-occurrence:2026-11-05:EUR:-350:2'));
-    final (_, again) = importFeeds(first, [feed('Trade Republic', tr, rows)], observed);
+    final (_, again) = importFeeds(first, [feed('Trade Republic', tr, rows)], observed, accountChoices: {'tr-ficticia': 'new'});
     expect(again.inserted, 0);
     expect(again.alreadyImported, 3);
   });
@@ -118,7 +121,8 @@ void main() {
           feed('Banco Ficticio', account, [row('f1', '2026-12-01', -100), row('e1', '2026-11-08', -100, '  '), row('z1', '2026-11-08', 0)],
               balances: [BankBalance(100, 'EUR', 'CLBD'), BankBalance(200, 'EUR', 'CLBD')]),
         ],
-        observed);
+        observed,
+        accountChoices: {'cuenta-ficticia-1': 'new'});
     expect(result.skippedAccounts, 1);
     expect(result.inserted, 0);
     expect((document['snapshots'] as List), isEmpty, reason: 'Two different booked balances: none is trusted');
@@ -128,5 +132,24 @@ void main() {
   test('error codes are explained as on the iPhone', () {
     expect(BankingError('guest_application_inactive').message, contains('vincular primero'));
     expect(BankingError('codigo-desconocido').message, isNotEmpty);
+  });
+
+  test('a reviewed manual match removed on another device never becomes a new duplicate silently', () {
+    final (doc, _) = importFeeds(emptyDocument(), [feed('Banco ficticio', account, [])], observed, accountChoices: {account.id: 'new'});
+    final local = (doc['accounts'] as List).single['id'];
+    final manual = {
+      'id': 'manual',
+      'typeRaw': 'expense',
+      'amountMinor': 450,
+      'date': referenceSeconds(DateTime.utc(2026, 11, 8)),
+      'descriptionText': 'Compra ficticia',
+      'sourceAccountID': local
+    };
+    (doc['transactions'] as List).add(manual);
+    final received = feed('Banco ficticio', account, [row('ref-review', '2026-11-08', -450)]);
+    final proposal = importFeeds(doc, [received], observed).$2.proposals.single;
+    (doc['transactions'] as List).clear();
+    expect(() => importFeeds(doc, [received], observed, decisions: {proposal.key: 'manual'}), throwsA(isA<BankingError>()));
+    expect(doc['transactions'], isEmpty);
   });
 }

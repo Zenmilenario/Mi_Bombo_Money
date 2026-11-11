@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../automation.dart';
+import '../contributions.dart';
 import '../bank_activity.dart';
 import '../data.dart';
 import '../edits.dart';
@@ -12,6 +13,7 @@ import '../theme.dart';
 import 'transaction_detail.dart';
 import 'transaction_form.dart';
 import 'widgets.dart';
+import 'contributions.dart';
 
 enum Period { all, thisMonth, lastMonth, threeMonths, thisYear }
 
@@ -117,7 +119,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         child: ExpansionTile(
           leading: Icon(Icons.hourglass_bottom, color: pulso.warning),
           title: Text(holds.length == 1 ? '1 movimiento pendiente del banco' : '${holds.length} movimientos pendientes del banco'),
-          subtitle: Text('Retenido: ${money(holds.fold(0, (sum, h) => sum + (h.movement.signedAmountMinor < 0 ? h.movement.signedAmountMinor : 0)), signed: true)}'),
+          subtitle:
+              Text('Retenido: ${money(holds.fold(0, (sum, h) => sum + (h.movement.signedAmountMinor < 0 ? h.movement.signedAmountMinor : 0)), signed: true)}'),
           children: [
             for (final h in holds)
               ListTile(
@@ -129,9 +132,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               ),
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: Text(
-                  'Importes provisionales. Se reflejan en el historial y el presupuesto cuando el banco los contabiliza.',
-                  style: TextStyle(fontSize: 12)),
+              child:
+                  Text('Importes provisionales. Se reflejan en el historial y el presupuesto cuando el banco los contabiliza.', style: TextStyle(fontSize: 12)),
             ),
           ],
         ),
@@ -293,6 +295,14 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   onChanged: (value) => setState(() => filter.query = value.trim()),
                 ),
               if (!selecting) ..._holds(data),
+              if (!selecting && contributionProposals(data, DateTime.now()).isNotEmpty)
+                Card(
+                    child: ListTile(
+                        leading: Icon(Icons.savings_outlined, color: pulso.savings),
+                        title: Text('${contributionProposals(data, DateTime.now()).length} aportaciones por conciliar'),
+                        subtitle: const Text('Unir los cargos reales con tu aportación periódica'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ContributionsScreen(repository: widget.repository))))),
               if (!selecting && ownTransferPairs(data).isNotEmpty)
                 Card(
                   margin: const EdgeInsets.only(top: 8),
