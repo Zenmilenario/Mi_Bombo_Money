@@ -7,7 +7,14 @@ enum TransactionLearning {
     private struct History: Codable {
         var since: Date = .now
         var confirmations: [UUID: String] = [:]
+        /// This device's own entry of the metrics, and the other devices' entries received with the shared learning.
+        var deviceID: String?
+        var metrics: SharedLearning.MetricsEntry?
+        var otherMetrics: [String: SharedLearning.MetricsEntry]?
     }
+
+    /// A category proposal and where it comes from: the model, or the brand catalogue when the model has none.
+    struct Proposal: Equatable { let categoryID: UUID; let fromBrand: Bool }
 
     private struct Training: Equatable, Sendable {
         let scope: URL
@@ -97,17 +104,22 @@ enum TransactionLearning {
 
     static func suggest(_ text: String, type: TransactionType, categories: [FinanceCategory],
                         in context: ModelContext) async -> UUID? {
+        await proposal(text, type: type, categories: categories, in: context)?.categoryID
+    }
+
+    static func proposal(_ text: String, type: TransactionType, categories: [FinanceCategory],
+                         in context: ModelContext) async -> Proposal? {
         guard type != .transfer, TransactionCategoryModel.tokens(text).count > 0,
               let models = await models(in: context), !Task.isCancelled else { return nil }
         let model = type.countsAsIncome ? models.income : models.expenses
         let allowed = Set(categories.filter { CategoryRuleService.supports($0, for: type) }.map(\.id))
-        if let learnt = model?.predict(text, allowed: allowed)?.categoryID { return learnt }
+        if let learnt = model?.predict(text, allowed: allowed)?.categoryID { return Proposal(categoryID: learnt, fromBrand: false) }
         // Only when the model has nothing to propose: a known brand gives its category, if the person has it.
         guard type == .expense || type == .fee, let brand = TransactionCategoryModel.brandCategory(text) else { return nil }
         let matches = categories.filter {
             allowed.contains($0.id) && CategoryRuleService.normalized($0.name) == CategoryRuleService.normalized(brand)
         }
-        return matches.count == 1 ? matches[0].id : nil
+        return matches.count == 1 ? Proposal(categoryID: matches[0].id, fromBrand: true) : nil
     }
 
     private static func examples(for type: TransactionType, categories: [FinanceCategory],
@@ -171,6 +183,7 @@ extension TransactionLearning {
         guard let url = location(in: context) else { return }
         let history = try Self.history(at: url)
         shared.since = [shared.since, LearningCanonical.ms(history.since)].compactMap { $0 }.min()
+        if let device = history.deviceID, let metrics = history.metrics { shared.metrics[device] = metrics }
         for (id, saved) in history.confirmations {
             guard let row = rows[LearningCanonical.id(id)], let category = row.category,
                   saved == signature(row, category: category), let canonical = canonicalSignature(row) else { continue }
@@ -194,7 +207,45 @@ extension TransactionLearning {
                 history.confirmations.removeValue(forKey: row.id)
             }
         }
-        guard history.confirmations != before || shared.since != nil else { return }
+        let otherMetrics = shared.metrics.filter { $0.key != history.deviceID }
+        guard history.confirmations != before || shared.since != nil || (history.otherMetrics ?? [:]) != otherMetrics else { return }
+        history.otherMetrics = otherMetrics
         try Self.save(history, at: url)
+    }
+}
+
+// MARK: - How often the category proposal is accepted (contract «metrics», the same as Android)
+
+extension TransactionLearning {
+    /// Counts what the person did with a proposal: applied it, chose another category, or chose one without proposal.
+    /// Only counters, never a concept or an amount. Call it before saving the choice, while the model has not learnt it.
+    static func recordOutcome(proposal: Proposal?, chosen: FinanceCategory, categories: [FinanceCategory], in context: ModelContext) {
+        guard let url = location(in: context), var history = try? Self.history(at: url) else { return }
+        let device = history.deviceID ?? UUID().uuidString.lowercased()
+        history.deviceID = device
+        var entry = history.metrics ?? SharedLearning.MetricsEntry()
+        if let proposal, let proposed = categories.first(where: { $0.id == proposal.categoryID }) {
+            let source = proposal.fromBrand ? "brand" : "model"
+            let hit = proposal.categoryID == chosen.id
+            for name in ["model", "brand"] {
+                entry.accepted[name] = entry.accepted[name] ?? 0
+                entry.corrected[name] = entry.corrected[name] ?? 0
+            }
+            var row = entry.categories[proposed.name] ?? SharedLearning.MetricsEntry.CategoryCount()
+            if hit { entry.accepted[source, default: 0] += 1; row.accepted += 1 }
+            else { entry.corrected[source, default: 0] += 1; row.corrected += 1 }
+            entry.categories[proposed.name] = row
+        } else {
+            entry.manual += 1
+        }
+        entry.at = LearningCanonical.ms(.now)
+        history.metrics = entry
+        try? Self.save(history, at: url)
+    }
+
+    /// The entries of all the person's devices: this one and those received with the shared learning.
+    static func metricsEntries(in context: ModelContext) -> [SharedLearning.MetricsEntry] {
+        guard let url = location(in: context), let history = try? Self.history(at: url) else { return [] }
+        return [history.metrics].compactMap { $0 } + (history.otherMetrics ?? [:]).values
     }
 }

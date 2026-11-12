@@ -180,6 +180,24 @@ class CategoryMetrics {
   int manual = 0;
   final Map<String, (int, int)> categories = {};
 
+  /// Every device's entry added up (Tests/Fixtures/shared_learning_cases.json, «metricsSummaries»).
+  static CategoryMetrics of(Iterable<Map> entries) {
+    final total = CategoryMetrics();
+    int n(Object? v) => v is num ? v.toInt() : 0;
+    for (final entry in entries) {
+      for (final source in ['model', 'brand']) {
+        total.accepted[source] = (total.accepted[source] ?? 0) + n((entry['accepted'] as Map?)?[source]);
+        total.corrected[source] = (total.corrected[source] ?? 0) + n((entry['corrected'] as Map?)?[source]);
+      }
+      total.manual += n(entry['manual']);
+      ((entry['categories'] as Map?) ?? const {}).forEach((name, value) {
+        final row = total.categories.putIfAbsent('$name', () => (0, 0));
+        total.categories['$name'] = (row.$1 + n((value as Map)['accepted']), row.$2 + n(value['corrected']));
+      });
+    }
+    return total;
+  }
+
   int get proposals => accepted.values.fold(0, (a, b) => a + b) + corrected.values.fold(0, (a, b) => a + b);
   int get acceptedTotal => accepted.values.fold(0, (a, b) => a + b);
 
@@ -1046,27 +1064,22 @@ class Learning {
       category[hit ? 'accepted' : 'corrected'] = n(category[hit ? 'accepted' : 'corrected']) + 1;
       categories[proposedName] = category;
     }
-    metrics[deviceId] = {...entry, 'accepted': accepted, 'corrected': corrected, 'categories': categories, 'at': _now};
+    // Every counter is written, also those at zero, so both apps read the same entry.
+    for (final counts in [accepted, corrected]) {
+      for (final source in ['model', 'brand']) {
+        counts[source] = n(counts[source]);
+      }
+    }
+    for (final name in categories.keys.toList()) {
+      final row = obj(categories[name]);
+      categories[name] = {'accepted': n(row['accepted']), 'corrected': n(row['corrected'])};
+    }
+    metrics[deviceId] = {'accepted': accepted, 'corrected': corrected, 'manual': n(entry['manual']), 'categories': categories, 'at': _now};
     await _save(invalidate: false);
   }
 
   /// The metrics of all the person's devices added up.
-  CategoryMetrics get categoryMetrics {
-    final total = CategoryMetrics();
-    int n(Object? v) => v is num ? v.toInt() : 0;
-    for (final entry in metrics.values) {
-      for (final source in ['model', 'brand']) {
-        total.accepted[source] = (total.accepted[source] ?? 0) + n((entry['accepted'] as Map?)?[source]);
-        total.corrected[source] = (total.corrected[source] ?? 0) + n((entry['corrected'] as Map?)?[source]);
-      }
-      total.manual += n(entry['manual']);
-      ((entry['categories'] as Map?) ?? const {}).forEach((name, value) {
-        final row = total.categories.putIfAbsent('$name', () => (0, 0));
-        total.categories['$name'] = (row.$1 + n((value as Map)['accepted']), row.$2 + n(value['corrected']));
-      });
-    }
-    return total;
-  }
+  CategoryMetrics get categoryMetrics => CategoryMetrics.of(metrics.values.cast<Map>());
 
   // ---------------------------------------------------------------- operations
 

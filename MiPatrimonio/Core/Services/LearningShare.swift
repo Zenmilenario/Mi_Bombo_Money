@@ -38,6 +38,37 @@ struct SharedLearning: Codable, Equatable, Sendable {
         var at: Int64
     }
 
+    /// How often the category proposal is accepted on one device (contract «metrics»). Only counters.
+    struct MetricsEntry: Codable, Equatable, Sendable {
+        struct CategoryCount: Codable, Equatable, Sendable {
+            var accepted = 0
+            var corrected = 0
+            init() { }
+            init(from decoder: Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                accepted = try values.decodeIfPresent(Int.self, forKey: .accepted) ?? 0
+                corrected = try values.decodeIfPresent(Int.self, forKey: .corrected) ?? 0
+            }
+        }
+        /// By source: "model" or "brand".
+        var accepted: [String: Int] = [:]
+        var corrected: [String: Int] = [:]
+        var manual = 0
+        /// By the name of the proposed category.
+        var categories: [String: CategoryCount] = [:]
+        var at: Int64 = 0
+        init() { }
+        // A counter still at zero may be missing: it reads as zero.
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            accepted = try values.decodeIfPresent([String: Int].self, forKey: .accepted) ?? [:]
+            corrected = try values.decodeIfPresent([String: Int].self, forKey: .corrected) ?? [:]
+            manual = try values.decodeIfPresent(Int.self, forKey: .manual) ?? 0
+            categories = try values.decodeIfPresent([String: CategoryCount].self, forKey: .categories) ?? [:]
+            at = try values.decodeIfPresent(Int64.self, forKey: .at) ?? 0
+        }
+    }
+
     var version = 1
     var since: Int64?
     var enabledAt: Int64?
@@ -48,11 +79,12 @@ struct SharedLearning: Codable, Equatable, Sendable {
     var corrections: [String: CorrectionEntry] = [:]
     var reviewed: [String: Int64] = [:]
     var automatic: [String: AutomaticEntry] = [:]
+    var metrics: [String: MetricsEntry] = [:]
 
     init() { }
 
     private enum CodingKeys: String, CodingKey {
-        case version, since, enabledAt, automation, categories, operations, terms, corrections, reviewed, automatic
+        case version, since, enabledAt, automation, categories, operations, terms, corrections, reviewed, automatic, metrics
     }
 
     init(from decoder: Decoder) throws {
@@ -67,6 +99,23 @@ struct SharedLearning: Codable, Equatable, Sendable {
         corrections = try values.decodeIfPresent([String: CorrectionEntry].self, forKey: .corrections) ?? [:]
         reviewed = try values.decodeIfPresent([String: Int64].self, forKey: .reviewed) ?? [:]
         automatic = try values.decodeIfPresent([String: AutomaticEntry].self, forKey: .automatic) ?? [:]
+        metrics = try values.decodeIfPresent([String: MetricsEntry].self, forKey: .metrics) ?? [:]
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(version, forKey: .version)
+        try values.encodeIfPresent(since, forKey: .since)
+        try values.encodeIfPresent(enabledAt, forKey: .enabledAt)
+        try values.encodeIfPresent(automation, forKey: .automation)
+        try values.encode(categories, forKey: .categories)
+        try values.encode(operations, forKey: .operations)
+        try values.encode(terms, forKey: .terms)
+        try values.encode(corrections, forKey: .corrections)
+        try values.encode(reviewed, forKey: .reviewed)
+        try values.encode(automatic, forKey: .automatic)
+        // Left out while empty, as the Android app writes it.
+        if !metrics.isEmpty { try values.encode(metrics, forKey: .metrics) }
     }
 }
 
@@ -114,6 +163,7 @@ enum LearningShare {
         result.terms = newest(local.terms, remote.terms, \.at)
         result.corrections = newest(local.corrections, remote.corrections, \.at)
         result.automatic = newest(local.automatic, remote.automatic, \.at)
+        result.metrics = newest(local.metrics, remote.metrics, \.at)
         result.reviewed = local.reviewed.merging(remote.reviewed) { min($0, $1) }
         return result
     }
@@ -160,6 +210,49 @@ enum LearningShare {
             setAt: { var v = $0; v.at = $1; return v }, live: { $0.after != nil },
             removal: { .init(before: nil, after: nil, signature: nil, fingerprint: nil, validated: nil, at: $0) })
         result.reviewed = exported.reviewed.merging(base.reviewed) { min($0, $1) }
+        // Each device writes only its own metrics, already dated: the export replaces this device's entry.
+        result.metrics = base.metrics.merging(exported.metrics) { _, mine in mine }
         return result
+    }
+}
+
+extension SharedLearning {
+    /// Every device's entry added up, and its CSV: the same as Android's `CategoryMetrics`
+    /// (Tests/Fixtures/shared_learning_cases.json, «metricsSummaries»).
+    struct MetricsSummary: Equatable {
+        var accepted: [String: Int] = [:]
+        var corrected: [String: Int] = [:]
+        var manual = 0
+        var categories: [String: MetricsEntry.CategoryCount] = [:]
+
+        init<S: Sequence>(_ entries: S) where S.Element == MetricsEntry {
+            for entry in entries {
+                for source in ["model", "brand"] {
+                    accepted[source, default: 0] += entry.accepted[source] ?? 0
+                    corrected[source, default: 0] += entry.corrected[source] ?? 0
+                }
+                manual += entry.manual
+                for (name, count) in entry.categories {
+                    categories[name, default: MetricsEntry.CategoryCount()].accepted += count.accepted
+                    categories[name, default: MetricsEntry.CategoryCount()].corrected += count.corrected
+                }
+            }
+        }
+
+        var acceptedTotal: Int { accepted.values.reduce(0, +) }
+        var proposals: Int { acceptedTotal + corrected.values.reduce(0, +) }
+
+        /// Semicolon CSV, like the rest of the app's exports. Categories in UTF-16 order, as Dart sorts them.
+        var csv: String {
+            var lines = ["Tipo;Origen o categoría;Aceptadas;Corregidas"]
+            for source in ["model", "brand"] {
+                lines.append("Origen;\(source == "model" ? "Modelo" : "Catálogo de marcas");\(accepted[source] ?? 0);\(corrected[source] ?? 0)")
+            }
+            for (name, count) in categories.sorted(by: { $0.key.utf16.lexicographicallyPrecedes($1.key.utf16) }) {
+                lines.append("Categoría;\(name);\(count.accepted);\(count.corrected)")
+            }
+            lines.append("Sin propuesta;Elegidas a mano;\(manual);0")
+            return lines.joined(separator: "\n")
+        }
     }
 }

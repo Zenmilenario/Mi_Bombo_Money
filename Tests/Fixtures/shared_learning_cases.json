@@ -550,5 +550,50 @@
         }
       }
     }
+  ],
+  "metricsSummaries": [
+    {
+      "name": "Los contadores de todos los dispositivos se suman; un contador que falta vale cero",
+      "metrics": {
+        "dispositivo-a": {
+          "accepted": {
+            "model": 3,
+            "brand": 1
+          },
+          "corrected": {
+            "model": 1,
+            "brand": 0
+          },
+          "manual": 2,
+          "categories": {
+            "Supermercado": {
+              "accepted": 2,
+              "corrected": 1
+            },
+            "Ropa": {
+              "accepted": 1,
+              "corrected": 0
+            }
+          },
+          "at": 10
+        },
+        "dispositivo-b": {
+          "accepted": {
+            "model": 1
+          },
+          "manual": 1,
+          "categories": {
+            "Ócio": {
+              "accepted": 1
+            },
+            "Supermercado": {
+              "corrected": 0
+            }
+          },
+          "at": 20
+        }
+      },
+      "csv": "Tipo;Origen o categoría;Aceptadas;Corregidas\nOrigen;Modelo;4;1\nOrigen;Catálogo de marcas;1;0\nCategoría;Ropa;1;0\nCategoría;Supermercado;2;1\nCategoría;Ócio;1;0\nSin propuesta;Elegidas a mano;3;0"
+    }
   ]
 }
