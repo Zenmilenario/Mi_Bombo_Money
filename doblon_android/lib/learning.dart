@@ -171,6 +171,27 @@ class CategoryModel {
   ];
 }
 
+// ================================================================ brands
+
+/// Concepts that are not a purchase at a shop even if they name a brand (a Bizum to a colleague at Mercadona).
+const _notAPurchase = {'bizum', 'transferencia', 'transf', 'traspaso', 'devolucion', 'abono', 'nomina', 'ingreso', 'reintegro', 'cajero', 'prestamo', 'hipoteca'};
+
+/// Each brand of the catalogue by its whole words, padded with spaces to match whole words only.
+final Map<String, String> _brandIndex = {
+  for (final MapEntry(key: category, value: brands) in brandCatalogue.entries)
+    for (final brand in brands) ' ${letterWords(brand).join(' ')} ': category
+};
+
+/// The starter category of the one brand named in a concept (OpenStreetMap catalogue), or null. Consulted only when
+/// the model has no proposal, so it never changes one the model makes (Tests/Fixtures/brand_lookup_cases.json).
+String? brandCategory(String text) {
+  final words = letterWords(text);
+  if (words.any(_notAPurchase.contains)) return null;
+  final padded = ' ${words.join(' ')} ';
+  final found = {for (final entry in _brandIndex.entries) if (padded.contains(entry.key)) entry.value};
+  return found.length == 1 ? found.single : null;
+}
+
 // ================================================================ operations
 
 enum OperationKind { ordinary, investment, roundUp, saveback }
@@ -899,7 +920,12 @@ class Learning {
     final (expenses, income) = await categoryModels(data);
     final model = type.countsAsIncome ? income : expenses;
     final allowed = data.categories.where((c) => categorySupports(c, type)).map((c) => c.id).toSet();
-    return model?.predict(text, allowed)?.categoryId;
+    final learnt = model?.predict(text, allowed)?.categoryId;
+    if (learnt != null || !type.countsAsExpense) return learnt;
+    // Only when the model has nothing to propose: a known brand gives its category, if the person has it.
+    final brand = brandCategory(text);
+    final matches = data.categories.where((c) => brand != null && allowed.contains(c.id) && ruleText(c.name) == ruleText(brand)).toList();
+    return matches.length == 1 ? matches.single.id : null;
   }
 
   /// Swift `TransactionLearning.examples`: invented examples for the starter categories, every confirmed
@@ -913,14 +939,8 @@ class Learning {
     final examples = <CategoryExample>[
       for (final (name, texts) in CategoryModel.syntheticExamples)
         if (grouped[ruleText(name)]?.length == 1)
-          for (final text in texts) CategoryExample(text, grouped[ruleText(name)]!.first.id, 1),
-      // Real brands present in Spain (OpenStreetMap), one example each with the same light weight.
-      for (final MapEntry(key: name, value: brands) in brandCatalogue.entries)
-        if (grouped[ruleText(name)]?.length == 1)
-          for (final brand in brands) CategoryExample('COMPRA TARJ $brand', grouped[ruleText(name)]!.first.id, 1)
+          for (final text in texts) CategoryExample(text, grouped[ruleText(name)]!.first.id, 1)
     ];
-    // The person's own examples keep their full budget: the starting examples never push them out.
-    final starters = examples.length;
     final ordered = [...transactions]..sort((a, b) {
         final ac = confirmations.containsKey(a.id), bc = confirmations.containsKey(b.id);
         if (ac != bc) return ac ? -1 : 1;
@@ -930,7 +950,7 @@ class Learning {
     final seen = <String, Set<String>>{};
     final historical = <String, int>{};
     for (final t in ordered) {
-      if (examples.length - starters >= 700) break;
+      if (examples.length >= 700) break;
       final category = data.category(t.categoryId);
       if (t.type == TransactionType.transfer ||
           t.type.countsAsIncome != type.countsAsIncome ||

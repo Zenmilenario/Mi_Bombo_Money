@@ -101,7 +101,13 @@ enum TransactionLearning {
               let models = await models(in: context), !Task.isCancelled else { return nil }
         let model = type.countsAsIncome ? models.income : models.expenses
         let allowed = Set(categories.filter { CategoryRuleService.supports($0, for: type) }.map(\.id))
-        return model?.predict(text, allowed: allowed)?.categoryID
+        if let learnt = model?.predict(text, allowed: allowed)?.categoryID { return learnt }
+        // Only when the model has nothing to propose: a known brand gives its category, if the person has it.
+        guard type == .expense || type == .fee, let brand = TransactionCategoryModel.brandCategory(text) else { return nil }
+        let matches = categories.filter {
+            allowed.contains($0.id) && CategoryRuleService.normalized($0.name) == CategoryRuleService.normalized(brand)
+        }
+        return matches.count == 1 ? matches[0].id : nil
     }
 
     private static func examples(for type: TransactionType, categories: [FinanceCategory],

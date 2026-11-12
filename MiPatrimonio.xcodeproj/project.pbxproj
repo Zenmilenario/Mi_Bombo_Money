@@ -24,6 +24,7 @@
 		AE99AC42A61C4A21BA620101 /* TransactionPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE99AC42A61C4A21BA620102 /* TransactionPresentation.swift */; };
 		C052C1AD02F04BBBA7000003 /* TransactionLearning.swift in Sources */ = {isa = PBXBuildFile; fileRef = C052C1AD02F04BBBA7000004 /* TransactionLearning.swift */; };
 		C052C1AD02F04BBBA70000F1 /* LearningShare.swift in Sources */ = {isa = PBXBuildFile; fileRef = C052C1AD02F04BBBA70000F2 /* LearningShare.swift */; };
+		C052C1AD02F04BBBA70000F3 /* BrandCatalogue.swift in Sources */ = {isa = PBXBuildFile; fileRef = C052C1AD02F04BBBA70000F4 /* BrandCatalogue.swift */; };
 		C052C1AD02F04BBBA7000001 /* TransactionCategoryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = C052C1AD02F04BBBA7000002 /* TransactionCategoryModel.swift */; };
 		F7C718E66A194A3BB3D00101 /* ReservedLedger.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C718E66A194A3BB3D00102 /* ReservedLedger.swift */; };
 		6547D7CB25BFF0C2FB6BEE6F /* RecurringMovementService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11AAA08F6E2ADDFAC1EF2CD3 /* RecurringMovementService.swift */; };
@@ -94,6 +95,7 @@
 		AE99AC42A61C4A21BA620102 /* TransactionPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionPresentation.swift; sourceTree = "<group>"; };
 		C052C1AD02F04BBBA7000004 /* TransactionLearning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionLearning.swift; sourceTree = "<group>"; };
 		C052C1AD02F04BBBA70000F2 /* LearningShare.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LearningShare.swift; sourceTree = "<group>"; };
+		C052C1AD02F04BBBA70000F4 /* BrandCatalogue.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandCatalogue.swift; sourceTree = "<group>"; };
 		C052C1AD02F04BBBA7000002 /* TransactionCategoryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TransactionCategoryModel.swift; sourceTree = "<group>"; };
 		F7C718E66A194A3BB3D00102 /* ReservedLedger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReservedLedger.swift; sourceTree = "<group>"; };
 		11AAA08F6E2ADDFAC1EF2CD3 /* RecurringMovementService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecurringMovementService.swift; sourceTree = "<group>"; };
@@ -255,6 +257,7 @@
 				AE99AC42A61C4A21BA620102 /* TransactionPresentation.swift */,
 				C052C1AD02F04BBBA7000004 /* TransactionLearning.swift */,
 				C052C1AD02F04BBBA70000F2 /* LearningShare.swift */,
+				C052C1AD02F04BBBA70000F4 /* BrandCatalogue.swift */,
 				C052C1AD02F04BBBA7000002 /* TransactionCategoryModel.swift */,
 				A16F00112233445566770002 /* TransactionOperationModel.swift */,
 				A17F00112233445566770002 /* TransactionCorrectionModel.swift */,
@@ -474,6 +477,7 @@
 				AE99AC42A61C4A21BA620101 /* TransactionPresentation.swift in Sources */,
 				C052C1AD02F04BBBA7000003 /* TransactionLearning.swift in Sources */,
 				C052C1AD02F04BBBA70000F1 /* LearningShare.swift in Sources */,
+				C052C1AD02F04BBBA70000F3 /* BrandCatalogue.swift in Sources */,
 				C052C1AD02F04BBBA7000001 /* TransactionCategoryModel.swift in Sources */,
 				A16F00112233445566770001 /* TransactionOperationModel.swift in Sources */,
 				A17F00112233445566770001 /* TransactionCorrectionModel.swift in Sources */,
@@ -609,14 +613,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 57;
+				CURRENT_PROJECT_VERSION = 58;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.7.16;
+				MARKETING_VERSION = 0.7.17;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -633,14 +637,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 57;
+				CURRENT_PROJECT_VERSION = 58;
 				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = MiPatrimonio/Resources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
-				MARKETING_VERSION = 0.7.16;
+				MARKETING_VERSION = 0.7.17;
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.MiPatrimonio;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

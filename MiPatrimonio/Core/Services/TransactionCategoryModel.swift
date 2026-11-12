@@ -16,6 +16,34 @@ struct TransactionCategoryModel: Sendable {
     private let labels: [UUID]
     private let weights: [String: [Double]]
 
+    /// Concepts that are not a purchase at a shop even if they name a brand (a Bizum to a colleague at Mercadona).
+    private static let notAPurchase: Set<String> = ["bizum", "transferencia", "transf", "traspaso", "devolucion", "abono",
+                                                     "nomina", "ingreso", "reintegro", "cajero", "prestamo", "hipoteca"]
+
+    private static func letterWords(_ text: String) -> [String] {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "es_ES"))
+            .lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)
+    }
+
+    /// Each brand of the catalogue by its whole words, padded with spaces to match whole words only.
+    private static let brandIndex: [String: String] = {
+        var index: [String: String] = [:]
+        for (category, brands) in BrandCatalogue.brands.sorted(by: { $0.key < $1.key }) {
+            for brand in brands { index[" " + letterWords(brand).joined(separator: " ") + " "] = category }
+        }
+        return index
+    }()
+
+    /// The starter category of the one brand named in a concept (OpenStreetMap catalogue), or nil. Consulted only
+    /// when the model has no proposal, so it never changes one the model makes (Tests/Fixtures/brand_lookup_cases.json).
+    static func brandCategory(_ text: String) -> String? {
+        let words = letterWords(text)
+        guard !words.contains(where: notAPurchase.contains) else { return nil }
+        let padded = " " + words.joined(separator: " ") + " "
+        let found = Set(brandIndex.filter { padded.contains($0.key) }.map { $0.value })
+        return found.count == 1 ? found.first : nil
+    }
+
     static func tokens(_ text: String) -> [String] {
         text.prefix(240)
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "es_ES"))

@@ -1,5 +1,6 @@
 // Fictitious data only. The app's learning (categories, investment operations, corrections) and the bank
 // report (holds and what the bank sent), with the iPhone's formulas and thresholds.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:doblon/bank_activity.dart';
@@ -277,43 +278,37 @@ void main() {
       expect(await store.load('usuario', now: observed), isEmpty);
     });
   });
-
   group('brand catalogue (OpenStreetMap)', () {
     const names = ['Supermercado', 'Restaurantes', 'Transporte', 'Coche', 'Farmacia', 'Salud', 'Ropa', 'Compras', 'Mascotas', 'Ocio', 'Viajes',
-      'Internet y móvil', 'Servicios del hogar', 'Suscripciones', 'Impuestos y comisiones', 'Vivienda'];
-    Finances starter({List<Map<String, dynamic>> transactions = const []}) => Finances.fromDocument({
-          'accounts': [
-            {'id': bank, 'name': 'Banco ficticio', 'typeRaw': 'checking', 'openingDate': 0}
-          ],
-          'categories': [for (final n in names) {'id': n, 'name': n, 'kindRaw': 'expense'}],
-          'transactions': transactions,
-        });
-
-    test('every brand goes to one of the starter categories', () {
-      expect(brandCatalogue.keys.toSet().difference(names.toSet()), isEmpty);
-      expect(brandCatalogue.values.expand((b) => b).length, greaterThan(900));
+      'Internet y móvil', 'Servicios del hogar', 'Suscripciones', 'Impuestos y comisiones', 'Vivienda', 'Seguros', 'Educación'];
+    final data = Finances.fromDocument({
+      'accounts': [],
+      'categories': [for (final n in names) {'id': n, 'name': n, 'kindRaw': 'expense'}],
+      'transactions': [],
     });
 
-    test('chains are recognised from the first day, and Bizum or transfers get no shop category', () async {
-      final data = starter();
-      final learning = Learning();
-      expect(await learning.suggestCategory('BURGER KING 0345', TransactionType.expense, data), 'Restaurantes');
-      expect(await learning.suggestCategory('COMPRA LIDL SUPERMERCADOS 02/11', TransactionType.expense, data), 'Supermercado');
-      expect(await learning.suggestCategory('NH HOTELES', TransactionType.expense, data), 'Viajes');
-      for (final other in ['BIZUM ENVIADO A LAURA', 'TRANSFERENCIA A FAVOR DE JUAN', 'RETIRADA CAJERO 4B']) {
-        expect(await learning.suggestCategory(other, TransactionType.expense, data), isNull, reason: other);
+    test('the same lookup as the iPhone', () {
+      expect(brandCatalogue.keys.toSet().difference(names.toSet()), isEmpty, reason: 'Every brand goes to a starter category');
+      final cases = (jsonDecode(File('../Tests/Fixtures/brand_lookup_cases.json').readAsStringSync())['lookup'] as List).cast<Map<String, dynamic>>();
+      for (final c in cases) {
+        expect(brandCategory(c['text'] as String), c['category'], reason: '${c['text']}');
       }
     });
 
-    test('the catalogue never pushes the person own examples out', () async {
-      final data = starter(transactions: [
-        for (final (i, day) in ['Lunes', 'Martes', 'Jueves'].indexed)
-          movement('p$i', DateTime(2026, 3, i + 1), 'Mercado del barrio $day', 1000, category: 'Supermercado')
-      ]);
-      final learning = Learning(since: DateTime(2026, 6, 1));
-      final examples = learning.categoryExamples(TransactionType.expense, data, data.transactions);
-      expect(examples.length, greaterThan(700), reason: 'More starting examples than the old total budget');
-      expect(examples.where((e) => e.text.startsWith('Mercado del barrio')), hasLength(3));
+    test('a brand fills in only where the model has nothing to propose', () async {
+      final learning = Learning();
+      final (model, _) = await learning.categoryModels(data);
+      expect(model!.predict('ZARA ESPANA SA', names.toSet()), isNull, reason: 'The model alone does not know it');
+      expect(await learning.suggestCategory('ZARA ESPANA SA', TransactionType.expense, data), 'Ropa');
+      expect(await learning.suggestCategory('Farmacia Plaza medicamentos', TransactionType.expense, data), 'Farmacia', reason: 'Unchanged');
+      expect(await learning.suggestCategory('BIZUM DE MERCADONA COMPAÑERO', TransactionType.expense, data), isNull);
+      expect(await learning.suggestCategory('DEVOLUCION ZARA', TransactionType.income, data), isNull, reason: 'Only for expenses');
+      // Every proposal the model makes on its own stays exactly the same.
+      for (final c in (jsonDecode(File('../Tests/Fixtures/brand_lookup_cases.json').readAsStringSync())['lookup'] as List)) {
+        final text = c['text'] as String;
+        final own = model.predict(text, names.toSet())?.categoryId;
+        if (own != null) expect(await learning.suggestCategory(text, TransactionType.expense, data), own, reason: text);
+      }
     });
   });
 }
