@@ -12,18 +12,21 @@ import 'accounts.dart';
 import 'banks.dart';
 import 'budgets.dart';
 import 'home.dart';
-import 'learning.dart';
+import 'learning.dart' show AiMetricsScreen;
 import 'manage.dart';
 import 'tools.dart';
 import 'transactions.dart';
 
-/// The same five tabs as the iPhone app, with Don Bigotes in the top bar.
+/// The same five tabs as the iPhone app, with Don Bigotes floating at the bottom right.
 class Shell extends StatefulWidget {
   const Shell({super.key, required this.preferences});
   final AppPreferences preferences;
   @override
   State<Shell> createState() => _ShellState();
 }
+
+/// While open, the cloud copy and the banks are refreshed this often (and always on returning to the app).
+const foregroundRefresh = Duration(minutes: 5);
 
 class _ShellState extends State<Shell> with WidgetsBindingObserver {
   final repository = FinanceRepository();
@@ -43,7 +46,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     repository.addListener(_changed);
     widget.preferences.addListener(_changed);
     _open();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _refreshTimer = Timer.periodic(foregroundRefresh, (_) {
       if (_foreground) unawaited(_open());
     });
   }
@@ -189,27 +192,11 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             ),
           if (repository.loading && calc != null)
             const Padding(padding: EdgeInsets.all(16), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
-          if (widget.preferences.companionEnabled && calc != null)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: InkWell(
-                customBorder: const CircleBorder(),
-                onTap: () => _showCompanion(notes),
-                child: Badge(
-                  isLabelVisible: notes.isNotEmpty,
-                  label: Text('${notes.length}'),
-                  backgroundColor: pulso.warning,
-                  child: Opacity(
-                    // Asleep (faded) when there is nothing to point out.
-                    opacity: notes.isEmpty ? 0.45 : 1,
-                    child: ClipOval(child: Image.asset('assets/don_bigotes.png', width: 34, height: 34, fit: BoxFit.cover)),
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
-      body: calc != null && repository.error != null
+      body: Stack(children: [
+        Positioned.fill(
+          child: calc != null && repository.error != null
           ? Column(children: [
               Material(
                 color: pulso.warning.withValues(alpha: 0.15),
@@ -223,6 +210,15 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
               Expanded(child: body),
             ])
           : body,
+        ),
+        if (widget.preferences.companionEnabled && calc != null)
+          Positioned(
+            right: 16,
+            // Above the add button of Movimientos, Cuentas and Presupuestos.
+            bottom: tab >= 1 && tab <= 3 ? 88 : 16,
+            child: CompanionButton(notes: notes, onTap: () => _showCompanion(notes)),
+          ),
+      ]),
       bottomNavigationBar: NavigationBar(
         selectedIndex: tab,
         onDestinationSelected: (index) => setState(() => tab = index),
@@ -274,7 +270,6 @@ class _SettingsPage extends StatelessWidget {
       section('Organiza tus finanzas', [
         route(Icons.sell_outlined, 'Categorías', '', () => CategoriesScreen(repository: repository)),
         route(Icons.rule, 'Categorización automática', 'Reglas para reconocer conceptos habituales', () => RulesScreen(repository: repository)),
-        route(Icons.auto_awesome, 'Inteligencia artificial', 'Lo que la app ha aprendido de ti', () => LearningScreen(repository: repository)),
         route(Icons.repeat, 'Cargos y aportaciones periódicas', 'Suscripciones, ingresos y traspasos', () => RecurringScreen(repository: repository)),
         route(Icons.account_balance, 'Bancos y entidades', 'Nombres que agrupan cuentas y tarjetas', () => InstitutionsScreen(repository: repository)),
       ]),
@@ -330,6 +325,7 @@ class _SettingsPage extends StatelessWidget {
       section('Tus datos', [
         route(Icons.upload_file, 'Importar movimientos CSV', 'Añade un extracto de tu banco', () => CsvImportScreen(repository: repository)),
         route(Icons.save_alt, 'Copia de seguridad', 'Guardar, exportar o restaurar', () => BackupScreen(repository: repository)),
+        route(Icons.insights, 'Acierto de la IA', 'Cuántas propuestas de categoría aceptas', () => AiMetricsScreen(repository: repository)),
       ]),
       const SizedBox(height: 16),
       Card(
@@ -360,5 +356,57 @@ class _SettingsPage extends StatelessWidget {
       const SizedBox(height: 8),
       Center(child: Text('Doblón para Android', style: Theme.of(context).textTheme.bodySmall)),
     ]);
+  }
+}
+
+/// Don Bigotes, as on the iPhone: awake with a bubble when he has something to point out, asleep (faded and
+/// tilted) when everything is in order. His name is always visible.
+class CompanionButton extends StatelessWidget {
+  const CompanionButton({super.key, required this.notes, required this.onTap});
+  final List<CompanionNote> notes;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final awake = notes.isNotEmpty;
+    final text = !awake ? 'Don Bigotes' : 'Don Bigotes · ${notes.length == 1 ? 'tengo un aviso' : 'tengo ${notes.length} avisos'}';
+    return Semantics(
+      button: true,
+      label: awake ? 'Don Bigotes tiene ${notes.length == 1 ? 'algo' : '${notes.length} cosas'} que contarte' : 'Don Bigotes, sin novedades',
+      excludeSemantics: true,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: awake ? scheme.onSurface : scheme.surfaceContainerHighest,
+              borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(18), bottomLeft: Radius.circular(18), topRight: Radius.circular(18), bottomRight: Radius.circular(4)),
+              boxShadow: awake ? const [BoxShadow(color: Color(0x2E000000), blurRadius: 8, offset: Offset(0, 4))] : null,
+            ),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (awake) ...[
+                Container(width: 8, height: 8, decoration: BoxDecoration(color: pulso.warning, shape: BoxShape.circle)),
+                const SizedBox(width: 7),
+              ],
+              Text(text,
+                  style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600, color: awake ? scheme.surface : scheme.onSurfaceVariant)),
+            ]),
+          ),
+          const SizedBox(width: 8),
+          Opacity(
+            opacity: awake ? 1 : 0.6,
+            child: Transform.rotate(
+              angle: awake ? 0 : -0.21,
+              child: ClipOval(child: Image.asset('assets/don_bigotes.png', width: awake ? 48 : 42, height: awake ? 48 : 42, fit: BoxFit.cover)),
+            ),
+          ),
+        ]),
+      ),
+    );
   }
 }

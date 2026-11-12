@@ -101,6 +101,7 @@ jobs:
           set -euo pipefail
           xcrun swiftc -O -swift-version 5 -parse-as-library \
             MiPatrimonio/Core/Services/TransactionCategoryModel.swift \
+            MiPatrimonio/Core/Services/BrandCatalogue.swift \
             Tests/TransactionCategoryModelCheck.swift -o build/finance-check/TransactionCategoryModelCheck
           build/finance-check/TransactionCategoryModelCheck
 

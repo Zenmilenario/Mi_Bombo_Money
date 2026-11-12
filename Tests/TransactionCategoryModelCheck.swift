@@ -56,6 +56,19 @@ struct TransactionCategoryModelCheck {
         precondition(prediction(afterConfirmation: purchases) == purchases)
         precondition(prediction(afterConfirmation: transport) == transport,
                      "Replacing a confirmation should change prediction on a distinct text")
+        // Brand catalogue (OpenStreetMap): the same lookup as Android (Tests/Fixtures/brand_lookup_cases.json),
+        // consulted only when the model has nothing to propose.
+        precondition(Set(BrandCatalogue.brands.keys).isSubset(of: Set(categories.keys)), "Every brand goes to a starter category")
+        guard let data = FileManager.default.contents(atPath: "Tests/Fixtures/brand_lookup_cases.json"),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let cases = root["lookup"] as? [[String: Any]], !cases.isEmpty else { fatalError("Missing brand_lookup_cases.json") }
+        for item in cases {
+            let text = item["text"] as! String
+            precondition(TransactionCategoryModel.brandCategory(text) == item["category"] as? String, "Brand lookup: \(text)")
+        }
+        precondition(model.predict("ZARA ESPANA SA", allowed: expenses) == nil, "The model alone does not know the brand")
+        precondition(TransactionCategoryModel.brandCategory("ZARA ESPANA SA") == "Ropa")
+        precondition(TransactionCategoryModel.brandCategory("BIZUM DE MERCADONA COMPAÑERO") == nil)
         print("Synthetic holdout: \(correct)/\(proposed) proposals correct, coverage \(proposed)/\(holdout.count). Correction and abstention passed.")
     }
 }

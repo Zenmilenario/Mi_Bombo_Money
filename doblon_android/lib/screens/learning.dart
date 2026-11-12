@@ -1,3 +1,7 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -5,72 +9,8 @@ import '../automation.dart' show matchRule;
 import '../data.dart';
 import '../learning.dart';
 import '../models.dart';
+import '../presentation.dart' show listTitle;
 import '../theme.dart';
-
-/// Ajustes → Inteligencia artificial: what the app has learnt from the person, and the automation switch.
-class LearningScreen extends StatelessWidget {
-  const LearningScreen({super.key, required this.repository});
-  final FinanceRepository repository;
-
-  @override
-  Widget build(BuildContext context) {
-    final pulso = Pulso.of(context);
-    return ListenableBuilder(
-      listenable: repository,
-      builder: (context, _) {
-        final learning = repository.learning;
-        return Scaffold(
-          appBar: AppBar(title: const Text('Inteligencia artificial', style: TextStyle(fontWeight: FontWeight.w700))),
-          body: learning == null
-              ? const Center(child: Text('Abre tus finanzas para ver lo aprendido.'))
-              : ListView(padding: const EdgeInsets.all(16), children: [
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Row(children: [
-                          Icon(Icons.auto_awesome, color: pulso.accent),
-                          const SizedBox(width: 10),
-                          const Expanded(child: Text('Aprende de lo que confirmas', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16))),
-                        ]),
-                        const SizedBox(height: 10),
-                        const Text('Doblón aprende de tus decisiones:\n'
-                            '• La categoría que eliges para cada movimiento.\n'
-                            '• Si un movimiento del banco es una aportación a inversión, un Round up o un Saveback.\n'
-                            '• Las correcciones que haces en movimientos del banco (tipo, categoría y cuenta de destino).\n\n'
-                            'Con ello propone categorías y reconoce operaciones. Solo repite una corrección por su cuenta cuando la has hecho varias veces y ha acertado al comprobarla con meses posteriores.\n\n'
-                            'Lo aprendido se comparte entre tus dispositivos (iPhone y Android) a través de tu nube privada: solo lo ves tú y no se usa para entrenar ningún modelo ajeno.'),
-                      ]),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Card(
-                    child: Column(children: [
-                      ListTile(title: const Text('Categorías confirmadas'), trailing: Text('${learning.confirmations.length}')),
-                      ListTile(title: const Text('Operaciones identificadas'), trailing: Text('${learning.identifiedOperations}')),
-                      ListTile(title: const Text('Correcciones guardadas'), trailing: Text('${learning.savedCorrections}')),
-                      ListTile(title: const Text('Correcciones aplicadas por la IA'), trailing: Text('${learning.automaticCorrections}')),
-                    ]),
-                  ),
-                  const SizedBox(height: 12),
-                  Card(
-                    child: SwitchListTile(
-                      title: const Text('Aplicar correcciones aprendidas'),
-                      subtitle: const Text('En los movimientos nuevos del banco. Siempre puedes deshacerlas desde el movimiento.'),
-                      value: learning.automationEnabled,
-                      onChanged: (v) async {
-                        await learning.setAutomationEnabled(v);
-                        repository.changed();
-                        if (v) await repository.applyLearnedCorrections();
-                      },
-                    ),
-                  ),
-                ]),
-        );
-      },
-    );
-  }
-}
 
 /// "Usar propuesta de IA: …" for a movement without category (Swift review card and form).
 class LearnedCategoryButton extends StatefulWidget {
@@ -101,7 +41,8 @@ class _LearnedCategoryButtonState extends State<LearnedCategoryButton> {
       final kind = review.confirmed ?? review.prediction?.kind;
       if (kind != null && kind != OperationKind.ordinary) return;
     }
-    final id = await learning.suggestCategory(t.descriptionText, t.type, data);
+    // The same cleaned concept the model learnt from (as on the iPhone), not the raw bank text.
+    final id = await learning.suggestCategory(listTitle(t.descriptionText, isBanking: t.isBanking), t.type, data);
     if (!mounted || _for != key) return;
     setState(() => _proposal = data.category(id));
   }
@@ -114,7 +55,10 @@ class _LearnedCategoryButtonState extends State<LearnedCategoryButton> {
     return Padding(
       padding: const EdgeInsets.only(top: 8),
       child: FilledButton.tonalIcon(
-        onPressed: () => widget.repository.categorize([widget.transaction], proposal),
+        onPressed: () async {
+          await recordChoice(widget.repository, widget.transaction, proposal);
+          await widget.repository.categorize([widget.transaction], proposal);
+        },
         icon: const Icon(Icons.auto_awesome),
         label: Text('Usar propuesta de IA: ${proposal.name}'),
       ),
@@ -359,9 +303,171 @@ Future<void> learnFromEdit(FinanceRepository repository, EditSnapshot? before, S
   if (categoryConfirmed && after.categoryId != null) await learning.confirmCategories([after], data, recordCorrection: false);
 }
 
-/// For the form: the category the model proposes for a concept.
-Future<Category?> proposeCategory(FinanceRepository repository, String text, TransactionType type) async {
+/// For the form and the CSV import: the category proposed for a concept and its source ("model" or "brand").
+Future<({Category category, String source})?> proposeCategory(FinanceRepository repository, String text, TransactionType type) async {
   final learning = repository.learning, data = repository.finances;
   if (learning == null || data == null || type == TransactionType.transfer) return null;
-  return data.category(await learning.suggestCategory(text, type, data));
+  final proposal = await learning.categoryProposal(text, type, data);
+  final category = data.category(proposal?.categoryId);
+  return proposal == null || category == null ? null : (category: category, source: proposal.source);
+}
+
+/// Counts a category chosen for a movement without one, against what would have been proposed. Call it before
+/// saving the choice: once saved, the model learns it and would always «agree».
+Future<void> recordChoice(FinanceRepository repository, Transaction t, Category chosen) async {
+  final learning = repository.learning;
+  if (learning == null || t.categoryId != null || t.type == TransactionType.transfer) return;
+  final proposal = await proposeCategory(repository, listTitle(t.descriptionText, isBanking: t.isBanking), t.type);
+  await learning.recordCategoryOutcome(proposedName: proposal?.category.name, source: proposal?.source, chosenName: chosen.name);
+}
+
+/// Ajustes → Tus datos → Acierto de la IA: how often the category proposal is accepted, on all the person's devices.
+class AiMetricsScreen extends StatelessWidget {
+  const AiMetricsScreen({super.key, required this.repository});
+  final FinanceRepository repository;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: repository,
+        builder: (context, _) {
+          final m = repository.learning?.categoryMetrics;
+          String share(int part, int whole) => whole == 0 ? '—' : '${(100 * part / whole).round()} %';
+          return Scaffold(
+            appBar: AppBar(title: const Text('Acierto de la IA', style: TextStyle(fontWeight: FontWeight.w700))),
+            body: m == null
+                ? const Center(child: Text('Abre tus finanzas para ver las métricas.'))
+                : ListView(padding: const EdgeInsets.all(16), children: [
+                    const Text('Cuántas veces aceptas la categoría que propone la IA, en todos tus dispositivos. '
+                        'Solo se cuentan totales: ningún concepto ni importe.'),
+                    const SizedBox(height: 12),
+                    Card(
+                      child: Column(children: [
+                        ListTile(title: const Text('Propuestas aceptadas'), trailing: Text('${m.acceptedTotal} de ${m.proposals} · ${share(m.acceptedTotal, m.proposals)}')),
+                        for (final (source, label) in [('model', 'Del modelo'), ('brand', 'Del catálogo de marcas')])
+                          ListTile(
+                              dense: true,
+                              title: Text(label),
+                              trailing: Text('${m.accepted[source] ?? 0} aceptadas · ${m.corrected[source] ?? 0} corregidas')),
+                        ListTile(title: const Text('Elegidas sin propuesta'), trailing: Text('${m.manual}')),
+                      ]),
+                    ),
+                    if (m.categories.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Card(
+                        child: Column(children: [
+                          for (final entry in (m.categories.entries.toList()..sort((a, b) => a.key.compareTo(b.key))))
+                            ListTile(
+                                dense: true,
+                                title: Text(entry.key),
+                                trailing: Text('${entry.value.$1} aceptadas · ${entry.value.$2} corregidas')),
+                        ]),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () => FilePicker.saveFile(
+                          fileName: 'acierto-ia.csv', bytes: Uint8List.fromList(utf8.encode(m.toCsv())), mimeType: 'text/csv'),
+                      icon: const Icon(Icons.download),
+                      label: const Text('Exportar en CSV'),
+                    ),
+                  ]),
+          );
+        },
+      );
+}
+
+/// The movements without category that the IA can categorise, with its proposal: the same conditions as the button
+/// in the detail (no rule decides it, not a transfer, not an investment operation).
+Future<List<({Transaction transaction, Category category, String source})>> reviewProposals(FinanceRepository repository) async {
+  final learning = repository.learning, data = repository.finances;
+  if (learning == null || data == null) return const [];
+  final result = <({Transaction transaction, Category category, String source})>[];
+  for (final t in data.transactions) {
+    if (t.categoryId != null || t.type == TransactionType.transfer || matchRule(t.descriptionText, t.type, data) != null) continue;
+    if (learning.supports(t, data)) {
+      final review = await learning.review(t, data);
+      final kind = review.confirmed ?? review.prediction?.kind;
+      if (kind != null && kind != OperationKind.ordinary) continue;
+    }
+    final proposal = await proposeCategory(repository, listTitle(t.descriptionText, isBanking: t.isBanking), t.type);
+    if (proposal != null) result.add((transaction: t, category: proposal.category, source: proposal.source));
+  }
+  return result;
+}
+
+/// «Por revisar» → Aplicar las propuestas de la IA: check the list and apply the chosen ones at once. Each one also
+/// teaches the IA and counts as accepted.
+class ReviewProposalsScreen extends StatefulWidget {
+  const ReviewProposalsScreen({super.key, required this.repository});
+  final FinanceRepository repository;
+  @override
+  State<ReviewProposalsScreen> createState() => _ReviewProposalsScreenState();
+}
+
+class _ReviewProposalsScreenState extends State<ReviewProposalsScreen> {
+  List<({Transaction transaction, Category category, String source})>? proposals;
+  final selected = <String>{};
+  bool busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    reviewProposals(widget.repository).then((list) {
+      if (!mounted) return;
+      setState(() {
+        proposals = list;
+        selected.addAll(list.map((p) => p.transaction.id));
+      });
+    });
+  }
+
+  Future<void> _apply() async {
+    final chosen = proposals!.where((p) => selected.contains(p.transaction.id)).toList();
+    setState(() => busy = true);
+    final learning = widget.repository.learning;
+    for (final p in chosen) {
+      await learning?.recordCategoryOutcome(proposedName: p.category.name, source: p.source, chosenName: p.category.name);
+    }
+    final byCategory = <String, List<Transaction>>{};
+    for (final p in chosen) {
+      byCategory.putIfAbsent(p.category.id, () => []).add(p.transaction);
+    }
+    for (final entry in byCategory.entries) {
+      await widget.repository.categorize(entry.value, chosen.firstWhere((p) => p.category.id == entry.key).category);
+    }
+    if (mounted) Navigator.of(context).pop(chosen.length);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final list = proposals;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Propuestas de la IA', style: TextStyle(fontWeight: FontWeight.w700))),
+      body: list == null
+          ? const Center(child: CircularProgressIndicator())
+          : list.isEmpty
+              ? const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('La IA no tiene propuestas para lo que está por revisar.')))
+              : ListView(padding: const EdgeInsets.all(16), children: [
+                  const Text('Revisa la lista y quita lo que no quieras. Al aplicarlas, la IA aprende de cada una.'),
+                  const SizedBox(height: 8),
+                  Card(
+                    child: Column(children: [
+                      for (final p in list)
+                        CheckboxListTile(
+                          value: selected.contains(p.transaction.id),
+                          onChanged: busy ? null : (v) => setState(() => v == true ? selected.add(p.transaction.id) : selected.remove(p.transaction.id)),
+                          title: Text(listTitle(p.transaction.descriptionText, isBanking: p.transaction.isBanking), maxLines: 1, overflow: TextOverflow.ellipsis),
+                          subtitle: Text('${p.category.name}${p.source == 'brand' ? ' · por la marca' : ''}'),
+                        ),
+                    ]),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton(
+                    onPressed: busy || selected.isEmpty ? null : _apply,
+                    style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+                    child: Text('Aplicar ${selected.length}'),
+                  ),
+                ]),
+    );
+  }
 }

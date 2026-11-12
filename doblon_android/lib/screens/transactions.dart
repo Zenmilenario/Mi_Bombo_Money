@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../automation.dart';
-import '../contributions.dart';
 import '../bank_activity.dart';
 import '../data.dart';
 import '../edits.dart';
@@ -10,6 +9,7 @@ import '../finance.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
+import 'learning.dart' show ReviewProposalsScreen;
 import 'transaction_detail.dart';
 import 'transaction_form.dart';
 import 'widgets.dart';
@@ -295,11 +295,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   onChanged: (value) => setState(() => filter.query = value.trim()),
                 ),
               if (!selecting) ..._holds(data),
-              if (!selecting && contributionProposals(data, DateTime.now()).isNotEmpty)
+              if (!selecting && widget.repository.contributions.isNotEmpty)
                 Card(
                     child: ListTile(
                         leading: Icon(Icons.savings_outlined, color: pulso.savings),
-                        title: Text('${contributionProposals(data, DateTime.now()).length} aportaciones por conciliar'),
+                        title: Text('${widget.repository.contributions.length} aportaciones por conciliar'),
                         subtitle: const Text('Unir los cargos reales con tu aportación periódica'),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ContributionsScreen(repository: widget.repository))))),
@@ -339,6 +339,23 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   if (filter.period != Period.all) Chip(label: Text(filter.period.title)),
                 ]),
               ),
+              if (filter.onlyReview && !selecting)
+                Card(
+                  margin: const EdgeInsets.only(top: 8),
+                  child: ListTile(
+                    leading: Icon(Icons.auto_awesome, color: pulso.accent),
+                    title: const Text('Aplicar las propuestas de la IA'),
+                    subtitle: const Text('Revisa y categoriza varios movimientos de una vez'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () async {
+                      final applied = await Navigator.of(context)
+                          .push<int>(MaterialPageRoute(builder: (_) => ReviewProposalsScreen(repository: widget.repository)));
+                      if (applied != null && applied > 0 && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$applied movimientos categorizados.')));
+                      }
+                    },
+                  ),
+                ),
               if (filter.isActive || filter.query.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),

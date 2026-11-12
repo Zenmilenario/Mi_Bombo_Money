@@ -1,0 +1,113 @@
+{
+  "_comment": "Consulta del catálogo de marcas de OpenStreetMap cuando la IA no tiene propuesta (12/11/2026). Conceptos ficticios. Los comprueban Android (test/learning_test.dart) y el iPhone (Tests/TransactionCategoryModelCheck.swift).",
+  "lookup": [
+    {
+      "text": "BURGER KING 0345",
+      "category": "Restaurantes"
+    },
+    {
+      "text": "COMPRA TARJ. 4B12** MERCADONA VALENCIA",
+      "category": "Supermercado"
+    },
+    {
+      "text": "COMPRA LIDL SUPERMERCADOS 02/11",
+      "category": "Supermercado"
+    },
+    {
+      "text": "ZARA ESPANA SA",
+      "category": "Ropa"
+    },
+    {
+      "text": "PRIMARK MADRID",
+      "category": "Ropa"
+    },
+    {
+      "text": "DECATHLON ESPANA",
+      "category": "Compras"
+    },
+    {
+      "text": "LEROY MERLIN",
+      "category": "Compras"
+    },
+    {
+      "text": "REPSOL E.S. A-3 KM 20",
+      "category": "Coche"
+    },
+    {
+      "text": "NH HOTELES",
+      "category": null
+    },
+    {
+      "text": "MELIA HOTELS",
+      "category": "Viajes"
+    },
+    {
+      "text": "STARBUCKS COFFEE CASTELLANA",
+      "category": "Restaurantes"
+    },
+    {
+      "text": "EL CORTE INGLES",
+      "category": "Compras"
+    },
+    {
+      "text": "GENERAL OPTICA",
+      "category": "Salud"
+    },
+    {
+      "text": "KIWOKO MASCOTAS",
+      "category": "Mascotas"
+    },
+    {
+      "text": "CINES YELMO",
+      "category": "Ocio"
+    },
+    {
+      "text": "METRO DE MADRID",
+      "category": null
+    },
+    {
+      "text": "BIZUM DE MERCADONA COMPAÑERO",
+      "category": null
+    },
+    {
+      "text": "DEVOLUCION ZARA",
+      "category": null
+    },
+    {
+      "text": "TRANSFERENCIA SUPER SA",
+      "category": null
+    },
+    {
+      "text": "CAFE EXPRESS",
+      "category": null
+    },
+    {
+      "text": "PAGO EN PLAZA MAYOR",
+      "category": null
+    },
+    {
+      "text": "HOME CENTER",
+      "category": null
+    },
+    {
+      "text": "BAR EL RINCON DE PEPE",
+      "category": null
+    },
+    {
+      "text": "FARMACIA LDO GARCIA",
+      "category": null
+    },
+    {
+      "text": "RECIBO IBERDROLA CLIENTES",
+      "category": null
+    },
+    {
+      "text": "RETIRADA CAJERO 4B",
+      "category": null
+    },
+    {
+      "text": "NOMINA EL CORTE INGLES",
+      "category": null
+    }
+  ]
+}

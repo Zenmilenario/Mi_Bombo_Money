@@ -39,7 +39,7 @@ class _ContributionsScreenState extends State<ContributionsScreen> {
       listenable: widget.repository,
       builder: (context, _) {
         final data = widget.repository.finances;
-        final proposals = data == null ? <ContributionProposal>[] : contributionProposals(data, DateTime.now());
+        final proposals = data == null ? <ContributionProposal>[] : widget.repository.contributions;
         return Scaffold(
             appBar: AppBar(title: const Text('Revisar aportaciones')),
             body: ListView(padding: const EdgeInsets.all(16), children: [

@@ -14,6 +14,13 @@ void main() {
   final root = jsonDecode(File('../Tests/Fixtures/shared_learning_cases.json').readAsStringSync()) as Map<String, dynamic>;
   setUp(() => runTraining = <T>(T Function() work) async => work());
 
+  test('the metrics of every device add up to the same CSV as the iPhone', () {
+    for (final raw in root['metricsSummaries'] as List) {
+      final item = obj(raw);
+      expect(CategoryMetrics.of(obj(item['metrics']).values.cast<Map>()).toCsv(), item['csv'], reason: '${item['name']}');
+    }
+  });
+
   test('canonical signatures are the shared ones', () async {
     for (final raw in root['signatures'] as List) {
       final tx = obj(obj(raw)['transaction']);

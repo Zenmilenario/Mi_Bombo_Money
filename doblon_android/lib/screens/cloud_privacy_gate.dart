@@ -77,6 +77,8 @@ class _CloudPrivacyGateState extends State<CloudPrivacyGate> {
   @override
   Widget build(BuildContext context) {
     if (ready) return widget.child;
+    // The protection screen only appears when there is something to do, not while it is being checked.
+    if (busy && privacy.profile == null) return const Scaffold(body: Center(child: CircularProgressIndicator()));
     return Scaffold(
         body: SafeArea(
             child: Center(

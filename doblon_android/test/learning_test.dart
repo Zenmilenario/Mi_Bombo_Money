@@ -1,8 +1,10 @@
 // Fictitious data only. The app's learning (categories, investment operations, corrections) and the bank
 // report (holds and what the bank sent), with the iPhone's formulas and thresholds.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:doblon/bank_activity.dart';
+import 'package:doblon/brand_catalogue.dart';
 import 'package:doblon/banking.dart';
 import 'package:doblon/edits.dart';
 import 'package:doblon/learning.dart';
@@ -274,6 +276,39 @@ void main() {
       expect(await store.load('usuario', now: observed.add(const Duration(days: 8))), isEmpty);
       await store.clear('usuario');
       expect(await store.load('usuario', now: observed), isEmpty);
+    });
+  });
+  group('brand catalogue (OpenStreetMap)', () {
+    const names = ['Supermercado', 'Restaurantes', 'Transporte', 'Coche', 'Farmacia', 'Salud', 'Ropa', 'Compras', 'Mascotas', 'Ocio', 'Viajes',
+      'Internet y móvil', 'Servicios del hogar', 'Suscripciones', 'Impuestos y comisiones', 'Vivienda', 'Seguros', 'Educación'];
+    final data = Finances.fromDocument({
+      'accounts': [],
+      'categories': [for (final n in names) {'id': n, 'name': n, 'kindRaw': 'expense'}],
+      'transactions': [],
+    });
+
+    test('the same lookup as the iPhone', () {
+      expect(brandCatalogue.keys.toSet().difference(names.toSet()), isEmpty, reason: 'Every brand goes to a starter category');
+      final cases = (jsonDecode(File('../Tests/Fixtures/brand_lookup_cases.json').readAsStringSync())['lookup'] as List).cast<Map<String, dynamic>>();
+      for (final c in cases) {
+        expect(brandCategory(c['text'] as String), c['category'], reason: '${c['text']}');
+      }
+    });
+
+    test('a brand fills in only where the model has nothing to propose', () async {
+      final learning = Learning();
+      final (model, _) = await learning.categoryModels(data);
+      expect(model!.predict('ZARA ESPANA SA', names.toSet()), isNull, reason: 'The model alone does not know it');
+      expect(await learning.suggestCategory('ZARA ESPANA SA', TransactionType.expense, data), 'Ropa');
+      expect(await learning.suggestCategory('Farmacia Plaza medicamentos', TransactionType.expense, data), 'Farmacia', reason: 'Unchanged');
+      expect(await learning.suggestCategory('BIZUM DE MERCADONA COMPAÑERO', TransactionType.expense, data), isNull);
+      expect(await learning.suggestCategory('DEVOLUCION ZARA', TransactionType.income, data), isNull, reason: 'Only for expenses');
+      // Every proposal the model makes on its own stays exactly the same.
+      for (final c in (jsonDecode(File('../Tests/Fixtures/brand_lookup_cases.json').readAsStringSync())['lookup'] as List)) {
+        final text = c['text'] as String;
+        final own = model.predict(text, names.toSet())?.categoryId;
+        if (own != null) expect(await learning.suggestCategory(text, TransactionType.expense, data), own, reason: text);
+      }
     });
   });
 }

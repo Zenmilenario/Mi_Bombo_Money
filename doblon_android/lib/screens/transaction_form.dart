@@ -53,6 +53,9 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
 
   /// The category the model proposes for the concept (only for a new movement).
   Category? _proposal;
+
+  /// The last proposal shown, with its source, to count on saving whether it was used (`recordCategoryOutcome`).
+  ({Category category, String source})? _shown;
   Timer? _debounce;
 
   Finances get data => widget.repository.finances!;
@@ -87,12 +90,16 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     _debounce?.cancel();
     if (widget.editing != null || draft.type == TransactionType.transfer || _categoryChosen || matchRule(_description.text, draft.type, data) != null) {
       if (_proposal != null) setState(() => _proposal = null);
+      _shown = null;
       return;
     }
     final text = _description.text, type = draft.type;
     _debounce = Timer(const Duration(milliseconds: 350), () async {
-      final category = await proposeCategory(widget.repository, text, type);
-      if (mounted && text == _description.text && type == draft.type) setState(() => _proposal = category);
+      final proposal = await proposeCategory(widget.repository, text, type);
+      if (mounted && text == _description.text && type == draft.type) {
+        setState(() => _proposal = proposal?.category);
+        _shown = proposal;
+      }
     });
   }
 
@@ -122,6 +129,11 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     final id = widget.editing?.id ?? widget.repository.newId();
     final op = saveOperation(draft, data, now, editing: widget.editing, newId: id);
     final category = data.category(draft.categoryId);
+    // A new movement categorised without a rule: count whether the proposal shown was used.
+    if (widget.editing == null && category != null && draft.type != TransactionType.transfer && matchRule(draft.description, draft.type, data) == null) {
+      await widget.repository.learning
+          ?.recordCategoryOutcome(proposedName: _shown?.category.name, source: _shown?.source, chosenName: category.name);
+    }
     final rule = _remember && category != null ? rememberRule(draft.description, draft.type, category, data, now, widget.repository.newId()) : null;
     await widget.repository.apply(rule == null ? op : batchOperation([op, rule]));
     // What the person decided teaches the models: the category chosen and, in a bank movement, the correction.

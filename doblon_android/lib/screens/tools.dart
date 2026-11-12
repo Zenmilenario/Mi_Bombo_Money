@@ -47,14 +47,14 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Text(item.draft.description, style: const TextStyle(fontWeight: FontWeight.w700)),
           ),
-          FutureBuilder<Category?>(
+          FutureBuilder<({Category category, String source})?>(
             future: proposal,
             builder: (context, snapshot) => snapshot.data == null
                 ? const SizedBox.shrink()
                 : ListTile(
                     leading: const Icon(Icons.auto_awesome),
-                    title: Text('Usar propuesta de IA: ${snapshot.data!.name}'),
-                    onTap: () => Navigator.pop(context, snapshot.data),
+                    title: Text('Usar propuesta de IA: ${snapshot.data!.category.name}'),
+                    onTap: () => Navigator.pop(context, snapshot.data!.category),
                   ),
           ),
           if (options.isEmpty) const ListTile(title: Text('No hay categorías compatibles. Puedes crearlas en Ajustes → Categorías.')),
@@ -67,7 +67,10 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
         ]),
       ),
     );
-    if (chosen != null) setState(() => corrections[index] = chosen.id);
+    if (chosen == null) return;
+    final shown = await proposal;
+    await widget.repository.learning?.recordCategoryOutcome(proposedName: shown?.category.name, source: shown?.source, chosenName: chosen.name);
+    if (mounted) setState(() => corrections[index] = chosen.id);
   }
 
   Future<void> _pick() async {

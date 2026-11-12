@@ -290,6 +290,132 @@
           }
         }
       }
+    },
+    {
+      "name": "Las métricas de cada dispositivo se combinan por su fecha",
+      "local": {
+        "version": 1,
+        "metrics": {
+          "iphone": {
+            "accepted": {
+              "model": 5,
+              "brand": 0
+            },
+            "corrected": {
+              "model": 1,
+              "brand": 0
+            },
+            "manual": 2,
+            "categories": {
+              "Supermercado": {
+                "accepted": 5,
+                "corrected": 1
+              }
+            },
+            "at": 30
+          },
+          "android": {
+            "accepted": {
+              "model": 1,
+              "brand": 0
+            },
+            "corrected": {
+              "model": 0,
+              "brand": 0
+            },
+            "manual": 0,
+            "categories": {
+              "Supermercado": {
+                "accepted": 1,
+                "corrected": 0
+              }
+            },
+            "at": 10
+          }
+        }
+      },
+      "remote": {
+        "version": 1,
+        "metrics": {
+          "iphone": {
+            "accepted": {
+              "model": 4,
+              "brand": 0
+            },
+            "corrected": {
+              "model": 1,
+              "brand": 0
+            },
+            "manual": 2,
+            "categories": {
+              "Supermercado": {
+                "accepted": 4,
+                "corrected": 1
+              }
+            },
+            "at": 20
+          },
+          "android": {
+            "accepted": {
+              "model": 2,
+              "brand": 0
+            },
+            "corrected": {
+              "model": 1,
+              "brand": 0
+            },
+            "manual": 1,
+            "categories": {
+              "Supermercado": {
+                "accepted": 2,
+                "corrected": 1
+              }
+            },
+            "at": 15
+          }
+        }
+      },
+      "expected": {
+        "version": 1,
+        "metrics": {
+          "iphone": {
+            "accepted": {
+              "model": 5,
+              "brand": 0
+            },
+            "corrected": {
+              "model": 1,
+              "brand": 0
+            },
+            "manual": 2,
+            "categories": {
+              "Supermercado": {
+                "accepted": 5,
+                "corrected": 1
+              }
+            },
+            "at": 30
+          },
+          "android": {
+            "accepted": {
+              "model": 2,
+              "brand": 0
+            },
+            "corrected": {
+              "model": 1,
+              "brand": 0
+            },
+            "manual": 1,
+            "categories": {
+              "Supermercado": {
+                "accepted": 2,
+                "corrected": 1
+              }
+            },
+            "at": 15
+          }
+        }
+      }
     }
   ],
   "stamps": [
@@ -423,6 +549,51 @@
           "6f1c2b3a-4d5e-4f60-8a71-92b3c4d5e6f7": 1500
         }
       }
+    }
+  ],
+  "metricsSummaries": [
+    {
+      "name": "Los contadores de todos los dispositivos se suman; un contador que falta vale cero",
+      "metrics": {
+        "dispositivo-a": {
+          "accepted": {
+            "model": 3,
+            "brand": 1
+          },
+          "corrected": {
+            "model": 1,
+            "brand": 0
+          },
+          "manual": 2,
+          "categories": {
+            "Supermercado": {
+              "accepted": 2,
+              "corrected": 1
+            },
+            "Ropa": {
+              "accepted": 1,
+              "corrected": 0
+            }
+          },
+          "at": 10
+        },
+        "dispositivo-b": {
+          "accepted": {
+            "model": 1
+          },
+          "manual": 1,
+          "categories": {
+            "Ócio": {
+              "accepted": 1
+            },
+            "Supermercado": {
+              "corrected": 0
+            }
+          },
+          "at": 20
+        }
+      },
+      "csv": "Tipo;Origen o categoría;Aceptadas;Corregidas\nOrigen;Modelo;4;1\nOrigen;Catálogo de marcas;1;0\nCategoría;Ropa;1;0\nCategoría;Supermercado;2;1\nCategoría;Ócio;1;0\nSin propuesta;Elegidas a mano;3;0"
     }
   ]
 }

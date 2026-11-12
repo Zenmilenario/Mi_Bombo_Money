@@ -400,7 +400,18 @@ int? bookedBalance(List<BankBalance> balances) {
       continue;
     }
     if (account == null) {
-      if (accounts.any((a) => '${a['id']}'.toLowerCase() == stableUuid('$identity|account'))) throw BankingError('cloud_conflict');
+      // The account created earlier for this bank account (same stable ID) is linked again instead of failing.
+      final previous = accounts.where((a) => '${a['id']}'.toLowerCase() == stableUuid('$identity|account')).firstOrNull;
+      if (previous != null) {
+        if (previous['isArchived'] == true || previous['bankIdentityKey'] != null || (previous['currencyCode'] ?? 'EUR') != 'EUR') {
+          throw BankingError('cloud_conflict');
+        }
+        previous['bankIdentityKey'] = identity;
+        previous['updatedAt'] = now;
+        account = previous;
+      }
+    }
+    if (account == null) {
       account = {
         'id': stableUuid('$identity|account'),
         'name': '${feed.connection.bank} •••• ${feed.account.lastFour}',
