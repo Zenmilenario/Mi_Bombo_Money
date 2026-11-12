@@ -35,4 +35,10 @@ void main() {
     expect(loading, greaterThan(0));
     expect(loading, lessThan(gate.indexOf("'Protege tus finanzas'")), reason: 'The loading screen comes first');
   });
+
+  test('the category proposal reads the same cleaned concept the model learnt from', () {
+    // shortcut: checks the source; the learnt and the queried text must be the same listTitle.
+    expect(File('lib/screens/learning.dart').readAsStringSync(), contains('suggestCategory(listTitle(t.descriptionText, isBanking: t.isBanking)'));
+    expect(File('lib/learning.dart').readAsStringSync(), contains('final text = listTitle(t.descriptionText, isBanking: t.isBanking);'));
+  });
 }

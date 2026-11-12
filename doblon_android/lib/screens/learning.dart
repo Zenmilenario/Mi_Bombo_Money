@@ -5,6 +5,7 @@ import '../automation.dart' show matchRule;
 import '../data.dart';
 import '../learning.dart';
 import '../models.dart';
+import '../presentation.dart' show listTitle;
 import '../theme.dart';
 
 /// "Usar propuesta de IA: …" for a movement without category (Swift review card and form).
@@ -36,7 +37,8 @@ class _LearnedCategoryButtonState extends State<LearnedCategoryButton> {
       final kind = review.confirmed ?? review.prediction?.kind;
       if (kind != null && kind != OperationKind.ordinary) return;
     }
-    final id = await learning.suggestCategory(t.descriptionText, t.type, data);
+    // The same cleaned concept the model learnt from (as on the iPhone), not the raw bank text.
+    final id = await learning.suggestCategory(listTitle(t.descriptionText, isBanking: t.isBanking), t.type, data);
     if (!mounted || _for != key) return;
     setState(() => _proposal = data.category(id));
   }
