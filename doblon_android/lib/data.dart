@@ -167,6 +167,7 @@ class FinanceRepository extends ChangeNotifier {
           for (final entry in (bankState['reviews'] as Map).entries) {
             _bankReviews['${entry.key}'] = Map<String, dynamic>.from(entry.value as Map);
           }
+          _reviewsVersion++;
         }
         _opened = true;
       }
@@ -274,7 +275,7 @@ class FinanceRepository extends ChangeNotifier {
         final sending = List<Operation>.from(pending);
         await update((document) => (withPending(document, sending), null));
         // Only what was sent is cleared: a change made meanwhile stays queued.
-        pending = pending.sublist(sending.length);
+        pending = [for (final op in pending) if (!sending.any((sent) => identical(sent, op))) op];
         await (await _local()).savePending(user, pending);
         if (copy != null) _show(copy!);
         error = null;
@@ -377,16 +378,40 @@ class FinanceRepository extends ChangeNotifier {
         'reviews': _bankReviews,
       });
 
-  /// Saved previews remain reviewable after reopening, without another request to the bank.
+  int _reviewsVersion = 0;
+  Object? _proposalsFrom;
+  int _proposalsVersion = -1;
+  List<BankProposal> _proposals = const [];
+
+  /// Saved previews remain reviewable after reopening, without another request to the bank. Computed once
+  /// per change of the document or of the saved reviews (the screens read it several times per frame).
   List<BankProposal> get bankProposals {
     final doc = document;
     if (doc == null) return [];
+    if (identical(doc, _proposalsFrom) && _proposalsVersion == _reviewsVersion) return _proposals;
     final proposals = <BankProposal>[];
     for (final entry in _bankReviews.values) {
       final feed = AccountFeed.fromJson(entry['feed'] as Map<String, dynamic>);
       if (linked(feed.account)) proposals.addAll(importFeeds(doc, [feed], DateTime.fromMillisecondsSinceEpoch(entry['at'] as int)).$2.proposals);
     }
-    return proposals;
+    _proposalsFrom = doc;
+    _proposalsVersion = _reviewsVersion;
+    return _proposals = proposals;
+  }
+
+  Object? _contributionsFrom;
+  DateTime? _contributionsDay;
+  List<ContributionProposal> _contributions = const [];
+
+  /// Contribution proposals, computed once per version of the finances and per day.
+  List<ContributionProposal> get contributions {
+    final data = finances;
+    if (data == null) return const [];
+    final now = DateTime.now(), day = DateTime(now.year, now.month, now.day);
+    if (identical(data, _contributionsFrom) && day == _contributionsDay) return _contributions;
+    _contributionsFrom = data;
+    _contributionsDay = day;
+    return _contributions = contributionProposals(data, now);
   }
 
   Future<ImportResult> _incorporateFeed(AccountFeed feed, DateTime date, String user, {Map<String, String> decisions = const {}}) async {
@@ -398,10 +423,21 @@ class FinanceRepository extends ChangeNotifier {
     checkProfile();
     final key = accountIdentity(feed.account.id);
     _bankReviews[key] = {'feed': feed.toJson(), 'at': date.millisecondsSinceEpoch, 'committed': false};
+    _reviewsVersion++;
     await _saveBankState(user);
     checkProfile();
-    final result = await update((doc) => importFeeds(withPending(doc, pending), [feed], date, decisions: decisions));
+    // Changes still queued here are saved with the import; they then leave the queue so they are not applied twice.
+    var included = const <Operation>[];
+    final result = await update((doc) {
+      included = List<Operation>.from(pending);
+      return importFeeds(withPending(doc, included), [feed], date, decisions: decisions);
+    });
     checkProfile();
+    if (included.isNotEmpty) {
+      pending = [for (final op in pending) if (!included.any((saved) => identical(saved, op))) op];
+      await (await _local()).savePending(user, pending);
+      if (copy != null) _show(copy!);
+    }
     await recordBankActivity([feed], date);
     checkProfile();
     if (result.proposals.isEmpty) {
@@ -409,6 +445,7 @@ class FinanceRepository extends ChangeNotifier {
     } else {
       _bankReviews[key]!['committed'] = true;
     }
+    _reviewsVersion++;
     bankSchedule.failures.remove(key);
     await _saveBankState(user);
     return result;
@@ -425,7 +462,7 @@ class FinanceRepository extends ChangeNotifier {
     });
     final updated = finances!;
     for (final row in updated.transactions.where((t) => selected.contains(t.id))) {
-      await learning?.rememberEdit(before[row.id], row, updated, explicitlyReviewed: true);
+      await learning?.rememberEdit(before[row.id], row, updated, explicitlyReviewed: true, contribution: true);
       await learning?.confirmKind(OperationKind.investment, row, updated);
     }
     notifyListeners();
@@ -447,10 +484,12 @@ class FinanceRepository extends ChangeNotifier {
 
   Future<BankSyncResult?> synchronizeBanks({bool manual = false, String? bank, BankingClient? client}) async {
     final user = _user, generation = _generation;
-    if (user == null || finances == null || _synchronizingBanks) return bankResult;
-    _synchronizingBanks = true;
+    final token = _client.auth.currentSession?.accessToken;
+    if (user == null || finances == null || _synchronizingBanks || (client == null && token == null)) return bankResult;
     bool current() => !_disposed && generation == _generation && user == _user;
-    final api = client ?? BankingClient(_client.auth.currentSession!.accessToken);
+    // Set only once nothing can fail before the try: the flag is always released in finally.
+    _synchronizingBanks = true;
+    final api = client ?? BankingClient(token!);
     try {
       if (manual || _connectionsReadAt == null || DateTime.now().difference(_connectionsReadAt!) >= const Duration(minutes: 1)) {
         bankConnections = await api.connections();
@@ -499,7 +538,7 @@ class FinanceRepository extends ChangeNotifier {
     if (_correcting || data == null || learning == null || pending.isNotEmpty) return 0;
     _correcting = true;
     try {
-      final protected = contributionProposals(data, DateTime.now()).expand((p) => p.candidates).map((t) => t.id).toSet();
+      final protected = contributions.expand((p) => p.candidates).map((t) => t.id).toSet();
       final eligible = data.transactions.where((t) => !protected.contains(t.id) && (only == null || only.contains(t.id))).map((t) => t.id).toSet();
       final op = await learning!.learnedCorrections(data, DateTime.now(), only: eligible);
       if (op == null) return 0;
@@ -514,6 +553,8 @@ class FinanceRepository extends ChangeNotifier {
 
   Future<void> signOut() async {
     _generation++;
+    CloudPrivacy.forgetAll();
+    _privacySession = null;
     final user = _user;
     if (user != null) {
       final store = await _local();
@@ -526,6 +567,7 @@ class FinanceRepository extends ChangeNotifier {
     _connectionsReadAt = null;
     bankResult = null;
     _bankReviews.clear();
+    _reviewsVersion++;
     bankSchedule.load({});
     _learningTimer?.cancel();
     learning = null;

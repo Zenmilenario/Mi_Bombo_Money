@@ -19,6 +19,9 @@ class BanksScreen extends StatefulWidget {
   State<BanksScreen> createState() => _BanksScreenState();
 }
 
+/// The connection error of the last synchronization, unless the screen already shows that same text.
+String? separateConnectionError(String? fromSync, String? shown) => fromSync == shown ? null : fromSync;
+
 class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
   List<RemoteConnection>? connections;
   bool busy = false;
@@ -226,7 +229,7 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
                   child: Text(message!, style: TextStyle(color: messageIsError ? pulso.expense : pulso.income)),
                 ),
               const SizedBox(height: 8),
-              if (widget.repository.bankResult?.errors['Conexión'] case final problem?)
+              if (separateConnectionError(widget.repository.bankResult?.errors['Conexión'], message) case final problem?)
                 Padding(padding: const EdgeInsets.all(12), child: Text(problem, style: TextStyle(color: pulso.expense))),
               if (widget.repository.bankProposals.isNotEmpty)
                 ListTile(

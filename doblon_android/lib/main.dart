@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'cloud_privacy.dart';
 import 'data.dart';
 import 'preferences.dart';
 import 'screens/login.dart';
@@ -14,6 +15,10 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('es');
   await Supabase.initialize(url: supabaseUrl, publishableKey: supabasePublishableKey);
+  // Signing out from any screen (also the privacy gate) leaves no unlocked key in memory.
+  Supabase.instance.client.auth.onAuthStateChange.listen((state) {
+    if (state.event == AuthChangeEvent.signedOut) CloudPrivacy.forgetAll();
+  });
   final preferences = AppPreferences();
   await preferences.load();
   runApp(DoblonApp(preferences: preferences));

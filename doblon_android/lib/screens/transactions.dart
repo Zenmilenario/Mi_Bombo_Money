@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../automation.dart';
-import '../contributions.dart';
 import '../bank_activity.dart';
 import '../data.dart';
 import '../edits.dart';
@@ -295,11 +294,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   onChanged: (value) => setState(() => filter.query = value.trim()),
                 ),
               if (!selecting) ..._holds(data),
-              if (!selecting && contributionProposals(data, DateTime.now()).isNotEmpty)
+              if (!selecting && widget.repository.contributions.isNotEmpty)
                 Card(
                     child: ListTile(
                         leading: Icon(Icons.savings_outlined, color: pulso.savings),
-                        title: Text('${contributionProposals(data, DateTime.now()).length} aportaciones por conciliar'),
+                        title: Text('${widget.repository.contributions.length} aportaciones por conciliar'),
                         subtitle: const Text('Unir los cargos reales con tu aportación periódica'),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ContributionsScreen(repository: widget.repository))))),

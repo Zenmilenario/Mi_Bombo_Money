@@ -25,6 +25,9 @@ class Shell extends StatefulWidget {
   State<Shell> createState() => _ShellState();
 }
 
+/// While open, the cloud copy and the banks are refreshed this often (and always on returning to the app).
+const foregroundRefresh = Duration(minutes: 5);
+
 class _ShellState extends State<Shell> with WidgetsBindingObserver {
   final repository = FinanceRepository();
   int tab = 0;
@@ -43,7 +46,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     repository.addListener(_changed);
     widget.preferences.addListener(_changed);
     _open();
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+    _refreshTimer = Timer.periodic(foregroundRefresh, (_) {
       if (_foreground) unawaited(_open());
     });
   }

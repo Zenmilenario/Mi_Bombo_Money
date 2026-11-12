@@ -1097,7 +1097,9 @@ class Learning {
   }
 
   /// Learns the action the person wanted, if the bank facts did not change (Swift `rememberEdit`).
-  Future<bool> rememberEdit(EditSnapshot? before, Transaction row, Finances data, {bool explicitlyReviewed = false}) async {
+  /// `contribution`: the bank charge was reconciled with a periodic contribution, so it carries the rule's
+  /// link on purpose and still teaches the action.
+  Future<bool> rememberEdit(EditSnapshot? before, Transaction row, Finances data, {bool explicitlyReviewed = false, bool contribution = false}) async {
     if (before == null) return false;
     _reviewed.putIfAbsent(row.id, () => _now);
     final desired = CorrectionAction.of(row);
@@ -1109,7 +1111,7 @@ class Learning {
         row.bankEntryKey == before.bankKey &&
         row.reservedFundId == null &&
         row.reservedAmountMinor == null &&
-        row.recurringMovementId == null &&
+        (row.recurringMovementId == null || contribution) &&
         (!before.input.isCredit || row.type != TransactionType.transfer);
     if (learnable) {
       final previous = _corrections[row.id];
