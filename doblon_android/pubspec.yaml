@@ -1,7 +1,7 @@
 ﻿name: doblon
 description: DoblÃ³n para Android. Consulta tus finanzas con la misma cuenta que en el iPhone.
 publish_to: none
-version: 0.13.1+10
+version: 0.13.2+11
 
 environment:
   sdk: ">=3.5.0 <4.0.0"
