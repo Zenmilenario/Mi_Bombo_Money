@@ -7,6 +7,7 @@ import 'package:doblon/cloud_privacy.dart';
 import 'package:doblon/data.dart';
 import 'package:doblon/edits.dart';
 import 'package:doblon/learning.dart';
+import 'package:doblon/screens/learning.dart';
 import 'package:doblon/models.dart';
 import 'package:doblon/screens/banks.dart';
 import 'package:doblon/screens/login.dart';
@@ -193,5 +194,48 @@ void main() {
     expect(CloudPrivacy.sessions, isEmpty);
     expect(session.cipher, isNull);
     expect(foregroundRefresh, greaterThanOrEqualTo(const Duration(minutes: 5)));
+  });
+
+  group('IA metrics and applying proposals (12/11/2026)', () {
+    Finances data() => Finances.fromDocument({
+          'accounts': [
+            {'id': 'cuenta', 'name': 'Banco ficticio', 'typeRaw': 'checking', 'openingDate': 0}
+          ],
+          'categories': [
+            for (final n in ['Supermercado', 'Restaurantes', 'Ropa', 'Compras', 'Transporte', 'Viajes', 'Coche', 'Ocio'])
+              {'id': n, 'name': n, 'kindRaw': 'expense'}
+          ],
+          'transactions': [
+            {'id': 'zara', 'date': referenceSeconds(DateTime(2026, 11, 2)), 'typeRaw': 'expense', 'amountMinor': 3999, 'descriptionText': 'ZARA ESPANA SA', 'sourceAccountID': 'cuenta', 'bankEntryKey': 'k1'},
+            {'id': 'bizum', 'date': referenceSeconds(DateTime(2026, 11, 3)), 'typeRaw': 'expense', 'amountMinor': 1000, 'descriptionText': 'BIZUM ENVIADO A LAURA', 'sourceAccountID': 'cuenta', 'bankEntryKey': 'k2'},
+          ],
+        });
+
+    test('accepted, corrected and without proposal are counted per device and added up', () async {
+      final phone = Learning()..deviceId = 'telefono';
+      await phone.recordCategoryOutcome(proposedName: 'Ropa', source: 'brand', chosenName: 'Ropa');
+      await phone.recordCategoryOutcome(proposedName: 'Supermercado', source: 'model', chosenName: 'Restaurantes');
+      await phone.recordCategoryOutcome(chosenName: 'Ocio');
+      final tablet = Learning()..deviceId = 'tableta';
+      await tablet.recordCategoryOutcome(proposedName: 'Ropa', source: 'model', chosenName: 'Ropa');
+      final both = Learning()..adopt(mergeLearning(phone.toShared(), tablet.toShared()));
+      final m = both.categoryMetrics;
+      expect((m.accepted['brand'], m.accepted['model'], m.corrected['model'], m.manual), (1, 1, 1, 1));
+      expect(m.categories['Ropa'], (2, 0));
+      expect(m.categories['Supermercado'], (0, 1), reason: 'Corrections count against the proposed category');
+      expect(m.toCsv(), contains('Categoría;Ropa;2;0'));
+      expect(jsonEncode(both.toShared()['metrics']), isNot(contains('ZARA')), reason: 'Only counters');
+    });
+
+    test('the proposals to apply in «Por revisar», and a choice is counted before it is saved', () async {
+      runTraining = <T>(T Function() work) async => work();
+      final repository = FinanceRepository()
+        ..finances = data()
+        ..learning = (Learning()..deviceId = 'telefono');
+      final proposals = await reviewProposals(repository);
+      expect(proposals.map((p) => (p.transaction.id, p.category.name, p.source)), [('zara', 'Ropa', 'brand')], reason: 'Not the Bizum');
+      await recordChoice(repository, repository.finances!.transactions.firstWhere((t) => t.id == 'zara'), repository.finances!.category('Compras')!);
+      expect(repository.learning!.categoryMetrics.corrected['brand'], 1);
+    });
   });
 }

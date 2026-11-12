@@ -290,6 +290,132 @@
           }
         }
       }
+    },
+    {
+      "name": "Las métricas de cada dispositivo se combinan por su fecha",
+      "local": {
+        "version": 1,
+        "metrics": {
+          "iphone": {
+            "accepted": {
+              "model": 5,
+              "brand": 0
+            },
+            "corrected": {
+              "model": 1,
+              "brand": 0
+            },
+            "manual": 2,
+            "categories": {
+              "Supermercado": {
+                "accepted": 5,
+                "corrected": 1
+              }
+            },
+            "at": 30
+          },
+          "android": {
+            "accepted": {
+              "model": 1,
+              "brand": 0
+            },
+            "corrected": {
+              "model": 0,
+              "brand": 0
+            },
+            "manual": 0,
+            "categories": {
+              "Supermercado": {
+                "accepted": 1,
+                "corrected": 0
+              }
+            },
+            "at": 10
+          }
+        }
+      },
+      "remote": {
+        "version": 1,
+        "metrics": {
+          "iphone": {
+            "accepted": {
+              "model": 4,
+              "brand": 0
+            },
+            "corrected": {
+              "model": 1,
+              "brand": 0
+            },
+            "manual": 2,
+            "categories": {
+              "Supermercado": {
+                "accepted": 4,
+                "corrected": 1
+              }
+            },
+            "at": 20
+          },
+          "android": {
+            "accepted": {
+              "model": 2,
+              "brand": 0
+            },
+            "corrected": {
+              "model": 1,
+              "brand": 0
+            },
+            "manual": 1,
+            "categories": {
+              "Supermercado": {
+                "accepted": 2,
+                "corrected": 1
+              }
+            },
+            "at": 15
+          }
+        }
+      },
+      "expected": {
+        "version": 1,
+        "metrics": {
+          "iphone": {
+            "accepted": {
+              "model": 5,
+              "brand": 0
+            },
+            "corrected": {
+              "model": 1,
+              "brand": 0
+            },
+            "manual": 2,
+            "categories": {
+              "Supermercado": {
+                "accepted": 5,
+                "corrected": 1
+              }
+            },
+            "at": 30
+          },
+          "android": {
+            "accepted": {
+              "model": 2,
+              "brand": 0
+            },
+            "corrected": {
+              "model": 1,
+              "brand": 0
+            },
+            "manual": 1,
+            "categories": {
+              "Supermercado": {
+                "accepted": 2,
+                "corrected": 1
+              }
+            },
+            "at": 15
+          }
+        }
+      }
     }
   ],
   "stamps": [

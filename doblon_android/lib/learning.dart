@@ -171,6 +171,27 @@ class CategoryModel {
   ];
 }
 
+// ================================================================ metrics
+
+/// The category proposal's track record: accepted and corrected by source, chosen without proposal, and per category
+/// (accepted, corrected).
+class CategoryMetrics {
+  final Map<String, int> accepted = {}, corrected = {};
+  int manual = 0;
+  final Map<String, (int, int)> categories = {};
+
+  int get proposals => accepted.values.fold(0, (a, b) => a + b) + corrected.values.fold(0, (a, b) => a + b);
+  int get acceptedTotal => accepted.values.fold(0, (a, b) => a + b);
+
+  /// Semicolon CSV, like the rest of the app's exports.
+  String toCsv() => [
+        'Tipo;Origen o categoría;Aceptadas;Corregidas',
+        for (final source in ['model', 'brand']) 'Origen;${source == 'model' ? 'Modelo' : 'Catálogo de marcas'};${accepted[source] ?? 0};${corrected[source] ?? 0}',
+        for (final entry in (categories.entries.toList()..sort((a, b) => a.key.compareTo(b.key)))) 'Categoría;${entry.key};${entry.value.$1};${entry.value.$2}',
+        'Sin propuesta;Elegidas a mano;$manual;0',
+      ].join('\n');
+}
+
 // ================================================================ brands
 
 /// Concepts that are not a purchase at a shop even if they name a brand (a Bizum to a colleague at Mercadona).
@@ -665,7 +686,7 @@ Map<String, dynamic> mergeLearning(Map<String, dynamic> local, Map<String, dynam
   }
   final mine = local['automation'], theirs = remote['automation'];
   if (mine is Map || theirs is Map) result['automation'] = theirs is Map && _at(theirs) >= _at(mine) ? theirs : mine;
-  for (final key in _entrySections) {
+  for (final key in [..._entrySections, 'metrics']) {
     final a = _section(local, key), b = _section(remote, key);
     final merged = <String, dynamic>{};
     for (final id in {...a.keys, ...b.keys}) {
@@ -716,6 +737,12 @@ class Learning {
   /// Called after every change that should reach the person's other devices.
   void Function()? onChange;
 
+  /// This installation, to keep its own entry of the metrics (each device only counts in its own).
+  String deviceId = 'local';
+
+  /// How often the category proposal is accepted, per device (contract «metrics»).
+  final Map<String, Map<String, dynamic>> metrics = {};
+
   // Categories (Swift `TransactionLearning.History`).
   late DateTime since;
   final Map<String, String> confirmations = {};
@@ -747,6 +774,13 @@ class Learning {
   static Future<Learning> open(Directory directory, String user) async {
     final file = File('${directory.path}${Platform.pathSeparator}learning-$user.json');
     final learning = Learning(file: file);
+    try {
+      final device = File('${directory.path}${Platform.pathSeparator}device.id');
+      if (!await device.exists()) await device.writeAsString(sha256Hex('${DateTime.now().microsecondsSinceEpoch}|${file.path}'), flush: true);
+      learning.deviceId = (await device.readAsString()).trim();
+    } catch (_) {
+      // Without a stored identifier the metrics still count, under a local entry.
+    }
     try {
       if (await file.exists()) {
         learning.adopt(jsonDecode(await file.readAsString()) as Map<String, dynamic>);
@@ -815,6 +849,10 @@ class Learning {
     obj(j['reviewed']).forEach((key, value) {
       if (value is num) _reviewed[key] = value.toInt();
     });
+    metrics.clear();
+    obj(j['metrics']).forEach((key, value) {
+      if (value is Map) metrics[key] = Map<String, dynamic>.from(value);
+    });
   }
 
   /// The shared document (CloudBackend/learning-contract.md).
@@ -850,6 +888,7 @@ class Learning {
           }),
       'automatic': section('automatic', (k) => _automatic[k]?.toJson() ?? <String, dynamic>{}),
       'reviewed': {..._reviewed},
+      if (metrics.isNotEmpty) 'metrics': {...metrics},
     };
   }
 
@@ -915,17 +954,22 @@ class Learning {
   }
 
   /// The category the model proposes for a concept, or null when it is not clear enough.
-  Future<String?> suggestCategory(String text, TransactionType type, Finances data) async {
+  Future<String?> suggestCategory(String text, TransactionType type, Finances data) async =>
+      (await categoryProposal(text, type, data))?.categoryId;
+
+  /// The proposal and where it comes from: the model ("model") or, when the model has none, the brand catalogue ("brand").
+  Future<({String categoryId, String source})?> categoryProposal(String text, TransactionType type, Finances data) async {
     if (type == TransactionType.transfer || CategoryModel.tokens(text).isEmpty) return null;
     final (expenses, income) = await categoryModels(data);
     final model = type.countsAsIncome ? income : expenses;
     final allowed = data.categories.where((c) => categorySupports(c, type)).map((c) => c.id).toSet();
     final learnt = model?.predict(text, allowed)?.categoryId;
-    if (learnt != null || !type.countsAsExpense) return learnt;
+    if (learnt != null) return (categoryId: learnt, source: 'model');
+    if (!type.countsAsExpense) return null;
     // Only when the model has nothing to propose: a known brand gives its category, if the person has it.
     final brand = brandCategory(text);
     final matches = data.categories.where((c) => brand != null && allowed.contains(c.id) && ruleText(c.name) == ruleText(brand)).toList();
-    return matches.length == 1 ? matches.single.id : null;
+    return matches.length == 1 ? (categoryId: matches.single.id, source: 'brand') : null;
   }
 
   /// Swift `TransactionLearning.examples`: invented examples for the starter categories, every confirmed
@@ -981,6 +1025,47 @@ class Learning {
       if (!confirmed) historical[category.id] = (historical[category.id] ?? 0) + 1;
     }
     return examples;
+  }
+
+  // ---------------------------------------------------------------- metrics
+
+  /// Counts what the person did with a category proposal: applied it, chose another one, or chose a category
+  /// when there was none. `source` is "model" or "brand". Only counters: no concept or amount.
+  Future<void> recordCategoryOutcome({String? proposedName, String? source, required String chosenName}) async {
+    Map<String, dynamic> obj(Object? v) => v is Map ? Map<String, dynamic>.from(v) : {};
+    final entry = obj(metrics[deviceId]);
+    final accepted = obj(entry['accepted']), corrected = obj(entry['corrected']), categories = obj(entry['categories']);
+    int n(Object? v) => v is num ? v.toInt() : 0;
+    if (proposedName == null || source == null) {
+      entry['manual'] = n(entry['manual']) + 1;
+    } else {
+      final hit = proposedName == chosenName;
+      final counts = hit ? accepted : corrected;
+      counts[source] = n(counts[source]) + 1;
+      final category = obj(categories[proposedName]);
+      category[hit ? 'accepted' : 'corrected'] = n(category[hit ? 'accepted' : 'corrected']) + 1;
+      categories[proposedName] = category;
+    }
+    metrics[deviceId] = {...entry, 'accepted': accepted, 'corrected': corrected, 'categories': categories, 'at': _now};
+    await _save(invalidate: false);
+  }
+
+  /// The metrics of all the person's devices added up.
+  CategoryMetrics get categoryMetrics {
+    final total = CategoryMetrics();
+    int n(Object? v) => v is num ? v.toInt() : 0;
+    for (final entry in metrics.values) {
+      for (final source in ['model', 'brand']) {
+        total.accepted[source] = (total.accepted[source] ?? 0) + n((entry['accepted'] as Map?)?[source]);
+        total.corrected[source] = (total.corrected[source] ?? 0) + n((entry['corrected'] as Map?)?[source]);
+      }
+      total.manual += n(entry['manual']);
+      ((entry['categories'] as Map?) ?? const {}).forEach((name, value) {
+        final row = total.categories.putIfAbsent('$name', () => (0, 0));
+        total.categories['$name'] = (row.$1 + n((value as Map)['accepted']), row.$2 + n(value['corrected']));
+      });
+    }
+    return total;
   }
 
   // ---------------------------------------------------------------- operations

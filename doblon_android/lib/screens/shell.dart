@@ -12,6 +12,7 @@ import 'accounts.dart';
 import 'banks.dart';
 import 'budgets.dart';
 import 'home.dart';
+import 'learning.dart' show AiMetricsScreen;
 import 'manage.dart';
 import 'tools.dart';
 import 'transactions.dart';
@@ -324,6 +325,7 @@ class _SettingsPage extends StatelessWidget {
       section('Tus datos', [
         route(Icons.upload_file, 'Importar movimientos CSV', 'Añade un extracto de tu banco', () => CsvImportScreen(repository: repository)),
         route(Icons.save_alt, 'Copia de seguridad', 'Guardar, exportar o restaurar', () => BackupScreen(repository: repository)),
+        route(Icons.insights, 'Acierto de la IA', 'Cuántas propuestas de categoría aceptas', () => AiMetricsScreen(repository: repository)),
       ]),
       const SizedBox(height: 16),
       Card(
