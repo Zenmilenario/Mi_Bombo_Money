@@ -56,6 +56,7 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
 - **Sin conexión:** copia local y cola de cambios; se suben sobre la copia más reciente de la nube.
 - **Inteligencia artificial** (`lib/learning.dart`, los mismos tres modelos y umbrales que el iPhone):
   - propone la categoría a partir del concepto, en el formulario, en «Por revisar» y al importar un CSV;
+  - desde el primer día reconoce cerca de 1.000 cadenas presentes en España (supermercados, restaurantes, gasolineras, ropa, hoteles…) gracias al catálogo de marcas de OpenStreetMap (`lib/brand_catalogue.dart`, generado con `tool/brand_catalogue.py`). Es un ejemplo por marca con poco peso: lo que confirma la persona manda y su historial conserva su propio límite;
   - reconoce aportaciones a inversión, Round up y Saveback en los movimientos del banco («Reconocimiento de inversión» en el detalle), con las condiciones de la tarjeta;
   - repite una corrección que has hecho varias veces (tipo, categoría y cuenta de destino) solo después de comprobar que acertó en meses posteriores; se puede desactivar y deshacer, y deshacerla también enseña;
   - lo aprendido se comparte entre el iPhone y el Android a través de la nube privada de la persona (tabla `finance_learning`, contrato en `CloudBackend/learning-contract.md`). En el móvil se guarda como `learning-<usuario>.json` y se combina con la nube al abrir la app y unos segundos después de cada cambio. Ajustes → Inteligencia artificial muestra cuánto ha aprendido.
@@ -89,3 +90,7 @@ flutter test
 flutter build apk --release
 flutter run
 ```
+
+## Datos de terceros
+
+- **Name Suggestion Index** de OpenStreetMap (marcas y su tipo de comercio): © name-suggestion-index contributors, licencia BSD 3-Clause. Texto en `third_party/name-suggestion-index/LICENSE.md`.

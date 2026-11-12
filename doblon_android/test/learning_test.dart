@@ -3,6 +3,7 @@
 import 'dart:io';
 
 import 'package:doblon/bank_activity.dart';
+import 'package:doblon/brand_catalogue.dart';
 import 'package:doblon/banking.dart';
 import 'package:doblon/edits.dart';
 import 'package:doblon/learning.dart';
@@ -274,6 +275,45 @@ void main() {
       expect(await store.load('usuario', now: observed.add(const Duration(days: 8))), isEmpty);
       await store.clear('usuario');
       expect(await store.load('usuario', now: observed), isEmpty);
+    });
+  });
+
+  group('brand catalogue (OpenStreetMap)', () {
+    const names = ['Supermercado', 'Restaurantes', 'Transporte', 'Coche', 'Farmacia', 'Salud', 'Ropa', 'Compras', 'Mascotas', 'Ocio', 'Viajes',
+      'Internet y móvil', 'Servicios del hogar', 'Suscripciones', 'Impuestos y comisiones', 'Vivienda'];
+    Finances starter({List<Map<String, dynamic>> transactions = const []}) => Finances.fromDocument({
+          'accounts': [
+            {'id': bank, 'name': 'Banco ficticio', 'typeRaw': 'checking', 'openingDate': 0}
+          ],
+          'categories': [for (final n in names) {'id': n, 'name': n, 'kindRaw': 'expense'}],
+          'transactions': transactions,
+        });
+
+    test('every brand goes to one of the starter categories', () {
+      expect(brandCatalogue.keys.toSet().difference(names.toSet()), isEmpty);
+      expect(brandCatalogue.values.expand((b) => b).length, greaterThan(900));
+    });
+
+    test('chains are recognised from the first day, and Bizum or transfers get no shop category', () async {
+      final data = starter();
+      final learning = Learning();
+      expect(await learning.suggestCategory('BURGER KING 0345', TransactionType.expense, data), 'Restaurantes');
+      expect(await learning.suggestCategory('COMPRA LIDL SUPERMERCADOS 02/11', TransactionType.expense, data), 'Supermercado');
+      expect(await learning.suggestCategory('NH HOTELES', TransactionType.expense, data), 'Viajes');
+      for (final other in ['BIZUM ENVIADO A LAURA', 'TRANSFERENCIA A FAVOR DE JUAN', 'RETIRADA CAJERO 4B']) {
+        expect(await learning.suggestCategory(other, TransactionType.expense, data), isNull, reason: other);
+      }
+    });
+
+    test('the catalogue never pushes the person own examples out', () async {
+      final data = starter(transactions: [
+        for (final (i, day) in ['Lunes', 'Martes', 'Jueves'].indexed)
+          movement('p$i', DateTime(2026, 3, i + 1), 'Mercado del barrio $day', 1000, category: 'Supermercado')
+      ]);
+      final learning = Learning(since: DateTime(2026, 6, 1));
+      final examples = learning.categoryExamples(TransactionType.expense, data, data.transactions);
+      expect(examples.length, greaterThan(700), reason: 'More starting examples than the old total budget');
+      expect(examples.where((e) => e.text.startsWith('Mercado del barrio')), hasLength(3));
     });
   });
 }

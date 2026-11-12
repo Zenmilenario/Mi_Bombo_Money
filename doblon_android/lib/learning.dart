@@ -14,6 +14,7 @@ import 'dart:math' as math;
 
 import 'automation.dart' show matchRule, ruleText;
 import 'banking.dart' show referenceSeconds, sha256Hex;
+import 'brand_catalogue.dart';
 import 'edits.dart';
 import 'models.dart';
 import 'presentation.dart' show listTitle;
@@ -912,8 +913,14 @@ class Learning {
     final examples = <CategoryExample>[
       for (final (name, texts) in CategoryModel.syntheticExamples)
         if (grouped[ruleText(name)]?.length == 1)
-          for (final text in texts) CategoryExample(text, grouped[ruleText(name)]!.first.id, 1)
+          for (final text in texts) CategoryExample(text, grouped[ruleText(name)]!.first.id, 1),
+      // Real brands present in Spain (OpenStreetMap), one example each with the same light weight.
+      for (final MapEntry(key: name, value: brands) in brandCatalogue.entries)
+        if (grouped[ruleText(name)]?.length == 1)
+          for (final brand in brands) CategoryExample('COMPRA TARJ $brand', grouped[ruleText(name)]!.first.id, 1)
     ];
+    // The person's own examples keep their full budget: the starting examples never push them out.
+    final starters = examples.length;
     final ordered = [...transactions]..sort((a, b) {
         final ac = confirmations.containsKey(a.id), bc = confirmations.containsKey(b.id);
         if (ac != bc) return ac ? -1 : 1;
@@ -923,7 +930,7 @@ class Learning {
     final seen = <String, Set<String>>{};
     final historical = <String, int>{};
     for (final t in ordered) {
-      if (examples.length >= 700) break;
+      if (examples.length - starters >= 700) break;
       final category = data.category(t.categoryId);
       if (t.type == TransactionType.transfer ||
           t.type.countsAsIncome != type.countsAsIncome ||
