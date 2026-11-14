@@ -7,6 +7,7 @@ import '../bank_activity.dart' show bankHolds;
 import '../banking.dart' show BankingError;
 import '../data.dart';
 import '../finance.dart';
+import '../models.dart' show Finances;
 import '../preferences.dart';
 import '../theme.dart';
 import 'accounts.dart';
@@ -103,6 +104,21 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     return _calculator;
   }
 
+  // Don Bigotes' notes walk the whole history: kept until the finances, the bank reports or the day change, so a
+  // notice about something else does not compute them again.
+  Object? _notesFrom, _notesActivity;
+  String? _notesDay;
+  List<CompanionNote> _notes = const [];
+
+  List<CompanionNote> _companionNotes(Finances data) {
+    final now = DateTime.now(), day = '${now.year}-${now.month}-${now.day}';
+    if (identical(data, _notesFrom) && identical(repository.bankActivity, _notesActivity) && day == _notesDay) return _notes;
+    _notesFrom = data;
+    _notesActivity = repository.bankActivity;
+    _notesDay = day;
+    return _notes = companionNotes(data, now, holds: bankHolds(data, repository.bankActivity));
+  }
+
   void _showCompanion(List<CompanionNote> notes) {
     showModalBottomSheet<void>(
       context: context,
@@ -152,9 +168,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     final pulso = Pulso.of(context);
     final notes = calc == null || !widget.preferences.companionEnabled
         ? <CompanionNote>[]
-        : companionNotes(calc.data, DateTime.now(), holds: bankHolds(calc.data, repository.bankActivity))
-            .where((n) => !widget.preferences.dismissedNotes.contains(n.id))
-            .toList();
+        : _companionNotes(calc.data).where((n) => !widget.preferences.dismissedNotes.contains(n.id)).toList();
     final Widget body;
     if (calc == null) {
       body = Center(

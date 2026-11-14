@@ -85,6 +85,21 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
   bool get selecting => selected.isNotEmpty;
 
+  // What the list derives from the whole history, kept until the data, the filter or the day change: a notice of the
+  // repository about something else no longer walks every movement again (test/rebuild_cost_test.dart).
+  Object? _derivedFrom;
+  String? _derivedKey;
+  late ListDerived _derived;
+
+  ListDerived _derive(Finances data, DateTime now) {
+    final key = '${filter.query}|${filter.onlyReview}|${filter.type}|${filter.accountId}|${filter.categoryId}|${filter.period}|'
+        '${now.year}-${now.month}-${now.day}';
+    if (identical(data, _derivedFrom) && key == _derivedKey) return _derived;
+    _derivedFrom = data;
+    _derivedKey = key;
+    return _derived = deriveList(data, filter, now);
+  }
+
   Future<void> _categorizeSelected(Finances data) async {
     final chosen = data.transactions.where((t) => selected.contains(t.id)).toList();
     final category = await pickCategory(context, data, chosen);
@@ -266,20 +281,12 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final pulso = Pulso.of(context);
     final data = widget.calc.data;
     final now = DateTime.now();
-    final reviewCount = data.transactions.where((t) => reviewIssues(t, data.category(t.categoryId)).isNotEmpty).length;
+    final derived = _derive(data, now);
+    final (:reviewCount, :pairs, :visible, :days, :ordered, :income, :expense) = derived;
     final bankProposals = widget.repository.bankProposals;
     // «Pendiente»: everything that waits for a decision, the movements to review and the cards above them.
-    final pendingCount = reviewCount + bankProposals.length + widget.repository.contributions.length + ownTransferPairs(data).length;
-    final visible = data.transactions.where((t) => filter.matches(t, data, now)).toList();
-    final days = <DateTime, List<Transaction>>{};
-    for (final t in visible) {
-      final local = t.date.toLocal();
-      (days[DateTime(local.year, local.month, local.day)] ??= []).add(t);
-    }
-    final ordered = days.keys.toList()..sort((a, b) => b.compareTo(a));
+    final pendingCount = reviewCount + bankProposals.length + widget.repository.contributions.length + pairs.length;
     final format = DateFormat("EEEE d 'de' MMMM yyyy", 'es');
-    final income = visible.where((t) => t.type.countsAsIncome).fold(0, (s, t) => s + t.amountMinor);
-    final expense = visible.where((t) => t.type.countsAsExpense).fold(0, (s, t) => s + t.amountMinor);
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -331,14 +338,12 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                         subtitle: const Text('Unir los cargos reales con tu aportación periódica'),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ContributionsScreen(repository: widget.repository))))),
-              if (!selecting && ownTransferPairs(data).isNotEmpty)
+              if (!selecting && pairs.isNotEmpty)
                 Card(
                   margin: const EdgeInsets.only(top: 8),
                   child: ListTile(
                     leading: Icon(Icons.swap_horiz, color: pulso.savings),
-                    title: Text(ownTransferPairs(data).length == 1
-                        ? '1 posible traspaso entre tus cuentas'
-                        : '${ownTransferPairs(data).length} posibles traspasos entre tus cuentas'),
+                    title: Text(pairs.length == 1 ? '1 posible traspaso entre tus cuentas' : '${pairs.length} posibles traspasos entre tus cuentas'),
                     subtitle: const Text('Un cargo y un abono del mismo importe'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => _showPairs(data),
@@ -439,4 +444,33 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       ]),
     );
   }
+}
+
+typedef ListDerived = ({
+  int reviewCount,
+  List<OwnTransferPair> pairs,
+  List<Transaction> visible,
+  Map<DateTime, List<Transaction>> days,
+  List<DateTime> ordered,
+  int income,
+  int expense,
+});
+
+/// Everything «Movimientos» computes over the whole history, in one pass per change of data or filter.
+ListDerived deriveList(Finances data, MovementFilter filter, DateTime now) {
+  final visible = data.transactions.where((t) => filter.matches(t, data, now)).toList();
+  final days = <DateTime, List<Transaction>>{};
+  for (final t in visible) {
+    final local = t.date.toLocal();
+    (days[DateTime(local.year, local.month, local.day)] ??= []).add(t);
+  }
+  return (
+    reviewCount: data.transactions.where((t) => reviewIssues(t, data.category(t.categoryId)).isNotEmpty).length,
+    pairs: ownTransferPairs(data),
+    visible: visible,
+    days: days,
+    ordered: days.keys.toList()..sort((a, b) => b.compareTo(a)),
+    income: visible.where((t) => t.type.countsAsIncome).fold(0, (s, t) => s + t.amountMinor),
+    expense: visible.where((t) => t.type.countsAsExpense).fold(0, (s, t) => s + t.amountMinor),
+  );
 }
