@@ -24,6 +24,24 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.zenmilenario.doblon.links</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>mibombomoney-bank</string>
+				<string>mibombomoney-cloud</string>
+			</array>
+		</dict>
+	</array>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Doblón usa Face ID para desbloquear tus finanzas en este dispositivo.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

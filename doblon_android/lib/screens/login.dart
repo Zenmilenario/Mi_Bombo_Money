@@ -7,6 +7,10 @@ import '../theme.dart';
 
 /// Sign-in with the same Doblón account as on the iPhone. No financial data before signing in:
 /// only the brand and a daily curiosity.
+/// Where the confirmation e-mail returns: the same exact address the iPhone uses, already allowed in
+/// Supabase (CloudBackend/project.json). Android opens Doblón with it and the session starts there.
+const authRedirect = 'mibombomoney-cloud://auth';
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
   @override
@@ -47,9 +51,9 @@ class _LoginScreenState extends State<LoginScreen> {
     final auth = Supabase.instance.client.auth;
     try {
       if (_creating) {
-        final response = await auth.signUp(email: email, password: password);
+        final response = await auth.signUp(email: email, password: password, emailRedirectTo: authRedirect);
         if (response.session == null && mounted) {
-          setState(() => _message = 'Te hemos enviado un correo. Confirma tu cuenta y vuelve aquí para entrar.');
+          setState(() => _message = 'Te hemos enviado un correo. Ábrelo en este móvil y pulsa el enlace: Doblón se abrirá y entrarás directamente.');
         }
       } else {
         await auth.signInWithPassword(email: email, password: password);

@@ -64,6 +64,12 @@ struct LearningShareCheck {
             let expected = try document(item["expected"])
             precondition(stamped == expected, "Dating: \(item["name"] ?? "")")
         }
+        for case let item as [String: Any] in root["metricsSummaries"] as? [Any] ?? [] {
+            let entries = try JSONDecoder().decode([String: SharedLearning.MetricsEntry].self,
+                from: JSONSerialization.data(withJSONObject: item["metrics"] ?? [:]))
+            precondition(SharedLearning.MetricsSummary(entries.values).csv == item["csv"] as! String,
+                "Metrics: \(item["name"] ?? "")")
+        }
         print("Lo aprendido compartido coincide con Android")
     }
 }

@@ -7,7 +7,6 @@ import 'package:doblon/models.dart';
 import 'package:doblon/screens/accounts.dart';
 import 'package:doblon/screens/budgets.dart';
 import 'package:doblon/screens/home.dart';
-import 'package:doblon/screens/learning.dart';
 import 'package:doblon/screens/manage.dart';
 import 'package:doblon/screens/tools.dart';
 import 'package:doblon/screens/transaction_detail.dart';
@@ -67,9 +66,9 @@ void main() {
     final data = sample();
     await tester.pumpWidget(app(Scaffold(body: TransactionsScreen(calc: FinanceCalculator(data), repository: repositoryWith(data)))));
     await tester.pumpAndSettle();
-    expect(find.text('Por revisar · 1'), findsOneWidget, reason: 'The movement without category');
+    expect(find.text('Pendiente · 1'), findsOneWidget, reason: 'The movement without category');
     expect(find.text('Cena ficticia'), findsOneWidget);
-    await tester.tap(find.text('Por revisar · 1'));
+    await tester.tap(find.text('Pendiente · 1'));
     await tester.pumpAndSettle();
     expect(find.text('Cena ficticia'), findsNothing);
     expect(find.text('Gasolinera ficticia'), findsOneWidget);
@@ -173,11 +172,6 @@ void main() {
           PendingMovement(id: 'p1', date: '2026-11-09', signedAmountMinor: -2500, currency: 'EUR', description: 'Gasolinera retenida', status: 'HOLD'),
         ]),
       };
-    await tester.pumpWidget(app(LearningScreen(repository: repository)));
-    await tester.pumpAndSettle();
-    expect(find.text('Aprende de lo que confirmas'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Aplicar correcciones aprendidas'), 200, scrollable: find.byType(Scrollable).first);
-
     await tester.pumpWidget(app(TransactionDetailScreen(repository: repository, transactionId: 'b1')));
     await tester.pumpAndSettle();
     expect(find.text('Usar propuesta de IA: Supermercado'), findsOneWidget);

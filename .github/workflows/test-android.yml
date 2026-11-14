@@ -78,3 +78,34 @@ jobs:
           path: build/android/*.apk
           if-no-files-found: error
           retention-days: 30
+
+  ios:
+    name: Compilar Doblón (Flutter) para iPhone
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: doblon_android
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Comprobar la parte nativa de iOS
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The app returns from the sign-in e-mail and from the bank through these links; Face ID needs its text.
+          PLIST=ios/Runner/Info.plist
+          plutil -lint "$PLIST"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes" "$PLIST" | grep -q 'mibombomoney-bank'
+          /usr/libexec/PlistBuddy -c "Print :CFBundleURLTypes:0:CFBundleURLSchemes" "$PLIST" | grep -q 'mibombomoney-cloud'
+          /usr/libexec/PlistBuddy -c "Print :NSFaceIDUsageDescription" "$PLIST" | grep -q 'Face ID'
+
+      - run: flutter pub get
+
+      - name: Compilar para iPhone sin firma
+        run: flutter build ios --release --no-codesign

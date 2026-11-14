@@ -217,7 +217,9 @@ export async function normalizeTransaction(t, account, env) {
     currency: account.currency, description,
     counterpartyKey: typeof otherIBAN === 'string' ? (env ? await accountIdentity(otherIBAN.replace(/\s/g, '').toUpperCase(), env)
       : await sha256(otherIBAN.replace(/\s/g, '').toUpperCase())) : undefined,
-    transferKey: typeof pairReference === 'string' && pairReference && pairReference !== 'NOTPROVIDED' ? await sha256(pairReference) : undefined };
+    transferKey: typeof pairReference === 'string' && pairReference && pairReference !== 'NOTPROVIDED' ? await sha256(pairReference) : undefined,
+    // ISO 18245 type of shop of a card payment, when the bank sends it (checked before using it to categorise).
+    merchantCategoryCode: typeof t.merchant_category_code === 'string' && /^\d{4}$/.test(t.merchant_category_code) ? t.merchant_category_code : undefined };
 }
 async function pendingTransaction(t, account) {
   if (!['PDNG', 'HOLD'].includes(t?.status) || t.transaction_amount?.currency !== account.currency) return null;
@@ -271,6 +273,9 @@ export async function accountData(conn, account, from, to, continuation, env, tr
     // Entries with another status (cancelled, rejected, informative, none…) are not imported. Count them so the
     // app can say "the bank sent N entries with status X": only the status and a count, never the entry itself.
     const ignoredStatuses = includePending ? countIgnoredStatuses(transactionResponse.transactions) : undefined;
+    // Only counts: whether this bank sends the type of shop (MCC) at all, to decide if the apps should use it.
+    console.log(JSON.stringify({ event: 'banking_mcc', bank: conn.bank, booked: transactions.length,
+      withCode: transactions.filter(t => t.merchantCategoryCode).length }));
     if (ignoredStatuses && Object.keys(ignoredStatuses).length) {
       console.log(JSON.stringify({ event: 'banking_ignored_statuses', statuses: ignoredStatuses }));
     }

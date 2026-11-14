@@ -584,7 +584,8 @@ private struct CSVCategoryCorrection {
 private struct CSVCategoryCorrectionView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
-    @State private var learnedCategoryID: UUID?
+    @State private var learnedProposal: TransactionLearning.Proposal?
+    private var learnedCategoryID: UUID? { learnedProposal?.categoryID }
     let row: ImportPreviewRow
     let categories: [FinanceCategory]
     let otherCorrections: [CSVCategoryCorrection]
@@ -673,9 +674,9 @@ private struct CSVCategoryCorrectionView: View {
                 }
             }
             .task {
-                let prediction = await TransactionLearning.suggest(row.draft.description,
+                let prediction = await TransactionLearning.proposal(row.draft.description,
                     type: row.draft.type, categories: compatibleCategories, in: modelContext)
-                if !Task.isCancelled { learnedCategoryID = prediction }
+                if !Task.isCancelled { learnedProposal = prediction }
             }
             .navigationTitle("Elegir categoría")
             .navigationBarTitleDisplayMode(.inline)
@@ -686,6 +687,10 @@ private struct CSVCategoryCorrectionView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Aplicar") {
                         guard let categoryID else { return }
+                        if let chosen = compatibleCategories.first(where: { $0.id == categoryID }) {
+                            TransactionLearning.recordOutcome(proposal: learnedProposal, chosen: chosen,
+                                categories: compatibleCategories, in: modelContext)
+                        }
                         onApply(CSVCategoryCorrection(
                             categoryID: categoryID,
                             rulePhrase: rememberRule ? phrase.trimmingCharacters(in: .whitespacesAndNewlines) : nil

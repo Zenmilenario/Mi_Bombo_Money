@@ -36,7 +36,9 @@ Una entrada solo se aplica si su firma coincide con el estado actual del movimie
   "terms": {"<idCuenta>|<validFromMs>": {"account": "<idCuenta>", "savebackPercent": 1, "roundUpMultiplier": 1, "validFrom": 0, "at": 0}},
   "corrections": {"<idMovimiento>": {"example": {"input": {}, "action": {}}, "signature": "<identity>", "prior": {"example": {}, "signature": ""}, "at": 0}},
   "reviewed": {"<idMovimiento>": 0},
-  "automatic": {"<idMovimiento>": {"before": {}, "after": {}, "signature": "<identity>", "fingerprint": "", "validated": 3, "at": 0}}
+  "automatic": {"<idMovimiento>": {"before": {}, "after": {}, "signature": "<identity>", "fingerprint": "", "validated": 3, "at": 0}},
+  "metrics": {"<idDispositivo>": {"accepted": {"model": 0, "brand": 0}, "corrected": {"model": 0, "brand": 0}, "manual": 0,
+                                  "categories": {"<nombreCategoría>": {"accepted": 0, "corrected": 0}}, "at": 0}}
 }
 ```
 
@@ -44,11 +46,17 @@ Una entrada solo se aplica si su firma coincide con el estado actual del movimie
 - **`action`:** `{type, destinationID, categoryID}`.
 - **Borrados:** una entrada con `signature` nula (o, en `automatic`, solo con `at`) es un borrado y se conserva para que el borrado llegue a los demás dispositivos.
 
+- **`metrics`** (desde el 12/11/2026): cuánto acierta la propuesta de categoría, contado por cada dispositivo en su propia entrada.
+  - `accepted`: la persona aplicó la propuesta. `corrected`: había propuesta y eligió otra categoría. Las dos se separan según la propuesta venga del modelo (`model`) o del catálogo de marcas (`brand`).
+  - `manual`: eligió categoría sin que hubiera propuesta.
+  - `categories`: aceptadas y corregidas por la categoría propuesta.
+  - Solo contadores: ni conceptos ni importes.
+
 ## Combinación
 
 Las reglas son las mismas en las dos apps y se comprueban con `Tests/Fixtures/shared_learning_cases.json`:
 
-- **Entradas** (`categories`, `operations`, `terms`, `corrections`, `automatic`): por clave gana la de `at` mayor. Si coinciden, gana la de la nube.
+- **Entradas** (`categories`, `operations`, `terms`, `corrections`, `automatic`, `metrics`): por clave gana la de `at` mayor. Si coinciden, gana la de la nube.
 - **`reviewed`:** unión; si una clave aparece en las dos, se queda la fecha menor.
 - **`since` y `enabledAt`:** el menor de los presentes.
 - **`automation`:** la de `at` mayor. Si coinciden, gana la de la nube. El valor por defecto (activado, sin cambiar nunca) lleva `at` 0.

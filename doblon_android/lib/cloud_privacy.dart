@@ -81,6 +81,14 @@ class CloudPrivacy {
   final SupabaseClient client;
   final FlutterSecureStorage storage;
   static final Map<String, CloudPrivacy> sessions = {};
+
+  /// After signing out no unlocked key remains in memory.
+  static void forgetAll() {
+    for (final session in sessions.values) {
+      session.cipher = null;
+    }
+    sessions.clear();
+  }
   static const warning =
       'Guarda este código en tu gestor de contraseñas. No lo compartas. Si pierdes el código y todos tus dispositivos conectados, no podremos recuperar tus datos. Restablecer la contraseña de acceso no recupera este código.';
   late final String _identity = client.auth.currentUser!.id;

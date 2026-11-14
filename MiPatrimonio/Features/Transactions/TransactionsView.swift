@@ -110,6 +110,7 @@ struct TransactionsView: View {
     @State private var highlightedHolds = false
     @State private var highlightedID: UUID?
     @State private var showingBankReview = false
+    @State private var showingProposals = false
     @Query(sort: \FinancialTransaction.date, order: .reverse) private var transactions: [FinancialTransaction]
     @Query(sort: \FinancialAccount.sortOrder) private var accounts: [FinancialAccount]
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
@@ -382,6 +383,7 @@ struct TransactionsView: View {
                     selectedTransaction = nil
                 })
             }
+            .sheet(isPresented: $showingProposals) { ReviewProposalsView() }
             .sheet(item: $categorySelection) { selection in
                 BulkCategoryView(transactionIDs: selection.transactionIDs) {
                     selectedIDs.removeAll(); isSelecting = false
@@ -479,6 +481,19 @@ struct TransactionsView: View {
                 reviewSummary
                     .listRowInsets(EdgeInsets())
                     .listRowBackground(Color.clear)
+            }
+
+            if showOnlyReview, reviewCount > 0, !isSelecting {
+                Section {
+                    Button { showingProposals = true } label: {
+                        Label {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Aplicar las propuestas de la IA").foregroundStyle(.primary)
+                                Text("Revisa y categoriza varios movimientos de una vez").font(.caption).foregroundStyle(.secondary)
+                            }
+                        } icon: { Image(systemName: "sparkles").foregroundStyle(AppDesign.accent) }
+                    }
+                }
             }
 
             if activeFilterCount > 0 {
@@ -1410,7 +1425,8 @@ private struct TransactionReviewActions: View {
     @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
     @Query private var rules: [CategoryRule]
     @State private var rememberChoice = false
-    @State private var learnedCategoryID: UUID?
+    @State private var learnedProposal: TransactionLearning.Proposal?
+    private var learnedCategoryID: UUID? { learnedProposal?.categoryID }
     @State private var rulePhrase = ""
     @State private var errorMessage: String?
     @State private var transferPartner: FinancialTransaction?
@@ -1444,18 +1460,18 @@ private struct TransactionReviewActions: View {
         }
         .onAppear { if rulePhrase.isEmpty { rulePhrase = transaction.displayDescription } }
         .onReceive(NotificationCenter.default.publisher(for: TransactionOperationLearning.didChange)) { _ in
-            learnedCategoryID = nil
+            learnedProposal = nil
             operationReviewRevision += 1
         }
         .task(id: "\(transaction.updatedAt.timeIntervalSince1970)|\(operationReviewRevision)") {
-            learnedCategoryID = nil
+            learnedProposal = nil
             guard needsCategory, suggestedRule == nil, !transaction.hasBankTransferConcept else { return }
             if TransactionOperationLearning.supports(transaction),
                let operation = try? await TransactionOperationLearning.review(transaction, in: modelContext),
                let kind = operation.confirmed ?? operation.prediction?.kind, kind != .ordinary { return }
-            let prediction = await TransactionLearning.suggest(transaction.displayDescription,
+            let prediction = await TransactionLearning.proposal(transaction.displayDescription,
                 type: transaction.type, categories: allowedCategories, in: modelContext)
-            if !Task.isCancelled { learnedCategoryID = prediction }
+            if !Task.isCancelled { learnedProposal = prediction }
         }
         .alert("No se pudo guardar la revisión", isPresented: Binding(isPresent: $errorMessage)) {
             Button("Aceptar", role: .cancel) { errorMessage = nil }
@@ -1592,6 +1608,10 @@ private struct TransactionReviewActions: View {
             try CategoryRuleService.classify(transactions: [transaction], category: category,
                 remembering: rememberChoice && !usingExistingRule ? rulePhrase : nil,
                 existingRules: rules, in: modelContext)
+            if suggestedRule == nil {
+                TransactionLearning.recordOutcome(proposal: learnedProposal, chosen: category,
+                    categories: allowedCategories, in: modelContext)
+            }
             TransactionLearning.confirm([transaction], in: modelContext)
         } catch { errorMessage = error.localizedDescription }
     }
@@ -2430,7 +2450,8 @@ struct TransactionFormView: View {
     @State private var rememberCategoryRule = false
     @State private var rulePhrase = ""
     @State private var categoryChosenManually = false
-    @State private var learnedCategoryID: UUID?
+    @State private var learnedProposal: TransactionLearning.Proposal?
+    private var learnedCategoryID: UUID? { learnedProposal?.categoryID }
     @State private var validationMessage: String?
     @FocusState private var descriptionIsFocused: Bool
 
@@ -2742,14 +2763,14 @@ struct TransactionFormView: View {
     }
 
     private func updateLearningSuggestion() async {
-        learnedCategoryID = nil
+        learnedProposal = nil
         guard transaction == nil, type != .transfer,
               !categoryChosenManually, matchedCategoryRule == nil else { return }
         try? await Task.sleep(for: .milliseconds(350))
         guard !Task.isCancelled else { return }
-        let prediction = await TransactionLearning.suggest(descriptionText, type: type,
+        let prediction = await TransactionLearning.proposal(descriptionText, type: type,
             categories: allowedCategories, in: modelContext)
-        if !Task.isCancelled { learnedCategoryID = prediction }
+        if !Task.isCancelled { learnedProposal = prediction }
     }
 
     @ViewBuilder
@@ -2975,6 +2996,10 @@ struct TransactionFormView: View {
             let recordedFeedback = try TransactionOperationLearning.rememberEdit(correctionSnapshot, after: savedTransaction,
                 explicitlyReviewed: confirmedCategory, in: modelContext)
             try modelContext.save()
+            if transaction == nil, type != .transfer, matchedCategoryRule == nil, categoryChosenManually, let category {
+                TransactionLearning.recordOutcome(proposal: learnedProposal, chosen: category,
+                    categories: allowedCategories, in: modelContext)
+            }
             if confirmedCategory { TransactionLearning.confirm([savedTransaction], in: modelContext, recordCorrection: false) }
             if recordedFeedback { TransactionOperationLearning.feedbackDidSave(in: modelContext) }
             dismiss()
@@ -2982,5 +3007,113 @@ struct TransactionFormView: View {
             modelContext.rollback()
             validationMessage = error.localizedDescription
         }
+    }
+}
+
+/// «Por revisar» → Aplicar las propuestas de la IA: the same conditions as the button of each review card (no rule
+/// decides it, not a bank transfer, not an investment operation). Each applied one teaches the IA and counts as accepted.
+private struct ReviewProposalsView: View {
+    private struct Item: Identifiable {
+        let transaction: FinancialTransaction
+        let proposal: TransactionLearning.Proposal
+        let category: FinanceCategory
+        var id: UUID { transaction.id }
+    }
+
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @Query private var transactions: [FinancialTransaction]
+    @Query(sort: \FinanceCategory.sortOrder) private var categories: [FinanceCategory]
+    @Query private var rules: [CategoryRule]
+    @State private var items: [Item]?
+    @State private var selected = Set<UUID>()
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let items, items.isEmpty {
+                    ContentUnavailableView("Sin propuestas", systemImage: "sparkles",
+                        description: Text("La IA no tiene propuestas para lo que está por revisar."))
+                } else if let items {
+                    List {
+                        Section {
+                            ForEach(items) { item in
+                                Button {
+                                    if selected.contains(item.id) { selected.remove(item.id) } else { selected.insert(item.id) }
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        Image(systemName: selected.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                                            .foregroundStyle(selected.contains(item.id) ? AppDesign.accent : .secondary)
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(item.transaction.displayDescription).lineLimit(1)
+                                            Text(item.category.name + (item.proposal.fromBrand ? " · por la marca" : ""))
+                                                .font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityAddTraits(selected.contains(item.id) ? .isSelected : [])
+                            }
+                        } footer: {
+                            Text("Revisa la lista y quita lo que no quieras. Al aplicarlas, la IA aprende de cada una.")
+                        }
+                    }
+                } else {
+                    ProgressView()
+                }
+            }
+            .navigationTitle("Propuestas de la IA")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancelar") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Aplicar \(selected.count)") { apply() }.disabled(selected.isEmpty)
+                }
+            }
+            .task { await load() }
+            .alert("No se pudo guardar la categoría", isPresented: Binding(isPresent: $errorMessage)) {
+                Button("Aceptar", role: .cancel) { errorMessage = nil }
+            } message: { Text(errorMessage ?? "") }
+        }
+    }
+
+    private func load() async {
+        var found: [Item] = []
+        for transaction in transactions {
+            let issues = TransactionReviewService.issues(for: transaction)
+            guard issues.contains(.missingCategory) || issues.contains(.incompatibleCategory),
+                  !transaction.hasBankTransferConcept,
+                  CategoryRuleService.match(description: transaction.descriptionText, type: transaction.type, rules: rules) == nil
+            else { continue }
+            if TransactionOperationLearning.supports(transaction),
+               let operation = try? await TransactionOperationLearning.review(transaction, in: modelContext),
+               let kind = operation.confirmed ?? operation.prediction?.kind, kind != .ordinary { continue }
+            let allowed = categories.filter { CategoryRuleService.supports($0, for: transaction.type) }
+            guard let proposal = await TransactionLearning.proposal(transaction.displayDescription,
+                      type: transaction.type, categories: allowed, in: modelContext),
+                  let category = allowed.first(where: { $0.id == proposal.categoryID }) else { continue }
+            found.append(Item(transaction: transaction, proposal: proposal, category: category))
+        }
+        guard !Task.isCancelled else { return }
+        items = found
+        selected = Set(found.map(\.id))
+    }
+
+    private func apply() {
+        let chosen = (items ?? []).filter { selected.contains($0.id) }
+        do {
+            for group in Dictionary(grouping: chosen, by: { $0.category.id }).values {
+                try CategoryRuleService.classify(transactions: group.map(\.transaction), category: group[0].category,
+                    remembering: nil, existingRules: rules, in: modelContext)
+            }
+            for item in chosen {
+                TransactionLearning.recordOutcome(proposal: item.proposal, chosen: item.category,
+                    categories: categories, in: modelContext)
+            }
+            TransactionLearning.confirm(chosen.map(\.transaction), in: modelContext)
+            dismiss()
+        } catch { errorMessage = error.localizedDescription }
     }
 }

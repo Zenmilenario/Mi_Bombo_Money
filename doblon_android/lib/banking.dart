@@ -323,6 +323,25 @@ class ImportResult {
       ].join(' · ');
 }
 
+/// The bank accounts created on their own, for `importFeeds`' `accountChoices`: only when the person has no account
+/// of their own that could be one of them (current, savings or other in euros, not linked to a bank), so nothing is
+/// guessed. An account already linked, or archived after being linked, is never created again.
+Map<String, String> automaticAccountChoices(Map<String, dynamic> document, List<RemoteConnection> connections, {String server = bankingServer}) {
+  final accounts = ((document['accounts'] as List?) ?? const []).whereType<Map>();
+  final hasOwn = accounts.any((a) =>
+      a['isArchived'] != true &&
+      a['bankIdentityKey'] == null &&
+      (a['currencyCode'] ?? 'EUR') == 'EUR' &&
+      const {'checking', 'savings', 'other'}.contains(a['typeRaw']));
+  if (hasOwn) return const {};
+  final known = accounts.map((a) => a['bankIdentityKey']).toSet();
+  return {
+    for (final connection in connections)
+      for (final account in connection.accounts)
+        if (account.currency == 'EUR' && account.id.isNotEmpty && !known.contains(accountIdentity(account.id, server: server))) account.id: 'new',
+  };
+}
+
 /// Seconds since 1 January 2001, the date format of the cloud document.
 num referenceSeconds(DateTime date) => date.toUtc().millisecondsSinceEpoch / 1000 - 978307200;
 
@@ -400,7 +419,18 @@ int? bookedBalance(List<BankBalance> balances) {
       continue;
     }
     if (account == null) {
-      if (accounts.any((a) => '${a['id']}'.toLowerCase() == stableUuid('$identity|account'))) throw BankingError('cloud_conflict');
+      // The account created earlier for this bank account (same stable ID) is linked again instead of failing.
+      final previous = accounts.where((a) => '${a['id']}'.toLowerCase() == stableUuid('$identity|account')).firstOrNull;
+      if (previous != null) {
+        if (previous['isArchived'] == true || previous['bankIdentityKey'] != null || (previous['currencyCode'] ?? 'EUR') != 'EUR') {
+          throw BankingError('cloud_conflict');
+        }
+        previous['bankIdentityKey'] = identity;
+        previous['updatedAt'] = now;
+        account = previous;
+      }
+    }
+    if (account == null) {
       account = {
         'id': stableUuid('$identity|account'),
         'name': '${feed.connection.bank} •••• ${feed.account.lastFour}',

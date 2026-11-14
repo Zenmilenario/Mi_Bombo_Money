@@ -17,6 +17,14 @@ Este IPA debe firmarse durante la instalación con una herramienta compatible, p
 
 El workflow también se ejecuta cuando se publica una etiqueta de Git cuyo nombre empiece por `v`, por ejemplo `v0.2.2`.
 
+## Doblón en Flutter para iPhone (sin firmar)
+
+El workflow **Generar IPA de Doblón (Flutter) sin firmar** compila para iPhone y iPad la misma app que Android (`doblon_android`). Se lanza desde **Actions → Run workflow**, eligiendo la rama, y publica el artefacto `Doblon-Flutter-IPA-...`. Se firma al instalarlo, igual que el IPA de Swift.
+
+Usa el identificador `com.zenmilenario.doblon`, distinto del de la app de Swift, así que se instalan las dos a la vez y se pueden comparar. Cada pull request comprueba además que esta app compila para iPhone.
+
+Preparado el 14 de noviembre de 2026; pendiente de la primera compilación en GitHub Actions y de probarlo en un dispositivo.
+
 ## Opción instalable directamente: IPA firmado
 
 El workflow **Generar IPA firmado** usa un certificado Apple y un perfil de aprovisionamiento guardados como GitHub Actions Secrets. El dispositivo debe estar admitido por el perfil.

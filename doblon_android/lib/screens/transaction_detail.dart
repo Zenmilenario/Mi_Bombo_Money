@@ -141,7 +141,9 @@ class _Detail extends StatelessWidget {
                   OutlinedButton.icon(
                     onPressed: () async {
                       final chosen = await pickCategory(context, data, [t]);
-                      if (chosen != null) await repository.categorize([t], chosen);
+                      if (chosen == null) return;
+                      await recordChoice(repository, t, chosen);
+                      await repository.categorize([t], chosen);
                     },
                     icon: const Icon(Icons.sell_outlined),
                     label: const Text('Elegir categoría'),
@@ -164,7 +166,9 @@ class _Detail extends StatelessWidget {
                   ? null
                   : () async {
                       final chosen = await pickCategory(context, data, [t]);
-                      if (chosen != null) await repository.categorize([t], chosen);
+                      if (chosen == null) return;
+                      await recordChoice(repository, t, chosen);
+                      await repository.categorize([t], chosen);
                     },
             ),
             if (t.notes.isNotEmpty) ListTile(title: const Text('Notas'), subtitle: Text(t.notes)),

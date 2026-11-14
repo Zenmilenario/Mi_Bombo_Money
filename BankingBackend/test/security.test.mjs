@@ -73,6 +73,9 @@ test('bank amounts use exact cents and debit direction; pending or malformed dat
   const actual = await normalizeTransaction(booked, account);
   assert.equal(actual.signedAmountMinor, -1230);
   assert.ok(!actual.id.includes('reference'));
+  assert.equal(actual.merchantCategoryCode, undefined, 'Absent when the bank does not send it');
+  assert.equal((await normalizeTransaction({ ...booked, merchant_category_code: '5411' }, account)).merchantCategoryCode, '5411');
+  assert.equal((await normalizeTransaction({ ...booked, merchant_category_code: '54X1' }, account)).merchantCategoryCode, undefined);
   assert.equal(await normalizeTransaction({ ...booked, status: 'PDNG' }, account), null);
   await assert.rejects(normalizeTransaction({ ...booked, credit_debit_indicator: 'invalid' }, account));
   await assert.rejects(normalizeTransaction({ ...booked, booking_date: '2026-02-30' }, account));

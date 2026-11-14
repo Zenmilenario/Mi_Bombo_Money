@@ -2,14 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../automation.dart';
-import '../contributions.dart';
 import '../bank_activity.dart';
+import '../banking.dart';
 import '../data.dart';
 import '../edits.dart';
 import '../finance.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
+import 'banks.dart' show BankReviewScreen;
+import 'learning.dart' show ReviewProposalsScreen;
 import 'transaction_detail.dart';
 import 'transaction_form.dart';
 import 'widgets.dart';
@@ -246,12 +248,28 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     );
   }
 
+  Future<void> _reviewBank(List<BankProposal> proposals, Finances data) async {
+    final decisions = await Navigator.of(context)
+        .push<Map<String, String>>(MaterialPageRoute(builder: (_) => BankReviewScreen(proposals: proposals, data: data)));
+    if (decisions == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await widget.repository.reviewBankDownloads(decisions);
+      messenger.showSnackBar(const SnackBar(content: Text('Revisión incorporada.')));
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(content: Text(error is BankingError ? error.message : 'No se ha podido guardar la revisión.')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final pulso = Pulso.of(context);
     final data = widget.calc.data;
     final now = DateTime.now();
     final reviewCount = data.transactions.where((t) => reviewIssues(t, data.category(t.categoryId)).isNotEmpty).length;
+    final bankProposals = widget.repository.bankProposals;
+    // «Pendiente»: everything that waits for a decision, the movements to review and the cards above them.
+    final pendingCount = reviewCount + bankProposals.length + widget.repository.contributions.length + ownTransferPairs(data).length;
     final visible = data.transactions.where((t) => filter.matches(t, data, now)).toList();
     final days = <DateTime, List<Transaction>>{};
     for (final t in visible) {
@@ -295,11 +313,21 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   onChanged: (value) => setState(() => filter.query = value.trim()),
                 ),
               if (!selecting) ..._holds(data),
-              if (!selecting && contributionProposals(data, DateTime.now()).isNotEmpty)
+              if (!selecting && bankProposals.isNotEmpty)
+                Card(
+                    child: ListTile(
+                        leading: Icon(Icons.rule, color: pulso.warning),
+                        title: Text(bankProposals.length == 1
+                            ? '1 movimiento del banco que quizá ya tenías'
+                            : '${bankProposals.length} movimientos del banco que quizá ya tenías'),
+                        subtitle: const Text('Elige si es el mismo o uno nuevo'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () => _reviewBank(bankProposals, data))),
+              if (!selecting && widget.repository.contributions.isNotEmpty)
                 Card(
                     child: ListTile(
                         leading: Icon(Icons.savings_outlined, color: pulso.savings),
-                        title: Text('${contributionProposals(data, DateTime.now()).length} aportaciones por conciliar'),
+                        title: Text('${widget.repository.contributions.length} aportaciones por conciliar'),
                         subtitle: const Text('Unir los cargos reales con tu aportación periódica'),
                         trailing: const Icon(Icons.chevron_right),
                         onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ContributionsScreen(repository: widget.repository))))),
@@ -320,11 +348,11 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(children: [
-                  if (reviewCount > 0 || filter.onlyReview)
+                  if (pendingCount > 0 || filter.onlyReview)
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: FilterChip(
-                        label: Text('Por revisar · $reviewCount'),
+                        label: Text('Pendiente · $pendingCount'),
                         selected: filter.onlyReview,
                         selectedColor: pulso.warning.withValues(alpha: 0.2),
                         onSelected: (on) => setState(() => filter.onlyReview = on),
@@ -339,6 +367,23 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   if (filter.period != Period.all) Chip(label: Text(filter.period.title)),
                 ]),
               ),
+              if (filter.onlyReview && !selecting)
+                Card(
+                  margin: const EdgeInsets.only(top: 8),
+                  child: ListTile(
+                    leading: Icon(Icons.auto_awesome, color: pulso.accent),
+                    title: const Text('Aplicar las propuestas de la IA'),
+                    subtitle: const Text('Revisa y categoriza varios movimientos de una vez'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () async {
+                      final applied = await Navigator.of(context)
+                          .push<int>(MaterialPageRoute(builder: (_) => ReviewProposalsScreen(repository: widget.repository)));
+                      if (applied != null && applied > 0 && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$applied movimientos categorizados.')));
+                      }
+                    },
+                  ),
+                ),
               if (filter.isActive || filter.query.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
@@ -351,7 +396,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         if (ordered.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
-            child: Center(child: Text(filter.onlyReview ? 'Nada por revisar.' : 'Sin resultados')),
+            child: Center(child: Text(filter.onlyReview ? (pendingCount > 0 ? 'Ningún movimiento por revisar: lo pendiente está arriba.' : 'Nada pendiente.') : 'Sin resultados')),
           )
         else
           SliverList.builder(

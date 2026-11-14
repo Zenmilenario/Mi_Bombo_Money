@@ -5,7 +5,7 @@ import SwiftUI
 
 private enum SettingsRoute: CaseIterable, Equatable {
     case cloud, banks, cardPayments, categories, rules, recurring, institutions, goals, reserves
-    case backup, csv, credentials, sandbox, privacy, help
+    case backup, csv, aiMetrics, credentials, sandbox, privacy, help
 
     private var details: (String, String, String) {
         switch self {
@@ -20,6 +20,7 @@ private enum SettingsRoute: CaseIterable, Equatable {
         case .reserves: ("Dinero reservado", "También disponible desde Cuentas", "lock.circle")
         case .backup: ("Exportar o restaurar copia", "Guarda todos tus datos o recupera una copia", "externaldrive")
         case .csv: ("Importar movimientos CSV", "Añade un extracto desde Archivos", "square.and.arrow.down")
+        case .aiMetrics: ("Acierto de la IA", "Cuántas propuestas de categoría aceptas", "sparkles")
         case .credentials: ("Usuario y contraseña local", "Desbloqueo en este dispositivo", "person.badge.key")
         case .sandbox: ("Laboratorio bancario", "Sandbox y demostración con datos de prueba", "testtube.2")
         case .privacy: ("Privacidad y protección de datos", "", "hand.raised")
@@ -39,6 +40,7 @@ private enum SettingsRoute: CaseIterable, Equatable {
         case .recurring: aliases = "movimientos recurrentes mensual recibos suscripción"
         case .backup: aliases = "copia seguridad JSON cifrada contraseña recuperar respaldo"
         case .csv: aliases = "importación fichero archivo extracto"
+        case .aiMetrics: aliases = "inteligencia artificial métricas propuestas categorías exportar"
         case .credentials: aliases = "seguridad acceso contraseña usuario local"
         case .sandbox: aliases = "pruebas probar demo desarrollo sandbox"
         case .goals: aliases = "metas ahorro"
@@ -301,10 +303,11 @@ struct SettingsView: View {
     }
 
     @ViewBuilder private var dataSection: some View {
-        if showsAny([.backup, .csv]) {
+        if showsAny([.backup, .csv, .aiMetrics]) {
             Section("Copias e importación") {
                 routeRow(.backup)
                 routeRow(.csv)
+                routeRow(.aiMetrics)
             }
         }
     }
@@ -395,6 +398,7 @@ struct SettingsView: View {
         case .reserves: ReservedFundsView()
         case .backup: BackupView()
         case .csv: CSVImportView()
+        case .aiMetrics: AIMetricsView()
         case .credentials: SecurityCredentialsView()
         case .sandbox: BankConnectionsView(testOnly: true)
         case .privacy: PrivacyInformationView()
@@ -758,5 +762,51 @@ struct CardPaymentSettingsView: View {
         CardPaymentFiler.file(into: modelContext)
         reload()
         NotificationCenter.default.post(name: CardPaymentInbox.didChange, object: nil)
+    }
+}
+
+/// How often the category proposal is accepted on all the person's devices (contract «metrics»). Only counters.
+private struct AIMetricsView: View {
+    @Environment(\.modelContext) private var modelContext
+    @State private var summary = SharedLearning.MetricsSummary([])
+    @State private var csvFile: URL?
+
+    var body: some View {
+        List {
+            Section {
+                LabeledContent("Propuestas aceptadas", value: "\(summary.acceptedTotal)")
+                LabeledContent("Propuestas corregidas", value: "\(summary.proposals - summary.acceptedTotal)")
+                LabeledContent("Elegidas sin propuesta", value: "\(summary.manual)")
+                if summary.proposals > 0 {
+                    LabeledContent("Acierto", value: (Double(summary.acceptedTotal) / Double(summary.proposals))
+                        .formatted(.percent.precision(.fractionLength(0))))
+                }
+            } footer: {
+                Text("Cuenta lo que haces con cada propuesta en todos tus dispositivos. Solo guarda contadores, nunca conceptos ni importes.")
+            }
+            Section("Por origen") {
+                LabeledContent("Modelo", value: "\(summary.accepted["model"] ?? 0) aceptadas · \(summary.corrected["model"] ?? 0) corregidas")
+                LabeledContent("Catálogo de marcas", value: "\(summary.accepted["brand"] ?? 0) aceptadas · \(summary.corrected["brand"] ?? 0) corregidas")
+            }
+            if !summary.categories.isEmpty {
+                Section("Por categoría propuesta") {
+                    ForEach(summary.categories.keys.sorted(), id: \.self) { name in
+                        let count = summary.categories[name]!
+                        LabeledContent(name, value: "\(count.accepted) aceptadas · \(count.corrected) corregidas")
+                    }
+                }
+            }
+            if let csvFile {
+                Section {
+                    ShareLink(item: csvFile) { Label("Exportar CSV", systemImage: "square.and.arrow.up") }
+                }
+            }
+        }
+        .navigationTitle("Acierto de la IA")
+        .onAppear {
+            summary = SharedLearning.MetricsSummary(TransactionLearning.metricsEntries(in: modelContext))
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("acierto-ia.csv")
+            csvFile = (try? Data(summary.csv.utf8).write(to: url, options: .atomic)) != nil ? url : nil
+        }
     }
 }
