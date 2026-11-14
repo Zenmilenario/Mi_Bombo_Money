@@ -496,6 +496,16 @@ class FinanceRepository extends ChangeNotifier {
         _connectionsReadAt = DateTime.now();
       }
       if (!current()) return null;
+      // A person with no account of their own gets the bank's accounts created instead of being asked to link them.
+      final choices = document == null ? const <String, String>{} : automaticAccountChoices(document!, bankConnections);
+      if (choices.isNotEmpty) {
+        await update((document) => importFeeds(document, [
+              for (final connection in bankConnections)
+                for (final account in connection.accounts)
+                  if (choices.containsKey(account.id)) AccountFeed(connection: connection, account: account, balances: [], movements: []),
+            ], DateTime.now(), accountChoices: choices));
+        if (!current()) return null;
+      }
       // Retry saved previews against the latest cloud copy before asking the bank for them again.
       for (final entry in List<Map<String, dynamic>>.from(_bankReviews.values)) {
         if (entry['committed'] == true) continue;

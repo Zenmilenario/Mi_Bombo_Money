@@ -66,9 +66,9 @@ void main() {
     final data = sample();
     await tester.pumpWidget(app(Scaffold(body: TransactionsScreen(calc: FinanceCalculator(data), repository: repositoryWith(data)))));
     await tester.pumpAndSettle();
-    expect(find.text('Por revisar · 1'), findsOneWidget, reason: 'The movement without category');
+    expect(find.text('Pendiente · 1'), findsOneWidget, reason: 'The movement without category');
     expect(find.text('Cena ficticia'), findsOneWidget);
-    await tester.tap(find.text('Por revisar · 1'));
+    await tester.tap(find.text('Pendiente · 1'));
     await tester.pumpAndSettle();
     expect(find.text('Cena ficticia'), findsNothing);
     expect(find.text('Gasolinera ficticia'), findsOneWidget);

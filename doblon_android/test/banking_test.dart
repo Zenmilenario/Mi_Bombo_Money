@@ -152,4 +152,40 @@ void main() {
     expect(() => importFeeds(doc, [received], observed, decisions: {proposal.key: 'manual'}), throwsA(isA<BankingError>()));
     expect(doc['transactions'], isEmpty);
   });
+
+  group('bank accounts created on their own', () {
+    final second = RemoteAccount(id: 'cuenta-ficticia-2', currency: 'EUR', lastFour: '1111');
+    final dollars = RemoteAccount(id: 'cuenta-ficticia-usd', currency: 'USD', lastFour: '2222');
+    final bank = connection('Banco Ficticio', [account, second, dollars]);
+    Map<String, dynamic> own(String type, {bool archived = false}) =>
+        {'id': 'propia-$type', 'name': 'Propia', 'typeRaw': type, 'currencyCode': 'EUR', 'isArchived': archived};
+
+    test('with no account of their own, every bank account in euros is created, and only once', () {
+      final choices = automaticAccountChoices(emptyDocument(), [bank]);
+      expect(choices, {account.id: 'new', second.id: 'new'}, reason: 'The account in dollars is left out');
+      final (doc, result) = importFeeds(emptyDocument(),
+          [for (final a in [account, second]) AccountFeed(connection: bank, account: a, balances: [], movements: [])], observed,
+          accountChoices: choices);
+      expect(result.newAccounts, 2);
+      expect(automaticAccountChoices(doc, [bank]), isEmpty, reason: 'Already linked: nothing is created again');
+    });
+
+    test('cash or a credit card is not an account the bank account could be', () {
+      final doc = emptyDocument()..['accounts'] = [own('cash'), own('creditCard'), own('investment'), own('checking', archived: true)];
+      expect(automaticAccountChoices(doc, [bank]).keys, {account.id, second.id});
+    });
+
+    test('with an account of their own the person is asked, nothing is guessed', () {
+      for (final type in ['checking', 'savings', 'other']) {
+        expect(automaticAccountChoices(emptyDocument()..['accounts'] = [own(type)], [bank]), isEmpty, reason: type);
+      }
+    });
+
+    test('an account archived after being linked is not created again', () {
+      final (doc, _) = importFeeds(emptyDocument(), [AccountFeed(connection: bank, account: account, balances: [], movements: [])], observed,
+          accountChoices: {account.id: 'new'});
+      ((doc['accounts'] as List).single as Map)['isArchived'] = true;
+      expect(automaticAccountChoices(doc, [bank]), {second.id: 'new'});
+    });
+  });
 }
