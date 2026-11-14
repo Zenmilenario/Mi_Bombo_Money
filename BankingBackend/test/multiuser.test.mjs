@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync, readdirSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { authenticate, allowedUsers, mode, seal } from '../src/security.mjs';
-import { newAuthorization, claimAuthorization, saveConnection, connection, listConnections, ownerTag, rateLimit } from '../src/store.mjs';
+import { authenticate, allowedUsers, mode, seal, withStoredGuests } from '../src/security.mjs';
+import { newAuthorization, claimAuthorization, saveConnection, connection, listConnections, ownerTag, rateLimit, removeExpired } from '../src/store.mjs';
 
 /// A D1-shaped wrapper over Node's SQLite, with the real migrations applied.
 function database() {
@@ -165,4 +165,37 @@ test('guest list and pilot credentials tools validate before touching the config
   assert.throws(() => pilotSecrets({ appID: pilot, pem: 'no es una clave' }), error => !error.message.includes('no es una clave'));
   const small = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' });
   assert.throws(() => pilotSecrets({ appID: pilot, pem: small }), /4096/);
+});
+
+test('invited people saved in the database are admitted without a redeploy; an unreadable table admits only the list', async () => {
+  const env = environment(guestA);
+  const { guestStatement } = await import('../tools/guests.mjs');
+  env.DB.raw.exec(guestStatement('add', guestB.toUpperCase(), owner, 1));
+  env.DB.raw.exec(guestStatement('add', guestB, owner, 2));
+  assert.deepEqual(env.DB.raw.prepare('SELECT id FROM guests').all().map(r => r.id), [guestB], 'Lower case and only once');
+  const request = new Request(env.PUBLIC_ORIGIN, { headers: { Authorization: 'Bearer fixture.payload.signature' } });
+  await assert.rejects(authenticate(request, env, async () => Response.json({ id: guestB })), { code: 'owner_required' });
+  const merged = await withStoredGuests(env);
+  assert.deepEqual(allowedUsers(merged), new Set([owner, guestA, guestB]));
+  assert.equal(await authenticate(request, merged, async () => Response.json({ id: guestB })), guestB);
+
+  env.DB.raw.exec(guestStatement('remove', guestB, owner));
+  assert.deepEqual(allowedUsers(await withStoredGuests(env)), new Set([owner, guestA]));
+  env.DB.raw.exec('DROP TABLE guests');
+  assert.deepEqual(allowedUsers(await withStoredGuests(env)), new Set([owner, guestA]), 'Without the table, the owner and the list still work');
+  assert.throws(() => guestStatement('add', "x'); DROP TABLE connections; --", owner), /no es válido/);
+  assert.throws(() => guestStatement('add', owner, owner), /propio usuario/);
+  assert.throws(() => guestStatement('borrar', guestA, owner), /Usa list/);
+});
+
+test('expired rows are removed by the scheduled task, and a request no longer deletes anything', async () => {
+  const env = environment();
+  const past = Math.floor(Date.now() / 1000) - 10;
+  env.DB.raw.prepare('INSERT INTO rate_limits(bucket,count,expires_at) VALUES (?,?,?)').run('old:1', 1, past);
+  env.DB.raw.prepare('INSERT INTO connections(id,mode,encrypted_data,created_at,expires_at) VALUES (?,?,?,?,?)').run('caducada', 'production', 'x', 0, past);
+  await rateLimit(env, 'fixture');
+  assert.equal(env.DB.raw.prepare('SELECT count(*) AS n FROM rate_limits').get().n, 2, 'The request only counts');
+  await removeExpired(env);
+  assert.equal(env.DB.raw.prepare('SELECT count(*) AS n FROM rate_limits').get().n, 1);
+  assert.equal(env.DB.raw.prepare('SELECT count(*) AS n FROM connections').get().n, 0);
 });

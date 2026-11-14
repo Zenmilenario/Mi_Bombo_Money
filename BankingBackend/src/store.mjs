@@ -8,6 +8,11 @@ export async function rateLimit(env, scope, limit = 60) {
     ON CONFLICT(bucket) DO UPDATE SET count=count+1 WHERE count < ? RETURNING count`)
     .bind(bucket, time + 120, limit).first();
   if (!result) throw new Fault(429, 'rate_limited');
+}
+/// Removes what has expired. Run by the scheduled task (`triggers.crons`), not on every request: expired rows are
+/// already ignored by every query, so a late cleanup only makes the tables a little bigger.
+export async function removeExpired(env) {
+  const time = now();
   await env.DB.batch([
     env.DB.prepare('DELETE FROM rate_limits WHERE expires_at < ?').bind(time),
     env.DB.prepare('DELETE FROM auth_requests WHERE expires_at < ?').bind(time),
