@@ -70,6 +70,16 @@ function guestIDs(env) {
   if (ids.some(id => !IDENTITY.test(id))) throw new Fault(503, 'live_banking_disabled');
   return ids;
 }
+/// Adds the invited people saved in D1 (migrations/0004_guests.sql) to `SUPABASE_GUEST_IDS`, once per request.
+/// If the table cannot be read, only the configured list counts: the owner keeps access and nobody else gets in.
+export async function withStoredGuests(env) {
+  if (env.PROVIDER_MODE !== 'production' || !env.DB) return env;
+  let rows;
+  try { rows = (await env.DB.prepare('SELECT id FROM guests').all()).results ?? []; } catch { return env; }
+  const stored = rows.map(row => String(row.id).toLowerCase()).filter(id => IDENTITY.test(id));
+  if (!stored.length) return env;
+  return { ...env, SUPABASE_GUEST_IDS: [String(env.SUPABASE_GUEST_IDS ?? '').trim(), ...stored].filter(Boolean).join(',') };
+}
 export function allowedUsers(env) {
   return new Set([String(env.SUPABASE_OWNER_ID ?? '').toLowerCase(), ...guestIDs(env)]);
 }

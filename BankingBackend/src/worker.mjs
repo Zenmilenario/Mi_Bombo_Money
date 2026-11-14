@@ -1,5 +1,5 @@
-import { Fault, authenticate, origin, mode, readJSON, limitedBytes, UUID, isState, json, securityHeaders, psuHeaders, allowedUsers, providerEnvironment } from './security.mjs';
-import { rateLimit, newAuthorization, claimAuthorization, assertPendingAuthorization, saveConnection, connection, listConnections, ownerTag } from './store.mjs';
+import { Fault, authenticate, origin, mode, readJSON, limitedBytes, UUID, isState, json, securityHeaders, psuHeaders, allowedUsers, providerEnvironment, withStoredGuests } from './security.mjs';
+import { rateLimit, newAuthorization, claimAuthorization, assertPendingAuthorization, saveConnection, connection, listConnections, ownerTag, removeExpired } from './store.mjs';
 import { acceptsBankName, banks, startAuthorization, exchange, demoConnection, accountData, revoke } from './provider.mjs';
 
 function appRedirect(id, result) {
@@ -150,11 +150,12 @@ export async function handle(request, env) {
 }
 export default {
   async fetch(request, env) {
-    try { return await handle(request, env); }
+    try { return await handle(request, await withStoredGuests(env)); }
     catch (error) {
       // Provider diagnostics contain only fixed categories; never log requests, bodies, URLs, tokens or exceptions.
       return json({ error: error instanceof Fault ? error.code : 'service_unavailable' }, error instanceof Fault ? error.status : 503,
         error instanceof Fault && error.code === 'bank_rate_limited' ? { 'Retry-After': String(error.retryAfter ?? 21600) } : {});
     }
-  }
+  },
+  async scheduled(_controller, env) { await removeExpired(env); }
 };

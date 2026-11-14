@@ -561,6 +561,24 @@ class FinanceRepository extends ChangeNotifier {
     }
   }
 
+  /// Deletes the account and all its data (`finance_delete_account`). The bank permissions are revoked first:
+  /// if that fails nothing is deleted, so no bank connection is left behind without its owner.
+  Future<void> deleteAccount() async {
+    final token = _client.auth.currentSession?.accessToken;
+    if (token == null) throw BankingError('unauthorized');
+    final api = BankingClient(token);
+    try {
+      for (final connection in await api.connections()) {
+        await api.disconnect(connection.id);
+      }
+    } finally {
+      api.close();
+    }
+    await _client.rpc('finance_delete_account', params: {'confirmation': 'ELIMINAR'});
+    await signOut();
+    await _client.auth.signOut();
+  }
+
   Future<void> signOut() async {
     _generation++;
     CloudPrivacy.forgetAll();

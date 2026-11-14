@@ -88,6 +88,26 @@ class CloudStorageTests(unittest.TestCase):
                 for role, privilege in [('anon','SELECT'),('anon','INSERT'),('anon','UPDATE'),('anon','DELETE'),('authenticated','DELETE'),('authenticated','TRUNCATE')]:
                     self.assertFalse(self.db.execute('SELECT has_table_privilege(%s,%s,%s)', (role,table,privilege)).fetchone()[0])
 
+    def remaining(self, owner):
+        self.as_user(None, 'postgres')
+        counts = {name: self.db.execute(sql.SQL('SELECT count(*) FROM public.{} WHERE owner_id=%s').format(
+            sql.Identifier('finance_' + name)), (owner,)).fetchone()[0] for name in TABLES}
+        counts['users'] = self.db.execute('SELECT count(*) FROM auth.users WHERE id=%s', (owner,)).fetchone()[0]
+        return counts
+
+    def test_delete_account_removes_only_the_caller_and_everything_they_own(self):
+        self.db.execute("SELECT public.finance_delete_account('ELIMINAR')")
+        self.assertEqual(set(self.remaining(A).values()), {0})
+        self.assertNotIn(0, self.remaining(B).values(), 'The other person keeps everything')
+
+    def test_delete_account_needs_the_confirmation_word_and_a_session(self):
+        self.expect_sqlstate('22023', lambda: self.db.execute("SELECT public.finance_delete_account('eliminar')"))
+        self.assertNotIn(0, self.remaining(A).values())
+        self.as_user(None)
+        self.expect_sqlstate('42501', lambda: self.db.execute("SELECT public.finance_delete_account('ELIMINAR')"))
+        self.as_user(None, 'anon')
+        self.expect_sqlstate('42501', lambda: self.db.execute("SELECT public.finance_delete_account('ELIMINAR')"))
+
     def test_banking_links_are_unique_per_workspace_and_survive_snapshot_roundtrip(self):
         key = 'enable:' + 'a' * 64
         self.db.execute('UPDATE public.finance_accounts SET bank_identity_key=%s WHERE id=%s', (key, self.ids[A]['accounts']))

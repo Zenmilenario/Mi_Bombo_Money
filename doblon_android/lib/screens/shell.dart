@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../automation.dart';
 import '../bank_activity.dart' show bankHolds;
+import '../banking.dart' show BankingError;
 import '../data.dart';
 import '../finance.dart';
 import '../preferences.dart';
@@ -239,6 +240,46 @@ class _SettingsPage extends StatelessWidget {
   final FinanceRepository repository;
   final AppPreferences preferences;
 
+  /// Asks to type the word, as the server requires it, and suggests saving a backup first: it cannot be undone.
+  Future<void> _deleteAccount(BuildContext context) async {
+    final word = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Eliminar mi cuenta'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('Se desconectan tus bancos y se borran tu cuenta y todos tus datos de la nube. No se puede deshacer. '
+                'Si quieres conservarlos, guarda antes una copia en «Copia de seguridad».'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: word,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Escribe ELIMINAR para confirmar'),
+              onChanged: (_) => setState(() {}),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+            TextButton(
+              onPressed: word.text.trim() == 'ELIMINAR' ? () => Navigator.pop(context, true) : null,
+              child: const Text('Eliminar'),
+            ),
+          ],
+        ),
+      ),
+    );
+    word.dispose();
+    if (confirmed != true || !context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await repository.deleteAccount();
+    } catch (error) {
+      messenger.showSnackBar(SnackBar(
+          content: Text(error is BankingError ? error.message : 'No se ha podido eliminar la cuenta. Comprueba la conexión e inténtalo de nuevo.')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final user = Supabase.instance.client.auth.currentUser;
@@ -353,8 +394,16 @@ class _SettingsPage extends StatelessWidget {
           },
         ),
       ),
+      Card(
+        child: ListTile(
+          leading: Icon(Icons.delete_forever, color: pulso.expense),
+          title: const Text('Eliminar mi cuenta'),
+          subtitle: const Text('Borra tu cuenta y todos tus datos de la nube'),
+          onTap: () => _deleteAccount(context),
+        ),
+      ),
       const SizedBox(height: 8),
-      Center(child: Text('Doblón para Android', style: Theme.of(context).textTheme.bodySmall)),
+      Center(child: Text('Doblón', style: Theme.of(context).textTheme.bodySmall)),
     ]);
   }
 }
