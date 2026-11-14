@@ -1,0 +1,78 @@
+name: Generar IPA de Doblón (Flutter) sin firmar
+
+# La app Flutter para iPhone convive con la de Swift: usa otro identificador y se instalan las dos.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-ios-ipa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compilar Doblón (Flutter) para iPhone
+    runs-on: macos-latest
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: doblon_android
+
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v7
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - run: flutter pub get
+
+      - name: Compilar para dispositivo iOS sin firma
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter build ios --release --no-codesign --build-number "$GITHUB_RUN_NUMBER"
+
+      - name: Crear el archivo IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH=build/ios/iphoneos/Runner.app
+          test -d "$APP_PATH"
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP_PATH/Info.plist")
+          BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP_PATH/Info.plist")
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP_PATH/Info.plist")
+          OUTPUT_DIR="$GITHUB_WORKSPACE/build/flutter-ios"
+          IPA_FILENAME="Doblon-Flutter-${VERSION}-${BUILD}-unsigned.ipa"
+          rm -rf "$OUTPUT_DIR"
+          mkdir -p "$OUTPUT_DIR/Payload"
+          xattr -cr "$APP_PATH" || true
+          ditto "$APP_PATH" "$OUTPUT_DIR/Payload/Runner.app"
+          (
+            cd "$OUTPUT_DIR"
+            ditto -c -k --sequesterRsrc --keepParent Payload "$IPA_FILENAME"
+            unzip -tq "$IPA_FILENAME"
+          )
+          echo "IPA_PATH=$OUTPUT_DIR/$IPA_FILENAME" >> "$GITHUB_ENV"
+          {
+            echo "## IPA de Doblón (Flutter)"
+            echo ""
+            echo "- Archivo: \`$IPA_FILENAME\`"
+            echo "- Versión: \`$VERSION ($BUILD)\`"
+            echo "- Bundle ID: \`$BUNDLE_ID\`"
+            echo ""
+            echo "> Sin firmar: se firma al instalarlo con AltStore o Sideloadly. Se instala junto a la app de Swift, sin sustituirla."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publicar IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: Doblon-Flutter-IPA-${{ github.run_number }}
+          path: ${{ env.IPA_PATH }}
+          if-no-files-found: error
+          retention-days: 30
+          archive: false

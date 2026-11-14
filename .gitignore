@@ -54,3 +54,6 @@ CloudBackend/.local/
 
 # Configuración y secretos independientes para la conexión bancaria personal
 BankingBackend/.personal/
+
+# Carpeta creada por una herramienta local; no forma parte del proyecto
+undefined/
