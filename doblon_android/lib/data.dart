@@ -566,6 +566,12 @@ class FinanceRepository extends ChangeNotifier {
   Future<void> deleteAccount() async {
     final token = _client.auth.currentSession?.accessToken;
     if (token == null) throw BankingError('unauthorized');
+    // The cloud must be able to delete before anything is revoked: without the word it only answers that it exists.
+    try {
+      await _client.rpc('finance_delete_account', params: {'confirmation': ''});
+    } on PostgrestException catch (error) {
+      if (error.code != '22023') rethrow;
+    }
     final api = BankingClient(token);
     try {
       for (final connection in await api.connections()) {

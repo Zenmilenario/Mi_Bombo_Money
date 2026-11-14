@@ -10,8 +10,12 @@ void main() {
   test('the banks are disconnected first, then the account is deleted with the server word', () {
     final source = File('lib/data.dart').readAsStringSync();
     final body = source.substring(source.indexOf('Future<void> deleteAccount()'));
-    final revoke = body.indexOf('api.disconnect('), delete = body.indexOf("rpc('finance_delete_account'");
-    expect(revoke, greaterThan(0));
+    final probe = body.indexOf("rpc('finance_delete_account', params: {'confirmation': ''})");
+    final revoke = body.indexOf('api.disconnect(');
+    final delete = body.indexOf("rpc('finance_delete_account', params: {'confirmation': 'ELIMINAR'})");
+    expect(probe, greaterThan(0));
+    expect(revoke, greaterThan(probe), reason: 'Nothing is revoked unless the cloud can delete');
+    expect(body.substring(probe, revoke), contains("error.code != '22023'"), reason: 'Only the missing-word answer counts as ready');
     expect(delete, greaterThan(revoke), reason: 'If revoking fails, nothing is deleted');
     expect(body.indexOf('signOut()'), greaterThan(delete));
 
