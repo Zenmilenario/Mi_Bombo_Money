@@ -98,11 +98,21 @@ class Account {
 }
 
 class Category {
-  Category({required this.id, required this.name, required this.kind, this.colorHex = '#4D7C8A', this.isArchived = false, this.sortOrder = 0});
+  Category(
+      {required this.id,
+      required this.name,
+      required this.kind,
+      this.colorHex = '#4D7C8A',
+      this.isArchived = false,
+      this.sortOrder = 0,
+      this.systemImage = 'tag'});
   final String id;
   final String name;
   final CategoryKind kind;
   final String colorHex;
+
+  /// The icon the iPhone app gave it, an SF Symbol name (`symbolIcon` draws it).
+  final String systemImage;
   final bool isArchived;
   final int sortOrder;
 
@@ -115,6 +125,7 @@ class Category {
         colorHex: _string(json['colorHex']).isEmpty ? '#4D7C8A' : _string(json['colorHex']),
         isArchived: json['isArchived'] == true,
         sortOrder: _int(json['sortOrder']),
+        systemImage: _string(json['systemImage']).isEmpty ? 'tag' : _string(json['systemImage']),
       );
 }
 

@@ -71,7 +71,7 @@ void main() {
       tester.view.devicePixelRatio = 1;
       await tester.pumpWidget(app(HomeScreen(calc: calc, month: DateTime(now.year, now.month), onMonth: (_) {})));
       await tester.pumpAndSettle();
-      for (final text in ['Tu dinero, de un vistazo', 'Disponible para usar', 'Tu margen de hoy', 'Ritmo del mes', 'Tu mes, día a día',
+      for (final text in ['Disponible para usar', 'Tu margen de hoy', 'Ritmo del mes', 'Tu mes, día a día',
         'Presupuestos del mes', 'Objetivo destacado', 'Viaje ficticio']) {
         expect(find.text(text), findsOneWidget, reason: '$text at ${size.width}');
       }

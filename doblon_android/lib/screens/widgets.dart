@@ -90,13 +90,12 @@ class TransactionTile extends StatelessWidget {
     final accountText = t.type == TransactionType.transfer ? '${source?.name ?? 'Cuenta'} → ${destination?.name ?? 'Cuenta'}' : (source?.name ?? 'Cuenta');
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-      leading: CircleAvatar(
-        backgroundColor: (category == null ? color : colorFromHex(category.colorHex)).withValues(alpha: 0.16),
-        child: Icon(
-          t.type == TransactionType.transfer ? Icons.swap_horiz : (signed > 0 ? Icons.south_west : Icons.north_east),
-          size: 18,
-          color: category == null ? color : colorFromHex(category.colorHex),
-        ),
+      // The category's own icon, as on the iPhone; without category, the direction of the money.
+      leading: RowGlyph(
+        icon: category != null
+            ? symbolIcon(category.systemImage)
+            : (t.type == TransactionType.transfer ? Icons.swap_horiz : (signed > 0 ? Icons.south_west : Icons.north_east)),
+        tint: category == null ? color : colorFromHex(category.colorHex),
       ),
       title: Text(listTitle(t.descriptionText, isBanking: t.isBanking),
           maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -115,6 +114,21 @@ class TransactionTile extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// An icon on a soft square of its colour (Swift `RowGlyph`).
+class RowGlyph extends StatelessWidget {
+  const RowGlyph({super.key, required this.icon, required this.tint});
+  final IconData icon;
+  final Color tint;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(color: tint.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(Pulso.compactRadius)),
+        child: Icon(icon, size: 19, color: tint),
+      );
 }
 
 class BudgetBar extends StatelessWidget {

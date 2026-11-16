@@ -32,7 +32,7 @@ class AccountsScreen extends StatelessWidget {
         onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AccountFormScreen(repository: repository))),
         child: const Icon(Icons.add),
       ),
-      body: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: const EdgeInsets.all(16), children: [
+      body: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: EdgeInsets.fromLTRB(16, 16, 16, 88 + MediaQuery.paddingOf(context).bottom), children: [
         Row(children: [
           Expanded(child: MetricTile(label: 'Patrimonio', value: money(calc.netWorth()), color: pulso.accent)),
           const SizedBox(width: 10),
