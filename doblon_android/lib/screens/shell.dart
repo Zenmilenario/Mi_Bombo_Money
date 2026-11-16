@@ -203,7 +203,15 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
       body = RefreshIndicator(
         onRefresh: _open,
         child: switch (tab) {
-          0 => HomeScreen(calc: calc, month: month, onMonth: setMonth, onAdd: () => setState(() => tab = 2)),
+          0 => HomeScreen(
+              calc: calc,
+              month: month,
+              onMonth: setMonth,
+              onAdd: () => setState(() => tab = 2),
+              // Charges the bank holds and has not booked yet, as on the iPhone's «Disponible tras retenciones».
+              heldMinor: bankHolds(calc.data, repository.bankActivity)
+                  .where((h) => h.movement.signedAmountMinor < 0)
+                  .fold(0, (sum, h) => sum + h.movement.signedAmountMinor)),
           1 => TransactionsScreen(calc: calc, repository: repository),
           2 => AccountsScreen(calc: calc, repository: repository),
           3 => BudgetsScreen(calc: calc, month: month, onMonth: setMonth, repository: repository),
