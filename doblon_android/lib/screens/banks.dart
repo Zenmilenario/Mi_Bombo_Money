@@ -279,7 +279,9 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
                                   onPressed: busy || _archived(account) || widget.repository.linked(account) ? null : () => _associate(connection, account),
                                   child: const Text('Elegir')),
                         ),
-                        if (widget.repository.bankActivity[accountIdentity(account.id)] case final activity?) _Received(account: account, activity: activity),
+                        // What the bank sent, to diagnose a download: an administrator tool (Swift: personal edition only).
+                        if (widget.repository.isAdministrator)
+                          if (widget.repository.bankActivity[accountIdentity(account.id)] case final activity?) _Received(account: account, activity: activity),
                       ],
                       TextButton.icon(
                           onPressed: busy ? null : () => _update(bank: connection.bank),

@@ -397,7 +397,9 @@ class _SettingsPage extends StatelessWidget {
       section('Tus datos', [
         route(Icons.upload_file, 'Importar movimientos CSV', 'Añade un extracto de tu banco', () => CsvImportScreen(repository: repository)),
         route(Icons.save_alt, 'Copia de seguridad', 'Guardar, exportar o restaurar', () => BackupScreen(repository: repository)),
-        route(Icons.insights, 'Acierto de la IA', 'Cuántas propuestas de categoría aceptas', () => AiMetricsScreen(repository: repository)),
+        // The figures of the AI for the TFM: an administrator tool. The counters are still kept for everyone.
+        if (repository.isAdministrator)
+          route(Icons.insights, 'Acierto de la IA', 'Cuántas propuestas de categoría aceptas', () => AiMetricsScreen(repository: repository)),
       ]),
       const SizedBox(height: 16),
       Card(
