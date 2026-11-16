@@ -313,8 +313,22 @@ class CompanionNote {
 }
 
 /// What Don Bigotes points out. Never advice: only facts about the person's own data.
-List<CompanionNote> companionNotes(Finances data, DateTime now, {int pendingBankReview = 0, List<BankHold> holds = const []}) {
+List<CompanionNote> companionNotes(Finances data, DateTime now,
+    {int pendingBankReview = 0, List<BankHold> holds = const [], List<({String bank, int days})> renewals = const []}) {
   final notes = <CompanionNote>[];
+  // A bank permission about to expire: renewing it takes a minute, letting it expire stops the downloads.
+  for (final (:bank, :days) in renewals) {
+    notes.add(CompanionNote(
+        id: 'renew:$bank:${DateTime(now.year, now.month, now.day).add(Duration(days: days)).toIso8601String().substring(0, 10)}',
+        title: days < 0 ? 'El acceso a $bank ha caducado' : 'Renueva el acceso a $bank',
+        detail: days < 0
+            ? 'Ya no llegan sus movimientos. Renuévalo en Mis bancos; los que tienes se conservan.'
+            : days == 0
+                ? 'Caduca hoy. Se renueva en un minuto desde Mis bancos.'
+                : 'Caduca en ${days == 1 ? '1 día' : '$days días'}. Se renueva en un minuto desde Mis bancos.',
+        tab: 4,
+        urgent: days <= 2));
+  }
   if (pendingBankReview > 0) {
     notes.add(CompanionNote(
         id: 'bankReview', title: 'Descarga del banco por revisar', detail: '$pendingBankReview movimientos esperan tu confirmación', tab: 4, urgent: true));

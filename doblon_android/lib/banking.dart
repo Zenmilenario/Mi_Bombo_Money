@@ -318,9 +318,39 @@ class ImportResult {
         if (proposals.isNotEmpty) proposals.length == 1 ? '1 por revisar' : '${proposals.length} por revisar',
         if (alreadyImported > 0) '$alreadyImported ya estaban',
         if (newAccounts > 0) newAccounts == 1 ? '1 cuenta añadida' : '$newAccounts cuentas añadidas',
-        if (skippedAccounts > 0) '$skippedAccounts en otra moneda sin incorporar',
-        if (unlinkedAccounts > 0) '$unlinkedAccounts cuentas sin asociar',
+        if (skippedAccounts > 0) skippedAccounts == 1 ? '1 cuenta en otra moneda que no se importa' : '$skippedAccounts cuentas en otra moneda que no se importan',
+        if (unlinkedAccounts > 0) unlinkedAccounts == 1 ? '1 cuenta por elegir dónde guardar' : '$unlinkedAccounts cuentas por elegir dónde guardar',
       ].join(' · ');
+}
+
+/// The bank permission is renewed from this many days before it expires (warning in «Mis bancos» and Don Bigotes).
+const renewWithinDays = 7;
+
+/// Whole days left of a bank permission (0 on its last day, negative once expired), or null if unreadable.
+int? permissionDaysLeft(RemoteConnection connection, DateTime now) {
+  final until = DateTime.tryParse(connection.validUntil)?.toUtc();
+  if (until == null) return null;
+  final today = now.toUtc();
+  return DateTime.utc(until.year, until.month, until.day).difference(DateTime.utc(today.year, today.month, today.day)).inDays;
+}
+
+bool permissionExpiresSoon(RemoteConnection connection, DateTime now) => (permissionDaysLeft(connection, now) ?? renewWithinDays + 1) <= renewWithinDays;
+
+/// The permissions a renewal replaced: an older one of the same bank whose accounts are all in a newer one. Kept,
+/// they would ask the bank twice for the same accounts and use up its daily limit.
+List<RemoteConnection> supersededConnections(List<RemoteConnection> connections) {
+  DateTime? until(RemoteConnection c) => DateTime.tryParse(c.validUntil);
+  return [
+    for (final old in connections)
+      if (old.accounts.isNotEmpty &&
+          until(old) != null &&
+          connections.any((newer) =>
+              !identical(newer, old) &&
+              newer.bank == old.bank &&
+              (until(newer)?.isAfter(until(old)!) ?? false) &&
+              old.accounts.every((a) => newer.accounts.any((b) => b.id == a.id))))
+        old,
+  ];
 }
 
 /// The bank accounts created on their own, for `importFeeds`' `accountChoices`: only when the person has no account

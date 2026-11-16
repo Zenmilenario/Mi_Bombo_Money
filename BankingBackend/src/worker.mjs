@@ -81,6 +81,17 @@ async function demoConsent(request, url, env) {
   await saveConnection(pending.id, demoConnection(pending.bank), env);
   return appRedirect(pending.id, 'ok');
 }
+/// One line per failed request, to diagnose a download that fails: the kind of route, the status and the code.
+/// Never the full path (it carries connection and account IDs), the query, the body, a token or the exception.
+export function logFailure(request, error) {
+  let route = 'unknown';
+  try { route = new URL(request.url).pathname.split('/').slice(0, 3).join('/') || '/'; } catch {}
+  if (!/^[a-z0-9/_-]{0,40}$/.test(route)) route = 'unknown';
+  const fault = error instanceof Fault;
+  console.warn(JSON.stringify({ event: 'banking_request_failure', route, method: request.method,
+    status: fault ? error.status : 503, code: fault ? error.code : 'unexpected' }));
+}
+
 export async function handle(request, env) {
   const url = new URL(request.url);
   if (url.origin !== origin(env) || url.hash || url.username || url.password) throw new Fault(400, 'invalid_host');
@@ -152,6 +163,7 @@ export default {
   async fetch(request, env) {
     try { return await handle(request, await withStoredGuests(env)); }
     catch (error) {
+      logFailure(request, error);
       // Provider diagnostics contain only fixed categories; never log requests, bodies, URLs, tokens or exceptions.
       return json({ error: error instanceof Fault ? error.code : 'service_unavailable' }, error instanceof Fault ? error.status : 503,
         error instanceof Fault && error.code === 'bank_rate_limited' ? { 'Retry-After': String(error.retryAfter ?? 21600) } : {});

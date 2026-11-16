@@ -4,6 +4,24 @@ import { randomBytes, generateKeyPairSync } from 'node:crypto';
 import { authenticate, origin, mode, seal, unseal, sha256, readJSON, now } from '../src/security.mjs';
 import { providerJWT, verifySandbox, amountMinor, normalizeTransaction, accountData } from '../src/provider.mjs';
 
+test('a failed request is logged with its kind of route and code only, never IDs, query or the exception', async () => {
+  const { logFailure } = await import('../src/worker.mjs');
+  const { Fault } = await import('../src/security.mjs');
+  const lines = [];
+  const warn = console.warn;
+  console.warn = line => lines.push(line);
+  try {
+    logFailure(new Request('https://bank-test.personal.workers.dev/v1/connections/conexion-secreta/accounts/cuenta-secreta/transactions?code=secreto&from=2026-01-01', { method: 'GET' }),
+      new Fault(502, 'bank_unavailable'));
+    logFailure(new Request('https://bank-test.personal.workers.dev/v1/callback?code=codigo-del-banco&state=estado'), new Error('IBAN ES00 0000 secreto'));
+  } finally { console.warn = warn; }
+  assert.deepEqual(lines.map(line => JSON.parse(line)), [
+    { event: 'banking_request_failure', route: '/v1/connections', method: 'GET', status: 502, code: 'bank_unavailable' },
+    { event: 'banking_request_failure', route: '/v1/callback', method: 'GET', status: 503, code: 'unexpected' }
+  ]);
+  assert.ok(!lines.join('').match(/secret|codigo|estado|IBAN|cuenta|2026/));
+});
+
 const token = randomBytes(32).toString('hex');
 const env = { PROVIDER_MODE: 'demo', PUBLIC_ORIGIN: 'https://bank-test.personal.workers.dev',
   ACCESS_TOKEN_SHA256: await sha256(token), DATA_ENCRYPTION_KEY: randomBytes(32).toString('base64') };

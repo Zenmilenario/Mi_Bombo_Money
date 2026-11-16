@@ -494,6 +494,13 @@ class FinanceRepository extends ChangeNotifier {
       if (manual || _connectionsReadAt == null || DateTime.now().difference(_connectionsReadAt!) >= const Duration(minutes: 1)) {
         bankConnections = await api.connections();
         _connectionsReadAt = DateTime.now();
+        final replaced = supersededConnections(bankConnections);
+        for (final old in replaced) {
+          try {
+            await api.disconnect(old.id);
+          } catch (_) {/* It expires on its own; tried again on the next reading. */}
+        }
+        if (replaced.isNotEmpty) bankConnections = await api.connections();
       }
       if (!current()) return null;
       // A person with no account of their own gets the bank's accounts created instead of being asked to link them.
