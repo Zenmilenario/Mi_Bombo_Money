@@ -116,6 +116,31 @@ Map<String, int>? reservedBalances(String origin, int funding, List<ReservedEntr
   return balances;
 }
 
+/// The month's spending against its budget (Swift «Ritmo del mes» and «Tu margen de hoy»): what an even pace would
+/// have spent by today, what this pace reaches at the end of the month, and what is left per remaining day.
+class MonthPace {
+  MonthPace({required this.limitMinor, required this.spentMinor, required this.day, required this.daysInMonth});
+  final int limitMinor, spentMinor, day, daysInMonth;
+
+  int get expectedMinor => limitMinor * day ~/ daysInMonth;
+
+  /// Positive when spending is below the even pace.
+  int get differenceMinor => expectedMinor - spentMinor;
+  int get projectionMinor => spentMinor * daysInMonth ~/ (day < 1 ? 1 : day);
+  int get daysLeft => daysInMonth - day + 1;
+  int get dailyMarginMinor => (limitMinor - spentMinor < 0 ? 0 : limitMinor - spentMinor) ~/ daysLeft;
+
+  static MonthPace? of(List<BudgetProgress> budgets, DateTime today) {
+    final limit = budgets.fold(0, (sum, b) => sum + b.limitMinor);
+    if (limit <= 0) return null;
+    return MonthPace(
+        limitMinor: limit,
+        spentMinor: budgets.fold(0, (sum, b) => sum + b.spentMinor),
+        day: today.day,
+        daysInMonth: DateTime(today.year, today.month + 1, 0).day);
+  }
+}
+
 class MonthlySummary {
   MonthlySummary(this.incomeMinor, this.expenseMinor, this.reservedExpenseMinor);
   final int incomeMinor;
@@ -198,6 +223,26 @@ class FinanceCalculator {
       _counted.where((a) => a.type != AccountType.investment && !a.type.isLiability).fold(0, (sum, a) => sum + balance(a) - reservedAmount(a));
 
   int invested() => _counted.where((a) => a.type == AccountType.investment).fold(0, (sum, a) => sum + balance(a));
+
+  /// Money set aside in reserves, across the accounts that count (Swift `reservedCash` on Inicio).
+  int reservedTotal() =>
+      _counted.where((a) => a.type != AccountType.investment && !a.type.isLiability).fold(0, (sum, a) => sum + reservedAmount(a));
+
+  // One calculator per version of the data: what is derived from the whole history can be kept in it.
+  final _dailySpending = <int, Map<int, int>>{};
+
+  /// What was spent each day of the month (day of the month → amount), for «Tu mes, día a día».
+  Map<int, int> dailySpending(DateTime month) => _dailySpending[month.year * 12 + month.month] ??= _spendingByDay(month);
+
+  Map<int, int> _spendingByDay(DateTime month) {
+    final spend = <int, int>{};
+    for (final t in data.transactions) {
+      final local = t.date.toLocal();
+      if (!t.type.countsAsExpense || local.year != month.year || local.month != month.month) continue;
+      spend[local.day] = (spend[local.day] ?? 0) + t.amountMinor.abs();
+    }
+    return spend;
+  }
 
   MonthlySummary monthlySummary(DateTime month) {
     final key = monthKey(month);

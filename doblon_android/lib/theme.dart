@@ -12,8 +12,15 @@ class Pulso extends ThemeExtension<Pulso> {
     required this.savings,
     required this.investment,
     required this.warning,
+    required this.outline,
   });
   final Color page, card, tertiary, accent, income, expense, savings, investment, warning;
+
+  /// The thin border of every card (Swift `AppDesign.cardOutline`).
+  final Color outline;
+
+  /// Radii of the iPhone app: small chips, cards and the main card of Inicio.
+  static const compactRadius = 10.0, cardRadius = 14.0, heroRadius = 20.0;
 
   static const light = Pulso(
     page: Color(0xFFF4F2ED),
@@ -25,6 +32,7 @@ class Pulso extends ThemeExtension<Pulso> {
     savings: Color(0xFF2457A6),
     investment: Color(0xFF6B3FA0),
     warning: Color(0xFF8A5A00),
+    outline: Color.fromARGB(115, 166, 186, 207),
   );
   static const dark = Pulso(
     page: Color(0xFF0D1620),
@@ -36,6 +44,7 @@ class Pulso extends ThemeExtension<Pulso> {
     savings: Color(0xFF8DB8FF),
     investment: Color(0xFFC6A6FF),
     warning: Color(0xFFF5C66B),
+    outline: Color.fromARGB(115, 102, 135, 168),
   );
 
   static Pulso of(BuildContext context) => Theme.of(context).extension<Pulso>()!;
@@ -60,7 +69,12 @@ ThemeData doblonTheme(Brightness brightness) {
     useMaterial3: true,
     colorScheme: scheme,
     scaffoldBackgroundColor: pulso.page,
-    cardTheme: CardThemeData(color: pulso.card, elevation: 0, margin: EdgeInsets.zero, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18))),
+    cardTheme: CardThemeData(
+        color: pulso.card,
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Pulso.cardRadius), side: BorderSide(color: pulso.outline))),
     appBarTheme: AppBarTheme(backgroundColor: pulso.page, surfaceTintColor: Colors.transparent, centerTitle: false),
     navigationBarTheme: NavigationBarThemeData(backgroundColor: pulso.card, indicatorColor: pulso.accent.withValues(alpha: 0.18)),
     extensions: [pulso],
