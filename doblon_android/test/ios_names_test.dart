@@ -13,4 +13,19 @@ void main() {
       expect(RegExp(r'^[A-Za-z0-9 ]+$').hasMatch(value!), isTrue, reason: '$key = $value');
     }
   });
+
+  test('the iPhone app has the identifier of the Swift app, so installing it replaces that app', () {
+    final workflow = File('../.github/workflows/build-ios-ipa.yml').readAsStringSync();
+    final swift = RegExp(r"inputs\.bundle_identifier \|\| '([^']+)'").firstMatch(workflow)!.group(1);
+    final project = File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+    final flutter = RegExp(r'PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);').allMatches(project).map((m) => m.group(1)).toSet();
+    expect(flutter, {swift, '$swift.RunnerTests'});
+  });
+
+  test('the iPhone app shows the dog icon, as the Swift app', () {
+    final icon = File('ios/Runner/Assets.xcassets/AppIcon.appiconset/Doge.png');
+    expect(icon.existsSync(), isTrue);
+    expect(icon.readAsBytesSync(), File('../MiPatrimonio/Resources/Assets.xcassets/AppIcon.appiconset/Doge.png').readAsBytesSync());
+    expect(File('ios/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json').readAsStringSync(), contains('Doge.png'));
+  });
 }
