@@ -28,7 +28,11 @@ class CardPayment {
     try {
       final json = jsonDecode(raw) as Map<String, dynamic>;
       final id = '${json['id']}'.toLowerCase();
-      final date = DateTime.tryParse('${json['date']}');
+      final when = json['date'];
+      // The Swift app (same identifier, same inbox) writes seconds since 1 January 2001; this app writes ISO 8601.
+      final date = when is num
+          ? DateTime.fromMillisecondsSinceEpoch(((when + 978307200) * 1000).round(), isUtc: true)
+          : DateTime.tryParse('$when');
       final amount = (json['amountMinor'] as num?)?.toInt();
       if (!RegExp(r'^[0-9a-f-]{36}$').hasMatch(id) || date == null || amount == null || amount <= 0) return null;
       return CardPayment(id: id, date: date, amountMinor: amount, merchant: '${json['merchant'] ?? ''}'.trim(), card: '${json['card'] ?? ''}'.trim());

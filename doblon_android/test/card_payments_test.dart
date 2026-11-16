@@ -85,5 +85,9 @@ void main() {
     expect(CardPayment.tryParse('{"id":"no-es-un-id","date":"2026-11-14T10:00:00Z","amountMinor":450}'), isNull);
     expect(CardPayment.tryParse('{"id":"$a","date":"2026-11-14T10:00:00Z","amountMinor":0}'), isNull);
     expect(CardPayment.tryParse('roto'), isNull);
+    // A payment left by the Swift app in the same inbox: upper-case id and seconds since 1 January 2001.
+    final fromSwift = CardPayment.tryParse('{"id":"${a.toUpperCase()}","date":784807200,"amountMinor":450,"merchant":"Bar","card":"Visa"}');
+    expect(fromSwift?.id, a);
+    expect(fromSwift?.date, DateTime.utc(2025, 11, 14, 10));
   });
 }
