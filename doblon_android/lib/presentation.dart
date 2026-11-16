@@ -1,5 +1,7 @@
 // How amounts and bank concepts are shown, as in the iPhone app (`TransactionPresentation.swift`).
 // Presentation only: stored texts are never changed.
+import 'package:flutter/widgets.dart' show IconData;
+import 'package:flutter/material.dart' show Icons;
 import 'package:intl/intl.dart';
 
 final _formats = <String, NumberFormat>{};
@@ -9,6 +11,50 @@ final _formats = <String, NumberFormat>{};
 /// `signed` adds "+" to positive amounts.
 /// When true (Ajustes › Ocultar importes), every amount is shown as dots.
 bool amountsHidden = false;
+
+/// The Material icon closest to an SF Symbol of the iPhone app (the category icons it created). Unknown → a tag.
+IconData symbolIcon(String? symbol) {
+  final name = (symbol ?? '').replaceAll('.fill', '').replaceAll('.circle', '');
+  return switch (name) {
+    'airplane' => Icons.flight,
+    'arrow.down' => Icons.south_west,
+    'arrow.left.arrow.right' => Icons.swap_horiz,
+    'arrow.uturn.backward' => Icons.undo,
+    'bag' => Icons.shopping_bag,
+    'banknote' => Icons.payments,
+    'basket' => Icons.shopping_basket,
+    'bolt' => Icons.bolt,
+    'car' => Icons.directions_car,
+    'chart.bar' => Icons.bar_chart,
+    'chart.line.uptrend.xyaxis' => Icons.trending_up,
+    'cross.case' => Icons.medical_services,
+    'ellipsis' => Icons.more_horiz,
+    'eurosign' => Icons.euro,
+    'fork.knife' => Icons.restaurant,
+    'gamecontroller' => Icons.sports_esports,
+    'gift' => Icons.card_giftcard,
+    'graduationcap' => Icons.school,
+    'house' => Icons.home,
+    'pawprint' => Icons.pets,
+    'percent' => Icons.percent,
+    'pills' => Icons.medication,
+    'repeat' => Icons.repeat,
+    'shield' => Icons.shield,
+    'tram' => Icons.tram,
+    'tshirt' => Icons.checkroom,
+    'wifi' => Icons.wifi,
+    'creditcard' => Icons.credit_card,
+    'cart' => Icons.shopping_cart,
+    'heart' => Icons.favorite,
+    'film' => Icons.movie,
+    'book' => Icons.menu_book,
+    'phone' => Icons.phone,
+    'fuelpump' => Icons.local_gas_station,
+    'cup.and.saucer' => Icons.local_cafe,
+    'building.columns' => Icons.account_balance,
+    _ => Icons.sell,
+  };
+}
 
 String money(int minor, {bool signed = false, String currency = 'EUR'}) {
   if (amountsHidden) return '•••••';

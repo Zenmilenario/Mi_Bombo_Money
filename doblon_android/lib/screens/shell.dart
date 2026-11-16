@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -20,6 +21,7 @@ import 'learning.dart' show AiMetricsScreen;
 import 'manage.dart';
 import 'tools.dart';
 import 'transactions.dart';
+import 'widgets.dart' show RowGlyph;
 
 /// The same five tabs as the iPhone app, with Don Bigotes floating at the bottom right.
 class Shell extends StatefulWidget {
@@ -134,48 +136,119 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     ]);
   }
 
+  /// Don Bigotes' notes, as on the iPhone (`CompanionNotesSheet`): his face, a button to update the banks and each
+  /// note with its icon, «Ahora no» and «Ver».
   void _showCompanion(List<CompanionNote> notes) {
+    var refreshing = false;
+    String? refreshed;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
-          Row(children: [
-            ClipOval(child: Image.asset('assets/don_bigotes.png', width: 44, height: 44, fit: BoxFit.cover)),
-            const SizedBox(width: 12),
-            Expanded(
-                child: Text(notes.isEmpty ? 'Todo en orden. Me echo una siesta.' : 'Esto es lo que he visto:',
-                    style: const TextStyle(fontWeight: FontWeight.w700))),
-          ]),
-          const SizedBox(height: 12),
-          for (final note in notes)
-            Card(
-              child: ListTile(
-                title: Text(note.title),
-                subtitle: Text(note.detail),
-                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(context);
-                      setState(() => tab = note.tab);
-                    },
-                    child: const Text('Ver'),
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(builder: (context, setSheet) {
+        final pulso = Pulso.of(context);
+        final hint = Theme.of(context).hintColor;
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.8),
+            child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(20, 0, 20, 20), children: [
+              Row(children: [
+                DonBigotesMark(awake: notes.isNotEmpty || refreshing, size: 52),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(notes.isEmpty ? 'Todo en orden' : 'Lo que he visto', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                    Text(notes.isEmpty ? 'No hay nada pendiente. Vuelvo a mi esquina.' : 'Solo cosas tuyas, nada urgente.', style: TextStyle(color: hint)),
+                  ]),
+                ),
+              ]),
+              const SizedBox(height: 16),
+              if (repository.bankConnections.isNotEmpty) ...[
+                FilledButton.icon(
+                  onPressed: refreshing
+                      ? null
+                      : () async {
+                          setSheet(() {
+                            refreshing = true;
+                            refreshed = null;
+                          });
+                          final result = await repository.synchronizeBanks(manual: true);
+                          if (context.mounted) {
+                            setSheet(() {
+                              refreshing = false;
+                              refreshed = result?.summary;
+                            });
+                          }
+                        },
+                  style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
+                  icon: refreshing
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.refresh),
+                  label: Text(refreshing ? 'Consultando tus bancos…' : 'Actualizar mis bancos'),
+                ),
+                if (refreshed case final text? when text.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(color: pulso.tertiary, borderRadius: BorderRadius.circular(Pulso.compactRadius)),
+                    child: Text(text, style: const TextStyle(fontSize: 13)),
                   ),
-                  IconButton(
-                    tooltip: 'Ocultar',
-                    icon: const Icon(Icons.close),
-                    onPressed: () {
-                      widget.preferences.dismissNote(note.id);
-                      Navigator.pop(context);
-                    },
+                const SizedBox(height: 12),
+              ],
+              for (final note in notes)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(children: [
+                        RowGlyph(icon: _noteIcon(note), tint: note.urgent ? pulso.warning : pulso.accent),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                            Text(note.title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            Text(note.detail, style: TextStyle(fontSize: 12, color: hint)),
+                          ]),
+                        ),
+                        TextButton(
+                          onPressed: () {
+                            widget.preferences.dismissNote(note.id);
+                            Navigator.pop(context);
+                          },
+                          style: TextButton.styleFrom(foregroundColor: hint, padding: const EdgeInsets.symmetric(horizontal: 8)),
+                          child: const Text('Ahora no', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                        ),
+                        FilledButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                            setState(() => tab = note.tab);
+                          },
+                          style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14), minimumSize: const Size(0, 34)),
+                          child: const Text('Ver', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
+                        ),
+                      ]),
+                    ),
                   ),
-                ]),
-              ),
-            ),
-        ]),
-      ),
+                ),
+              Text('Puedes apagarlo en Ajustes › A tu gusto.', style: TextStyle(fontSize: 12, color: hint)),
+            ]),
+          ),
+        );
+      }),
     );
   }
+
+  static IconData _noteIcon(CompanionNote note) => switch (note.id.split(':').first) {
+        'holds' => Icons.hourglass_bottom,
+        'review' => Icons.checklist,
+        'pairs' => Icons.swap_horiz,
+        'renew' => Icons.key,
+        'bankReview' => Icons.move_to_inbox,
+        'recurring' => Icons.event,
+        'stale' => Icons.schedule,
+        'awaiting' => Icons.credit_card,
+        _ => Icons.lightbulb_outline,
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -220,8 +293,12 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
       );
     }
     return Scaffold(
+      // The content scrolls under the translucent tab bar, as on the iPhone app.
+      extendBody: true,
       appBar: AppBar(
-        title: Text(const ['Inicio', 'Movimientos', 'Cuentas', 'Presupuestos', 'Ajustes'][tab], style: const TextStyle(fontWeight: FontWeight.w700)),
+        // Inicio has its greeting instead of a title, as on the iPhone; the tab bar already names the others too,
+        // but their title keeps the place of the screen when scrolling.
+        title: tab == 0 ? null : Text(const ['Inicio', 'Movimientos', 'Cuentas', 'Presupuestos', 'Ajustes'][tab], style: const TextStyle(fontWeight: FontWeight.w700)),
         actions: [
           if (repository.pending.isNotEmpty)
             Tooltip(
@@ -250,23 +327,31 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
           : body,
         ),
         if (widget.preferences.companionEnabled && calc != null)
-          Positioned(
-            right: 16,
-            // Above the add button of Movimientos, Cuentas and Presupuestos.
-            bottom: tab >= 1 && tab <= 3 ? 88 : 16,
-            child: CompanionButton(notes: notes, onTap: () => _showCompanion(notes)),
+          Builder(
+            builder: (context) => Positioned(
+              right: 16,
+              // Above the tab bar, and above the add button of Movimientos, Cuentas and Presupuestos.
+              bottom: MediaQuery.paddingOf(context).bottom + (tab >= 1 && tab <= 3 ? 88 : 16),
+              child: CompanionButton(notes: notes, onTap: () => _showCompanion(notes)),
+            ),
           ),
       ]),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        onDestinationSelected: (index) => setState(() => tab = index),
-        destinations: const [
+      bottomNavigationBar: ClipRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+          child: NavigationBar(
+            backgroundColor: pulso.card.withValues(alpha: 0.72),
+            selectedIndex: tab,
+            onDestinationSelected: (index) => setState(() => tab = index),
+            destinations: const [
           NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Inicio'),
           NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Movimientos'),
           NavigationDestination(icon: Icon(Icons.account_balance_outlined), selectedIcon: Icon(Icons.account_balance), label: 'Cuentas'),
           NavigationDestination(icon: Icon(Icons.pie_chart_outline), selectedIcon: Icon(Icons.pie_chart), label: 'Presupuestos'),
           NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Ajustes'),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -332,7 +417,7 @@ class _SettingsPage extends StatelessWidget {
           Padding(padding: const EdgeInsets.fromLTRB(4, 16, 4, 8), child: Text(title, style: Theme.of(context).textTheme.titleSmall)),
           Card(child: Column(children: children)),
         ]);
-    return ListView(padding: const EdgeInsets.all(16), children: [
+    return ListView(padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.paddingOf(context).bottom), children: [
       section('Cuenta y bancos', [
         ListTile(
           leading: Icon(Icons.cloud_done_outlined, color: pulso.accent),
@@ -375,7 +460,7 @@ class _SettingsPage extends StatelessWidget {
           onChanged: preferences.setHideAmounts,
         ),
         SwitchListTile(
-          secondary: ClipOval(child: Image.asset('assets/don_bigotes.png', width: 28, height: 28, fit: BoxFit.cover)),
+          secondary: const DonBigotesMark(size: 30),
           title: const Text('Don Bigotes'),
           subtitle: const Text('Señala lo que merece tu atención, sin decirte qué hacer'),
           value: preferences.companionEnabled,
@@ -492,11 +577,83 @@ class CompanionButton extends StatelessWidget {
             opacity: awake ? 1 : 0.6,
             child: Transform.rotate(
               angle: awake ? 0 : -0.21,
-              child: ClipOval(child: Image.asset('assets/don_bigotes.png', width: awake ? 48 : 42, height: awake ? 48 : 42, fit: BoxFit.cover)),
+              child: Container(
+                width: 54,
+                height: 54,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: awake ? pulso.card : pulso.tertiary,
+                  shape: BoxShape.circle,
+                  boxShadow: awake ? const [BoxShadow(color: Color(0x33000000), blurRadius: 9, offset: Offset(0, 5))] : null,
+                ),
+                child: DonBigotesMark(awake: awake, size: awake ? 40 : 34),
+              ),
             ),
           ),
         ]),
       ),
     );
   }
+}
+
+/// Don Bigotes' face, drawn as on the iPhone app (Swift `DonBigotesMark`): open eyes when he has something to point
+/// out, closed when everything is in order, and the bow tie in the accent colour.
+class DonBigotesMark extends StatelessWidget {
+  const DonBigotesMark({super.key, this.awake = true, this.size = 44});
+  final bool awake;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) =>
+      ExcludeSemantics(child: CustomPaint(size: Size.square(size), painter: _DonBigotesPainter(awake, Pulso.of(context).accent)));
+}
+
+class _DonBigotesPainter extends CustomPainter {
+  _DonBigotesPainter(this.awake, this.accent);
+  final bool awake;
+  final Color accent;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = size.shortestSide / 48;
+    Offset p(double x, double y) => Offset(x * s, y * s);
+    Paint fill(Color color) => Paint()..color = color;
+    const ink = Color(0xFF14202C);
+    canvas.drawPath(
+        Path()
+          ..moveTo(10 * s, 20 * s)
+          ..lineTo(13 * s, 6 * s)
+          ..lineTo(21 * s, 14 * s)
+          ..close()
+          ..moveTo(38 * s, 20 * s)
+          ..lineTo(35 * s, 6 * s)
+          ..lineTo(27 * s, 14 * s)
+          ..close(),
+        fill(const Color(0xFFE9E1D6)));
+    canvas.drawOval(Rect.fromLTWH(9 * s, 10.5 * s, 30 * s, 27 * s), fill(const Color(0xFFF3EEE6)));
+    if (awake) {
+      canvas.drawOval(Rect.fromLTWH(16 * s, 20 * s, 6 * s, 6 * s), fill(ink));
+      canvas.drawOval(Rect.fromLTWH(26 * s, 20 * s, 6 * s, 6 * s), fill(ink));
+      canvas.drawOval(Rect.fromLTWH(19.5 * s, 20.6 * s, 1.8 * s, 1.8 * s), fill(Colors.white));
+      canvas.drawOval(Rect.fromLTWH(29.5 * s, 20.6 * s, 1.8 * s, 1.8 * s), fill(Colors.white));
+    } else {
+      final lid = Paint()
+        ..color = ink
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.6 * s
+        ..strokeCap = StrokeCap.round;
+      canvas.drawPath(
+          Path()
+            ..moveTo(16 * s, 24 * s)
+            ..quadraticBezierTo(19 * s, 26.5 * s, 22 * s, 24 * s)
+            ..moveTo(26 * s, 24 * s)
+            ..quadraticBezierTo(29 * s, 26.5 * s, 32 * s, 24 * s),
+          lid);
+    }
+    canvas.drawPath(Path()..addPolygon([p(22.5, 29), p(25.5, 29), p(24, 31)], true), fill(const Color(0xFFC98C85)));
+    canvas.drawPath(Path()..addPolygon([p(24, 37), p(21, 44), p(24, 47), p(27, 44)], true), fill(accent));
+  }
+
+  @override
+  bool shouldRepaint(_DonBigotesPainter old) => old.awake != awake || old.accent != accent;
 }

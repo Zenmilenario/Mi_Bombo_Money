@@ -440,7 +440,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               );
             },
           ),
-        const SliverToBoxAdapter(child: SizedBox(height: 96)),
+        SliverToBoxAdapter(child: SizedBox(height: 96 + MediaQuery.paddingOf(context).bottom)),
       ]),
     );
   }

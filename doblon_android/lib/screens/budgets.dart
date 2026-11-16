@@ -53,7 +53,7 @@ class BudgetsScreen extends StatelessWidget {
         },
         child: const Icon(Icons.add),
       ),
-      body: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: const EdgeInsets.all(16), children: [
+      body: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: EdgeInsets.fromLTRB(16, 16, 16, 88 + MediaQuery.paddingOf(context).bottom), children: [
         MonthSelector(month: month, onMonth: onMonth),
         Row(children: [
           Expanded(child: MetricTile(label: 'Presupuestado', value: money(total), color: pulso.savings)),

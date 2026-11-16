@@ -64,7 +64,7 @@ class HomeScreen extends StatelessWidget {
     return LayoutBuilder(builder: (context, constraints) {
       // On a wide screen (iPad), two columns that fill one after the other, as on the iPhone app.
       final columns = constraints.maxWidth >= 720 ? 2 : 1;
-      return ListView(physics: const AlwaysScrollableScrollPhysics(), padding: const EdgeInsets.fromLTRB(16, 8, 16, 24), children: [
+      return ListView(physics: const AlwaysScrollableScrollPhysics(), padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + MediaQuery.paddingOf(context).bottom), children: [
         const _Greeting(),
         const SizedBox(height: 18),
         if (columns == 1)
@@ -109,11 +109,7 @@ class _Greeting extends StatelessWidget {
   Widget build(BuildContext context) {
     final hour = DateTime.now().hour;
     final greeting = hour >= 6 && hour < 12 ? 'Buenos días' : (hour >= 12 && hour < 21 ? 'Buenas tardes' : 'Buenas noches');
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(greeting, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800)),
-      const SizedBox(height: 4),
-      Text('Tu dinero, de un vistazo', style: TextStyle(color: Theme.of(context).hintColor)),
-    ]);
+    return Text(greeting, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800));
   }
 }
 
