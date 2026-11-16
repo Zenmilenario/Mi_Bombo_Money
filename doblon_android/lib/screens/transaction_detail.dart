@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../data.dart';
 import '../edits.dart';
+import '../finance.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
@@ -78,6 +79,15 @@ class _Detail extends StatelessWidget {
             .take(3)
             .toList()
         : const <DuplicateCandidate>[];
+    final tint = category != null ? colorFromHex(category.colorHex) : pulso.accent;
+    Widget row(IconData icon, String title, String value) => ListTile(
+          leading: Icon(icon, color: tint),
+          title: Text(title, style: TextStyle(color: Theme.of(context).hintColor)),
+          trailing: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 200),
+            child: Text(value, textAlign: TextAlign.right, style: const TextStyle(fontWeight: FontWeight.w500)),
+          ),
+        );
     return Scaffold(
       appBar: AppBar(
         title: const Text('Movimiento', style: TextStyle(fontWeight: FontWeight.w700)),
@@ -91,22 +101,40 @@ class _Detail extends StatelessWidget {
         ],
       ),
       body: ListView(padding: const EdgeInsets.all(16), children: [
+        // As on the iPhone: the category's icon, the title, the amount and the kind of movement, centred.
         Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Pulso.heroRadius), side: BorderSide(color: pulso.outline)),
           child: Padding(
-            padding: const EdgeInsets.all(18),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(listTitle(t.descriptionText, isBanking: t.isBanking), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+            padding: const EdgeInsets.all(20),
+            child: Column(children: [
+              Container(
+                width: 56,
+                height: 56,
+                decoration: BoxDecoration(color: tint.withValues(alpha: 0.12), shape: BoxShape.circle),
+                child: Icon(category != null ? symbolIcon(category.systemImage) : (t.type.countsAsIncome ? Icons.south_west : Icons.north_east),
+                    color: tint, size: 28),
+              ),
+              const SizedBox(height: 12),
+              Text(listTitle(t.descriptionText, isBanking: t.isBanking),
+                  textAlign: TextAlign.center, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
               const SizedBox(height: 8),
-              Text(
-                  t.type == TransactionType.transfer
-                      ? money(t.amountMinor, currency: source?.currencyCode ?? 'EUR')
-                      : money(t.type.countsAsIncome ? t.amountMinor : -t.amountMinor, signed: true, currency: source?.currencyCode ?? 'EUR'),
-                  style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w800,
-                      color: t.type.countsAsIncome ? pulso.income : (t.type == TransactionType.transfer ? pulso.savings : pulso.expense))),
-              const SizedBox(height: 4),
-              Text('${t.type.title} · ${DateFormat("d 'de' MMMM yyyy", 'es').format(t.date)}'),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                    t.type == TransactionType.transfer
+                        ? money(t.amountMinor, currency: source?.currencyCode ?? 'EUR')
+                        : money(t.type.countsAsIncome ? t.amountMinor : -t.amountMinor, signed: true, currency: source?.currencyCode ?? 'EUR'),
+                    style: TextStyle(
+                        fontSize: 32,
+                        fontWeight: FontWeight.w800,
+                        color: t.type.countsAsIncome ? pulso.income : (t.type == TransactionType.transfer ? pulso.savings : pulso.expense))),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(color: Theme.of(context).hintColor.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(20)),
+                child: Text(t.type.title, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Theme.of(context).hintColor)),
+              ),
             ]),
           ),
         ),
@@ -154,14 +182,19 @@ class _Detail extends StatelessWidget {
             ),
           ),
         ],
-        const SectionTitle('Detalles'),
+        const SectionTitle('Información'),
         Card(
           child: Column(children: [
-            ListTile(title: const Text('Cuenta'), trailing: Text(source?.name ?? '—')),
-            if (destination != null) ListTile(title: const Text('Hacia'), trailing: Text(destination.name)),
+            row(Icons.calendar_today_outlined, 'Fecha', DateFormat("d 'de' MMMM yyyy, HH:mm", 'es').format(t.date.toLocal())),
+            if (destination != null) ...[
+              row(Icons.north_east, 'Cuenta de origen', source?.name ?? 'Sin cuenta'),
+              row(Icons.south_west, 'Cuenta de destino', destination.name),
+            ] else
+              row(Icons.account_balance_outlined, 'Cuenta', source?.name ?? 'Sin cuenta'),
             ListTile(
+              leading: Icon(category != null ? symbolIcon(category.systemImage) : Icons.sell_outlined, color: tint),
               title: const Text('Categoría'),
-              trailing: Text(category?.name ?? 'Sin categoría'),
+              trailing: Text(category?.name ?? 'Sin categoría', style: const TextStyle(fontWeight: FontWeight.w500)),
               onTap: t.type == TransactionType.transfer
                   ? null
                   : () async {
@@ -171,12 +204,22 @@ class _Detail extends StatelessWidget {
                       await repository.categorize([t], chosen);
                     },
             ),
-            if (t.notes.isNotEmpty) ListTile(title: const Text('Notas'), subtitle: Text(t.notes)),
-            if (t.awaitsBank) ListTile(title: const Text('Estado'), trailing: Text('Pendiente del banco', style: TextStyle(color: pulso.warning))),
-            if (t.isBanking) ListTile(title: const Text('Concepto del banco'), subtitle: Text(t.descriptionText)),
-            if (t.reservedFundId != null) ListTile(title: const Text('Pagado con dinero reservado'), trailing: Text(money(t.reservedAmountMinor ?? 0))),
+            if (t.awaitsBank) row(Icons.hourglass_bottom, 'Estado', 'Pendiente del banco'),
+            if (t.reservedFundId != null) ...[
+              row(Icons.lock_open, 'Pagado con reserva', data.reservedFunds.where((f) => f.id == t.reservedFundId).firstOrNull?.name ?? 'Reserva eliminada'),
+              row(Icons.payments_outlined, 'Importe de la reserva', money(t.reservedAmountMinor ?? 0)),
+              row(Icons.pie_chart_outline, 'Cuenta para el presupuesto', money(FinanceCalculator.budgetExpenseAmount(t))),
+            ],
           ]),
         ),
+        if (listTitle(t.descriptionText, isBanking: t.isBanking) != t.descriptionText) ...[
+          const SectionTitle('Concepto guardado'),
+          Card(child: Padding(padding: const EdgeInsets.all(16), child: SelectableText(t.descriptionText))),
+        ],
+        if (t.notes.trim().isNotEmpty) ...[
+          const SectionTitle('Notas'),
+          Card(child: Padding(padding: const EdgeInsets.all(16), child: Text(t.notes))),
+        ],
         const SizedBox(height: 12),
         OperationReviewCard(repository: repository, transaction: t),
       ]),
@@ -198,7 +241,7 @@ Future<Category?> pickCategory(BuildContext context, Finances data, List<Transac
           : ListView(children: [
               for (final c in options)
                 ListTile(
-                  leading: CircleAvatar(radius: 8, backgroundColor: colorFromHex(c.colorHex)),
+                  leading: RowGlyph(icon: symbolIcon(c.systemImage), tint: colorFromHex(c.colorHex)),
                   title: Text(c.name),
                   onTap: () => Navigator.pop(context, c),
                 ),

@@ -20,6 +20,7 @@ import 'home.dart';
 import 'learning.dart' show AiMetricsScreen;
 import 'manage.dart';
 import 'tools.dart';
+import 'transaction_form.dart';
 import 'transactions.dart';
 import 'widgets.dart' show RowGlyph;
 
@@ -281,6 +282,9 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
               month: month,
               onMonth: setMonth,
               onAdd: () => setState(() => tab = 2),
+              onOpenTab: (index) => setState(() => tab = index),
+              hiddenAlerts: widget.preferences.dismissedNotes,
+              onHideAlert: widget.preferences.dismissNote,
               // Charges the bank holds and has not booked yet, as on the iPhone's «Disponible tras retenciones».
               heldMinor: bankHolds(calc.data, repository.bankActivity)
                   .where((h) => h.movement.signedAmountMinor < 0)
@@ -307,6 +311,20 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
             ),
           if (repository.loading && calc != null)
             const Padding(padding: EdgeInsets.all(16), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+          // As on the iPhone's Inicio: hide the amounts at a glance and add a movement.
+          if (tab == 0) ...[
+            IconButton(
+              tooltip: widget.preferences.hideAmounts ? 'Mostrar importes' : 'Ocultar importes',
+              icon: Icon(widget.preferences.hideAmounts ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+              onPressed: () => widget.preferences.setHideAmounts(!widget.preferences.hideAmounts),
+            ),
+            if (calc != null && calc.data.accounts.any((a) => !a.isArchived))
+              IconButton(
+                tooltip: 'Añadir movimiento',
+                icon: const Icon(Icons.add),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionFormScreen(repository: repository))),
+              ),
+          ],
         ],
       ),
       body: Stack(children: [

@@ -42,10 +42,14 @@ String? _stringOrNull(Object? value) => value is String && value.isNotEmpty ? va
 DateTime _date(Object? value) => value is num ? referenceDate(value) : DateTime(2001);
 
 class Institution {
-  Institution({required this.id, required this.name});
+  Institution({required this.id, required this.name, this.colorHex = '#1F6B7A'});
   final String id;
   final String name;
-  factory Institution.fromJson(Map<String, dynamic> json) => Institution(id: _string(json['id']), name: _string(json['name']));
+
+  /// The bank's colour chosen on the iPhone, used to tint its accounts.
+  final String colorHex;
+  factory Institution.fromJson(Map<String, dynamic> json) => Institution(
+      id: _string(json['id']), name: _string(json['name']), colorHex: _string(json['colorHex']).isEmpty ? '#1F6B7A' : _string(json['colorHex']));
 }
 
 class Account {

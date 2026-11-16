@@ -9,6 +9,7 @@ import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
 import 'forms.dart';
+import 'widgets.dart' show RowGlyph;
 
 /// A management list that follows the repository: rebuilds when data changes.
 class _Managed extends StatelessWidget {
@@ -56,7 +57,7 @@ class CategoriesScreen extends StatelessWidget {
           final active = data.categories.where((c) => !c.isArchived).toList();
           final archived = data.categories.where((c) => c.isArchived).toList();
           Widget tile(Category c) => ListTile(
-                leading: CircleAvatar(radius: 10, backgroundColor: colorFromHex(c.colorHex)),
+                leading: RowGlyph(icon: symbolIcon(c.systemImage), tint: colorFromHex(c.colorHex)),
                 title: Text(c.name),
                 subtitle: Text(_kindTitle(c.kind)),
                 onTap: () => _open(context, CategoryFormScreen(repository: repository, editing: c)),
@@ -81,6 +82,7 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
   late final _name = TextEditingController(text: widget.editing?.name ?? '');
   late CategoryKind _kind = widget.editing?.kind ?? CategoryKind.expense;
   late String _color = widget.editing?.colorHex ?? '#4D7C8A';
+  late String _symbol = widget.editing?.systemImage ?? 'tag.fill';
   String? _message;
 
   @override
@@ -107,7 +109,7 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
         final name = _name.text.trim();
         if (name.isEmpty) return setState(() => _message = 'Escribe el nombre.');
         final now = referenceSeconds(DateTime.now());
-        final fields = {'name': name, 'kindRaw': _kind.name, 'colorHex': _color, 'updatedAt': now};
+        final fields = {'name': name, 'kindRaw': _kind.name, 'colorHex': _color, 'systemImage': _symbol, 'updatedAt': now};
         await widget.repository.apply(editing != null
             ? upsertOperation('categories', {'id': editing.id, ...fields}, create: false)
             : upsertOperation(
@@ -115,7 +117,6 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
                 {
                   'id': widget.repository.newId(),
                   ...fields,
-                  'systemImage': 'tag',
                   'isArchived': false,
                   'isSystem': false,
                   'sortOrder': widget.repository.finances!.categories.length,
@@ -132,6 +133,41 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
         else
           Text('Tipo: ${_kindTitle(_kind)} (ya tiene movimientos, no se puede cambiar).'),
         ColorInput(value: _color, onChanged: (v) => setState(() => _color = v)),
+        const SizedBox(height: 8),
+        // As on the iPhone: the icon, chosen from a grid, and a preview of how the category looks.
+        Text('Icono', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          for (final symbol in categorySymbols)
+            Semantics(
+              selected: symbol == _symbol,
+              button: true,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => setState(() => _symbol = symbol),
+                child: Container(
+                  width: 44,
+                  height: 44,
+                  decoration: BoxDecoration(
+                    color: colorFromHex(_color).withValues(alpha: symbol == _symbol ? 0.22 : 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: symbol == _symbol ? Border.all(color: colorFromHex(_color), width: 2) : null,
+                  ),
+                  child: Icon(symbolIcon(symbol), color: colorFromHex(_color)),
+                ),
+              ),
+            ),
+        ]),
+        const SizedBox(height: 16),
+        Text('Vista previa', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Card(
+          child: ListTile(
+            leading: RowGlyph(icon: symbolIcon(_symbol), tint: colorFromHex(_color)),
+            title: Text(_name.text.trim().isEmpty ? 'Nombre de la categoría' : _name.text.trim()),
+            subtitle: Text(_kindTitle(_kind)),
+          ),
+        ),
       ],
     );
   }

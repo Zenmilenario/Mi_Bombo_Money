@@ -10,96 +10,292 @@ import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
 import 'forms.dart';
+import 'manage.dart' show RecurringScreen;
 import 'transaction_detail.dart';
 import 'widgets.dart';
 
-/// Cuentas: summary, each active account and the archived ones, with a button to add an account.
-class AccountsScreen extends StatelessWidget {
+/// Cuentas, as on the iPhone (`AccountsView`): net worth, available, reserved and invested; the accounts not updated
+/// for 30 days; quick actions; the accounts grouped by kind and the cards.
+class AccountsScreen extends StatefulWidget {
   const AccountsScreen({super.key, required this.calc, required this.repository});
   final FinanceCalculator calc;
   final FinanceRepository repository;
+  @override
+  State<AccountsScreen> createState() => _AccountsScreenState();
+}
+
+/// Not updated by hand for 30 days and not fed by a bank.
+bool isStaleAccount(Account a, DateTime now) =>
+    a.bankIdentityKey == null && !a.isArchived && a.lastUpdatedAt.isBefore(now.subtract(const Duration(days: 30)));
+
+class _AccountsScreenState extends State<AccountsScreen> {
+  bool onlyStale = false;
+
+  Future<void> _updateBalance(BuildContext context, List<Account> accounts) async {
+    final chosen = await showModalBottomSheet<Account>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => ListView(shrinkWrap: true, children: [
+        const ListTile(title: Text('Elige la cuenta', style: TextStyle(fontWeight: FontWeight.w700))),
+        for (final a in accounts)
+          ListTile(
+            title: Text(a.name),
+            subtitle: Text(money(widget.calc.balance(a), currency: a.currencyCode)),
+            onTap: () => Navigator.pop(context, a),
+          ),
+      ]),
+    );
+    if (chosen != null && context.mounted) {
+      await Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => BalanceFormScreen(repository: widget.repository, account: chosen, current: widget.calc.balance(chosen))));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final pulso = Pulso.of(context);
+    final calc = widget.calc;
     final data = calc.data;
+    final now = DateTime.now();
     final active = data.accounts.where((a) => !a.isArchived).toList();
     final archived = data.accounts.where((a) => a.isArchived).toList();
+    final stale = active.where((a) => isStaleAccount(a, now)).toList();
+    final shown = onlyStale ? stale : active;
+    final cards = data.cards.where((c) => !c.isArchived).toList();
+    final groups = <(String, bool Function(Account))>[
+      ('Día a día', (a) => a.type == AccountType.checking || a.type == AccountType.cash),
+      ('Ahorro', (a) => a.type == AccountType.savings),
+      ('Inversiones', (a) => a.type == AccountType.investment),
+      ('Deudas y crédito', (a) => a.type.isLiability),
+      ('Otras cuentas', (a) => a.type == AccountType.other),
+    ];
+    Widget tile(String label, int value, IconData icon, Color color) => Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(Pulso.cardRadius)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(icon, size: 15, color: color),
+              const SizedBox(width: 5),
+              Text(label, style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
+            ]),
+            const SizedBox(height: 4),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(money(value), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: color)),
+            ),
+          ]),
+        );
+    Widget chip(String label, IconData icon, VoidCallback? onTap) => Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: ActionChip(avatar: Icon(icon, size: 17, color: pulso.accent), label: Text(label), onPressed: onTap),
+        );
     return Scaffold(
       backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton(
         tooltip: 'Añadir cuenta',
-        onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AccountFormScreen(repository: repository))),
+        onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AccountFormScreen(repository: widget.repository))),
         child: const Icon(Icons.add),
       ),
-      body: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: EdgeInsets.fromLTRB(16, 16, 16, 88 + MediaQuery.paddingOf(context).bottom), children: [
-        Row(children: [
-          Expanded(child: MetricTile(label: 'Patrimonio', value: money(calc.netWorth()), color: pulso.accent)),
-          const SizedBox(width: 10),
-          Expanded(child: MetricTile(label: 'Disponible', value: money(calc.spendableCash()), color: pulso.income)),
-        ]),
-        const SizedBox(height: 16),
-        if (active.isEmpty) const Text('Aún no tienes cuentas. Pulsa + para añadir la primera.'),
-        for (final account in active) ...[
-          _AccountCard(account: account, calc: calc, repository: repository),
-          const SizedBox(height: 10),
-        ],
-        if (archived.isNotEmpty)
-          ExpansionTile(
-            title: Text('Archivadas (${archived.length})'),
-            children: [for (final a in archived) _AccountCard(account: a, calc: calc, repository: repository)],
-          ),
-        const SizedBox(height: 80),
-      ]),
+      body: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: EdgeInsets.fromLTRB(16, 16, 16, 88 + MediaQuery.paddingOf(context).bottom),
+          children: [
+            LayoutBuilder(builder: (context, c) {
+              final perRow = c.maxWidth >= 600 ? 4 : 2;
+              final width = (c.maxWidth - (perRow - 1) * 10) / perRow;
+              return Wrap(spacing: 10, runSpacing: 10, children: [
+                for (final t in [
+                  tile('Patrimonio', calc.netWorth(), Icons.functions, Theme.of(context).colorScheme.onSurface),
+                  tile('Disponible', calc.spendableCash(), Icons.account_balance_wallet_outlined, pulso.accent),
+                  tile('Reservado', calc.reservedTotal(), Icons.lock_outline, pulso.savings),
+                  tile('Invertido', calc.invested(), Icons.trending_up, pulso.investment),
+                ])
+                  SizedBox(width: width, child: t),
+              ]);
+            }),
+            if (stale.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Material(
+                color: pulso.warning.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(Pulso.compactRadius),
+                child: ListTile(
+                  dense: true,
+                  leading: Icon(Icons.update, color: pulso.warning),
+                  title: Text(onlyStale ? 'Mostrar todas las cuentas' : 'Revisar saldos sin actualizar (${stale.length})',
+                      style: TextStyle(color: pulso.warning, fontWeight: FontWeight.w600)),
+                  trailing: Icon(Icons.chevron_right, color: pulso.warning),
+                  onTap: () => setState(() => onlyStale = !onlyStale),
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
+                chip('Actualizar saldo', Icons.refresh, active.isEmpty ? null : () => _updateBalance(context, active)),
+                chip('Cargos periódicos', Icons.event_repeat,
+                    () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => RecurringScreen(repository: widget.repository)))),
+                chip('Añadir tarjeta', Icons.credit_card,
+                    () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CardFormScreen(repository: widget.repository)))),
+              ]),
+            ),
+            if (active.isEmpty) const Padding(padding: EdgeInsets.only(top: 16), child: Text('Aún no tienes cuentas. Pulsa + para añadir la primera.')),
+            for (final (title, test) in groups)
+              if (shown.where(test).toList() case final items when items.isNotEmpty) ...[
+                SectionTitle(title),
+                for (final account in items) ...[
+                  _AccountCard(account: account, calc: calc, repository: widget.repository, now: now),
+                  const SizedBox(height: 10),
+                ],
+              ],
+            if (cards.isNotEmpty && !onlyStale) ...[
+              const SectionTitle('Tus tarjetas'),
+              Card(
+                child: Column(children: [
+                  for (final card in cards)
+                    ListTile(
+                      leading: RowGlyph(icon: card.type == CardType.credit ? Icons.credit_card : Icons.credit_card_outlined, tint: pulso.accent),
+                      title: Text(card.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                      subtitle: Text([
+                        card.type.title,
+                        if (card.lastFour.isNotEmpty) '•••• ${card.lastFour}',
+                        if (data.account(card.linkedAccountId) case final a?) a.name,
+                      ].join(' · ')),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () =>
+                          Navigator.of(context).push(MaterialPageRoute(builder: (_) => CardFormScreen(repository: widget.repository, editing: card))),
+                    ),
+                ]),
+              ),
+            ],
+            if (archived.isNotEmpty && !onlyStale)
+              ExpansionTile(
+                title: Text('Archivadas (${archived.length})'),
+                children: [for (final a in archived) _AccountCard(account: a, calc: calc, repository: widget.repository, now: now)],
+              ),
+          ]),
     );
   }
 }
 
+/// One account as on the iPhone: its bank's colour, its state, the balance and how it splits (free, reserved, held).
 class _AccountCard extends StatelessWidget {
-  const _AccountCard({required this.account, required this.calc, required this.repository});
+  const _AccountCard({required this.account, required this.calc, required this.repository, required this.now});
   final Account account;
   final FinanceCalculator calc;
   final FinanceRepository repository;
+  final DateTime now;
+
+  String _updated(DateTime when) {
+    final days = DateTime(now.year, now.month, now.day).difference(DateTime(when.year, when.month, when.day)).inDays;
+    return days <= 0 ? 'hoy' : (days == 1 ? 'ayer' : 'hace $days días');
+  }
 
   @override
   Widget build(BuildContext context) {
     final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
     final balance = calc.balance(account);
     final reserved = account.type.isLiability || account.type == AccountType.investment ? 0 : calc.reservedAmount(account);
-    final institution = calc.data.institutionName(account.institutionId);
-    final stale = account.bankIdentityKey == null && !account.isArchived && account.lastUpdatedAt.isBefore(DateTime.now().subtract(const Duration(days: 30)));
+    final activity = account.bankIdentityKey == null ? null : repository.bankActivity[account.bankIdentityKey];
+    final charges = account.isArchived ? const <PendingMovement>[] : (activity?.pendingMovements ?? const <PendingMovement>[]).where((m) => m.signedAmountMinor < 0).toList();
+    final held = charges.fold(0, (s, m) => s - m.signedAmountMinor);
+    final free = balance - reserved - held > 0 ? balance - reserved - held : 0;
+    final institution = calc.data.institutions.where((i) => i.id == account.institutionId).firstOrNull;
+    final tint = colorFromHex(institution?.colorHex ?? '#1F6B7A');
+    final stale = isStaleAccount(account, now);
+    final cardCount = calc.data.cards.where((c) => c.linkedAccountId == account.id && !c.isArchived).length;
+    Widget pill(String text, Color color, [IconData? icon]) => Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(color: color.withValues(alpha: 0.13), borderRadius: BorderRadius.circular(20)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (icon != null) ...[Icon(icon, size: 12, color: color), const SizedBox(width: 3)],
+            Text(text, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color)),
+          ]),
+        );
+    final icon = institution != null
+        ? Icons.account_balance
+        : switch (account.type) {
+            AccountType.cash => Icons.payments_outlined,
+            AccountType.investment => Icons.trending_up,
+            AccountType.savings => Icons.savings_outlined,
+            AccountType.creditCard => Icons.credit_card,
+            _ => Icons.account_balance_wallet_outlined,
+          };
     return Card(
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
         onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AccountDetailScreen(repository: repository, accountId: account.id))),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Icon(account.bankIdentityKey != null ? Icons.link : Icons.account_balance_wallet_outlined, color: pulso.accent, size: 20),
-              const SizedBox(width: 10),
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(color: tint.withValues(alpha: 0.13), borderRadius: BorderRadius.circular(12)),
+                child: Icon(icon, color: tint),
+              ),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(account.name, style: const TextStyle(fontWeight: FontWeight.w700)),
-                  Text([institution, account.type.title].whereType<String>().join(' · '), style: Theme.of(context).textTheme.bodySmall),
+                  Text(institution?.name ?? account.name, style: const TextStyle(fontWeight: FontWeight.w700)),
+                  Text(institution == null ? account.type.title : account.name,
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 12, color: hint)),
                 ]),
               ),
-              Text(money(balance, currency: account.currencyCode),
-                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16, color: balance < 0 ? pulso.expense : null)),
+              if (stale)
+                pill('Sin actualizar', pulso.warning, Icons.schedule)
+              else if (account.bankIdentityKey != null)
+                pill('Al día', pulso.accent),
             ]),
-            if (reserved > 0) ...[
-              const SizedBox(height: 10),
+            const SizedBox(height: 10),
+            Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Expanded(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(money(balance, currency: account.currencyCode),
+                      style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: balance < 0 ? pulso.expense : null)),
+                ),
+              ),
+              Text('Actualizada ${_updated(account.lastUpdatedAt)}', style: TextStyle(fontSize: 11, color: hint.withValues(alpha: 0.7))),
+            ]),
+            if (reserved > 0 || held > 0) ...[
+              const SizedBox(height: 8),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: SizedBox(
+                  height: 7,
+                  child: Row(children: [
+                    if (free > 0) Expanded(flex: free, child: ColoredBox(color: pulso.accent)),
+                    if (reserved > 0) ...[const SizedBox(width: 2), Expanded(flex: reserved, child: ColoredBox(color: pulso.savings))],
+                    if (held > 0) ...[const SizedBox(width: 2), Expanded(flex: held, child: ColoredBox(color: pulso.warning))],
+                  ]),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text.rich(TextSpan(style: const TextStyle(fontSize: 12), children: [
+                TextSpan(text: 'Libre ', style: TextStyle(color: hint)),
+                TextSpan(text: money(free, currency: account.currencyCode), style: const TextStyle(fontWeight: FontWeight.w600)),
+                if (reserved > 0) ...[
+                  TextSpan(text: '   Reservado ', style: TextStyle(color: hint)),
+                  TextSpan(text: money(reserved, currency: account.currencyCode), style: const TextStyle(fontWeight: FontWeight.w600)),
+                ],
+              ])),
+            ],
+            if (charges.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              pill('${charges.length == 1 ? '1 retenido' : '${charges.length} retenidos'} · ${money(-held, signed: true)}', pulso.warning),
+            ],
+            if (cardCount > 0 || !account.includeInNetWorth) ...[
+              const SizedBox(height: 8),
               Text(
-                  'Reservado ${money(reserved, currency: account.currencyCode)} · libre ${money(balance - reserved > 0 ? balance - reserved : 0, currency: account.currencyCode)}',
-                  style: TextStyle(fontSize: 12, color: pulso.warning)),
-            ],
-            if (stale) ...[
-              const SizedBox(height: 6),
-              Text('Más de 30 días sin actualizar el saldo', style: TextStyle(fontSize: 12, color: pulso.warning)),
-            ],
-            if (!account.includeInNetWorth) ...[
-              const SizedBox(height: 6),
-              Text('No cuenta en el patrimonio', style: Theme.of(context).textTheme.bodySmall),
+                  [
+                    if (cardCount > 0) cardCount == 1 ? '1 tarjeta' : '$cardCount tarjetas',
+                    if (!account.includeInNetWorth) 'Fuera del patrimonio',
+                  ].join(' · '),
+                  style: TextStyle(fontSize: 12, color: hint)),
             ],
           ]),
         ),

@@ -12,6 +12,7 @@ import '../presentation.dart';
 import '../theme.dart';
 import 'banks.dart' show BankReviewScreen;
 import 'learning.dart' show ReviewProposalsScreen;
+import 'spending.dart';
 import 'transaction_detail.dart';
 import 'transaction_form.dart';
 import 'widgets.dart';
@@ -353,6 +354,24 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(children: [
+                  // Quick filters, as on the iPhone: everything, expenses, income or transfers.
+                  for (final (label, type) in const [
+                    ('Todo', null),
+                    ('Gastos', TransactionType.expense),
+                    ('Ingresos', TransactionType.income),
+                    ('Transferencias', TransactionType.transfer),
+                  ])
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                        label: Text(label),
+                        selected: !filter.onlyReview && filter.type == type,
+                        onSelected: (_) => setState(() {
+                          filter.type = type;
+                          filter.onlyReview = false;
+                        }),
+                      ),
+                    ),
                   if (pendingCount > 0 || filter.onlyReview)
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
@@ -389,11 +408,13 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                     },
                   ),
                 ),
-              if (filter.isActive || filter.query.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text('${visible.length} movimientos · ingresos ${money(income)} · gastos ${money(expense)}',
-                      style: Theme.of(context).textTheme.bodySmall),
+              if (!selecting)
+                _PeriodSummary(
+                  title: filter.period == Period.all ? 'Todos los movimientos' : filter.period.title,
+                  count: visible.length,
+                  incomeMinor: income,
+                  expenseMinor: expense,
+                  onAnalysis: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SpendingAnalysisScreen(calc: widget.calc))),
                 ),
             ]),
           ),
@@ -473,4 +494,56 @@ ListDerived deriveList(Finances data, MovementFilter filter, DateTime now) {
     income: visible.where((t) => t.type.countsAsIncome).fold(0, (s, t) => s + t.amountMinor),
     expense: visible.where((t) => t.type.countsAsExpense).fold(0, (s, t) => s + t.amountMinor),
   );
+}
+
+/// What the list shows adds up to (Swift `TransactionPeriodSummaryCard`), with the way to the spending analysis.
+class _PeriodSummary extends StatelessWidget {
+  const _PeriodSummary({required this.title, required this.count, required this.incomeMinor, required this.expenseMinor, required this.onAnalysis});
+  final String title;
+  final int count, incomeMinor, expenseMinor;
+  final VoidCallback onAnalysis;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    final net = incomeMinor - expenseMinor;
+    Widget tile(String label, int value, Color color, {bool signed = false}) => Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.09), borderRadius: BorderRadius.circular(Pulso.compactRadius)),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(label, style: TextStyle(fontSize: 12, color: hint)),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(money(value, signed: signed), style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: color)),
+              ),
+            ]),
+          ),
+        );
+    return Card(
+      margin: const EdgeInsets.only(top: 10),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 6, 6, 14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700))),
+            Text(count == 1 ? '1 movimiento' : '$count movimientos', style: TextStyle(fontSize: 12, color: hint)),
+            IconButton(tooltip: 'Análisis de gastos', onPressed: onAnalysis, icon: Icon(Icons.bar_chart, color: pulso.accent)),
+          ]),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Row(children: [
+              tile('Ingresos', incomeMinor, pulso.income),
+              const SizedBox(width: 8),
+              tile('Gastos', expenseMinor, pulso.expense),
+              const SizedBox(width: 8),
+              tile('Neto', net, net >= 0 ? pulso.savings : pulso.expense, signed: true),
+            ]),
+          ),
+        ]),
+      ),
+    );
+  }
 }
