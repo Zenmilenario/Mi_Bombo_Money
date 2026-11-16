@@ -129,13 +129,20 @@ class FinanceRepository extends ChangeNotifier {
 
   Future<LocalStore> _local() async => _store ??= LocalStore(await getApplicationSupportDirectory());
 
+  /// The developer's account, the only one exempt from encrypting (`finance_private.developer_plaintext_users`), sees
+  /// the administrator tools; guests always encrypt. It only hides what a guest does not need: what each person may
+  /// do is limited by the server and the database.
+  bool isAdministrator = false;
+
   CloudPrivacy? _privacySession;
   Future<CloudPrivacy> _privacy() async {
-    final active = CloudPrivacy.sessions[_user];
-    if (active != null) return active;
-    final value = _privacySession ??= CloudPrivacy(_client);
-    if (!await value.prepare()) throw StateError('Desbloquea tus datos con el código de recuperación.');
-    return value;
+    var session = CloudPrivacy.sessions[_user];
+    if (session == null) {
+      session = _privacySession ??= CloudPrivacy(_client);
+      if (!await session.prepare()) throw StateError('Desbloquea tus datos con el código de recuperación.');
+    }
+    isAdministrator = !session.encrypted;
+    return session;
   }
   Future<CloudCopy> _fetch() async => CloudCopy.parse(await (await _privacy()).fetch('finance'));
 
@@ -596,6 +603,7 @@ class FinanceRepository extends ChangeNotifier {
     _generation++;
     CloudPrivacy.forgetAll();
     _privacySession = null;
+    isAdministrator = false;
     final user = _user;
     if (user != null) {
       final store = await _local();
