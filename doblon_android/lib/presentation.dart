@@ -12,6 +12,16 @@ final _formats = <String, NumberFormat>{};
 /// When true (Ajustes › Ocultar importes), every amount is shown as dots.
 bool amountsHidden = false;
 
+/// The icons a category can have, by the SF Symbol name the iPhone app stores (so both apps show the same one).
+const categorySymbols = [
+  'basket.fill', 'cart.fill', 'fork.knife', 'cup.and.saucer.fill', 'car.fill', 'fuelpump.fill', 'tram.fill', 'airplane', //
+  'house.fill', 'bolt.fill', 'wifi', 'phone.fill', 'cross.case.fill', 'pills.fill', 'tshirt.fill', 'bag.fill', //
+  'gift.fill', 'gamecontroller.fill', 'film.fill', 'book.fill', 'graduationcap.fill', 'pawprint.fill', 'heart.fill', 'shield.fill', //
+  'repeat', 'percent', 'creditcard.fill', 'banknote.fill', 'eurosign.circle.fill', 'chart.line.uptrend.xyaxis', 'chart.bar.fill', //
+  'building.columns.fill', 'arrow.down.circle.fill', 'arrow.uturn.backward.circle.fill', 'arrow.left.arrow.right.circle.fill', //
+  'ellipsis.circle.fill', 'tag.fill',
+];
+
 /// The Material icon closest to an SF Symbol of the iPhone app (the category icons it created). Unknown → a tag.
 IconData symbolIcon(String? symbol) {
   final name = (symbol ?? '').replaceAll('.fill', '').replaceAll('.circle', '');

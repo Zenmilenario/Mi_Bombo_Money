@@ -10,12 +10,80 @@ import 'widgets.dart';
 
 /// Inicio, as on the iPhone (`DashboardView`): greeting, what is available and how the money splits, the month, its
 /// pace against the budget, the month day by day, the budgets, net worth over a year and the closest goal.
+/// One notice of «Necesita tu atención» (Swift `DashboardAlertItem`): it opens its tab and can be hidden until it
+/// changes (its id carries what it counts).
+typedef HomeAlert = ({String id, String title, String detail, IconData icon, Color color, int tab});
+
+/// Budgets over their limit, possible duplicates, accounts not updated for 30 days and recurring movements due this
+/// month, in that order, as on the iPhone.
+List<HomeAlert> homeAlerts(FinanceCalculator calc, DateTime month, DateTime now, Pulso pulso) {
+  final data = calc.data;
+  final over = calc.budgetProgress(month).where((b) => b.limitMinor > 0 && b.spentMinor > b.limitMinor).toList();
+  final duplicates = data.transactions.where((t) => t.duplicateState == 'possible').length;
+  final limit = now.subtract(const Duration(days: 30));
+  final stale = data.accounts.where((a) => !a.isArchived && a.bankIdentityKey == null && a.lastUpdatedAt.isBefore(limit)).length;
+  final monthEnd = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+  final due = data.recurringMovements
+      .where((m) => m.isActive && !m.nextDueDate.isAfter(monthEnd) && (m.endDate == null || !m.endDate!.isBefore(now)))
+      .length;
+  return [
+    if (over.isNotEmpty)
+      (
+        id: 'budgets:${month.year}-${month.month}:${over.map((b) => '${b.category.id}${b.spentMinor}').join()}',
+        title: over.length == 1 ? 'Has superado 1 presupuesto' : 'Has superado ${over.length} presupuestos',
+        detail: 'Revisa las categorías que necesitan atención.',
+        icon: Icons.warning_rounded,
+        color: pulso.expense,
+        tab: 3,
+      ),
+    if (duplicates > 0)
+      (
+        id: 'duplicates:$duplicates',
+        title: duplicates == 1 ? 'Hay 1 posible movimiento duplicado' : 'Hay $duplicates posibles movimientos duplicados',
+        detail: 'Comprueba los registros antes de conservarlos.',
+        icon: Icons.content_copy,
+        color: pulso.warning,
+        tab: 1,
+      ),
+    if (stale > 0)
+      (
+        id: 'staleAccounts:$stale',
+        title: stale == 1 ? '1 cuenta lleva más de 30 días sin actualizarse' : '$stale cuentas llevan más de 30 días sin actualizarse',
+        detail: 'Actualiza el saldo para mantener fiable el patrimonio.',
+        icon: Icons.update,
+        color: pulso.warning,
+        tab: 2,
+      ),
+    if (due > 0)
+      (
+        id: 'recurring:${now.year}-${now.month}:$due',
+        title: due == 1 ? 'Tienes 1 movimiento recurrente próximo' : 'Tienes $due movimientos recurrentes próximos',
+        detail: 'Consulta las próximas suscripciones y cargos.',
+        icon: Icons.event_repeat,
+        color: pulso.savings,
+        tab: 4,
+      ),
+  ];
+}
+
 class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key, required this.calc, required this.month, required this.onMonth, this.onAdd, this.heldMinor = 0});
+  const HomeScreen(
+      {super.key,
+      required this.calc,
+      required this.month,
+      required this.onMonth,
+      this.onAdd,
+      this.heldMinor = 0,
+      this.onOpenTab,
+      this.hiddenAlerts = const {},
+      this.onHideAlert});
   final FinanceCalculator calc;
   final DateTime month;
   final ValueChanged<DateTime> onMonth;
   final VoidCallback? onAdd;
+  final ValueChanged<int>? onOpenTab;
+  final Set<String> hiddenAlerts;
+  final ValueChanged<String>? onHideAlert;
 
   /// Charges the bank holds and has not booked yet (negative), already taken from what is available.
   final int heldMinor;
@@ -40,6 +108,7 @@ class HomeScreen extends StatelessWidget {
     final budgets = calc.budgetProgress(month).where((b) => b.limitMinor > 0).toList();
     final pace = isCurrentMonth ? MonthPace.of(budgets, now) : null;
     final goal = _primaryGoal();
+    final alerts = homeAlerts(calc, month, now, Pulso.of(context)).where((a) => !hiddenAlerts.contains(a.id)).toList();
     final recent = data.transactions.where((t) => t.date.toLocal().year == month.year && t.date.toLocal().month == month.month).take(5).toList();
     final cards = <Widget>[
       _MainCard(calc: calc, heldMinor: heldMinor, pace: pace),
@@ -67,6 +136,7 @@ class HomeScreen extends StatelessWidget {
       return ListView(physics: const AlwaysScrollableScrollPhysics(), padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + MediaQuery.paddingOf(context).bottom), children: [
         const _Greeting(),
         const SizedBox(height: 18),
+        if (alerts.isNotEmpty) ...[_AlertsCard(alerts: alerts, onOpenTab: onOpenTab, onHide: onHideAlert), const SizedBox(height: 18)],
         if (columns == 1)
           for (final card in cards) Padding(padding: const EdgeInsets.only(bottom: 18), child: card)
         else
@@ -100,6 +170,37 @@ class HomeScreen extends StatelessWidget {
     if (open.isEmpty) return goals.firstOrNull;
     return open.reduce((a, b) => _progress(b) > _progress(a) ? b : a);
   }
+}
+
+/// «Necesita tu atención»: each notice opens its tab; «Revisado» hides it until what it counts changes.
+class _AlertsCard extends StatelessWidget {
+  const _AlertsCard({required this.alerts, this.onOpenTab, this.onHide});
+  final List<HomeAlert> alerts;
+  final ValueChanged<int>? onOpenTab;
+  final ValueChanged<String>? onHide;
+
+  @override
+  Widget build(BuildContext context) => _SectionCard(
+        title: 'Necesita tu atención',
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+        child: Column(children: [
+          for (final alert in alerts)
+            ListTile(
+              leading: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(color: alert.color.withValues(alpha: 0.13), borderRadius: BorderRadius.circular(Pulso.compactRadius)),
+                child: Icon(alert.icon, size: 19, color: alert.color),
+              ),
+              title: Text(alert.title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              subtitle: Text(alert.detail, style: const TextStyle(fontSize: 12)),
+              onTap: onOpenTab == null ? null : () => onOpenTab!(alert.tab),
+              trailing: onHide == null
+                  ? const Icon(Icons.chevron_right)
+                  : TextButton(onPressed: () => onHide!(alert.id), child: const Text('Revisado', style: TextStyle(fontSize: 12))),
+            ),
+        ]),
+      );
 }
 
 class _Greeting extends StatelessWidget {

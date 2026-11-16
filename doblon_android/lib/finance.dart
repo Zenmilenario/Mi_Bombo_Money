@@ -228,6 +228,21 @@ class FinanceCalculator {
   int reservedTotal() =>
       _counted.where((a) => a.type != AccountType.investment && !a.type.isLiability).fold(0, (sum, a) => sum + reservedAmount(a));
 
+  /// What each category cost in the month, from most to least (Swift `spendingByCategory`). Without category, left out.
+  List<(Category, int)> spendingByCategory(DateTime month) {
+    final totals = <String, int>{};
+    for (final t in data.transactions) {
+      final local = t.date.toLocal();
+      final id = t.categoryId;
+      if (!t.type.countsAsExpense || id == null || local.year != month.year || local.month != month.month) continue;
+      totals[id] = (totals[id] ?? 0) + t.amountMinor.abs();
+    }
+    return [
+      for (final MapEntry(key: id, value: amount) in totals.entries)
+        if (data.category(id) case final category?) (category, amount)
+    ]..sort((a, b) => b.$2.compareTo(a.$2));
+  }
+
   // One calculator per version of the data: what is derived from the whole history can be kept in it.
   final _dailySpending = <int, Map<int, int>>{};
 
