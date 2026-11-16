@@ -26,13 +26,16 @@ class BudgetsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pulso = Pulso.of(context);
     final items = calc.budgetProgress(month);
     final budgeted = items.where((i) => i.limitMinor > 0).toList();
     final unbudgeted = items.where((i) => i.limitMinor <= 0).toList();
     final total = budgeted.fold(0, (sum, i) => sum + i.limitMinor);
     final spent = budgeted.fold(0, (sum, i) => sum + i.spentMinor);
     final withoutAny = calc.data.categories.where((c) => c.isExpense && !items.any((i) => i.category.id == c.id)).toList();
+    final attention = budgeted.where((i) => i.fraction >= 0.85).toList()..sort((a, b) => b.fraction.compareTo(a.fraction));
+    final healthy = budgeted.where((i) => i.fraction < 0.85).toList()..sort((a, b) => b.fraction.compareTo(a.fraction));
+    final reservedPaid = calc.monthlySummary(month).reservedExpenseMinor;
+    final hint = Theme.of(context).hintColor;
     return Scaffold(
       backgroundColor: Colors.transparent,
       floatingActionButton: FloatingActionButton(
@@ -55,36 +58,334 @@ class BudgetsScreen extends StatelessWidget {
       ),
       body: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: EdgeInsets.fromLTRB(16, 16, 16, 88 + MediaQuery.paddingOf(context).bottom), children: [
         MonthSelector(month: month, onMonth: onMonth),
-        Row(children: [
-          Expanded(child: MetricTile(label: 'Presupuestado', value: money(total), color: pulso.savings)),
-          const SizedBox(width: 10),
-          Expanded(child: MetricTile(label: 'Gastado', value: money(spent), color: spent > total ? pulso.expense : pulso.accent)),
-          const SizedBox(width: 10),
-          Expanded(child: MetricTile(label: 'Disponible', value: money(total - spent), color: total - spent >= 0 ? pulso.income : pulso.expense)),
-        ]),
-        if (budgeted.isEmpty)
-          const Padding(padding: EdgeInsets.all(24), child: Text('No hay presupuestos este mes. Pulsa + para añadir uno.', textAlign: TextAlign.center))
-        else ...[
-          const SectionTitle('Por categoría'),
+        const SizedBox(height: 8),
+        BudgetOverview(
+            limitMinor: total,
+            spentMinor: spent,
+            unbudgetedSpentMinor: unbudgeted.fold(0, (sum, i) => sum + i.spentMinor),
+            month: month),
+        if (budgeted.isNotEmpty) ...[const SizedBox(height: 14), _ComparisonCard(items: budgeted)],
+        if (reservedPaid > 0) ...[
+          const SizedBox(height: 14),
           Card(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(children: [for (final i in budgeted) InkWell(onTap: () => _edit(context, i.category), child: BudgetBar(item: i))]),
+            child: ListTile(
+              leading: const Icon(Icons.lock_open),
+              title: const Text('Pagado con reservas'),
+              subtitle: const Text('Ya estaba apartado: queda fuera del presupuesto y no genera avisos de exceso.'),
+              trailing: Text(money(reservedPaid), style: const TextStyle(fontWeight: FontWeight.w600)),
             ),
           ),
         ],
-        if (unbudgeted.isNotEmpty) ...[
-          const SectionTitle('Gasto sin presupuesto'),
-          Card(
-            child: Column(children: [
-              for (final i in unbudgeted) ListTile(title: Text(i.category.name), trailing: Text(money(i.spentMinor)), onTap: () => _edit(context, i.category)),
-            ]),
+        if (attention.isNotEmpty) ...[
+          const SectionTitle('Necesitan atención'),
+          Card(child: Column(children: [for (final i in attention) _BudgetRow(item: i, onTap: () => _edit(context, i.category))])),
+        ],
+        if (healthy.isNotEmpty) ...[
+          const SectionTitle('Dentro del presupuesto'),
+          Card(child: Column(children: [for (final i in healthy) _BudgetRow(item: i, onTap: () => _edit(context, i.category))])),
+        ],
+        if (unbudgeted.isNotEmpty || withoutAny.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          _AddToBudgetCard(
+            categories: [...unbudgeted.map((i) => i.category), ...withoutAny],
+            withSpending: {for (final i in unbudgeted) if (i.spentMinor > 0) i.category.id},
+            onTap: (c) => _edit(context, c),
           ),
         ],
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 12, 4, 0),
+          child: Text('Las transferencias entre tus propias cuentas no consumen presupuesto. Los gastos y las comisiones sí se incluyen en su categoría.',
+              style: TextStyle(fontSize: 12, color: hint)),
+        ),
         const SectionTitle('Objetivos de ahorro'),
         GoalsList(repository: repository, calc: calc),
         const SizedBox(height: 80),
       ]),
+    );
+  }
+}
+
+/// The sentence under the overall bar (Swift `budgetPacingText`): against an even pace this month, how the past
+/// month closed, or that a future month is ready.
+String budgetPacingText(int limitMinor, int spentMinor, DateTime month, DateTime now) {
+  if (limitMinor <= 0) return 'Define límites para empezar a controlar el mes';
+  final current = DateTime(now.year, now.month), chosen = DateTime(month.year, month.month);
+  if (chosen.isAfter(current)) return 'Presupuesto preparado para un mes futuro';
+  if (chosen.isBefore(current)) {
+    return limitMinor - spentMinor >= 0 ? 'Cerraste el mes por debajo del presupuesto' : 'Cerraste el mes por encima del presupuesto';
+  }
+  final difference = MonthPace(limitMinor: limitMinor, spentMinor: spentMinor, day: now.day, daysInMonth: DateTime(now.year, now.month + 1, 0).day)
+      .differenceMinor;
+  return difference >= 0
+      ? 'Vas ${money(difference)} por debajo del ritmo previsto'
+      : 'Vas ${money(-difference)} por encima del ritmo previsto';
+}
+
+/// A small coloured label with the state of a budget (Swift `StatusPill`).
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.text, required this.color, this.icon});
+  final String text;
+  final Color color;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.13), borderRadius: BorderRadius.circular(20)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (icon != null) ...[Icon(icon, size: 13, color: color), const SizedBox(width: 4)],
+          Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
+        ]),
+      );
+}
+
+/// «Vista general»: budgeted, spent, available, the overall bar with its pace and the spending without budget.
+class BudgetOverview extends StatelessWidget {
+  const BudgetOverview({super.key, required this.limitMinor, required this.spentMinor, required this.unbudgetedSpentMinor, required this.month});
+  final int limitMinor, spentMinor, unbudgetedSpentMinor;
+  final DateTime month;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    final fraction = limitMinor > 0 ? spentMinor / limitMinor : 0.0;
+    final tint = fraction > 1 ? pulso.expense : (fraction >= 0.85 ? pulso.warning : pulso.accent);
+    final (status, icon) = limitMinor <= 0
+        ? ('Sin configurar', Icons.add_circle_outline)
+        : fraction > 1
+            ? ('Superado', Icons.warning_rounded)
+            : fraction >= 0.85
+                ? ('Cerca del límite', Icons.error)
+                : ('En control', Icons.check_circle);
+    final available = limitMinor - spentMinor;
+    Widget figure(String label, int value, Color? color) => Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(label, style: TextStyle(fontSize: 13, color: hint)),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(money(value), style: TextStyle(fontSize: 22, fontWeight: FontWeight.w700, color: color)),
+            ),
+          ]),
+        );
+    return Card(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Pulso.heroRadius), side: BorderSide(color: pulso.outline)),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            const Expanded(child: Text('Vista general', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700))),
+            _StatusPill(text: status, color: limitMinor <= 0 ? hint : tint, icon: icon),
+          ]),
+          const SizedBox(height: 14),
+          if (limitMinor <= 0) ...[
+            Icon(Icons.pie_chart_outline, color: pulso.accent, size: 30),
+            const SizedBox(height: 8),
+            const Text('Aún no has definido límites para este mes.', style: TextStyle(fontWeight: FontWeight.w600)),
+            Text('Toca una categoría de «Añadir al presupuesto» o el botón +.', style: TextStyle(fontSize: 12, color: hint)),
+          ] else ...[
+            Row(children: [
+              figure('Presupuestado', limitMinor, null),
+              figure('Gastado', spentMinor, fraction > 1 ? pulso.expense : null),
+            ]),
+            const SizedBox(height: 12),
+            Divider(height: 1, color: pulso.outline),
+            const SizedBox(height: 12),
+            Row(children: [
+              const Expanded(child: Text('Disponible', style: TextStyle(fontWeight: FontWeight.w600))),
+              Text(money(available, signed: true),
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: available >= 0 ? pulso.income : pulso.expense)),
+            ]),
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(value: fraction.clamp(0.0, 1.0), minHeight: 10, color: tint, backgroundColor: pulso.tertiary),
+            ),
+            const SizedBox(height: 8),
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(child: Text(budgetPacingText(limitMinor, spentMinor, month, DateTime.now()), style: TextStyle(fontSize: 12, color: hint))),
+              Text('${(fraction * 100).round()} %', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: tint)),
+            ]),
+          ],
+          if (unbudgetedSpentMinor > 0) ...[
+            const SizedBox(height: 10),
+            Row(children: [
+              Icon(Icons.error_outline, size: 15, color: pulso.warning),
+              const SizedBox(width: 5),
+              Text('Gasto sin presupuesto: ${money(unbudgetedSpentMinor)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: pulso.warning)),
+            ]),
+          ],
+        ]),
+      ),
+    );
+  }
+}
+
+/// «Gasto frente a límite»: the six categories using most of their budget, spent over the limit.
+class _ComparisonCard extends StatelessWidget {
+  const _ComparisonCard({required this.items});
+  final List<BudgetProgress> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    final shown = ([...items]..sort((a, b) => b.fraction.compareTo(a.fraction))).take(6).toList();
+    final scale = shown.fold(1, (m, i) => [m, i.limitMinor, i.spentMinor].reduce((a, b) => a > b ? a : b));
+    Widget bar(int value, Color color) => LayoutBuilder(
+          builder: (context, c) => Container(
+            height: 9,
+            width: (c.maxWidth * value / scale).clamp(3.0, c.maxWidth),
+            decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3)),
+          ),
+        );
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Gasto frente a límite', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          Text('Primero, las categorías con mayor uso del presupuesto', style: TextStyle(fontSize: 13, color: hint)),
+          const SizedBox(height: 14),
+          if (amountsHidden)
+            Padding(padding: const EdgeInsets.symmetric(vertical: 24), child: Center(child: Text('Gráfico oculto por privacidad', style: TextStyle(color: hint))))
+          else
+            for (final item in shown)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Row(children: [
+                  SizedBox(width: 96, child: Text(item.category.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13))),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      bar(item.limitMinor, hint.withValues(alpha: 0.25)),
+                      const SizedBox(height: 3),
+                      bar(item.spentMinor, item.spentMinor > item.limitMinor ? pulso.expense : pulso.accent),
+                    ]),
+                  ),
+                ]),
+              ),
+          Row(children: [
+            Container(width: 10, height: 10, decoration: BoxDecoration(color: hint.withValues(alpha: 0.25), borderRadius: BorderRadius.circular(2))),
+            const SizedBox(width: 5),
+            Text('Límite', style: TextStyle(fontSize: 12, color: hint)),
+            const SizedBox(width: 14),
+            Container(width: 10, height: 10, decoration: BoxDecoration(color: pulso.accent, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(width: 5),
+            Text('Gastado', style: TextStyle(fontSize: 12, color: hint)),
+          ]),
+          if (items.length > shown.length)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text('Se muestran ${shown.length} de ${items.length} presupuestos.', style: TextStyle(fontSize: 12, color: hint)),
+            ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// One budget: the category's icon, its state, the bar and what is spent and left (Swift `BudgetRow`).
+class _BudgetRow extends StatelessWidget {
+  const _BudgetRow({required this.item, required this.onTap});
+  final BudgetProgress item;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    final own = colorFromHex(item.category.colorHex);
+    final color = item.spentMinor > item.limitMinor ? pulso.expense : (item.fraction >= 0.85 ? pulso.warning : own);
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(color: own.withValues(alpha: 0.12), shape: BoxShape.circle),
+              child: Icon(symbolIcon(item.category.systemImage), size: 18, color: own),
+            ),
+            const SizedBox(width: 10),
+            Flexible(child: Text(item.category.name, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600))),
+            if (item.isRecurring) ...[const SizedBox(width: 6), Icon(Icons.repeat, size: 14, color: hint)],
+            const Spacer(),
+            _StatusPill(text: item.statusText, color: color),
+          ]),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(5),
+            child: LinearProgressIndicator(value: item.fraction.clamp(0.0, 1.0), minHeight: 8, color: color, backgroundColor: pulso.tertiary),
+          ),
+          const SizedBox(height: 6),
+          Row(children: [
+            Expanded(child: Text('Gastado: ${money(item.spentMinor)}', style: TextStyle(fontSize: 12, color: hint))),
+            Text('Disponible: ${money(item.availableMinor)}', style: TextStyle(fontSize: 12, color: hint)),
+          ]),
+          if (item.carriedInMinor > 0)
+            Text('Incluye ${money(item.carriedInMinor)} del mes anterior', style: TextStyle(fontSize: 12, color: hint)),
+        ]),
+      ),
+    );
+  }
+}
+
+/// «Añadir al presupuesto»: the categories without a limit as icons; an orange dot marks spending without budget.
+class _AddToBudgetCard extends StatelessWidget {
+  const _AddToBudgetCard({required this.categories, required this.withSpending, required this.onTap});
+  final List<Category> categories;
+  final Set<String> withSpending;
+  final ValueChanged<Category> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Añadir al presupuesto', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          Text('${categories.length} categorías sin límite · toca un icono', style: TextStyle(fontSize: 13, color: hint)),
+          const SizedBox(height: 12),
+          Wrap(spacing: 10, runSpacing: 10, children: [
+            for (final c in categories)
+              Tooltip(
+                message: c.name,
+                child: Semantics(
+                  button: true,
+                  label: 'Crear un presupuesto para ${c.name}',
+                  child: InkWell(
+                    onTap: () => onTap(c),
+                    borderRadius: BorderRadius.circular(12),
+                    child: Stack(children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(color: colorFromHex(c.colorHex).withValues(alpha: 0.10), borderRadius: BorderRadius.circular(12)),
+                        child: Icon(symbolIcon(c.systemImage), color: colorFromHex(c.colorHex)),
+                      ),
+                      if (withSpending.contains(c.id))
+                        Positioned(
+                            top: 4, right: 4, child: Container(width: 7, height: 7, decoration: BoxDecoration(color: pulso.warning, shape: BoxShape.circle))),
+                    ]),
+                  ),
+                ),
+              ),
+          ]),
+          if (withSpending.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Row(children: [
+              Icon(Icons.circle, size: 8, color: pulso.warning),
+              const SizedBox(width: 6),
+              Text('El punto naranja indica gasto sin presupuesto.', style: TextStyle(fontSize: 12, color: pulso.warning)),
+            ]),
+          ],
+        ]),
+      ),
     );
   }
 }
