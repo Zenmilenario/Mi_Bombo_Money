@@ -102,7 +102,7 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
     if (decisions == null || !mounted) return;
     await _run((_) async {
       await widget.repository.reviewBankDownloads(decisions);
-      return 'Revisión incorporada.';
+      return 'Listo, guardado.';
     });
   }
 
@@ -114,13 +114,13 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
         showDragHandle: true,
         builder: (context) => SafeArea(
                 child: ListView(shrinkWrap: true, children: [
-              const ListTile(title: Text('Asociar la cuenta del banco')),
-              const ListTile(subtitle: Text('Elige una cuenta existente para conservar sus movimientos y reservas. También puedes crear una nueva.')),
+              const ListTile(title: Text('¿Dónde guardamos sus movimientos?')),
+              const ListTile(subtitle: Text('Si ya la tenías apuntada a mano, elígela para conservar sus movimientos y reservas. Si no, crea una nueva.')),
               for (final a in data.accounts.where(
                   (a) => !a.isArchived && a.bankIdentityKey == null && a.currencyCode == 'EUR' && !a.type.isLiability && a.type != AccountType.investment))
                 ListTile(leading: const Icon(Icons.account_balance), title: Text(a.name), onTap: () => Navigator.pop(context, a.id)),
               ListTile(leading: const Icon(Icons.add), title: const Text('Crear una cuenta nueva'), onTap: () => Navigator.pop(context, 'new')),
-              ListTile(title: const Text('Dejar sin asociar'), onTap: () => Navigator.pop(context)),
+              ListTile(title: const Text('Ahora no'), onTap: () => Navigator.pop(context)),
             ])));
     if (selected == null || !mounted) return;
     await _run((client) async {
@@ -159,6 +159,12 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
       builder: (context) => _BankPicker(banks: banks),
     );
     if (bank == null) return;
+    await _authorize(bank);
+  }
+
+  /// Opens the bank's web to authorize it. Renewing is the same: the new permission replaces the old one, which is
+  /// disconnected on the next update (`supersededConnections`), and the movements are kept.
+  Future<void> _authorize(String bank) async {
     await _run((client) async {
       final url = await client.startAuthorization(bank);
       final opened = await launchUrl(url, mode: LaunchMode.externalApplication);
@@ -218,7 +224,7 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
                         icon: const Icon(Icons.sync),
                         label: const Text('Actualizar movimientos')),
                     const Text(
-                        'Se actualizan automáticamente las cuentas asociadas. Tras una descarga correcta se esperan seis horas; cada banco conserva su propio plazo.'),
+                        'Tus cuentas se actualizan solas. Después de cada actualización, cada banco necesita unas seis horas antes de la siguiente.'),
                   ]),
                 ),
               ),
@@ -234,7 +240,9 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
               if (widget.repository.bankProposals.isNotEmpty)
                 ListTile(
                     leading: const Icon(Icons.rule),
-                    title: Text('${widget.repository.bankProposals.length} coincidencias por revisar'),
+                    title: Text(widget.repository.bankProposals.length == 1
+                        ? '1 movimiento del banco que quizá ya tenías'
+                        : '${widget.repository.bankProposals.length} movimientos del banco que quizá ya tenías'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: busy ? null : _review),
               if (list != null && list.isEmpty) const Text('Aún no has conectado ningún banco.'),
@@ -246,29 +254,30 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
                       ListTile(
                         leading: Icon(Icons.account_balance, color: pulso.accent),
                         title: Text(connection.bank, style: const TextStyle(fontWeight: FontWeight.w700)),
-                        subtitle:
-                            Text('Permiso válido hasta ${connection.validUntil.length >= 10 ? connection.validUntil.substring(0, 10) : connection.validUntil}'),
+                        subtitle: _permission(connection, pulso),
                         trailing: IconButton(tooltip: 'Desconectar', onPressed: busy ? null : () => _disconnect(connection), icon: const Icon(Icons.link_off)),
                       ),
                       if (widget.repository.bankResult?.errors[connection.bank] case final problem?)
                         Padding(padding: const EdgeInsets.all(12), child: Text(problem, style: TextStyle(color: pulso.expense))),
                       if (widget.repository.bankResult?.waiting[connection.bank] case final until?)
-                        Padding(padding: const EdgeInsets.all(12), child: Text('Próxima consulta a partir de ${DateFormat('d/M HH:mm').format(until)}')),
+                        Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Text('Podrás actualizarlo de nuevo a partir del ${DateFormat("d 'de' MMMM 'a las' HH:mm", 'es').format(until)}')),
                       for (final account in connection.accounts) ...[
                         ListTile(
                           dense: true,
                           leading: const SizedBox(width: 24),
                           title: Text('•••• ${account.lastFour}'),
                           subtitle: Text(_archived(account)
-                              ? 'Cuenta archivada · recupérala en Cuentas'
+                              ? 'Archivada: recupérala en Cuentas para volver a recibir sus movimientos'
                               : widget.repository.linked(account)
-                                  ? 'Cuenta asociada'
-                                  : 'Sin asociar · no se incorpora'),
+                                  ? 'Recibes sus movimientos'
+                                  : 'Aún no recibes sus movimientos: elige dónde guardarlos'),
                           trailing: account.currency != 'EUR'
                               ? Text(account.currency)
                               : TextButton(
                                   onPressed: busy || _archived(account) || widget.repository.linked(account) ? null : () => _associate(connection, account),
-                                  child: const Text('Asociar')),
+                                  child: const Text('Elegir')),
                         ),
                         if (widget.repository.bankActivity[accountIdentity(account.id)] case final activity?) _Received(account: account, activity: activity),
                       ],
@@ -283,6 +292,29 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
           ),
         );
       });
+
+  /// Until when the bank lets Doblón read it; from a week before, how long is left and a button to renew it.
+  Widget _permission(RemoteConnection connection, Pulso pulso) {
+    final now = DateTime.now();
+    final days = permissionDaysLeft(connection, now);
+    final until = DateTime.tryParse(connection.validUntil)?.toLocal();
+    if (days == null || until == null) return const Text('Acceso autorizado');
+    if (!permissionExpiresSoon(connection, now)) {
+      return Text('Acceso autorizado hasta el ${DateFormat("d 'de' MMMM 'de' y", 'es').format(until)}');
+    }
+    return Row(children: [
+      Expanded(
+        child: Text(
+            days < 0
+                ? 'El acceso ha caducado: ya no llegan sus movimientos'
+                : days == 0
+                    ? 'El acceso caduca hoy'
+                    : 'El acceso caduca en ${days == 1 ? '1 día' : '$days días'}',
+            style: TextStyle(color: pulso.warning, fontWeight: FontWeight.w600)),
+      ),
+      TextButton(onPressed: busy ? null : () => _authorize(connection.bank), child: const Text('Renovar')),
+    ]);
+  }
 
   bool _archived(RemoteAccount remote) =>
       widget.repository.finances?.accounts.any((a) => a.isArchived && a.bankIdentityKey == accountIdentity(remote.id)) ?? false;
@@ -302,11 +334,11 @@ class _Received extends StatelessWidget {
     final ignored = activity.ignoredStatuses.entries.toList()..sort((a, b) => a.key.compareTo(b.key));
     return ExpansionTile(
       leading: const Icon(Icons.move_to_inbox_outlined),
-      title: Text('•••• ${account.lastFour} · ${account.currency}${account.currency == 'EUR' ? '' : ' · no se incorpora'}'),
-      subtitle: Text('Últimos apuntes recibidos (${activity.receivedCount})'),
+      title: Text('•••• ${account.lastFour} · ${account.currency}${account.currency == 'EUR' ? '' : ' · otra moneda, no se importa'}'),
+      subtitle: Text('Lo último que envió el banco (${activity.receivedCount})'),
       childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       children: [
-        if (activity.recentMovements.isEmpty) const Text('El banco no envió apuntes contabilizados en el periodo consultado.', style: caption),
+        if (activity.recentMovements.isEmpty) const Text('El banco no envió movimientos definitivos en las fechas consultadas.', style: caption),
         for (final m in activity.recentMovements)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 3),
@@ -320,13 +352,13 @@ class _Received extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Text(
-                'El banco también envió ${ignored.map((e) => '${e.value} ${bankStatusName(e.key)}').join(', ')}. La app no los incorpora porque el banco no los da por contabilizados.',
+                'El banco también envió ${ignored.map((e) => '${e.value} ${bankStatusName(e.key)}').join(', ')}. Doblón no los añade porque el banco no los da por definitivos.',
                 style: caption.copyWith(color: pulso.warning)),
           ),
         Padding(
           padding: const EdgeInsets.only(top: 6),
           child: Text(
-              'Es lo que envió el banco en la consulta del ${DateFormat("d MMM yyyy, HH:mm", 'es').format(activity.observedAt)}, contabilizado y sin retenidos. Si un pago de tu banco no aparece aquí, el banco aún no lo ha comunicado.',
+              'Es lo que envió el banco el ${DateFormat("d MMM yyyy, HH:mm", 'es').format(activity.observedAt)}: solo movimientos definitivos, sin los que aún están pendientes. Si falta un pago, el banco todavía no lo ha comunicado.',
               style: caption),
         ),
       ],
@@ -385,7 +417,7 @@ class _BankReviewScreenState extends State<BankReviewScreen> {
   Widget build(BuildContext context) {
     final pulso = Pulso.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Revisar la descarga', style: TextStyle(fontWeight: FontWeight.w700))),
+      appBar: AppBar(title: const Text('¿Ya los tenías?', style: TextStyle(fontWeight: FontWeight.w700))),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         const Text('Estos movimientos del banco se parecen a otros que ya tenías apuntados. Elige si son el mismo (se unen, sin duplicarse) o uno nuevo.'),
         const SizedBox(height: 12),
@@ -421,7 +453,7 @@ class _BankReviewScreenState extends State<BankReviewScreen> {
         FilledButton(
           onPressed: () => Navigator.of(context).pop(decisions),
           style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
-          child: const Text('Incorporar'),
+          child: const Text('Guardar'),
         ),
       ]),
     );

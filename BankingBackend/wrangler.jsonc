@@ -11,8 +11,16 @@
 		"crons": ["*/30 * * * *"]
 	},
 	"send_metrics": false,
+	// Only the structured lines of the code (fixed categories and counts, never amounts, concepts, IDs or tokens).
+	// The automatic log of each request is off: it would store the full URL, which on the bank's return carries
+	// the authorization code.
 	"observability": {
-		"enabled": false
+		"enabled": true,
+		"logs": {
+			"enabled": true,
+			"invocation_logs": false,
+			"head_sampling_rate": 1
+		}
 	},
 	"vars": {
 		"PROVIDER_MODE": "sandbox",

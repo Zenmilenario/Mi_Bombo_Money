@@ -150,7 +150,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
               child:
-                  Text('Importes provisionales. Se reflejan en el historial y el presupuesto cuando el banco los contabiliza.', style: TextStyle(fontSize: 12)),
+                  Text('Importes provisionales. Se reflejan en el historial y el presupuesto cuando el banco los da por definitivos.', style: TextStyle(fontSize: 12)),
             ),
           ],
         ),
@@ -270,7 +270,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final messenger = ScaffoldMessenger.of(context);
     try {
       await widget.repository.reviewBankDownloads(decisions);
-      messenger.showSnackBar(const SnackBar(content: Text('Revisión incorporada.')));
+      messenger.showSnackBar(const SnackBar(content: Text('Listo, guardado.')));
     } catch (error) {
       messenger.showSnackBar(SnackBar(content: Text(error is BankingError ? error.message : 'No se ha podido guardar la revisión.')));
     }

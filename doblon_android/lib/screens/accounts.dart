@@ -152,7 +152,7 @@ List<Widget> bankActivitySections(BuildContext context, BankActivity activity, A
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
             child: Text(
-                'Importes provisionales. Los cargos se reflejan en el historial y el presupuesto cuando el banco los contabiliza; también los ves en Movimientos.',
+                'Importes provisionales. Los cargos se reflejan en el historial y el presupuesto cuando el banco los da por definitivos; también los ves en Movimientos.',
                 style: caption),
           ),
         ],

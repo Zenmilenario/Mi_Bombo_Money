@@ -4,7 +4,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../automation.dart';
 import '../bank_activity.dart' show bankHolds;
-import '../banking.dart' show BankingError;
+import '../banking.dart' show BankingError, permissionDaysLeft, permissionExpiresSoon;
+import '../card_payments.dart';
 import '../data.dart';
 import '../finance.dart';
 import '../models.dart' show Finances;
@@ -13,6 +14,7 @@ import '../theme.dart';
 import 'accounts.dart';
 import 'banks.dart';
 import 'budgets.dart';
+import 'card_payments.dart';
 import 'home.dart';
 import 'learning.dart' show AiMetricsScreen;
 import 'manage.dart';
@@ -74,6 +76,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         _postedToday = true;
         await postDue(repository);
       }
+      // Payments recorded with Apple Pay since the last opening (iPhone only), waiting for the bank.
+      try {
+        await CardPaymentInbox.file(repository);
+      } catch (_) {/* They stay in the inbox and are filed on the next opening. */}
       // Corrections the person taught several times are repeated on new bank movements (as on the iPhone).
       await repository.applyLearnedCorrections();
       unawaited(repository.synchronizeBanks());
@@ -106,17 +112,26 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
 
   // Don Bigotes' notes walk the whole history: kept until the finances, the bank reports or the day change, so a
   // notice about something else does not compute them again.
-  Object? _notesFrom, _notesActivity;
+  Object? _notesFrom, _notesActivity, _notesConnections;
   String? _notesDay;
   List<CompanionNote> _notes = const [];
 
   List<CompanionNote> _companionNotes(Finances data) {
     final now = DateTime.now(), day = '${now.year}-${now.month}-${now.day}';
-    if (identical(data, _notesFrom) && identical(repository.bankActivity, _notesActivity) && day == _notesDay) return _notes;
+    if (identical(data, _notesFrom) &&
+        identical(repository.bankActivity, _notesActivity) &&
+        identical(repository.bankConnections, _notesConnections) &&
+        day == _notesDay) {
+      return _notes;
+    }
     _notesFrom = data;
     _notesActivity = repository.bankActivity;
+    _notesConnections = repository.bankConnections;
     _notesDay = day;
-    return _notes = companionNotes(data, now, holds: bankHolds(data, repository.bankActivity));
+    return _notes = companionNotes(data, now, holds: bankHolds(data, repository.bankActivity), renewals: [
+      for (final connection in repository.bankConnections)
+        if (permissionExpiresSoon(connection, now)) (bank: connection.bank, days: permissionDaysLeft(connection, now)!),
+    ]);
   }
 
   void _showCompanion(List<CompanionNote> notes) {
@@ -321,6 +336,8 @@ class _SettingsPage extends StatelessWidget {
           ].join('\n')),
         ),
         route(Icons.account_balance_outlined, 'Mis bancos', 'Conectar, actualizar y revisar movimientos', () => BanksScreen(repository: repository)),
+        if (CardPaymentInbox.available)
+          route(Icons.credit_card, 'Pagos con Apple Pay', 'Apunta cada pago al momento con Atajos', () => CardPaymentsScreen(repository: repository)),
       ]),
       section('Organiza tus finanzas', [
         route(Icons.sell_outlined, 'Categorías', '', () => CategoriesScreen(repository: repository)),
