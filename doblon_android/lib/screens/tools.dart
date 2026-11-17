@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../csv_import.dart';
+import '../backup_crypto.dart';
 import '../data.dart';
 import '../edits.dart' show categorySupports;
 import '../models.dart';
@@ -211,12 +212,88 @@ class _BackupScreenState extends State<BackupScreen> {
     setState(() => message = uri == null ? null : 'Guardado: $name');
   }
 
+  /// Asks for the password of an encrypted copy: twice when saving, once when opening.
+  Future<String?> _askPassword({required bool creating}) async {
+    final first = TextEditingController(), second = TextEditingController();
+    String? problem;
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialog) => AlertDialog(
+          title: Text(creating ? 'Proteger la copia' : 'Contraseña de la copia'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (creating)
+              const Text('Sin esta contraseña nadie podrá abrir la copia, tampoco tú: guárdala en un lugar seguro. Sirve también en la app del iPhone.'),
+            TextField(controller: first, obscureText: true, autofocus: true, decoration: const InputDecoration(labelText: 'Contraseña')),
+            if (creating) TextField(controller: second, obscureText: true, decoration: const InputDecoration(labelText: 'Repite la contraseña')),
+            if (problem != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(problem!, style: TextStyle(color: Pulso.of(context).expense))),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+            TextButton(
+              onPressed: () {
+                if (creating && first.text.length < backupMinPasswordLength) {
+                  return setDialog(() => problem = 'Usa al menos $backupMinPasswordLength caracteres; una frase fácil de recordar vale.');
+                }
+                if (creating && first.text != second.text) return setDialog(() => problem = 'Las dos contraseñas no coinciden.');
+                if (first.text.isEmpty) return;
+                Navigator.pop(context, first.text);
+              },
+              child: Text(creating ? 'Cifrar y guardar' : 'Abrir'),
+            ),
+          ],
+        ),
+      ),
+    );
+    first.dispose();
+    second.dispose();
+    return result;
+  }
+
+  Future<void> _saveEncrypted() async {
+    final password = await _askPassword(creating: true);
+    final document = widget.repository.document;
+    if (password == null || document == null || !mounted) return;
+    setState(() {
+      busy = true;
+      message = 'Cifrando la copia…';
+    });
+    try {
+      final text = await sealBackup(document, password);
+      await _save('doblon-copia-$_stamp-cifrada.json', text, 'application/json');
+    } catch (_) {
+      setState(() => message = 'No se ha podido cifrar la copia.');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
   Future<void> _restore() async {
     final files = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
     if (files.isEmpty || !mounted) return;
     Map<String, dynamic> document;
+    var text = utf8.decode(await files.first.readAsBytes());
+    if (isEncryptedBackup(text)) {
+      final password = await _askPassword(creating: false);
+      if (password == null || !mounted) return;
+      setState(() {
+        busy = true;
+        message = 'Abriendo la copia cifrada…';
+      });
+      try {
+        text = jsonEncode(await openBackup(text, password));
+      } on BackupPasswordError {
+        setState(() => message = 'La contraseña no es correcta.');
+        return;
+      } catch (_) {
+        setState(() => message = 'Ese archivo no es una copia de Doblón válida.');
+        return;
+      } finally {
+        if (mounted) setState(() => busy = false);
+      }
+    }
     try {
-      document = Map<String, dynamic>.from(jsonDecode(utf8.decode(await files.first.readAsBytes())) as Map);
+      document = Map<String, dynamic>.from(jsonDecode(text) as Map);
       if ('${document['formatVersion']}' != '2' || document['transactions'] is! List || document['accounts'] is! List) throw const FormatException();
       Finances.fromDocument(document);
     } catch (_) {
@@ -257,6 +334,13 @@ class _BackupScreenState extends State<BackupScreen> {
               subtitle: const Text('Archivo JSON con cuentas, movimientos, presupuestos y lo demás'),
               enabled: !busy && repository.document != null,
               onTap: () => _save('doblon-copia-$_stamp.json', const JsonEncoder.withIndent(' ').convert(repository.document), 'application/json'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.lock_outline),
+              title: const Text('Guardar copia cifrada'),
+              subtitle: const Text('Protegida con una contraseña; se abre también en la app del iPhone'),
+              enabled: !busy && repository.document != null,
+              onTap: _saveEncrypted,
             ),
             ListTile(
               leading: const Icon(Icons.table_view),
