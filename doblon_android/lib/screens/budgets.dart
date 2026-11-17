@@ -9,6 +9,7 @@ import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
 import 'forms.dart';
+import 'chrome.dart' show tabListPadding;
 import 'widgets.dart';
 
 /// A month as the cloud stores it: the first day at noon UTC.
@@ -39,6 +40,8 @@ class BudgetsScreen extends StatelessWidget {
     final hint = Theme.of(context).hintColor;
     return Scaffold(
       backgroundColor: Colors.transparent,
+      // At the left of the dock's row, where «+ Añadir» and Don Bigotes are on the right.
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
       floatingActionButton: FloatingActionButton(
         tooltip: 'Añadir presupuesto',
         onPressed: () async {
@@ -57,7 +60,7 @@ class BudgetsScreen extends StatelessWidget {
         },
         child: const Icon(Icons.add),
       ),
-      body: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: EdgeInsets.fromLTRB(16, 16, 16, 88 + MediaQuery.paddingOf(context).bottom), children: [
+      body: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: tabListPadding(context, top: 12), children: [
         MonthSelector(month: month, onMonth: onMonth),
         const SizedBox(height: 8),
         BudgetOverview(

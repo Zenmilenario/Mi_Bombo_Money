@@ -14,16 +14,18 @@ void main() {
     expect(File('lib/screens/shell.dart').readAsStringSync(), isNot(contains("'Inteligencia artificial'")));
   });
 
-  testWidgets('Don Bigotes shows his name, awake or asleep', (tester) async {
+  testWidgets('Don Bigotes is a face with the number of his notes, without a bubble over the content', (tester) async {
     var taps = 0;
     await tester.pumpWidget(app(Scaffold(body: CompanionButton(notes: const [], onTap: () => taps++))));
-    expect(find.text('Don Bigotes'), findsOneWidget);
+    expect(find.bySemanticsLabel('Don Bigotes, sin novedades'), findsOneWidget);
     final notes = [
       CompanionNote(id: 'a', title: 'Aviso ficticio', detail: '', tab: 1),
       CompanionNote(id: 'b', title: 'Otro aviso', detail: '', tab: 2),
     ];
     await tester.pumpWidget(app(Scaffold(body: CompanionButton(notes: notes, onTap: () => taps++))));
-    expect(find.text('Don Bigotes · tengo 2 avisos'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget, reason: 'A compact badge');
+    expect(find.textContaining('tengo'), findsNothing, reason: 'No permanent bubble');
+    expect(find.bySemanticsLabel('Don Bigotes: tiene 2 avisos'), findsOneWidget);
     await tester.tap(find.byType(CompanionButton));
     expect(taps, 1);
   });

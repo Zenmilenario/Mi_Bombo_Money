@@ -14,7 +14,7 @@ import 'banks.dart' show BankReviewScreen;
 import 'learning.dart' show ReviewProposalsScreen;
 import 'spending.dart';
 import 'transaction_detail.dart';
-import 'transaction_form.dart';
+import 'chrome.dart' show TabInsets, dockReserve;
 import 'widgets.dart';
 import 'contributions.dart';
 
@@ -291,20 +291,21 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
+      // Adding a movement is the dock's «+ Añadir»; while choosing, the action floats above the dock.
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: selecting
-          ? FloatingActionButton.extended(
-              onPressed: () => _categorizeSelected(data),
-              icon: const Icon(Icons.sell_outlined),
-              label: Text('Categorizar ${selected.length}'),
+          ? Padding(
+              padding: const EdgeInsets.only(bottom: dockReserve - 8),
+              child: FloatingActionButton.extended(
+                onPressed: () => _categorizeSelected(data),
+                icon: const Icon(Icons.sell_outlined),
+                label: Text('Categorizar ${selected.length}'),
+              ),
             )
-          : FloatingActionButton(
-              tooltip: 'Añadir movimiento',
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionFormScreen(repository: widget.repository))),
-              child: const Icon(Icons.add),
-            ),
+          : null,
       body: CustomScrollView(physics: const AlwaysScrollableScrollPhysics(), slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          padding: EdgeInsets.fromLTRB(16, TabInsets.topOf(context) + 8, 16, 0),
           sliver: SliverToBoxAdapter(
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               if (selecting)
@@ -461,7 +462,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               );
             },
           ),
-        SliverToBoxAdapter(child: SizedBox(height: 96 + MediaQuery.paddingOf(context).bottom)),
+        SliverToBoxAdapter(child: SizedBox(height: dockReserve + 8 + MediaQuery.paddingOf(context).bottom)),
       ]),
     );
   }

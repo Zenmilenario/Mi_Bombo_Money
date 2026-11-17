@@ -6,6 +6,7 @@ import '../finance.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
+import 'chrome.dart' show tabListPadding;
 import 'widgets.dart';
 
 /// Inicio, as on the iPhone (`DashboardView`): greeting, what is available and how the money splits, the month, its
@@ -92,9 +93,7 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final data = calc.data;
     if (data.accounts.where((a) => !a.isArchived).isEmpty) {
-      return ListView(physics: const AlwaysScrollableScrollPhysics(), padding: const EdgeInsets.all(24), children: [
-        const _Greeting(),
-        const SizedBox(height: 60),
+      return ListView(physics: const AlwaysScrollableScrollPhysics(), padding: tabListPadding(context, horizontal: 24, top: 48), children: [
         const Icon(Icons.account_balance_outlined, size: 48),
         const SizedBox(height: 12),
         const Text('Empieza con tus datos', textAlign: TextAlign.center, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
@@ -111,7 +110,6 @@ class HomeScreen extends StatelessWidget {
     final alerts = homeAlerts(calc, month, now, Pulso.of(context)).where((a) => !hiddenAlerts.contains(a.id)).toList();
     final recent = data.transactions.where((t) => t.date.toLocal().year == month.year && t.date.toLocal().month == month.month).take(5).toList();
     final cards = <Widget>[
-      _MainCard(calc: calc, heldMinor: heldMinor, pace: pace),
       _MonthCard(calc: calc, month: month, onMonth: onMonth),
       if (pace != null) _PaceCard(pace: pace),
       _CalendarCard(calc: calc, month: month),
@@ -133,10 +131,11 @@ class HomeScreen extends StatelessWidget {
     return LayoutBuilder(builder: (context, constraints) {
       // On a wide screen (iPad), two columns that fill one after the other, as on the iPhone app.
       final columns = constraints.maxWidth >= 720 ? 2 : 1;
-      return ListView(physics: const AlwaysScrollableScrollPhysics(), padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + MediaQuery.paddingOf(context).bottom), children: [
-        const _Greeting(),
+      return ListView(physics: const AlwaysScrollableScrollPhysics(), padding: tabListPadding(context, top: 4), children: [
+        // What can be spent is the figure that leads, on the page itself; the rest sits in cards below.
+        _Hero(calc: calc, heldMinor: heldMinor, pace: pace, onOpenTab: onOpenTab),
         const SizedBox(height: 18),
-        if (alerts.isNotEmpty) ...[_AlertsCard(alerts: alerts, onOpenTab: onOpenTab, onHide: onHideAlert), const SizedBox(height: 18)],
+        if (alerts.isNotEmpty) ...[_AlertsCard(alerts: alerts, onOpenTab: onOpenTab, onHide: onHideAlert), const SizedBox(height: 10)],
         if (columns == 1)
           for (final card in cards) Padding(padding: const EdgeInsets.only(bottom: 18), child: card)
         else
@@ -172,7 +171,8 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-/// «Necesita tu atención»: each notice opens its tab; «Revisado» hides it until what it counts changes.
+/// «Necesita tu atención»: one tinted row per notice, without a card around them. Each opens its tab; «Revisado»
+/// hides it until what it counts changes.
 class _AlertsCard extends StatelessWidget {
   const _AlertsCard({required this.alerts, this.onOpenTab, this.onHide});
   final List<HomeAlert> alerts;
@@ -180,38 +180,41 @@ class _AlertsCard extends StatelessWidget {
   final ValueChanged<String>? onHide;
 
   @override
-  Widget build(BuildContext context) => _SectionCard(
-        title: 'Necesita tu atención',
-        padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-        child: Column(children: [
-          for (final alert in alerts)
-            ListTile(
-              leading: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(color: alert.color.withValues(alpha: 0.13), borderRadius: BorderRadius.circular(Pulso.compactRadius)),
-                child: Icon(alert.icon, size: 19, color: alert.color),
+  Widget build(BuildContext context) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Semantics(header: true, child: Text('Necesita tu atención', style: Theme.of(context).textTheme.labelLarge)),
+        ),
+        for (final alert in alerts)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Material(
+              color: alert.color.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(Pulso.cardRadius),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(Pulso.cardRadius),
+                onTap: onOpenTab == null ? null : () => onOpenTab!(alert.tab),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+                  child: Row(children: [
+                    Icon(alert.icon, size: 22, color: alert.color),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(alert.title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+                        Text(alert.detail, style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
+                      ]),
+                    ),
+                    if (onHide != null)
+                      TextButton(onPressed: () => onHide!(alert.id), child: const Text('Revisado', style: TextStyle(fontSize: 12)))
+                    else
+                      const Icon(Icons.chevron_right),
+                  ]),
+                ),
               ),
-              title: Text(alert.title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-              subtitle: Text(alert.detail, style: const TextStyle(fontSize: 12)),
-              onTap: onOpenTab == null ? null : () => onOpenTab!(alert.tab),
-              trailing: onHide == null
-                  ? const Icon(Icons.chevron_right)
-                  : TextButton(onPressed: () => onHide!(alert.id), child: const Text('Revisado', style: TextStyle(fontSize: 12))),
             ),
-        ]),
-      );
-}
-
-class _Greeting extends StatelessWidget {
-  const _Greeting();
-
-  @override
-  Widget build(BuildContext context) {
-    final hour = DateTime.now().hour;
-    final greeting = hour >= 6 && hour < 12 ? 'Buenos días' : (hour >= 12 && hour < 21 ? 'Buenas tardes' : 'Buenas noches');
-    return Text(greeting, style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w800));
-  }
+          ),
+      ]);
 }
 
 /// A card with a title, an optional subtitle and its content (Swift `SectionCard`).
@@ -237,77 +240,82 @@ class _SectionCard extends StatelessWidget {
       );
 }
 
-/// What can be spent now, today's margin, how the money splits and the total net worth.
-class _MainCard extends StatelessWidget {
-  const _MainCard({required this.calc, required this.heldMinor, required this.pace});
+/// What can be spent now leads, big and on the page itself, with today's margin and the change of the month beside
+/// it; then how the money splits, in one bar with its legend, and the net worth, smaller (Swift `netWorthCard`).
+class _Hero extends StatelessWidget {
+  const _Hero({required this.calc, required this.heldMinor, required this.pace, this.onOpenTab});
   final FinanceCalculator calc;
   final int heldMinor;
   final MonthPace? pace;
+  final ValueChanged<int>? onOpenTab;
 
   @override
   Widget build(BuildContext context) {
     final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
     final available = calc.spendableCash() + heldMinor;
     final reserved = calc.reservedTotal();
     final invested = calc.invested();
     final now = DateTime.now();
     final change = calc.netWorth(now) - calc.netWorth(DateTime(now.year, now.month, 1).subtract(const Duration(seconds: 1)));
-    final parts = <(String, int, Color)>[
-      ('Disponible', available < 0 ? 0 : available, pulso.accent),
-      ('Reservado', reserved < 0 ? 0 : reserved, pulso.savings),
-      ('Retenido', heldMinor.abs(), pulso.warning),
-      ('Inversión', invested < 0 ? 0 : invested, pulso.investment),
+    // Each part opens where it comes from, as on the iPhone: held charges in Movimientos, the rest in Cuentas.
+    final parts = <(String, int, Color, int)>[
+      ('Disponible', available < 0 ? 0 : available, pulso.accent, 2),
+      ('Reservado', reserved < 0 ? 0 : reserved, pulso.savings, 2),
+      ('Retenido', heldMinor.abs(), pulso.warning, 1),
+      ('Inversión', invested < 0 ? 0 : invested, pulso.investment, 2),
     ];
     final total = parts.fold(0, (sum, p) => sum + p.$2);
-    final hint = Theme.of(context).hintColor;
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Pulso.heroRadius), side: BorderSide(color: pulso.outline)),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Wrap(spacing: 16, runSpacing: 12, crossAxisAlignment: WrapCrossAlignment.end, children: [
-            Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-              Text(heldMinor == 0 ? 'Disponible para usar' : 'Disponible tras retenciones',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: hint)),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(money(available),
-                    style: TextStyle(
-                        fontSize: 42,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.5,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                        color: available < 0 ? pulso.expense : null)),
-              ),
-              if (heldMinor != 0)
-                Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.hourglass_bottom, size: 14, color: pulso.warning),
-                  const SizedBox(width: 4),
-                  Text('${money(heldMinor, signed: true)} ya retenido por el banco',
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: pulso.warning)),
-                ]),
-            ]),
-            if (pace case final pace?)
-              Container(
-                constraints: const BoxConstraints(minWidth: 160),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: pulso.accent.withValues(alpha: 0.11), borderRadius: BorderRadius.circular(Pulso.compactRadius + 4)),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                  Text('Tu margen de hoy', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: pulso.accent)),
-                  Text(money(pace.dailyMarginMinor), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700)),
-                  Text(pace.daysLeft == 1 ? 'Último día del presupuesto' : 'Para ${pace.daysLeft} días de presupuesto',
-                      style: TextStyle(fontSize: 11, color: hint)),
-                ]),
-              ),
+    final changeColor = change >= 0 ? pulso.income : pulso.expense;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(heldMinor == 0 ? 'Disponible para usar' : 'Disponible tras retenciones',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: hint)),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(money(available),
+              style: TextStyle(
+                  fontSize: 46,
+                  height: 1.1,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -1.2,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                  color: available < 0 ? pulso.expense : null)),
+        ),
+        if (heldMinor != 0)
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.hourglass_bottom, size: 14, color: pulso.warning),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text('${money(heldMinor, signed: true)} ya retenido por el banco',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: pulso.warning)),
+            ),
           ]),
-          const SizedBox(height: 16),
-          if (total > 0)
-            ClipRRect(
+        const SizedBox(height: 10),
+        Wrap(spacing: 8, runSpacing: 8, children: [
+          if (pace case final pace?)
+            _Pill(
+              color: pulso.accent,
+              icon: Icons.today_outlined,
+              text: TextSpan(children: [
+                const TextSpan(text: 'Tu margen de hoy '),
+                TextSpan(text: money(pace.dailyMarginMinor), style: const TextStyle(fontWeight: FontWeight.w800)),
+                TextSpan(text: pace.daysLeft == 1 ? ' · último día' : ' · ${pace.daysLeft} días', style: TextStyle(color: hint, fontWeight: FontWeight.w500)),
+              ]),
+            ),
+          _Pill(color: changeColor, icon: change >= 0 ? Icons.north_east : Icons.south_east, text: TextSpan(text: '${money(change, signed: true)} este mes')),
+        ]),
+        const SizedBox(height: 18),
+        if (total > 0)
+          ExcludeSemantics(
+            child: ClipRRect(
               borderRadius: BorderRadius.circular(6),
               child: SizedBox(
-                height: 12,
-                child: Row(children: [
+                height: 10,
+                // Stretched: an empty coloured box would otherwise be zero pixels high and the bar would not show.
+                child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   for (final (index, part) in parts.where((p) => p.$2 > 0).indexed) ...[
                     if (index > 0) const SizedBox(width: 3),
                     Expanded(flex: (part.$2 * 1000 ~/ total).clamp(12, 1000), child: ColoredBox(color: part.$3)),
@@ -315,51 +323,69 @@ class _MainCard extends StatelessWidget {
                 ]),
               ),
             ),
-          const SizedBox(height: 12),
-          LayoutBuilder(builder: (context, constraints) {
-            final perRow = constraints.maxWidth >= 480 ? 4 : 2;
-            final width = (constraints.maxWidth - (perRow - 1) * 10) / perRow;
-            return Wrap(spacing: 10, runSpacing: 10, children: [
-              for (final part in parts)
-                SizedBox(
-                  width: width,
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Row(children: [
-                      Container(width: 8, height: 8, decoration: BoxDecoration(color: part.$3, borderRadius: BorderRadius.circular(2))),
-                      const SizedBox(width: 6),
-                      Text(part.$1, style: TextStyle(fontSize: 12, color: hint)),
-                    ]),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(money(part.$2), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+          ),
+        const SizedBox(height: 6),
+        Wrap(spacing: 2, children: [
+          for (final part in parts)
+            if (part.$2 > 0 || part.$1 == 'Disponible')
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: onOpenTab == null ? null : () => onOpenTab!(part.$4),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Container(width: 8, height: 8, decoration: BoxDecoration(color: part.$3, borderRadius: BorderRadius.circular(2))),
+                    const SizedBox(width: 6),
+                    // One text, so with very large letters it wraps instead of overflowing.
+                    Flexible(
+                      child: Text.rich(TextSpan(children: [
+                        TextSpan(text: '${part.$1} ', style: TextStyle(color: hint)),
+                        TextSpan(text: money(part.$2), style: const TextStyle(fontWeight: FontWeight.w600)),
+                      ]), style: const TextStyle(fontSize: 13)),
                     ),
                   ]),
                 ),
-            ]);
-          }),
-          const SizedBox(height: 14),
-          Divider(height: 1, color: pulso.outline),
-          const SizedBox(height: 12),
-          Wrap(alignment: WrapAlignment.spaceBetween, spacing: 12, runSpacing: 6, children: [
-            Text.rich(TextSpan(children: [
-              TextSpan(text: 'Patrimonio total ', style: TextStyle(color: hint)),
-              TextSpan(text: money(calc.netWorth()), style: const TextStyle(fontWeight: FontWeight.w600)),
-            ]), style: const TextStyle(fontSize: 13)),
-            Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(change >= 0 ? Icons.north_east : Icons.south_east, size: 14, color: change >= 0 ? pulso.income : pulso.expense),
-              const SizedBox(width: 4),
-              Text('${money(change, signed: true)} este mes',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: change >= 0 ? pulso.income : pulso.expense)),
-            ]),
-          ]),
+              ),
         ]),
-      ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
+          child: Text.rich(
+              TextSpan(children: [
+                TextSpan(text: 'Patrimonio total ', style: TextStyle(color: hint)),
+                TextSpan(text: money(calc.netWorth()), style: const TextStyle(fontWeight: FontWeight.w700)),
+              ]),
+              style: const TextStyle(fontSize: 13)),
+        ),
+      ]),
     );
   }
 }
 
-/// The chosen month: income, expenses and savings.
+/// A small tinted capsule with an icon and a short line.
+class _Pill extends StatelessWidget {
+  const _Pill({required this.color, required this.icon, required this.text});
+  final Color color;
+  final IconData icon;
+  final InlineSpan text;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
+        child: MergeSemantics(
+          child: DefaultTextStyle.merge(
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: color),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(icon, size: 15, color: color),
+              const SizedBox(width: 5),
+              Flexible(child: Text.rich(text)),
+            ]),
+          ),
+        ),
+      );
+}
+
+/// The chosen month: income, expenses and savings in one row, divided by thin lines.
 class _MonthCard extends StatelessWidget {
   const _MonthCard({required this.calc, required this.month, required this.onMonth});
   final FinanceCalculator calc;
@@ -371,41 +397,39 @@ class _MonthCard extends StatelessWidget {
     final pulso = Pulso.of(context);
     final summary = calc.monthlySummary(month);
     Widget figure(String label, int value, Color color, IconData icon, {bool signed = false}) => Expanded(
-          child: Container(
-            padding: const EdgeInsets.all(10),
-            decoration: BoxDecoration(color: color.withValues(alpha: 0.09), borderRadius: BorderRadius.circular(Pulso.compactRadius)),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Icon(icon, size: 14, color: color),
-                const SizedBox(width: 4),
-                Expanded(child: Text(label, style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor), overflow: TextOverflow.ellipsis)),
+          child: MergeSemantics(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Icon(icon, size: 13, color: color),
+                  const SizedBox(width: 4),
+                  Expanded(child: Text(label, style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor), overflow: TextOverflow.ellipsis)),
+                ]),
+                const SizedBox(height: 2),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(money(value, signed: signed), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: color)),
+                ),
               ]),
-              const SizedBox(height: 4),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(money(value, signed: signed), style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: color)),
-              ),
-            ]),
+            ),
           ),
         );
+    final divider = Container(width: 1, height: 34, color: pulso.outline);
     return Card(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 8, 8, 14),
+        padding: const EdgeInsets.fromLTRB(4, 4, 4, 14),
         child: Column(children: [
           MonthSelector(month: month, onMonth: onMonth),
-          const SizedBox(height: 6),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Row(children: [
-              figure('Ingresos', summary.incomeMinor, pulso.income, Icons.south_west),
-              const SizedBox(width: 8),
-              figure('Gastos', summary.expenseMinor, pulso.expense, Icons.north_east),
-              const SizedBox(width: 8),
-              figure('Ahorro', summary.netSavingsMinor, summary.netSavingsMinor >= 0 ? pulso.savings : pulso.expense, Icons.savings_outlined,
-                  signed: true),
-            ]),
-          ),
+          Row(children: [
+            figure('Ingresos', summary.incomeMinor, pulso.income, Icons.south_west),
+            divider,
+            figure('Gastos', summary.expenseMinor, pulso.expense, Icons.north_east),
+            divider,
+            figure('Ahorro', summary.netSavingsMinor, summary.netSavingsMinor >= 0 ? pulso.savings : pulso.expense, Icons.savings_outlined,
+                signed: true),
+          ]),
         ]),
       ),
     );
@@ -500,6 +524,7 @@ class _CalendarCard extends StatelessWidget {
         GridView.count(
           crossAxisCount: 7,
           shrinkWrap: true,
+          padding: EdgeInsets.zero,
           physics: const NeverScrollableScrollPhysics(),
           mainAxisSpacing: 5,
           crossAxisSpacing: 5,

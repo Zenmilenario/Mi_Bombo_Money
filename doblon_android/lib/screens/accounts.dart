@@ -12,6 +12,7 @@ import '../theme.dart';
 import 'forms.dart';
 import 'manage.dart' show RecurringScreen;
 import 'transaction_detail.dart';
+import 'chrome.dart' show tabListPadding;
 import 'widgets.dart';
 
 /// Cuentas, as on the iPhone (`AccountsView`): net worth, available, reserved and invested; the accounts not updated
@@ -102,6 +103,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
         );
     return Scaffold(
       backgroundColor: Colors.transparent,
+      // At the left of the dock's row, where «+ Añadir» and Don Bigotes are on the right.
+      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
       floatingActionButton: FloatingActionButton(
         tooltip: 'Añadir cuenta',
         onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AccountFormScreen(repository: widget.repository))),
@@ -109,7 +112,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
       ),
       body: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: EdgeInsets.fromLTRB(16, 16, 16, 88 + MediaQuery.paddingOf(context).bottom),
+          padding: tabListPadding(context, top: 12),
           children: [
             LayoutBuilder(builder: (context, c) {
               final perRow = c.maxWidth >= 600 ? 4 : 2;
@@ -277,7 +280,8 @@ class _AccountCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4),
                 child: SizedBox(
                   height: 7,
-                  child: Row(children: [
+                  // Stretched: an empty coloured box would otherwise be zero pixels high.
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     if (free > 0) Expanded(flex: free, child: ColoredBox(color: pulso.accent)),
                     if (reserved > 0) ...[const SizedBox(width: 2), Expanded(flex: reserved, child: ColoredBox(color: pulso.savings))],
                     if (held > 0) ...[const SizedBox(width: 2), Expanded(flex: held, child: ColoredBox(color: pulso.warning))],
