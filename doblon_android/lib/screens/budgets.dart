@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../banking.dart' show referenceSeconds;
 import '../data.dart';
@@ -64,7 +65,23 @@ class BudgetsScreen extends StatelessWidget {
             spentMinor: spent,
             unbudgetedSpentMinor: unbudgeted.fold(0, (sum, i) => sum + i.spentMinor),
             month: month),
-        if (budgeted.isNotEmpty) ...[const SizedBox(height: 14), _ComparisonCard(items: budgeted)],
+        if (budgeted.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          _ComparisonCard(
+              items: budgeted,
+              onAnalysis: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => BudgetAnalysisScreen(calc: calc, month: month)))),
+        ],
+        if (DateTime(month.year, month.month).isBefore(DateTime(DateTime.now().year, DateTime.now().month)) && unspentKept(calc, month) > 0) ...[
+          const SizedBox(height: 14),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.eco_outlined),
+              title: const Text('Sobrante no trasladado'),
+              subtitle: const Text('Este importe permanece en tus cuentas y no aumenta el presupuesto del mes siguiente.'),
+              trailing: Text(money(unspentKept(calc, month)), style: const TextStyle(fontWeight: FontWeight.w600)),
+            ),
+          ),
+        ],
         if (reservedPaid > 0) ...[
           const SizedBox(height: 14),
           Card(
@@ -224,8 +241,9 @@ class BudgetOverview extends StatelessWidget {
 
 /// «Gasto frente a límite»: the six categories using most of their budget, spent over the limit.
 class _ComparisonCard extends StatelessWidget {
-  const _ComparisonCard({required this.items});
+  const _ComparisonCard({required this.items, required this.onAnalysis});
   final List<BudgetProgress> items;
+  final VoidCallback onAnalysis;
 
   @override
   Widget build(BuildContext context) {
@@ -279,6 +297,10 @@ class _ComparisonCard extends StatelessWidget {
               padding: const EdgeInsets.only(top: 6),
               child: Text('Se muestran ${shown.length} de ${items.length} presupuestos.', style: TextStyle(fontSize: 12, color: hint)),
             ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(onPressed: onAnalysis, icon: const Icon(Icons.bar_chart), label: const Text('Ver comparativa completa')),
+          ),
         ]),
       ),
     );
@@ -525,27 +547,56 @@ class GoalsList extends StatelessWidget {
     return account != null ? calc.balance(account) : goal.currentAmountMinor;
   }
 
+  /// As on the iPhone: the goal's icon, the account it follows or its date, the percentage, the bar and the amounts.
+  Widget _goalRow(BuildContext context, SavingsGoal goal) {
+    final tint = colorFromHex(goal.colorHex);
+    final hint = Theme.of(context).hintColor;
+    final current = saved(goal);
+    final progress = goal.targetAmountMinor <= 0 ? 0.0 : (current / goal.targetAmountMinor).clamp(0.0, 1.0);
+    final done = goal.isCompleted || progress >= 1;
+    final account = calc.data.account(goal.linkedAccountId);
+    return InkWell(
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => GoalDetailScreen(repository: repository, goalId: goal.id))),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(done ? Icons.verified : Icons.flag_outlined, color: tint),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(goal.name, style: const TextStyle(fontWeight: FontWeight.w700)),
+                if (account != null)
+                  Text('Vinculado a ${account.name}', style: TextStyle(fontSize: 12, color: hint))
+                else if (goal.targetDate case final date?)
+                  Text('Objetivo: ${DateFormat('d MMM yyyy', 'es').format(date)}', style: TextStyle(fontSize: 12, color: hint)),
+              ]),
+            ),
+            Text('${(progress * 100).round()} %', style: TextStyle(fontWeight: FontWeight.w600, color: hint)),
+          ]),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(5),
+            child: LinearProgressIndicator(value: progress, minHeight: 8, color: tint, backgroundColor: Pulso.of(context).tertiary),
+          ),
+          const SizedBox(height: 6),
+          Row(children: [
+            Text(money(current), style: const TextStyle(fontWeight: FontWeight.w600)),
+            const Spacer(),
+            Text('de ', style: TextStyle(fontSize: 12, color: hint)),
+            Text(money(goal.targetAmountMinor), style: const TextStyle(fontWeight: FontWeight.w600)),
+          ]),
+        ]),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final goals = calc.data.goals;
     return Card(
       child: Column(children: [
-        for (final goal in goals)
-          ListTile(
-            leading: CircleAvatar(radius: 8, backgroundColor: colorFromHex(goal.colorHex)),
-            title: Text(goal.name),
-            subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const SizedBox(height: 6),
-              LinearProgressIndicator(
-                value: goal.targetAmountMinor <= 0 ? 0 : (saved(goal) / goal.targetAmountMinor).clamp(0, 1).toDouble(),
-                color: colorFromHex(goal.colorHex),
-                minHeight: 6,
-              ),
-              const SizedBox(height: 4),
-              Text('${money(saved(goal))} de ${money(goal.targetAmountMinor)}${goal.isCompleted ? ' · conseguido' : ''}'),
-            ]),
-            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => GoalFormScreen(repository: repository, editing: goal))),
-          ),
+        for (final goal in goals) _goalRow(context, goal),
         ListTile(
           leading: const Icon(Icons.add),
           title: const Text('Nuevo objetivo'),
@@ -633,3 +684,236 @@ class _GoalFormScreenState extends State<GoalFormScreen> {
     );
   }
 }
+
+/// A savings goal in detail, as on the iPhone (`GoalDetailView`): its percentage, what is saved, the target, what is
+/// left and how it is followed, and its details.
+class GoalDetailScreen extends StatelessWidget {
+  const GoalDetailScreen({super.key, required this.repository, required this.goalId});
+  final FinanceRepository repository;
+  final String goalId;
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+        listenable: repository,
+        builder: (context, _) {
+          final data = repository.finances;
+          final goal = data?.goals.where((g) => g.id == goalId).firstOrNull;
+          if (data == null || goal == null) return Scaffold(appBar: AppBar(), body: const Center(child: Text('Este objetivo ya no existe.')));
+          final calc = FinanceCalculator(data);
+          final account = data.account(goal.linkedAccountId);
+          final current = account != null ? (calc.balance(account) < 0 ? 0 : calc.balance(account)) : goal.currentAmountMinor;
+          final target = goal.targetAmountMinor < 0 ? 0 : goal.targetAmountMinor;
+          final progress = target > 0 ? (current / target).clamp(0.0, 1.0) : 0.0;
+          final left = target - current > 0 ? target - current : 0;
+          final tint = colorFromHex(goal.colorHex);
+          final pulso = Pulso.of(context);
+          final hint = Theme.of(context).hintColor;
+          final status = goalStatus(current: current, target: target, date: goal.targetDate, now: DateTime.now());
+          Widget metric(String label, String value, IconData icon, Color color) => Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Icon(icon, size: 16, color: color),
+                      const SizedBox(width: 6),
+                      Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: hint))),
+                    ]),
+                    const SizedBox(height: 6),
+                    FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: color))),
+                  ]),
+                ),
+              );
+          return Scaffold(
+            appBar: AppBar(title: const Text('Objetivo de ahorro', style: TextStyle(fontWeight: FontWeight.w700)), actions: [
+              IconButton(
+                tooltip: 'Editar objetivo',
+                icon: const Icon(Icons.edit_outlined),
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => GoalFormScreen(repository: repository, editing: goal))),
+              ),
+            ]),
+            body: ListView(padding: const EdgeInsets.all(16), children: [
+              Card(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Pulso.heroRadius), side: BorderSide(color: pulso.outline)),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(children: [
+                    Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(color: tint.withValues(alpha: 0.12), shape: BoxShape.circle),
+                      child: Icon(progress >= 1 ? Icons.verified : Icons.flag_outlined, color: tint, size: 28),
+                    ),
+                    const SizedBox(height: 12),
+                    Text(goal.name, textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 4),
+                    Text('${(progress * 100).round()} %', style: TextStyle(fontSize: 34, fontWeight: FontWeight.w800, color: tint)),
+                    const SizedBox(height: 8),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(value: progress, minHeight: 10, color: tint, backgroundColor: pulso.tertiary),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(status, textAlign: TextAlign.center, style: TextStyle(color: hint)),
+                  ]),
+                ),
+              ),
+              const SizedBox(height: 12),
+              GridView.count(
+                crossAxisCount: MediaQuery.sizeOf(context).width >= 600 ? 4 : 2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: 1.9,
+                children: [
+                  metric('Ahorrado', money(current), Icons.payments_outlined, tint),
+                  metric('Objetivo', money(target), Icons.sports_score, pulso.savings),
+                  metric(progress >= 1 ? 'Superado por' : 'Falta', money(progress >= 1 ? current - target : left),
+                      progress >= 1 ? Icons.check_circle_outline : Icons.hourglass_bottom, progress >= 1 ? pulso.income : pulso.warning),
+                  metric('Seguimiento', account == null ? 'Manual' : 'Automático', account == null ? Icons.touch_app_outlined : Icons.link, pulso.investment),
+                ],
+              ),
+              const SectionTitle('Detalles'),
+              Card(
+                child: Column(children: [
+                  ListTile(leading: Icon(Icons.account_balance_outlined, color: tint), title: const Text('Cuenta vinculada'), trailing: Text(account?.name ?? 'Ninguna')),
+                  ListTile(
+                    leading: Icon(Icons.calendar_today_outlined, color: tint),
+                    title: const Text('Fecha objetivo'),
+                    trailing: Text(goal.targetDate == null ? 'Sin fecha' : DateFormat("d 'de' MMMM yyyy", 'es').format(goal.targetDate!)),
+                  ),
+                ]),
+              ),
+            ]),
+          );
+        },
+      );
+}
+
+/// What the goal still needs: done, the amount left, and with a date how much a month until it.
+String goalStatus({required int current, required int target, DateTime? date, required DateTime now}) {
+  if (target <= 0 || current >= target) return '¡Objetivo conseguido!';
+  final left = target - current;
+  if (date == null) return 'Faltan ${money(left)} para conseguirlo.';
+  final months = (date.year - now.year) * 12 + date.month - now.month;
+  if (months <= 0) return 'Faltan ${money(left)} y la fecha objetivo ya ha llegado.';
+  return 'Faltan ${money(left)}: unos ${money((left / months).ceil())} al mes hasta ${DateFormat("MMMM 'de' yyyy", 'es').format(date)}.';
+}
+
+/// Presupuestos → Ver comparativa completa, as on the iPhone (`BudgetAnalysisView`): planned against real spending
+/// for any month, as paired bars and as a list with what is left.
+class BudgetAnalysisScreen extends StatefulWidget {
+  const BudgetAnalysisScreen({super.key, required this.calc, required this.month});
+  final FinanceCalculator calc;
+  final DateTime month;
+  @override
+  State<BudgetAnalysisScreen> createState() => _BudgetAnalysisScreenState();
+}
+
+class _BudgetAnalysisScreenState extends State<BudgetAnalysisScreen> {
+  late DateTime month = widget.month;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    final items = widget.calc.budgetProgress(month).where((i) => i.limitMinor > 0).toList();
+    final shown = items.take(7).toList();
+    final top = shown.fold(1, (m, i) => [m, i.limitMinor, i.spentMinor].reduce((a, b) => a > b ? a : b));
+    final planned = hint.withValues(alpha: 0.3);
+    Widget legend(String text, Color color) => Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(width: 10, height: 10, decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(2))),
+          const SizedBox(width: 5),
+          Text(text, style: TextStyle(fontSize: 12, color: hint)),
+        ]);
+    Widget bar(int value, Color color) => LayoutBuilder(
+          builder: (context, c) => Container(
+            width: 11,
+            height: (c.maxHeight * value / top).clamp(2.0, c.maxHeight),
+            margin: const EdgeInsets.symmetric(horizontal: 1),
+            decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(3)),
+          ),
+        );
+    return Scaffold(
+      appBar: AppBar(title: const Text('Análisis de presupuesto', style: TextStyle(fontWeight: FontWeight.w700))),
+      body: ListView(padding: EdgeInsets.fromLTRB(16, 8, 16, 24 + MediaQuery.paddingOf(context).bottom), children: [
+        MonthSelector(month: month, onMonth: (m) => setState(() => month = m)),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('Presupuesto frente a gasto real', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+              Text('Compara lo planificado con lo que realmente has gastado', style: TextStyle(fontSize: 13, color: hint)),
+              const SizedBox(height: 16),
+              if (amountsHidden)
+                Padding(padding: const EdgeInsets.symmetric(vertical: 40), child: Center(child: Text('Gráfico oculto por privacidad', style: TextStyle(color: hint))))
+              else if (shown.isEmpty)
+                Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40),
+                    child: Center(child: Text('No hay presupuestos para el mes seleccionado.', style: TextStyle(color: hint))))
+              else ...[
+                SizedBox(
+                  height: 200,
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    for (final item in shown)
+                      Expanded(
+                        child: Column(mainAxisAlignment: MainAxisAlignment.end, children: [
+                          Expanded(
+                            child: Row(crossAxisAlignment: CrossAxisAlignment.end, mainAxisAlignment: MainAxisAlignment.center, children: [
+                              bar(item.limitMinor, planned),
+                              bar(item.spentMinor, item.spentMinor > item.limitMinor ? pulso.expense : pulso.accent),
+                            ]),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(item.category.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 10, color: hint)),
+                        ]),
+                      ),
+                  ]),
+                ),
+                const SizedBox(height: 12),
+                Row(children: [legend('Presupuesto', planned), const SizedBox(width: 14), legend('Gasto real', pulso.accent)]),
+              ],
+            ]),
+          ),
+        ),
+        if (items.isNotEmpty) ...[
+          const SectionTitle('Comparativa por categoría'),
+          Card(
+            child: Column(children: [
+              for (final item in items)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Icon(symbolIcon(item.category.systemImage), size: 18, color: colorFromHex(item.category.colorHex)),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(item.category.name, style: const TextStyle(fontWeight: FontWeight.w500))),
+                      Text(money(item.availableMinor, signed: true),
+                          style: TextStyle(fontWeight: FontWeight.w600, color: item.availableMinor >= 0 ? pulso.income : pulso.expense)),
+                    ]),
+                    const SizedBox(height: 7),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(5),
+                      child: LinearProgressIndicator(
+                          value: item.fraction.clamp(0.0, 1.0),
+                          minHeight: 7,
+                          color: item.spentMinor > item.limitMinor ? pulso.expense : colorFromHex(item.category.colorHex),
+                          backgroundColor: pulso.tertiary),
+                    ),
+                  ]),
+                ),
+            ]),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+/// What the budgets with «Queda como ahorro» left unspent in a past month: it stays in the accounts and does not
+/// raise the next month's budget (Swift `unspentKeptMinor`).
+int unspentKept(FinanceCalculator calc, DateTime month) => calc.budgetProgress(month).where((i) => i.limitMinor > 0).fold(0, (total, item) {
+      final plan = FinanceCalculator.activeRecurringBudget(item.category, monthKey(month), calc.data.recurringBudgets);
+      if (plan == null || plan.remainderChoice != RemainderChoice.save) return total;
+      return total + (item.availableMinor > 0 ? item.availableMinor : 0);
+    });
