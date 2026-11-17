@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../password_policy.dart';
 import '../presentation.dart';
 import '../theme.dart';
+import 'widgets.dart' show BomboIllustration;
 
 /// Sign-in with the same Doblón account as on the iPhone. No financial data before signing in:
 /// only the brand and a daily curiosity.
@@ -83,26 +84,44 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(28),
-                    child: Image.asset('assets/don_bigotes.png', height: 140, fit: BoxFit.cover),
-                  ),
-                  const SizedBox(height: 20),
-                  Text('Doblón', textAlign: TextAlign.center, style: Theme.of(context).textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 6),
-                  Text('Tu dinero, en claro.', textAlign: TextAlign.center, style: TextStyle(color: pulso.accent, fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 20),
+                  // As on the iPhone: the brand, the drum, «Tu dinero, con calma.», the daily quote and what the bank link can do.
+                  Row(children: [
+                    ClipRRect(borderRadius: BorderRadius.circular(16), child: Image.asset('assets/don_bigotes.png', width: 52, height: 52, fit: BoxFit.cover)),
+                    const SizedBox(width: 12),
+                    Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      const Text('Doblón', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+                      Text('Finanzas personales', style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
+                    ]),
+                  ]),
+                  const BomboIllustration(height: 220),
+                  const Text('Tu dinero, con calma.', style: TextStyle(fontSize: 32, fontWeight: FontWeight.w900)),
+                  const SizedBox(height: 14),
                   Card(
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Pulso.heroRadius), side: BorderSide(color: pulso.outline)),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Row(children: [
-                        Icon(Icons.auto_stories_outlined, color: pulso.accent),
-                        const SizedBox(width: 12),
-                        Expanded(child: Text(quoteOfTheDay(), style: Theme.of(context).textTheme.bodyMedium)),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('LA FRASE DEL DÍA', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, letterSpacing: 0.6, color: pulso.accent)),
+                        const SizedBox(height: 6),
+                        Text(quoteOfTheDay(), style: const TextStyle(fontWeight: FontWeight.w600)),
                       ]),
                     ),
                   ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 10),
+                  Row(children: [
+                    Icon(Icons.shield_outlined, size: 16, color: Theme.of(context).hintColor),
+                    const SizedBox(width: 6),
+                    Expanded(
+                        child: Text('La conexión con tu banco solo lee: nunca puede mover dinero.',
+                            style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor))),
+                  ]),
+                  const SizedBox(height: 20),
+                  Row(children: [
+                    Icon(Icons.lock_outline, size: 14, color: pulso.accent),
+                    const SizedBox(width: 6),
+                    Text('TU ESPACIO PERSONAL', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: pulso.accent)),
+                  ]),
+                  const SizedBox(height: 10),
                   TextField(
                     controller: _email,
                     keyboardType: TextInputType.emailAddress,

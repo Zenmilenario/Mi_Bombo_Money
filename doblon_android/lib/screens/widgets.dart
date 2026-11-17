@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 import '../edits.dart';
 import '../finance.dart';
@@ -169,4 +169,62 @@ class BudgetBar extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// Coins falling into a drum («bombo»), drawn as on the iPhone's sign-in screen (Swift `BomboIllustration`).
+class BomboIllustration extends StatelessWidget {
+  const BomboIllustration({super.key, this.height = 240});
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    return Semantics(
+      label: 'Ilustración: monedas que caen dentro de un bombo',
+      child: CustomPaint(size: Size(double.infinity, height), painter: _BomboPainter(pulso.accent, pulso.warning, pulso.page)),
+    );
+  }
+}
+
+class _BomboPainter extends CustomPainter {
+  _BomboPainter(this.accent, this.coin, this.page);
+  final Color accent, coin, page;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final s = [size.width / 324, size.height / 290].reduce((a, b) => a < b ? a : b);
+    final dx = (size.width - 324 * s) / 2 - 70 * s, dy = (size.height - 290 * s) / 2;
+    Rect rect(double x, double y, double w, double h) => Rect.fromLTWH(dx + x * s, dy + y * s, w * s, h * s);
+    Offset point(double x, double y) => Offset(dx + x * s, dy + y * s);
+    Paint stroke(Color color, double width) => Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = width * s
+      ..strokeCap = StrokeCap.round;
+    canvas.drawOval(rect(104, 32, 256, 256), Paint()..color = accent.withValues(alpha: 0.07));
+    canvas.drawOval(rect(140, 68, 184, 184), Paint()..color = accent.withValues(alpha: 0.07));
+    canvas.drawOval(rect(136, 214, 192, 44), stroke(accent, 3));
+    canvas.drawLine(point(136, 168), point(136, 236), stroke(accent, 3));
+    canvas.drawLine(point(328, 168), point(328, 236), stroke(accent, 3));
+    for (final (x1, x2) in const [(150.0, 182.0), (216.0, 248.0), (282.0, 314.0)]) {
+      canvas.drawLine(point(x1, 178), point(x2, 228), stroke(accent.withValues(alpha: 0.45), 2));
+      canvas.drawLine(point(x2, 178), point(x1, 228), stroke(accent.withValues(alpha: 0.45), 2));
+    }
+    canvas.drawOval(rect(136, 146, 192, 44), Paint()..color = page);
+    canvas.drawOval(rect(136, 146, 192, 44), stroke(accent, 3));
+    canvas.drawOval(rect(160, 154, 144, 28), stroke(accent.withValues(alpha: 0.5), 1.5));
+    for (final (x, y, r) in const [(216.0, 118.0, 17.0), (198.0, 40.0, 12.0)]) {
+      canvas.drawOval(rect(x - r, y - r, r * 2, r * 2), Paint()..color = coin.withValues(alpha: 0.22));
+      canvas.drawOval(rect(x - r, y - r, r * 2, r * 2), stroke(coin, 3));
+    }
+    canvas.drawOval(rect(261, 55, 14, 30), Paint()..color = coin.withValues(alpha: 0.22));
+    canvas.drawOval(rect(261, 55, 14, 30), stroke(coin, 3));
+    final euro = TextPainter(
+        text: TextSpan(text: '€', style: TextStyle(color: coin, fontSize: 17 * s, fontWeight: FontWeight.w900)), textDirection: TextDirection.ltr)
+      ..layout();
+    euro.paint(canvas, point(216, 119) - Offset(euro.width / 2, euro.height / 2));
+  }
+
+  @override
+  bool shouldRepaint(_BomboPainter old) => old.accent != accent || old.coin != coin || old.page != page;
 }

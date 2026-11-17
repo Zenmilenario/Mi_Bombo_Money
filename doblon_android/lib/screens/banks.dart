@@ -162,9 +162,43 @@ class _BanksScreenState extends State<BanksScreen> with WidgetsBindingObserver {
     await _authorize(bank);
   }
 
+  /// Trade Republic authorizes with a QR scanned from the phone where its app is (Swift «Conecta Trade Republic con
+  /// un QR»): the steps before opening its web. True to continue.
+  Future<bool> _tradeRepublicSteps() async {
+    final hint = Theme.of(context).hintColor;
+    Widget step(int n, String text) => ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: CircleAvatar(radius: 13, child: Text('$n', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700))),
+          title: Text(text, style: const TextStyle(fontSize: 14)),
+        );
+    final go = await showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(20, 0, 20, 20), children: [
+          const Text('Conecta Trade Republic con un QR', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text('Abre la conexión en este dispositivo y ten a mano el móvil en el que usas Trade Republic.', style: TextStyle(color: hint)),
+          const SizedBox(height: 8),
+          step(1, 'En la página de Trade Republic, abre el menú superior y elige «Solicitar sitio web de escritorio».'),
+          step(2, 'Deja abierta esa página y escanea el QR con la cámara del móvil. Confirma en la app de Trade Republic que compartes tu cuenta con Enable Banking.'),
+          step(3, 'Vuelve a Mis bancos y elige dónde guardar sus movimientos.'),
+          Text('La cámara que necesitas es la del móvil que escanea el QR. Si la verificación se bloquea, contacta con atención al cliente desde Ayuda en Trade Republic.',
+              style: TextStyle(fontSize: 12, color: hint)),
+          const SizedBox(height: 16),
+          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Continuar con Trade Republic')),
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Volver a Mis bancos')),
+        ]),
+      ),
+    );
+    return go == true;
+  }
+
   /// Opens the bank's web to authorize it. Renewing is the same: the new permission replaces the old one, which is
   /// disconnected on the next update (`supersededConnections`), and the movements are kept.
   Future<void> _authorize(String bank) async {
+    if (bank.toLowerCase().contains('trade republic') && !await _tradeRepublicSteps()) return;
     await _run((client) async {
       final url = await client.startAuthorization(bank);
       final opened = await launchUrl(url, mode: LaunchMode.externalApplication);

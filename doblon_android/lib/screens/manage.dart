@@ -5,11 +5,12 @@ import '../automation.dart';
 import '../banking.dart' show referenceSeconds;
 import '../data.dart';
 import '../edits.dart';
+import '../finance.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
 import 'forms.dart';
-import 'widgets.dart' show RowGlyph;
+import 'widgets.dart' show RowGlyph, SectionTitle;
 
 /// A management list that follows the repository: rebuilds when data changes.
 class _Managed extends StatelessWidget {
@@ -280,29 +281,72 @@ class RecurringScreen extends StatelessWidget {
           final format = DateFormat("d 'de' MMMM", 'es');
           final active = data.recurringMovements.where((r) => r.isActive).toList();
           final paused = data.recurringMovements.where((r) => !r.isActive).toList();
-          Widget tile(RecurringMovement r) => ListTile(
-                leading: Icon(r.isSubscription ? Icons.subscriptions_outlined : Icons.repeat),
-                title: Text(r.name),
-                subtitle: Text('${r.frequency.title} · próximo ${format.format(r.nextDueDate)}${r.postsAutomatically == true ? ' · se apunta solo' : ''}'),
-                trailing: Text(money(r.type.countsAsIncome ? r.amountMinor : -r.amountMinor, signed: true)),
-                onTap: () => _open(context, RecurringFormScreen(repository: repository, editing: r)),
-              );
+          final pulso = Pulso.of(context);
+          Widget tile(RecurringMovement r) {
+            final category = data.category(r.categoryId);
+            final color = r.type.countsAsIncome ? pulso.income : (r.type == TransactionType.transfer ? pulso.savings : pulso.expense);
+            final destination = data.account(r.destinationAccountId);
+            return ListTile(
+              leading: RowGlyph(
+                  icon: category != null
+                      ? symbolIcon(category.systemImage)
+                      : (r.type == TransactionType.transfer ? Icons.swap_horiz : (r.isSubscription ? Icons.subscriptions_outlined : Icons.repeat)),
+                  tint: category != null ? colorFromHex(category.colorHex) : color),
+              title: Text(r.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text([
+                r.frequency.title,
+                'próximo ${format.format(r.nextDueDate)}',
+                if (destination != null) 'a ${destination.name}',
+                if (r.postsAutomatically == true) 'se apunta solo',
+              ].join(' · ')),
+              trailing: Text(r.type == TransactionType.transfer ? money(r.amountMinor) : money(r.type.countsAsIncome ? r.amountMinor : -r.amountMinor, signed: true),
+                  style: TextStyle(fontWeight: FontWeight.w700, color: color)),
+              onTap: () => _open(context, RecurringFormScreen(repository: repository, editing: r)),
+            );
+          }
+
           return [
-            const Text(
-                'Suscripciones, recibos, nóminas y traspasos que se repiten. Los que se apuntan solos lo hacen al abrir la app; en cuentas conectadas al banco no, porque llega el apunte real.'),
-            const SizedBox(height: 12),
-            if (active.isEmpty) const Text('Aún no hay ninguno.'),
-            Card(child: Column(children: [for (final r in active) tile(r)])),
-            if (paused.isNotEmpty) ExpansionTile(title: Text('En pausa (${paused.length})'), children: [for (final r in paused) tile(r)]),
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  const Text('Programar movimientos', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text(
+                      'Gastos, ingresos y transferencias que se repiten. Los que se apuntan solos lo hacen al abrir la app; en cuentas conectadas al banco no, porque llega el apunte real.',
+                      style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
+                  const SizedBox(height: 12),
+                  FilledButton.tonalIcon(
+                    onPressed: () => _open(context, RecurringFormScreen(repository: repository)),
+                    icon: const Icon(Icons.repeat),
+                    label: const Text('Añadir suscripción o recibo'),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: data.accounts.any((a) => !a.isArchived && a.type == AccountType.investment)
+                        ? () => _open(context, RecurringFormScreen(repository: repository, investmentContribution: true))
+                        : null,
+                    icon: const Icon(Icons.trending_up),
+                    label: const Text('Programar aportación mensual a inversión'),
+                  ),
+                ]),
+              ),
+            ),
+            if (active.isEmpty && paused.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('Aún no hay ninguno.')),
+            if (active.isNotEmpty) ...[const SectionTitle('Activos'), Card(child: Column(children: [for (final r in active) tile(r)]))],
+            if (paused.isNotEmpty) ...[const SectionTitle('Inactivos'), Card(child: Column(children: [for (final r in paused) tile(r)]))],
           ];
         },
       );
 }
 
 class RecurringFormScreen extends StatefulWidget {
-  const RecurringFormScreen({super.key, required this.repository, this.editing});
+  const RecurringFormScreen({super.key, required this.repository, this.editing, this.investmentContribution = false});
   final FinanceRepository repository;
   final RecurringMovement? editing;
+
+  /// Starts as a monthly transfer to the first investment account (Swift «Programar aportación mensual a inversión»).
+  final bool investmentContribution;
   @override
   State<RecurringFormScreen> createState() => _RecurringFormScreenState();
 }
@@ -312,12 +356,15 @@ class _RecurringFormScreenState extends State<RecurringFormScreen> {
   late final _name = TextEditingController(text: e?.name ?? '');
   late final _amount = TextEditingController(text: e == null ? '' : amountText(e!.amountMinor));
   late final _description = TextEditingController(text: e?.descriptionText ?? '');
-  late TransactionType _type = e?.type ?? TransactionType.expense;
+  late TransactionType _type = e?.type ?? (widget.investmentContribution ? TransactionType.transfer : TransactionType.expense);
   late Frequency _frequency = e?.frequency ?? Frequency.monthly;
   late DateTime _next = e?.nextDueDate ?? DateTime.now();
   late DateTime? _end = e?.endDate;
   late String? _source = e?.sourceAccountId;
-  late String? _destination = e?.destinationAccountId;
+  late String? _destination = e?.destinationAccountId ??
+      (widget.investmentContribution
+          ? widget.repository.finances!.accounts.where((a) => !a.isArchived && a.type == AccountType.investment).firstOrNull?.id
+          : null);
   late String? _category = e?.categoryId;
   late bool _active = e?.isActive ?? true;
   late bool _subscription = e?.isSubscription ?? false;
@@ -428,49 +475,121 @@ class InstitutionsScreen extends StatelessWidget {
   const InstitutionsScreen({super.key, required this.repository});
   final FinanceRepository repository;
 
-  Future<void> _edit(BuildContext context, Institution? editing) async {
-    final controller = TextEditingController(text: editing?.name ?? '');
-    final name = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(editing == null ? 'Nueva entidad' : 'Renombrar entidad'),
-        content: TextField(
-            controller: controller, autofocus: true, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Nombre')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-          TextButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('Guardar')),
-        ],
-      ),
-    );
-    if (name == null || name.isEmpty) return;
-    final now = referenceSeconds(DateTime.now());
-    await repository.apply(editing != null
-        ? upsertOperation('institutions', {'id': editing.id, 'name': name, 'updatedAt': now}, create: false)
-        : upsertOperation('institutions', {'id': repository.newId(), 'name': name, 'colorHex': '#1F6B7A', 'notes': '', 'createdAt': now, 'updatedAt': now},
-            create: true));
-  }
-
   @override
   Widget build(BuildContext context) => _Managed(
         repository: repository,
         title: 'Bancos y entidades',
-        onAdd: () => _edit(context, null),
+        onAdd: () => _open(context, InstitutionFormScreen(repository: repository)),
         builder: (context, data) => [
-          const Text('Los nombres que agrupan tus cuentas y tarjetas.'),
+          Text('Los bancos, brókeres y otras entidades que agrupan tus cuentas y tarjetas.', style: TextStyle(color: Theme.of(context).hintColor)),
           const SizedBox(height: 12),
+          if (data.institutions.isEmpty) const Text('Aún no hay ninguna.'),
           Card(
             child: Column(children: [
               for (final i in data.institutions)
-                ListTile(
-                  leading: Icon(Icons.account_balance, color: Pulso.of(context).accent),
-                  title: Text(i.name),
-                  subtitle: Text('${data.accounts.where((a) => a.institutionId == i.id).length} cuentas'),
-                  onTap: () => _edit(context, i),
-                ),
+                () {
+                  final accounts = data.accounts.where((a) => a.institutionId == i.id).toList();
+                  final cards = data.cards.where((c) => accounts.any((a) => a.id == c.linkedAccountId)).length;
+                  return ListTile(
+                    leading: RowGlyph(icon: Icons.account_balance, tint: colorFromHex(i.colorHex)),
+                    title: Text(i.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    subtitle: Text('${accounts.length == 1 ? '1 cuenta' : '${accounts.length} cuentas'}'
+                        '${cards > 0 ? ' · ${cards == 1 ? '1 tarjeta' : '$cards tarjetas'}' : ''}'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _open(context, InstitutionFormScreen(repository: repository, editing: i)),
+                  );
+                }(),
             ]),
           ),
         ],
       );
+}
+
+/// A bank or other entity, as on the iPhone: its name and colour with a preview, and its accounts and cards.
+class InstitutionFormScreen extends StatefulWidget {
+  const InstitutionFormScreen({super.key, required this.repository, this.editing});
+  final FinanceRepository repository;
+  final Institution? editing;
+  @override
+  State<InstitutionFormScreen> createState() => _InstitutionFormScreenState();
+}
+
+class _InstitutionFormScreenState extends State<InstitutionFormScreen> {
+  late final _name = TextEditingController(text: widget.editing?.name ?? '');
+  late String _color = widget.editing?.colorHex ?? '#1F6B7A';
+  String? _message;
+
+  @override
+  Widget build(BuildContext context) {
+    final editing = widget.editing;
+    final data = widget.repository.finances!;
+    final accounts = editing == null ? const <Account>[] : data.accounts.where((a) => a.institutionId == editing.id).toList();
+    final cards = data.cards.where((c) => accounts.any((a) => a.id == c.linkedAccountId)).toList();
+    final hint = Theme.of(context).hintColor;
+    return FormPage(
+      title: editing == null ? 'Nueva entidad' : 'Editar entidad',
+      message: _message,
+      onSave: () async {
+        final name = _name.text.trim();
+        if (name.isEmpty) return setState(() => _message = 'Escribe el nombre.');
+        final now = referenceSeconds(DateTime.now());
+        await widget.repository.apply(editing != null
+            ? upsertOperation('institutions', {'id': editing.id, 'name': name, 'colorHex': _color, 'updatedAt': now}, create: false)
+            : upsertOperation(
+                'institutions', {'id': widget.repository.newId(), 'name': name, 'colorHex': _color, 'notes': '', 'createdAt': now, 'updatedAt': now},
+                create: true));
+        if (mounted) Navigator.of(this.context).pop();
+      },
+      children: [
+        TextInput(controller: _name, label: 'Nombre'),
+        Text('Color de la entidad', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        ColorInput(value: _color, onChanged: (v) => setState(() => _color = v)),
+        const SizedBox(height: 16),
+        Text('Vista previa', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 8),
+        Card(
+          child: ListTile(
+            leading: RowGlyph(icon: Icons.account_balance, tint: colorFromHex(_color)),
+            title: Text(_name.text.trim().isEmpty ? 'Nombre de la entidad' : _name.text.trim()),
+          ),
+        ),
+        if (editing != null) ...[
+          const SectionTitle('Cuentas asociadas'),
+          Card(
+            child: accounts.isEmpty
+                ? Padding(padding: const EdgeInsets.all(16), child: Text('Todavía no hay cuentas asociadas a esta entidad.', style: TextStyle(color: hint)))
+                : Column(children: [
+                    for (final a in accounts)
+                      ListTile(
+                        leading: Icon(Icons.account_balance_wallet_outlined, color: colorFromHex(_color)),
+                        title: Text(a.name),
+                        subtitle: Text(a.type.title),
+                        trailing: Text(money(FinanceCalculator(data).balance(a), currency: a.currencyCode), style: const TextStyle(fontWeight: FontWeight.w600)),
+                      ),
+                  ]),
+          ),
+          const SectionTitle('Tarjetas'),
+          Card(
+            child: cards.isEmpty
+                ? Padding(padding: const EdgeInsets.all(16), child: Text('Todavía no hay tarjetas asociadas a esta entidad.', style: TextStyle(color: hint)))
+                : Column(children: [
+                    for (final c in cards)
+                      ListTile(
+                        leading: Icon(Icons.credit_card, color: colorFromHex(_color)),
+                        title: Text(c.name),
+                        subtitle: Text([c.type.title, if (c.lastFour.isNotEmpty) '•••• ${c.lastFour}'].join(' · ')),
+                      ),
+                  ]),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text('Las tarjetas son medios de pago. Su saldo pertenece a la cuenta vinculada.', style: TextStyle(fontSize: 12, color: hint)),
+          ),
+        ],
+      ],
+    );
+  }
 }
 
 /// Posts the periodic movements due now (used when the app opens and from Ajustes).

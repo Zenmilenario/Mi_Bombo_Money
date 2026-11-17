@@ -17,6 +17,7 @@ import 'banks.dart';
 import 'budgets.dart';
 import 'card_payments.dart';
 import 'home.dart';
+import 'info.dart';
 import 'learning.dart' show AiMetricsScreen;
 import 'manage.dart';
 import 'tools.dart';
@@ -512,6 +513,11 @@ class _SettingsPage extends StatelessWidget {
         if (repository.isAdministrator)
           route(Icons.insights, 'Acierto de la IA', 'Cuántas propuestas de categoría aceptas', () => AiMetricsScreen(repository: repository)),
       ]),
+      section('Ayuda', [
+        route(Icons.help_outline, 'Cómo usar la app', 'Primeros pasos y conceptos importantes', () => const HelpScreen()),
+        route(Icons.front_hand_outlined, 'Privacidad y protección de datos', '', () => const PrivacyScreen()),
+        route(Icons.info_outline, 'Acerca de Doblón', 'Versión $appVersion · conoce a Don Bigotes', () => const AboutScreen()),
+      ]),
       const SizedBox(height: 16),
       Card(
         child: ListTile(
@@ -547,7 +553,7 @@ class _SettingsPage extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 8),
-      Center(child: Text('Doblón', style: Theme.of(context).textTheme.bodySmall)),
+      Center(child: Text('Doblón $appVersion', style: Theme.of(context).textTheme.bodySmall)),
     ]);
   }
 }
