@@ -203,7 +203,18 @@ struct BackupRoundTripCheck {
             preconditionFailure("Unknown cipher format accepted")
         } catch is BackupError { }
 
-        print("Backup checks passed: complete round trip, repeated restore, invalid input, encryption/decryption, preservation and empty restore.")
+        // A copy encrypted by the Flutter app (lib/backup_crypto.dart) opens here: same cipher, key and envelope.
+        guard let fromFlutter = FileManager.default.contents(atPath: "Tests/Fixtures/encrypted_backup.json") else {
+            preconditionFailure("Missing Tests/Fixtures/encrypted_backup.json")
+        }
+        let flutterBackup = try BackupService.decode(fromFlutter, password: "ContraseñaFicticia123!")
+        precondition(flutterBackup.formatVersion == 2 && flutterBackup.totalRecords == 0, "The Flutter copy decrypts to its empty backup")
+        do {
+            _ = try BackupService.decode(fromFlutter, password: "otra-contraseña-ficticia")
+            preconditionFailure("A Flutter copy opened with a wrong password")
+        } catch BackupError.invalidPassword { }
+
+        print("Backup checks passed: complete round trip, repeated restore, invalid input, encryption/decryption, preservation, empty restore and a copy encrypted by Flutter.")
     }
 
     @MainActor

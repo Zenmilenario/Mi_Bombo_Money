@@ -1,0 +1,7 @@
+{
+  "magic": "MiPatrimonioEncryptedBackupV1",
+  "format": "AES-256-GCM-PBKDF2-SHA256",
+  "saltBase64": "acDrixbN9iuzO5h4IbMlAA==",
+  "combinedCiphertextBase64": "6UvB3+EtXtaGy55KeaZ1so/FpyNBJNfLaY3RoUBEydt7OQHGEkxeWAIZLiAC3uRroy0IiT7/Mna9hhT35xS1ONEShRP6u0Vy8VaxAb36luPMpu/Lz7CARSvE5WZm/OT7es5HImD/sg8lKgbpzV7Wlg/k7qUxOERBUWzGCYUg2+OzhlpVISW6c6608YwkBn2nKqeqqYiPvmbhZQrHA/Hm/RtBl//yNnhxtxO3qDesqCIWW/sbaJdtb13Np9QSq3Xh9bCST3N7Kdjg9GwHYxEBl0R0TzTF+uuU0kqKEiXBRHCH9HXKo4qpjDAbSfcJuEoSHBoa6Jfr5httqCTv1nRfVAuPLletXaBnLe/D9OvYXup9AMYhD3nxhSQ=",
+  "iterations": 600000
+}
