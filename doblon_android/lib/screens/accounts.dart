@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../bank_activity.dart';
-import '../banking.dart' show referenceSeconds;
+import '../banking.dart' show referenceSeconds, stableUuid;
 import '../data.dart';
 import '../edits.dart';
 import '../finance.dart';
@@ -27,6 +27,16 @@ class AccountsScreen extends StatefulWidget {
 /// Not updated by hand for 30 days and not fed by a bank.
 bool isStaleAccount(Account a, DateTime now) =>
     a.bankIdentityKey == null && !a.isArchived && a.lastUpdatedAt.isBefore(now.subtract(const Duration(days: 30)));
+
+/// Label of a linked account: "Al día" only when the bank sent a booked balance in the last 2 days. Without
+/// one (Trade Republic may send none) the balance is the opening balance plus movements, not checked by the bank.
+String? bankBalanceLabel(Account a, List<BalanceSnapshot> snapshots, DateTime now) {
+  if (a.bankIdentityKey == null) return null;
+  final id = stableUuid('${a.bankIdentityKey}|booked-balance');
+  final bank = snapshots.where((s) => s.id.toLowerCase() == id).firstOrNull;
+  if (bank == null) return 'Sin saldo del banco';
+  return bank.date.isBefore(now.subtract(const Duration(days: 2))) ? 'Saldo sin confirmar' : 'Al día';
+}
 
 class _AccountsScreenState extends State<AccountsScreen> {
   bool onlyStale = false;
@@ -246,8 +256,8 @@ class _AccountCard extends StatelessWidget {
               ),
               if (stale)
                 pill('Sin actualizar', pulso.warning, Icons.schedule)
-              else if (account.bankIdentityKey != null)
-                pill('Al día', pulso.accent),
+              else if (bankBalanceLabel(account, calc.data.snapshots, now) case final label?)
+                pill(label, label == 'Al día' ? pulso.accent : pulso.warning),
             ]),
             const SizedBox(height: 10),
             Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
