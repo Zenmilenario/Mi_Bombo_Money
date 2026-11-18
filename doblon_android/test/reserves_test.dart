@@ -2,6 +2,7 @@
 // account with interest, paid in instalments; a 2.000 € cushion; interest whose destination the person decides.
 // Reserving, moving, paying, editing, joining and downloading again never adds money or counts a payment twice.
 import 'package:doblon/banking.dart';
+import 'package:doblon/cloud_document_validation.dart';
 import 'package:doblon/edits.dart';
 import 'package:doblon/finance.dart';
 import 'package:doblon/models.dart';
@@ -202,5 +203,32 @@ void main() {
     expect(draft.validate(data, editing: p), contains('No hay suficiente'), reason: 'Only 1.000 € of the reserve are in that account');
     draft.reservedAmountMinor = 97750;
     expect(draft.validate(data, editing: p), isNull, reason: 'Partly covered: the rest counts as everyday spending');
+  });
+
+  test('encrypted copies of guests accept the same as the cloud: origin before the reserve, more money after it', () {
+    Map<String, dynamic> full(Map<String, dynamic> doc) => {
+          for (final k in ['institutions', 'cards', 'categoryRules', 'recurringBudgets', 'goals', 'recurringMovements', 'importBatches', 'snapshots']) k: [],
+          ...doc,
+        };
+    final doc = full(base());
+    doc['transactions'] = <dynamic>[for (final t in doc['transactions'] as List) Map<String, dynamic>.from(t as Map)];
+    // The origin incomes need the part, as the cloud does.
+    for (final t in (doc['transactions'] as List).cast<Map<String, dynamic>>()) {
+      if (t['typeRaw'] == 'income' && t['reservedFundID'] != null) t['reservedAmountMinor'] = t['amountMinor'];
+    }
+    expect(() => validatePrivateDocument(doc, 'finance'), returnsNormally);
+    // Interest added later lets a later payment use it; without it, that payment is refused.
+    (doc['transactions'] as List).addAll([
+      {'id': 'i1', 'date': s(DateTime(2026, 11, 1)), 'typeRaw': 'interest', 'amountMinor': 5000, 'descriptionText': 'Intereses', 'sourceAccountID': 'cur',
+        'reservedFundID': 'f', 'reservedAmountMinor': 5000},
+      {'id': 'p9', 'date': s(DateTime(2026, 11, 2)), 'typeRaw': 'expense', 'amountMinor': 5000, 'descriptionText': 'Pago', 'sourceAccountID': 'cur',
+        'reservedFundID': 'f', 'reservedAmountMinor': 1650 + 5000},
+    ]);
+    ((doc['transactions'] as List).last as Map)['amountMinor'] = 1650 + 5000;
+    expect(() => validatePrivateDocument(doc, 'finance'), returnsNormally);
+    ((doc['transactions'] as List).firstWhere((t) => t['id'] == 'i1') as Map)
+      ..remove('reservedFundID')
+      ..remove('reservedAmountMinor');
+    expect(() => validatePrivateDocument(doc, 'finance'), throwsFormatException);
   });
 }

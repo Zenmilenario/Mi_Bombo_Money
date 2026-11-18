@@ -1,4 +1,4 @@
--- Income set aside for a reserve (Doblón 0.28.0, 18 November 2026). NOT APPLIED until the owner confirms it.
+-- Income set aside for a reserve (Doblón 0.28.2). Applied to the project on 18 November 2026 with the owner's confirmation.
 --
 -- An income or interest may name a reserve and the part set aside for it:
 --   * dated after the reserve was created, that part adds to the reserve in the income's account (for example,

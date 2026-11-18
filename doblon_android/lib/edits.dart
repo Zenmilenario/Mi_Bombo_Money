@@ -159,10 +159,9 @@ List<DuplicateCandidate> duplicateCandidates(
 String duplicateStateAfterEdit(String previous, String previousFingerprint, String newFingerprint, bool hasCandidates) =>
     previousFingerprint == newFingerprint ? previous : (hasCandidates ? 'possible' : 'none');
 
-/// Whether an income can be set aside for a reserve. The cloud only accepts a reserve on expenses, fees and transfers
-/// (`finance_reserved_allocation_check` and the reserve triggers) until the migration
-/// `20261118000100_reserved_income.sql` is applied; saving it before would be refused and block the sync.
-const incomeReserves = false;
+/// Whether an income can be set aside for a reserve: the cloud accepts it since the migration
+/// `20261118000100_reserved_income.sql` (applied on 18 November 2026), and the device check of encrypted documents too.
+const incomeReserves = true;
 
 /// What the form collects. Validation follows the cloud's rules, so a saved change is never refused later.
 class TransactionDraft {
