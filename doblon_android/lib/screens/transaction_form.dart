@@ -372,7 +372,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                             selected: draft.type == TransactionType.interest,
                             onSelected: (on) => setState(() => draft.type = on ? TransactionType.interest : TransactionType.income)),
                     ]),
-                  ..._reserveFields(),
+                  if (!draft.type.countsAsIncome || incomeReserves) ..._reserveFields(),
                   TextField(
                     controller: _notes,
                     maxLines: 3,

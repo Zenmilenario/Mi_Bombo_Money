@@ -159,6 +159,11 @@ List<DuplicateCandidate> duplicateCandidates(
 String duplicateStateAfterEdit(String previous, String previousFingerprint, String newFingerprint, bool hasCandidates) =>
     previousFingerprint == newFingerprint ? previous : (hasCandidates ? 'possible' : 'none');
 
+/// Whether an income can be set aside for a reserve. The cloud only accepts a reserve on expenses, fees and transfers
+/// (`finance_reserved_allocation_check` and the reserve triggers) until the migration
+/// `20261118000100_reserved_income.sql` is applied; saving it before would be refused and block the sync.
+const incomeReserves = false;
+
 /// What the form collects. Validation follows the cloud's rules, so a saved change is never refused later.
 class TransactionDraft {
   TransactionDraft({
@@ -207,6 +212,7 @@ class TransactionDraft {
       final fund = data.reservedFunds.where((f) => f.id == fundId).firstOrNull;
       if (fund == null || fund.accountId == null) return 'Esa reserva ya no existe.';
       // An income can be set aside for a reserve (all of it or a part): it is not everyday income.
+      if (type.countsAsIncome && !incomeReserves) return 'La reserva se puede usar en un gasto o trasladar entre tus cuentas.';
       if (type.countsAsIncome) {
         final part = reservedAmountMinor ?? amountMinor;
         if (part <= 0) return 'Escribe la parte que va a la reserva.';
@@ -251,6 +257,8 @@ class Operation {
 
 /// Builds the operation that saves a draft: a new record, or the changed fields of an existing one (so a
 /// field changed meanwhile on another device and not touched here is kept).
+bool _reserveAllowed(TransactionType type) => type.countsAsExpense || type == TransactionType.transfer || (incomeReserves && type.countsAsIncome);
+
 Operation saveOperation(TransactionDraft draft, Finances data, DateTime now, {Transaction? editing, String? newId}) {
   final source = draft.sourceAccountId;
   final destination = draft.type == TransactionType.transfer ? draft.destinationAccountId : null;
@@ -278,9 +286,12 @@ Operation saveOperation(TransactionDraft draft, Finances data, DateTime now, {Tr
     'sourceAccountID': source,
     'destinationAccountID': destination,
     'categoryID': draft.categoryId,
-    // A payment or a move uses a reserve; an income can be set aside for one.
-    'reservedFundID': draft.reservedFundId,
-    'reservedAmountMinor': draft.reservedFundId != null ? draft.reservedAmountMinor : null,
+    // A payment or a move uses a reserve; an income can be set aside for one (when the cloud accepts it). The cloud
+    // needs the amount: for an income the whole of it unless a part is given.
+    'reservedFundID': _reserveAllowed(draft.type) ? draft.reservedFundId : null,
+    'reservedAmountMinor': _reserveAllowed(draft.type) && draft.reservedFundId != null
+        ? (draft.reservedAmountMinor ?? (draft.type.countsAsIncome ? draft.amountMinor.abs() : null))
+        : null,
     'updatedAt': referenceSeconds(now),
   };
   if (editing != null) {
