@@ -28,7 +28,7 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
 
 ## Qué hace
 
-- **Entrada:** con la misma cuenta de Doblón; alta de cuenta nueva y bloqueo con huella o PIN del móvil.
+- **Entrada:** con la misma cuenta de Doblón; alta de cuenta nueva y bloqueo con Face ID, huella o PIN del móvil, o con el correo y la contraseña de la cuenta; el bloqueo cubre todas las pantallas y, al salir de la app, una cubierta oculta los datos también en la vista de apps recientes.
 - **Inicio** (0.25.0):
   - Disponible en su tarjeta, con lo reservado, retenido e invertido;
   - el mes: gastos, ingresos y ahorro, lo presupuestado con su ritmo y margen, y el calendario de gasto diario (cada día lista sus movimientos);

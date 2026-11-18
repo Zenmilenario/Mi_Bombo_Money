@@ -58,8 +58,8 @@ void main() {
     expect(asked, 2, reason: 'Asked again after the background');
 
     answer = true;
-    await tester.ensureVisible(find.text('Desbloquear'));
-    await tester.tap(find.text('Desbloquear'));
+    await tester.ensureVisible(find.text('Volver a intentar con Face ID o huella'));
+    await tester.tap(find.text('Volver a intentar con Face ID o huella'));
     await tester.pumpAndSettle();
     expect(find.text('Dentro'), findsOneWidget);
   });
