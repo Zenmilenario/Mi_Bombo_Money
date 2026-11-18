@@ -29,13 +29,17 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
 ## Qué hace
 
 - **Entrada:** con la misma cuenta de Doblón; alta de cuenta nueva y bloqueo con huella o PIN del móvil.
-- **Inicio:**
-  - patrimonio con su gráfico de 12 meses y la variación del mes;
-  - disponible e invertido, y lo disponible al día hasta fin de mes;
-  - ingresos, gastos y ahorro del mes, presupuestos y últimos movimientos.
+- **Inicio** (0.24.0), en tres preguntas:
+  - ¿cuánto tengo disponible?: la cifra con su definición; el reparto, el patrimonio, su variación y su gráfico de 12 meses al abrir «Ver reparto y patrimonio»;
+  - ¿necesito hacer algo?: la misma lista de pendientes que Don Bigotes, con los avisos revisados aparte;
+  - ¿cómo voy este mes?: gasto frente al presupuesto con su ritmo, margen de hoy, ingresos, gastos y ahorro del mes (ingresos − gastos), y el mes día a día al abrirlo;
+  - presupuestos, objetivo destacado y últimos movimientos.
+- **Barra inferior:** «+ Añadir» (una pulsación desde cualquier pestaña) y Don Bigotes, separados; la cabecera se recoge al bajar.
 - **Movimientos:**
   - apuntar, editar y borrar; categorizar uno o varios;
-  - «Por revisar»: duplicados, sin categoría o con categoría incompatible;
+  - alta con el importe enfocado, la cuenta sin adivinar y lo opcional en «Más opciones»;
+  - «Pendiente»: posibles duplicados o categoría incompatible (la categoría es opcional y no cuenta como tarea);
+  - herramientas de revisión y entrenamiento de la IA solo para el administrador, en Ajustes › Avanzado;
   - filtros, detalle y emparejado de traspasos entre tus cuentas;
   - categoría sugerida por tus reglas, con opción de recordar la regla;
   - pagos con dinero reservado.

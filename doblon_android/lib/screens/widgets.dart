@@ -100,7 +100,8 @@ class TransactionTile extends StatelessWidget {
       title: Text(listTitle(t.descriptionText, isBanking: t.isBanking),
           maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Builder(builder: (context) {
-        final issues = reviewIssues(t, category);
+        // Only what is pending is flagged; «Sin categoría» already shows on the right, without a warning colour.
+        final issues = pendingIssues(t, category);
         if (issues.isEmpty) return Text(accountText, maxLines: 1, overflow: TextOverflow.ellipsis);
         return Text('$accountText · ${issues.first.title}', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: pulso.warning));
       }),
@@ -219,12 +220,56 @@ class _BomboPainter extends CustomPainter {
     }
     canvas.drawOval(rect(261, 55, 14, 30), Paint()..color = coin.withValues(alpha: 0.22));
     canvas.drawOval(rect(261, 55, 14, 30), stroke(coin, 3));
-    final euro = TextPainter(
-        text: TextSpan(text: '€', style: TextStyle(color: coin, fontSize: 17 * s, fontWeight: FontWeight.w900)), textDirection: TextDirection.ltr)
-      ..layout();
+    final euro =
+        TextPainter(text: TextSpan(text: '€', style: TextStyle(color: coin, fontSize: 17 * s, fontWeight: FontWeight.w900)), textDirection: TextDirection.ltr)
+          ..layout();
     euro.paint(canvas, point(216, 119) - Offset(euro.width / 2, euro.height / 2));
   }
 
   @override
   bool shouldRepaint(_BomboPainter old) => old.accent != accent || old.coin != coin || old.page != page;
+}
+
+/// A title that opens and closes the detail below it, read as a button with its state by the screen reader.
+class Disclosure extends StatefulWidget {
+  const Disclosure({super.key, required this.title, required this.child, this.initiallyOpen = false});
+  final String title;
+  final Widget child;
+  final bool initiallyOpen;
+
+  @override
+  State<Disclosure> createState() => _DisclosureState();
+}
+
+class _DisclosureState extends State<Disclosure> {
+  late bool open = widget.initiallyOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Pulso.of(context).accent;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Semantics(
+        button: true,
+        expanded: open,
+        excludeSemantics: true,
+        label: widget.title,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => setState(() => open = !open),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Row(children: [
+              Flexible(child: Text(widget.title, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: accent))),
+              AnimatedRotation(turns: open ? 0.5 : 0, duration: const Duration(milliseconds: 180), child: Icon(Icons.expand_more, color: accent)),
+            ]),
+          ),
+        ),
+      ),
+      AnimatedSize(
+        duration: const Duration(milliseconds: 200),
+        alignment: Alignment.topCenter,
+        child: open ? widget.child : const SizedBox(width: double.infinity),
+      ),
+    ]);
+  }
 }

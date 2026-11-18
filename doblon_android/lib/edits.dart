@@ -39,6 +39,12 @@ extension ReviewIssueTitle on ReviewIssue {
       };
 }
 
+/// What is pending for the person: a possible duplicate or a category that does not fit. A movement without a
+/// category is not pending: categories are optional and can be added later (they also feed the private learning,
+/// but nobody is asked to label movements for it).
+List<ReviewIssue> pendingIssues(Transaction t, Category? category) =>
+    reviewIssues(t, category).where((i) => i != ReviewIssue.missingCategory).toList();
+
 /// Swift `TransactionReviewService.issues`. Archiving a category does not make past movements wrong.
 List<ReviewIssue> reviewIssues(Transaction t, Category? category) {
   final issues = <ReviewIssue>[];

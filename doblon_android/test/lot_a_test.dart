@@ -1,5 +1,6 @@
 // Fictitious data only. Lote A of recovering the iPhone app's screens: spending by category, the notices of Inicio,
 // the quick filters and summary of Movimientos, the groups of Cuentas and the icon of a category.
+import 'package:doblon/automation.dart' show CompanionNote;
 import 'package:doblon/data.dart';
 import 'package:doblon/finance.dart';
 import 'package:doblon/models.dart';
@@ -58,10 +59,23 @@ void main() {
     expect([for (final (c, amount) in calc.spendingByCategory(DateTime(now.year, now.month))) '${c.name} $amount'], ['Comida 3000', 'Ocio 2000']);
   });
 
-  test('the notices of Inicio: budget over its limit, duplicate and account not updated', () {
-    final alerts = homeAlerts(FinanceCalculator(sample(now)), DateTime(now.year, now.month), now, Pulso.light);
-    expect(alerts.map((a) => a.title), ['Has superado 1 presupuesto', 'Hay 1 posible movimiento duplicado', '1 cuenta lleva más de 30 días sin actualizarse']);
-    expect(alerts.map((a) => a.tab), [3, 1, 2]);
+  testWidgets('Inicio sums up what is pending once, from the same list as Don Bigotes, and opens it', (tester) async {
+    var opened = 0;
+    final notes = [
+      CompanionNote(id: 'budgets:x:1', title: 'Has superado 1 presupuesto', detail: '', tab: 3),
+      CompanionNote(id: 'review:1', title: '1 movimiento por revisar', detail: '', tab: 1),
+    ];
+    tester.view.physicalSize = const Size(430, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(app(HomeScreen(
+        calc: FinanceCalculator(sample(now)), month: DateTime(now.year, now.month), onMonth: (_) {}, notes: notes, reviewed: 1, onNotes: () => opened++)));
+    await tester.pumpAndSettle();
+    expect(find.text('2 cosas pendientes'), findsOneWidget);
+    expect(find.textContaining('Has superado 1 presupuesto y más · 1 aviso revisado'), findsOneWidget, reason: 'Pending and reviewed told apart');
+    expect(find.text('Necesita tu atención'), findsNothing, reason: 'No second list of notices');
+    await tester.tap(find.text('2 cosas pendientes'));
+    expect(opened, 1);
   });
 
   testWidgets('Movimientos: quick filters and the summary of what is shown', (tester) async {

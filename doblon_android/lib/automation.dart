@@ -314,7 +314,11 @@ class CompanionNote {
 
 /// What Don Bigotes points out. Never advice: only facts about the person's own data.
 List<CompanionNote> companionNotes(Finances data, DateTime now,
-    {int pendingBankReview = 0, List<BankHold> holds = const [], List<({String bank, int days})> renewals = const []}) {
+    {int pendingBankReview = 0,
+    List<BankHold> holds = const [],
+    List<({String bank, int days})> renewals = const [],
+    int overBudget = 0,
+    String budgetMonth = ''}) {
   final notes = <CompanionNote>[];
   // A bank permission about to expire: renewing it takes a minute, letting it expire stops the downloads.
   for (final (:bank, :days) in renewals) {
@@ -344,12 +348,20 @@ List<CompanionNote> companionNotes(Finances data, DateTime now,
         tab: 1,
         urgent: true));
   }
-  final review = data.transactions.where((t) => reviewIssues(t, data.category(t.categoryId)).isNotEmpty).length;
+  // Budgets over their limit this month (it was a separate notice on Inicio: now said once, here).
+  if (overBudget > 0) {
+    notes.add(CompanionNote(
+        id: 'budgets:$budgetMonth:$overBudget',
+        title: overBudget == 1 ? 'Has superado 1 presupuesto' : 'Has superado $overBudget presupuestos',
+        detail: 'Mira qué categorías se han pasado este mes',
+        tab: 3));
+  }
+  final review = data.transactions.where((t) => pendingIssues(t, data.category(t.categoryId)).isNotEmpty).length;
   if (review > 0) {
     notes.add(CompanionNote(
         id: 'review:$review',
         title: review == 1 ? '1 movimiento por revisar' : '$review movimientos por revisar',
-        detail: 'Posibles duplicados o sin categoría',
+        detail: 'Posibles duplicados o categorías que no encajan',
         tab: 1));
   }
   final pairs = ownTransferPairs(data).length;

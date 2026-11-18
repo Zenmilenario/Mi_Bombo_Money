@@ -135,6 +135,6 @@ void main() {
     await tester.pumpWidget(app(HomeScreen(calc: FinanceCalculator(sample(now)), month: DateTime(now.year, now.month), onMonth: (_) {}), text: 2));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    expect(find.textContaining('Tu margen de hoy'), findsOneWidget);
+    expect(find.text('Disponible para usar'), findsOneWidget);
   });
 }

@@ -72,12 +72,13 @@ void main() {
       await tester.pumpWidget(app(HomeScreen(calc: calc, month: DateTime(now.year, now.month), onMonth: (_) {})));
       await tester.pumpAndSettle();
       expect(find.textContaining('Tu margen de hoy'), findsOneWidget);
-      for (final text in ['Disponible para usar', 'Ritmo del mes', 'Tu mes, día a día',
+      expect(find.textContaining('en las categorías con presupuesto'), findsOneWidget, reason: 'How the month goes, in words');
+      for (final text in ['Disponible para usar', 'Ver el mes día a día', 'Ver reparto y patrimonio', 'Nada pendiente',
         'Presupuestos del mes', 'Objetivo destacado', 'Viaje ficticio']) {
         expect(find.text(text), findsOneWidget, reason: '$text at ${size.width}');
       }
-      final calendar = tester.getTopLeft(find.text('Tu mes, día a día'));
-      final pace = tester.getTopLeft(find.text('Ritmo del mes'));
+      final calendar = tester.getTopLeft(find.text('Ver el mes día a día'));
+      final pace = tester.getTopLeft(find.text('Presupuestos del mes'));
       if (size.width >= 720) {
         expect((calendar.dx - pace.dx).abs(), greaterThan(200), reason: 'Two columns on a wide screen');
       } else {

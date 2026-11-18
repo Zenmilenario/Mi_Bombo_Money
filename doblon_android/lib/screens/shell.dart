@@ -9,7 +9,6 @@ import '../banking.dart' show BankingError, permissionDaysLeft, permissionExpire
 import '../card_payments.dart';
 import '../data.dart';
 import '../finance.dart';
-import '../models.dart' show Finances;
 import '../preferences.dart';
 import '../theme.dart';
 import 'accounts.dart';
@@ -19,7 +18,7 @@ import 'card_payments.dart';
 import 'chrome.dart';
 import 'home.dart';
 import 'info.dart';
-import 'learning.dart' show AiMetricsScreen;
+import 'learning.dart' show AiMetricsScreen, ReviewProposalsScreen;
 import 'manage.dart';
 import 'tools.dart';
 import 'transaction_form.dart';
@@ -154,7 +153,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
   String? _notesDay;
   List<CompanionNote> _notes = const [];
 
-  List<CompanionNote> _companionNotes(Finances data) {
+  List<CompanionNote> _companionNotes(FinanceCalculator calc) {
+    final data = calc.data;
     final now = DateTime.now(), day = '${now.year}-${now.month}-${now.day}';
     if (identical(data, _notesFrom) &&
         identical(repository.bankActivity, _notesActivity) &&
@@ -166,7 +166,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
     _notesActivity = repository.bankActivity;
     _notesConnections = repository.bankConnections;
     _notesDay = day;
-    return _notes = companionNotes(data, now, holds: bankHolds(data, repository.bankActivity), renewals: [
+    final thisMonth = DateTime(now.year, now.month);
+    final over = calc.budgetProgress(thisMonth).where((b) => b.limitMinor > 0 && b.spentMinor > b.limitMinor).length;
+    return _notes = companionNotes(data, now,
+        holds: bankHolds(data, repository.bankActivity), overBudget: over, budgetMonth: '${now.year}-${now.month}', renewals: [
       for (final connection in repository.bankConnections)
         if (permissionExpiresSoon(connection, now)) (bank: connection.bank, days: permissionDaysLeft(connection, now)!),
     ]);
@@ -174,7 +177,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
 
   /// Don Bigotes' notes, as on the iPhone (`CompanionNotesSheet`): his face, a button to update the banks and each
   /// note with its icon, «Ahora no» and «Ver».
-  void _showCompanion(List<CompanionNote> notes) {
+  void _showCompanion(List<CompanionNote> notes, [List<CompanionNote> reviewed = const []]) {
     var refreshing = false;
     String? refreshed;
     showModalBottomSheet<void>(
@@ -266,6 +269,31 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
                     ),
                   ),
                 ),
+              // Seen with «Ahora no»: still true, no longer pending; they can come back.
+              if (reviewed.isNotEmpty) ...[
+                Text(reviewed.length == 1 ? '1 aviso revisado' : '${reviewed.length} avisos revisados',
+                    style: Theme.of(context).textTheme.labelLarge),
+                for (final note in reviewed)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(children: [
+                      Icon(Icons.done, size: 16, color: hint),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(note.title, style: TextStyle(fontSize: 13, color: hint))),
+                    ]),
+                  ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () {
+                      widget.preferences.resetNotes();
+                      Navigator.pop(context);
+                    },
+                    child: const Text('Volver a mostrarlos como pendientes'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               Text('Puedes apagarlo en Ajustes › A tu gusto.', style: TextStyle(fontSize: 12, color: hint)),
             ]),
           ),
@@ -290,9 +318,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
   Widget build(BuildContext context) {
     final calc = calculator;
     final pulso = Pulso.of(context);
-    final notes = calc == null || !widget.preferences.companionEnabled
-        ? <CompanionNote>[]
-        : _companionNotes(calc.data).where((n) => !widget.preferences.dismissedNotes.contains(n.id)).toList();
+    // One list of what is pending, shown by Inicio and by Don Bigotes (when he is on), never twice on the same screen.
+    final allNotes = calc == null ? <CompanionNote>[] : _companionNotes(calc);
+    final notes = allNotes.where((n) => !widget.preferences.dismissedNotes.contains(n.id)).toList();
+    final reviewed = allNotes.where((n) => widget.preferences.dismissedNotes.contains(n.id)).toList();
     final Widget body;
     if (calc == null) {
       body = Center(
@@ -319,8 +348,9 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
               onMonth: setMonth,
               onAdd: () => _select(2),
               onOpenTab: _select,
-              hiddenAlerts: widget.preferences.dismissedNotes,
-              onHideAlert: widget.preferences.dismissNote,
+              notes: notes,
+              reviewed: reviewed.length,
+              onNotes: () => _showCompanion(notes, reviewed),
               // Charges the bank holds and has not booked yet, as on the iPhone's «Disponible tras retenciones».
               heldMinor: bankHolds(calc.data, repository.bankActivity)
                   .where((h) => h.movement.signedAmountMinor < 0)
@@ -410,10 +440,11 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
                 notes: widget.preferences.companionEnabled ? notes : null,
                 onCompanion: () {
                   _teaser.close();
-                  _showCompanion(notes);
+                  _showCompanion(notes, reviewed);
                 },
-                // Cuentas and Presupuestos keep their own add button at the left of this row.
-                teaser: _teaser.visible && (tab == 0 || tab == 1 || tab == 4),
+                // Not on Inicio, which already says what is pending; not where Cuentas and Presupuestos keep their own
+                // add button, at the left of this row.
+                teaser: _teaser.visible && (tab == 1 || tab == 4),
                 onCloseTeaser: _teaser.close,
               ),
             ),
@@ -574,10 +605,15 @@ class _SettingsPage extends StatelessWidget {
       section('Tus datos', [
         route(Icons.upload_file, 'Importar movimientos CSV', 'Añade un extracto de tu banco', () => CsvImportScreen(repository: repository)),
         route(Icons.save_alt, 'Copia de seguridad', 'Guardar, exportar o restaurar', () => BackupScreen(repository: repository)),
-        // The figures of the AI for the TFM: an administrator tool. The counters are still kept for everyone.
-        if (repository.isAdministrator)
-          route(Icons.insights, 'Acierto de la IA', 'Cuántas propuestas de categoría aceptas', () => AiMetricsScreen(repository: repository)),
       ]),
+      // Review and training tools of the developer, apart from everyday use. Guests never get tasks whose only purpose
+      // is to label movements for the AI; their private learning keeps working as before, without asking anything.
+      if (repository.isAdministrator)
+        section('Avanzado · revisión y entrenamiento', [
+          route(Icons.auto_awesome, 'Aplicar las propuestas de la IA', 'Categoriza de una vez lo que está sin categoría',
+              () => ReviewProposalsScreen(repository: repository)),
+          route(Icons.insights, 'Acierto de la IA', 'Cuántas propuestas de categoría se aceptan', () => AiMetricsScreen(repository: repository)),
+        ]),
       section('Ayuda', [
         route(Icons.help_outline, 'Cómo usar la app', 'Primeros pasos y conceptos importantes', () => const HelpScreen()),
         route(Icons.front_hand_outlined, 'Privacidad y protección de datos', '', () => const PrivacyScreen()),

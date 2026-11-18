@@ -180,8 +180,12 @@ void main() {
           'sourceAccountID': a1
         },
       ];
-    final notes = companionNotes(Finances.fromDocument(doc), DateTime(2026, 11, 10));
-    expect(notes.map((n) => n.title), contains('1 movimiento por revisar'));
+    var notes = companionNotes(Finances.fromDocument(doc), DateTime(2026, 11, 10));
+    expect(notes.map((n) => n.title), isNot(contains('1 movimiento por revisar')), reason: 'A category is optional: not a task');
+    (doc['transactions'] as List).first['duplicateStateRaw'] = 'possible';
+    notes = companionNotes(Finances.fromDocument(doc), DateTime(2026, 11, 10), overBudget: 2, budgetMonth: '2026-11');
+    expect(notes.map((n) => n.title), contains('1 movimiento por revisar'), reason: 'A possible duplicate is');
+    expect(notes.map((n) => n.title), contains('Has superado 2 presupuestos'), reason: 'Said once, here, instead of on Inicio too');
     expect(notes.map((n) => n.title), contains('2 cuentas sin actualizar'), reason: 'Updated long ago, without bank');
     expect(notes.any((n) => RegExp(r'deberías|te recomiendo|ahorra', caseSensitive: false).hasMatch('${n.title} ${n.detail}')), isFalse);
   });

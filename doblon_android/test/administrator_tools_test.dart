@@ -26,6 +26,7 @@ void main() {
     expect(banks.substring(diagnostic - 200, diagnostic), contains('if (widget.repository.isAdministrator)'));
     final shell = File('lib/screens/shell.dart').readAsStringSync();
     final metrics = shell.indexOf("'Acierto de la IA'");
-    expect(shell.substring(metrics - 120, metrics), contains('if (repository.isAdministrator)'));
+    expect(shell.substring(metrics - 700, metrics), contains('if (repository.isAdministrator)'));
+    expect(shell.substring(metrics - 700, metrics), contains('Avanzado · revisión y entrenamiento'));
   });
 }

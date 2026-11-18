@@ -52,7 +52,7 @@ class MovementFilter {
   bool get isActive => onlyReview || type != null || accountId != null || categoryId != null || period != Period.all;
 
   bool matches(Transaction t, Finances data, DateTime now) {
-    if (onlyReview && reviewIssues(t, data.category(t.categoryId)).isEmpty) return false;
+    if (onlyReview && pendingIssues(t, data.category(t.categoryId)).isEmpty) return false;
     if (type != null && t.type != type) return false;
     if (accountId != null && t.sourceAccountId != accountId && t.destinationAccountId != accountId) return false;
     if (categoryId != null && t.categoryId != categoryId) return false;
@@ -392,7 +392,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   if (filter.period != Period.all) Chip(label: Text(filter.period.title)),
                 ]),
               ),
-              if (filter.onlyReview && !selecting)
+              // Labelling in bulk for the AI is a developer tool (Ajustes › Avanzado), not a guest's task.
+              if (filter.onlyReview && !selecting && widget.repository.isAdministrator)
                 Card(
                   margin: const EdgeInsets.only(top: 8),
                   child: ListTile(
@@ -487,7 +488,7 @@ ListDerived deriveList(Finances data, MovementFilter filter, DateTime now) {
     (days[DateTime(local.year, local.month, local.day)] ??= []).add(t);
   }
   return (
-    reviewCount: data.transactions.where((t) => reviewIssues(t, data.category(t.categoryId)).isNotEmpty).length,
+    reviewCount: data.transactions.where((t) => pendingIssues(t, data.category(t.categoryId)).isNotEmpty).length,
     pairs: ownTransferPairs(data),
     visible: visible,
     days: days,
