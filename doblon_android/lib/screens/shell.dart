@@ -22,6 +22,7 @@ import 'learning.dart' show AiMetricsScreen, ReviewProposalsScreen;
 import 'manage.dart';
 import 'tools.dart';
 import 'transaction_form.dart';
+import 'transaction_detail.dart';
 import 'transactions.dart';
 import 'widgets.dart' show RowGlyph;
 
@@ -45,9 +46,6 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
   /// 1 while the header is shown, 0 once it has slid away; follows the finger and settles when the scroll stops.
   late final header = AnimationController(vsync: this, value: 1, duration: const Duration(milliseconds: 180));
   bool _scrolled = false;
-  late final _teaser = TeaserTimer(() {
-    if (mounted) setState(() {});
-  });
 
   bool _onScroll(ScrollNotification n) {
     if (n.depth != 0 || n.metrics.axis != Axis.vertical) return false;
@@ -96,7 +94,6 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
     repository.removeListener(_changed);
     _refreshTimer?.cancel();
     header.dispose();
-    _teaser.dispose();
     repository.dispose();
     widget.preferences.removeListener(_changed);
     super.dispose();
@@ -168,8 +165,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
     _notesDay = day;
     final thisMonth = DateTime(now.year, now.month);
     final over = calc.budgetProgress(thisMonth).where((b) => b.limitMinor > 0 && b.spentMinor > b.limitMinor).length;
-    return _notes = companionNotes(data, now,
-        holds: bankHolds(data, repository.bankActivity), overBudget: over, budgetMonth: '${now.year}-${now.month}', renewals: [
+    return _notes =
+        companionNotes(data, now, holds: bankHolds(data, repository.bankActivity), overBudget: over, budgetMonth: '${now.year}-${now.month}', renewals: [
       for (final connection in repository.bankConnections)
         if (permissionExpiresSoon(connection, now)) (bank: connection.bank, days: permissionDaysLeft(connection, now)!),
     ]);
@@ -196,7 +193,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(notes.isEmpty ? 'Todo en orden' : 'Lo que he visto', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                    Text(notes.isEmpty ? 'Todo en orden' : 'Lo que he visto',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
                     Text(notes.isEmpty ? 'No hay nada pendiente. Vuelvo a mi esquina.' : 'Solo cosas tuyas, nada urgente.', style: TextStyle(color: hint)),
                   ]),
                 ),
@@ -271,8 +269,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
                 ),
               // Seen with «Ahora no»: still true, no longer pending; they can come back.
               if (reviewed.isNotEmpty) ...[
-                Text(reviewed.length == 1 ? '1 aviso revisado' : '${reviewed.length} avisos revisados',
-                    style: Theme.of(context).textTheme.labelLarge),
+                Text(reviewed.length == 1 ? '1 aviso revisado' : '${reviewed.length} avisos revisados', style: Theme.of(context).textTheme.labelLarge),
                 for (final note in reviewed)
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
@@ -348,9 +345,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
               onMonth: setMonth,
               onAdd: () => _select(2),
               onOpenTab: _select,
-              notes: notes,
-              reviewed: reviewed.length,
-              onNotes: () => _showCompanion(notes, reviewed),
+              onOpenTransaction: (t) =>
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionDetailScreen(repository: repository, transactionId: t.id))),
               // Charges the bank holds and has not booked yet, as on the iPhone's «Disponible tras retenciones».
               heldMinor: bankHolds(calc.data, repository.bankActivity)
                   .where((h) => h.movement.signedAmountMinor < 0)
@@ -366,7 +362,6 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
     // Read outside the Scaffold, which takes the keyboard out of its body's insets.
     final typing = MediaQuery.viewInsetsOf(context).bottom > 0;
     final canAdd = calc != null && calc.data.accounts.any((a) => !a.isArchived);
-    _teaser.update(notes);
     return Scaffold(
       // The content scrolls under the translucent tab bar, as on the iPhone app.
       extendBody: true,
@@ -374,97 +369,89 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
       body: Builder(builder: (context) {
         final media = MediaQuery.of(context);
         return Stack(children: [
-        Positioned.fill(
-          child: NotificationListener<ScrollNotification>(
-            onNotification: _onScroll,
-            // The lists start below the header and the error notice (see `tabListPadding`). The status bar is taken
-            // out of the padding so lists and grids inside the cards do not add it again.
-            child: TabInsets(
-              top: media.padding.top + headerHeight + (banner ? 56 : 0),
-              child: MediaQuery.removePadding(context: context, removeTop: true, child: body),
+          Positioned.fill(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _onScroll,
+              // The lists start below the header and the error notice (see `tabListPadding`). The status bar is taken
+              // out of the padding so lists and grids inside the cards do not add it again.
+              child: TabInsets(
+                top: media.padding.top + headerHeight + (banner ? 56 : 0),
+                child: MediaQuery.removePadding(context: context, removeTop: true, child: body),
+              ),
             ),
           ),
-        ),
-        Positioned(
-          left: 0,
-          right: 0,
-          top: 0,
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            ShellHeader(
-              shown: header,
-              scrolled: _scrolled,
-              title: Text(tab == 0 ? greeting(DateTime.now()) : const ['Inicio', 'Movimientos', 'Cuentas', 'Presupuestos', 'Ajustes'][tab],
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-              actions: [
-                if (repository.pending.isNotEmpty)
-                  IconButton(
-                    tooltip: '${repository.pending.length} cambios sin subir',
-                    icon: const Icon(Icons.cloud_upload_outlined),
-                    onPressed: repository.refresh,
-                  ),
-                if (repository.loading && calc != null)
-                  const Padding(padding: EdgeInsets.all(15), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
-                // Hide the amounts at a glance, on every tab.
-                IconButton(
-                  tooltip: widget.preferences.hideAmounts ? 'Mostrar importes' : 'Ocultar importes',
-                  icon: Icon(widget.preferences.hideAmounts ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-                  onPressed: () => widget.preferences.setHideAmounts(!widget.preferences.hideAmounts),
-                ),
-              ],
-            ),
-            if (banner)
-              Material(
-                color: Color.alphaBlend(pulso.warning.withValues(alpha: 0.15), pulso.page),
-                child: SizedBox(
-                  height: 56,
-                  child: ListTile(
-                    dense: true,
-                    leading: Icon(Icons.cloud_off_outlined, color: pulso.warning),
-                    title: Text(repository.error!, maxLines: 2, overflow: TextOverflow.ellipsis),
-                    trailing: TextButton(onPressed: repository.refresh, child: const Text('Reintentar')),
-                  ),
-                ),
-              ),
-          ]),
-        ),
-        // «+ Añadir» and Don Bigotes, above the tab bar; out of the way while typing.
-        if (calc != null && !typing && (canAdd || widget.preferences.companionEnabled))
           Positioned(
-            left: 16,
-            right: 16,
-            bottom: media.padding.bottom + 10,
-            child: Align(
-              alignment: Alignment.bottomRight,
-              child: BottomDock(
-                onAdd: canAdd ? _add : null,
-                notes: widget.preferences.companionEnabled ? notes : null,
-                onCompanion: () {
-                  _teaser.close();
-                  _showCompanion(notes, reviewed);
-                },
-                // Not on Inicio, which already says what is pending; not where Cuentas and Presupuestos keep their own
-                // add button, at the left of this row.
-                teaser: _teaser.visible && (tab == 1 || tab == 4),
-                onCloseTeaser: _teaser.close,
+            left: 0,
+            right: 0,
+            top: 0,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              ShellHeader(
+                shown: header,
+                scrolled: _scrolled,
+                title: Text(tab == 0 ? greeting(DateTime.now()) : const ['Inicio', 'Movimientos', 'Cuentas', 'Presupuestos', 'Ajustes'][tab],
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                actions: [
+                  if (repository.pending.isNotEmpty)
+                    IconButton(
+                      tooltip: '${repository.pending.length} cambios sin subir',
+                      icon: const Icon(Icons.cloud_upload_outlined),
+                      onPressed: repository.refresh,
+                    ),
+                  if (repository.loading && calc != null)
+                    const Padding(padding: EdgeInsets.all(15), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+                  // Hide the amounts at a glance, on every tab.
+                  IconButton(
+                    tooltip: widget.preferences.hideAmounts ? 'Mostrar importes' : 'Ocultar importes',
+                    icon: Icon(widget.preferences.hideAmounts ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                    onPressed: () => widget.preferences.setHideAmounts(!widget.preferences.hideAmounts),
+                  ),
+                ],
               ),
-            ),
+              if (banner)
+                Material(
+                  color: Color.alphaBlend(pulso.warning.withValues(alpha: 0.15), pulso.page),
+                  child: SizedBox(
+                    height: 56,
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.cloud_off_outlined, color: pulso.warning),
+                      title: Text(repository.error!, maxLines: 2, overflow: TextOverflow.ellipsis),
+                      trailing: TextButton(onPressed: repository.refresh, child: const Text('Reintentar')),
+                    ),
+                  ),
+                ),
+            ]),
           ),
-      ]);
+        ]);
       }),
       bottomNavigationBar: ClipRect(
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-          child: NavigationBar(
-            backgroundColor: pulso.card.withValues(alpha: 0.72),
-            selectedIndex: tab,
-            onDestinationSelected: _select,
-            destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Inicio'),
-          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Movimientos'),
-          NavigationDestination(icon: Icon(Icons.account_balance_outlined), selectedIcon: Icon(Icons.account_balance), label: 'Cuentas'),
-          NavigationDestination(icon: Icon(Icons.pie_chart_outline), selectedIcon: Icon(Icons.pie_chart), label: 'Presupuestos'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Ajustes'),
-            ],
+          child: ColoredBox(
+            color: pulso.card.withValues(alpha: 0.72),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              // Don Bigotes and «+ Añadir» in a band of their own, above the tabs: never over the content. Hidden while
+              // typing.
+              if (calc != null && !typing)
+                BottomDock(
+                  onAdd: canAdd ? _add : null,
+                  notes: notes,
+                  companion: widget.preferences.companionEnabled,
+                  onCompanion: () => _showCompanion(notes, reviewed),
+                ),
+              NavigationBar(
+                backgroundColor: Colors.transparent,
+                selectedIndex: tab,
+                onDestinationSelected: _select,
+                destinations: const [
+                  NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Inicio'),
+                  NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Movimientos'),
+                  NavigationDestination(icon: Icon(Icons.account_balance_outlined), selectedIcon: Icon(Icons.account_balance), label: 'Cuentas'),
+                  NavigationDestination(icon: Icon(Icons.pie_chart_outline), selectedIcon: Icon(Icons.pie_chart), label: 'Presupuestos'),
+                  NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Ajustes'),
+                ],
+              ),
+            ]),
           ),
         ),
       ),
@@ -512,8 +499,8 @@ class _SettingsPage extends StatelessWidget {
     try {
       await repository.deleteAccount();
     } catch (error) {
-      messenger.showSnackBar(SnackBar(
-          content: Text(error is BankingError ? error.message : 'No se ha podido eliminar la cuenta. Comprueba la conexión e inténtalo de nuevo.')));
+      messenger.showSnackBar(
+          SnackBar(content: Text(error is BankingError ? error.message : 'No se ha podido eliminar la cuenta. Comprueba la conexión e inténtalo de nuevo.')));
     }
   }
 

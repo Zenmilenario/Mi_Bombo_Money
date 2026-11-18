@@ -63,6 +63,20 @@ void main() {
     expect(MonthPace.of(const [], DateTime(2026, 11, 16)), isNull, reason: 'Without budget there is no pace');
   });
 
+  test('net worth over time starts with the first account, never with zeros before there was history', () {
+    final now = DateTime(2026, 11, 18, 10);
+    final opened = DateTime(2026, 9, 20);
+    final calc = FinanceCalculator(Finances.fromDocument({
+      'accounts': [
+        {'id': 'a1', 'name': 'Ficticia', 'typeRaw': 'checking', 'openingDate': seconds(opened), 'openingBalanceMinor': 100000},
+      ],
+    }));
+    final history = netWorthHistory(calc, now);
+    expect(history.map((p) => p.$1.month), [9, 10, 11], reason: 'From September, the month the account opened');
+    expect(history.every((p) => p.$2 == 100000), isTrue);
+    expect(history.last.$1, now, reason: 'The last point is today');
+  });
+
   testWidgets('Inicio shows the cards of the iPhone app, in two columns on an iPad', (tester) async {
     final now = DateTime.now();
     final calc = FinanceCalculator(sample(now));
@@ -71,14 +85,15 @@ void main() {
       tester.view.devicePixelRatio = 1;
       await tester.pumpWidget(app(HomeScreen(calc: calc, month: DateTime(now.year, now.month), onMonth: (_) {})));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Tu margen de hoy'), findsOneWidget);
-      expect(find.textContaining('en las categorías con presupuesto'), findsOneWidget, reason: 'How the month goes, in words');
-      for (final text in ['Disponible para usar', 'Ver el mes día a día', 'Ver reparto y patrimonio', 'Nada pendiente',
-        'Presupuestos del mes', 'Objetivo destacado', 'Viaje ficticio']) {
+      for (final text in ['Disponible', 'Gastos', 'Ingresos', 'Ahorro', 'Patrimonio', 'Presupuestos', 'Objetivo', 'Viaje ficticio']) {
         expect(find.text(text), findsOneWidget, reason: '$text at ${size.width}');
       }
-      final calendar = tester.getTopLeft(find.text('Ver el mes día a día'));
-      final pace = tester.getTopLeft(find.text('Presupuestos del mes'));
+      expect(find.textContaining('Margen de hoy'), findsOneWidget);
+      expect(find.text('L'), findsOneWidget, reason: 'The calendar is shown without opening anything');
+      expect(find.text('Disponible para usar'), findsNothing);
+      expect(find.textContaining('Lo que hay en tus cuentas'), findsNothing, reason: 'No explanation paragraphs');
+      final calendar = tester.getTopLeft(find.text('Gastos'));
+      final pace = tester.getTopLeft(find.text('Patrimonio'));
       if (size.width >= 720) {
         expect((calendar.dx - pace.dx).abs(), greaterThan(200), reason: 'Two columns on a wide screen');
       } else {

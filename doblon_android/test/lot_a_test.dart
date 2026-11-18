@@ -1,6 +1,5 @@
 // Fictitious data only. Lote A of recovering the iPhone app's screens: spending by category, the notices of Inicio,
 // the quick filters and summary of Movimientos, the groups of Cuentas and the icon of a category.
-import 'package:doblon/automation.dart' show CompanionNote;
 import 'package:doblon/data.dart';
 import 'package:doblon/finance.dart';
 import 'package:doblon/models.dart';
@@ -59,23 +58,22 @@ void main() {
     expect([for (final (c, amount) in calc.spendingByCategory(DateTime(now.year, now.month))) '${c.name} $amount'], ['Comida 3000', 'Ocio 2000']);
   });
 
-  testWidgets('Inicio sums up what is pending once, from the same list as Don Bigotes, and opens it', (tester) async {
-    var opened = 0;
-    final notes = [
-      CompanionNote(id: 'budgets:x:1', title: 'Has superado 1 presupuesto', detail: '', tab: 3),
-      CompanionNote(id: 'review:1', title: '1 movimiento por revisar', detail: '', tab: 1),
-    ];
+  testWidgets('Inicio: tapping a day of the calendar lists its movements below, and each opens', (tester) async {
+    final opened = <String>[];
     tester.view.physicalSize = const Size(430, 2400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
+    final data = sample(now);
     await tester.pumpWidget(app(HomeScreen(
-        calc: FinanceCalculator(sample(now)), month: DateTime(now.year, now.month), onMonth: (_) {}, notes: notes, reviewed: 1, onNotes: () => opened++)));
+        calc: FinanceCalculator(data), month: DateTime(now.year, now.month), onMonth: (_) {}, onOpenTransaction: (t) => opened.add(t.id))));
     await tester.pumpAndSettle();
-    expect(find.text('2 cosas pendientes'), findsOneWidget);
-    expect(find.textContaining('Has superado 1 presupuesto y más · 1 aviso revisado'), findsOneWidget, reason: 'Pending and reviewed told apart');
-    expect(find.text('Necesita tu atención'), findsNothing, reason: 'No second list of notices');
-    await tester.tap(find.text('2 cosas pendientes'));
-    expect(opened, 1);
+    final first = data.transactions.where((t) => t.date.toLocal().year == now.year && t.date.toLocal().month == now.month).last;
+    final day = first.date.toLocal().day;
+    await tester.tap(find.bySemanticsLabel(RegExp(' $day de ')).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(first.descriptionText).last);
+    expect(opened, contains(first.id));
+    expect(find.text('Necesita tu atención'), findsNothing, reason: 'No list of notices on Inicio: Don Bigotes has it');
   });
 
   testWidgets('Movimientos: quick filters and the summary of what is shown', (tester) async {

@@ -1,7 +1,5 @@
-// The frame around the five tabs: a header that hides while scrolling down and comes back when scrolling up, and a
-// dock at the bottom right, within reach of the thumb, with «+ Añadir» and Don Bigotes as two separate buttons.
-import 'dart:async';
-
+// The frame around the five tabs: a header that hides while scrolling down and comes back when scrolling up, and an
+// action band above the tabs with Don Bigotes (what is pending) and «+ Añadir», as two separate buttons.
 import 'package:flutter/material.dart';
 
 import '../automation.dart' show CompanionNote;
@@ -14,8 +12,8 @@ String greeting(DateTime now) => now.hour >= 6 && now.hour < 12 ? 'Buenos días'
 /// Height of the header row under the status bar.
 const headerHeight = 52.0;
 
-/// Room kept under the last item of every tab so it scrolls fully above the dock.
-const dockReserve = 76.0;
+/// Room under the last item of every tab. The band and the tabs are already in the bottom padding.
+const dockReserve = 20.0;
 
 /// How far down the content of a tab starts: the status bar, the header and the error notice, when shown.
 class TabInsets extends InheritedWidget {
@@ -23,8 +21,7 @@ class TabInsets extends InheritedWidget {
   final double top;
 
   /// Outside the tabs (tests, screens on their own) it is the status bar.
-  static double topOf(BuildContext context) =>
-      context.dependOnInheritedWidgetOfExactType<TabInsets>()?.top ?? MediaQuery.paddingOf(context).top;
+  static double topOf(BuildContext context) => context.dependOnInheritedWidgetOfExactType<TabInsets>()?.top ?? MediaQuery.paddingOf(context).top;
 
   @override
   bool updateShouldNotify(TabInsets old) => old.top != top;
@@ -87,93 +84,94 @@ class ShellHeader extends StatelessWidget {
   }
 }
 
-/// «+ Añadir» and Don Bigotes, side by side and separate. Don Bigotes is a face with the number of his notes; his
-/// bubble only appears now and then, beside the buttons (never over the content), and can be closed.
+/// The action band, fixed above the tabs and part of the bottom bar: Don Bigotes with what is pending on the left
+/// and «+ Añadir» on the right, within reach of the thumb. Nothing floats over the content, so no amount, day or
+/// control is ever under them; the lists only scroll behind the translucent bar, as behind the tabs.
 class BottomDock extends StatelessWidget {
-  const BottomDock({super.key, this.onAdd, required this.notes, this.onCompanion, this.teaser = false, this.onCloseTeaser});
+  const BottomDock({super.key, this.onAdd, required this.notes, this.onCompanion, this.companion = true});
   final VoidCallback? onAdd;
-  final List<CompanionNote>? notes;
+  final List<CompanionNote> notes;
   final VoidCallback? onCompanion;
-  final bool teaser;
-  final VoidCallback? onCloseTeaser;
+
+  /// With Don Bigotes switched off, the pending list is still reachable, without his face.
+  final bool companion;
+
+  /// Height of the band, without the tabs.
+  static const height = 64.0;
 
   @override
   Widget build(BuildContext context) {
-    // The dock keeps its size with very large text: the labels are still read in full by the screen reader.
+    // The band keeps its size with very large text; the screen reader still reads the full labels.
     return MediaQuery.withClampedTextScaling(
       maxScaleFactor: 1.3,
-      child: LayoutBuilder(
-        // On a narrow phone the bubble would squeeze the buttons: the badge is enough there.
-        builder: (context, constraints) => Row(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.center, children: [
-          if (teaser && notes != null && notes!.isNotEmpty && constraints.maxWidth >= 330) ...[
-            Flexible(child: _Teaser(notes: notes!, onTap: onCompanion, onClose: onCloseTeaser)),
+      child: SizedBox(
+        height: height,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+          child: Row(children: [
+            Expanded(child: Align(alignment: Alignment.centerLeft, child: _PendingPill(notes: notes, companion: companion, onTap: onCompanion))),
             const SizedBox(width: 8),
-          ],
-          if (onAdd != null) ...[
-            Semantics(
-              button: true,
-              label: 'Añadir movimiento',
-              excludeSemantics: true,
-              child: FilledButton.icon(
-                onPressed: onAdd,
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size(0, 52),
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  shape: const StadiumBorder(),
-                  elevation: 2,
-                  shadowColor: Colors.black45,
-                  ),
-                icon: const Icon(Icons.add),
-                label: const Text('Añadir', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            if (onAdd != null)
+              Semantics(
+                button: true,
+                label: 'Añadir movimiento',
+                excludeSemantics: true,
+                child: FilledButton.icon(
+                  onPressed: onAdd,
+                  style:
+                      FilledButton.styleFrom(minimumSize: const Size(0, 46), padding: const EdgeInsets.symmetric(horizontal: 20), shape: const StadiumBorder()),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Añadir', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-          ],
-          if (notes != null) CompanionButton(notes: notes!, onTap: onCompanion ?? () {}),
-        ]),
+          ]),
+        ),
       ),
     );
   }
 }
 
-class _Teaser extends StatelessWidget {
-  const _Teaser({required this.notes, this.onTap, this.onClose});
+/// Don Bigotes and what is pending, in one compact button: «Todo en orden» or the number of notices and the first.
+class _PendingPill extends StatelessWidget {
+  const _PendingPill({required this.notes, required this.companion, this.onTap});
   final List<CompanionNote> notes;
+  final bool companion;
   final VoidCallback? onTap;
-  final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final pulso = Pulso.of(context);
-    final text = notes.length == 1 ? notes.first.title : 'Tengo ${notes.length} avisos';
-    return Material(
-      color: scheme.onSurface,
-      elevation: 3,
-      // The tail of the bubble points to Don Bigotes, as on the iPhone.
-      shape: const RoundedRectangleBorder(
-          borderRadius:
-              BorderRadius.only(topLeft: Radius.circular(18), bottomLeft: Radius.circular(18), topRight: Radius.circular(18), bottomRight: Radius.circular(4))),
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.only(left: 12),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Container(width: 8, height: 8, decoration: BoxDecoration(color: pulso.warning, shape: BoxShape.circle)),
-            const SizedBox(width: 7),
-            Flexible(
-              child:
-                  Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: scheme.surface)),
-            ),
-            IconButton(
-              tooltip: 'Cerrar el aviso',
-              visualDensity: VisualDensity.compact,
-              iconSize: 16,
-              color: scheme.surface,
-              onPressed: onClose,
-              icon: const Icon(Icons.close),
-            ),
-          ]),
+    final hint = Theme.of(context).hintColor;
+    final awake = notes.isNotEmpty;
+    final urgent = notes.any((n) => n.urgent);
+    final count = notes.length == 1 ? '1 aviso' : '${notes.length} avisos';
+    return Semantics(
+      button: true,
+      label: awake ? '$count pendientes: ${notes.first.title}${urgent ? '. Urgente' : ''}' : 'Don Bigotes: todo en orden',
+      excludeSemantics: true,
+      child: Material(
+        color: urgent ? pulso.warning.withValues(alpha: 0.16) : pulso.tertiary,
+        shape: const StadiumBorder(),
+        child: InkWell(
+          customBorder: const StadiumBorder(),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(4, 4, 14, 4),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              if (companion)
+                CompanionButton(notes: notes, onTap: onTap ?? () {}, size: 38)
+              else
+                Padding(padding: const EdgeInsets.all(8), child: Icon(awake ? Icons.inbox_outlined : Icons.check_circle_outline, size: 22, color: hint)),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(awake ? (urgent ? '$count · urgente' : count) : 'Todo en orden',
+                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                  if (awake) Text(notes.first.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: hint)),
+                ]),
+              ),
+            ]),
+          ),
         ),
       ),
     );
@@ -183,9 +181,10 @@ class _Teaser extends StatelessWidget {
 /// Don Bigotes, as on the iPhone: awake with a small badge counting his notes, asleep (faded and tilted) when
 /// everything is in order.
 class CompanionButton extends StatelessWidget {
-  const CompanionButton({super.key, required this.notes, required this.onTap});
+  const CompanionButton({super.key, required this.notes, required this.onTap, this.size = 56});
   final List<CompanionNote> notes;
   final VoidCallback onTap;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -195,76 +194,41 @@ class CompanionButton extends StatelessWidget {
       button: true,
       label: awake ? 'Don Bigotes: ${notes.length == 1 ? 'tiene un aviso' : 'tiene ${notes.length} avisos'}' : 'Don Bigotes, sin novedades',
       excludeSemantics: true,
-      child: Tooltip(
-        message: 'Don Bigotes',
-        child: GestureDetector(
-          onTap: onTap,
-          behavior: HitTestBehavior.opaque,
-          child: SizedBox(
-            width: 56,
-            height: 56,
-            child: Stack(clipBehavior: Clip.none, children: [
-              Opacity(
-                opacity: awake ? 1 : 0.7,
-                child: Transform.rotate(
-                  angle: awake ? 0 : -0.21,
-                  child: Container(
-                    width: 56,
-                    height: 56,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: awake ? pulso.card : pulso.tertiary,
-                      shape: BoxShape.circle,
-                      border: Border.all(color: pulso.outline),
-                      boxShadow: const [BoxShadow(color: Color(0x2E000000), blurRadius: 9, offset: Offset(0, 4))],
-                    ),
-                    child: DonBigotesMark(awake: awake, size: awake ? 40 : 34),
-                  ),
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          width: size,
+          height: size,
+          child: Stack(clipBehavior: Clip.none, children: [
+            Opacity(
+              opacity: awake ? 1 : 0.7,
+              child: Transform.rotate(
+                angle: awake ? 0 : -0.21,
+                child: Container(
+                  width: size,
+                  height: size,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(color: pulso.card, shape: BoxShape.circle, border: Border.all(color: pulso.outline)),
+                  child: DonBigotesMark(awake: awake, size: size * (awake ? 0.72 : 0.62)),
                 ),
               ),
-              if (awake)
-                Positioned(
-                  right: -2,
-                  top: -2,
-                  child: Container(
-                    constraints: const BoxConstraints(minWidth: 20, minHeight: 20),
-                    padding: const EdgeInsets.symmetric(horizontal: 5),
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(color: pulso.warning, borderRadius: BorderRadius.circular(10), border: Border.all(color: pulso.page, width: 2)),
-                    child: Text('${notes.length}', style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Colors.black)),
-                  ),
+            ),
+            if (awake)
+              Positioned(
+                right: -4,
+                top: -4,
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(color: pulso.warning, borderRadius: BorderRadius.circular(9), border: Border.all(color: pulso.page, width: 2)),
+                  child: Text('${notes.length}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.black)),
                 ),
-            ]),
-          ),
+              ),
+          ]),
         ),
       ),
     );
   }
-}
-
-/// Shows Don Bigotes' bubble once for each new set of notes, for a few seconds.
-class TeaserTimer {
-  TeaserTimer(this.onChange);
-  final VoidCallback onChange;
-  String _shownFor = '';
-  bool visible = false;
-  Timer? _timer;
-
-  void update(List<CompanionNote> notes) {
-    final key = (notes.map((n) => n.id).toList()..sort()).join('|');
-    if (key == _shownFor) return;
-    _shownFor = key;
-    _timer?.cancel();
-    visible = notes.isNotEmpty;
-    if (visible) _timer = Timer(const Duration(seconds: 6), close);
-  }
-
-  void close() {
-    _timer?.cancel();
-    if (!visible) return;
-    visible = false;
-    onChange();
-  }
-
-  void dispose() => _timer?.cancel();
 }

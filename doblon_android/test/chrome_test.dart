@@ -57,52 +57,33 @@ void main() {
     shown.dispose();
   });
 
-  testWidgets('«+ Añadir» opens the form in one tap and Don Bigotes is a separate button', (tester) async {
-    var added = 0, opened = 0, closed = 0;
+  testWidgets('«+ Añadir» opens the form in one tap and Don Bigotes, with what is pending, is a separate button', (tester) async {
+    var added = 0, opened = 0;
     await tester.pumpWidget(app(Align(
-      alignment: Alignment.bottomRight,
-      child: BottomDock(onAdd: () => added++, notes: notes, onCompanion: () => opened++, teaser: true, onCloseTeaser: () => closed++),
+      alignment: Alignment.bottomCenter,
+      child: BottomDock(onAdd: () => added++, notes: notes, onCompanion: () => opened++),
     )));
     await tester.tap(find.text('Añadir'));
     expect(added, 1);
     expect(opened, 0);
-    await tester.tap(find.byType(CompanionButton));
+    expect(find.text('2 avisos'), findsOneWidget, reason: 'Compact: the count and the first notice');
+    expect(find.text('Aviso ficticio'), findsOneWidget);
+    await tester.tap(find.text('2 avisos'));
     expect(opened, 1);
-    expect(find.text('Tengo 2 avisos'), findsOneWidget, reason: 'The bubble, beside the buttons');
-    await tester.tap(find.byTooltip('Cerrar el aviso'));
-    expect(closed, 1);
     final add = tester.getRect(find.text('Añadir'));
     final cat = tester.getRect(find.byType(CompanionButton));
-    expect(add.right, lessThan(cat.left), reason: 'They do not overlap');
+    expect(cat.right, lessThan(add.left), reason: 'They do not overlap');
+    expect(tester.getSize(find.byType(BottomDock)).height, BottomDock.height, reason: 'A band of its own, not over the content');
   });
 
-  testWidgets('the dock fits a small phone with very large text', (tester) async {
+  testWidgets('the band fits a small phone with very large text, and without Don Bigotes says what is pending', (tester) async {
     tester.view.physicalSize = const Size(320, 640);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(app(
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Align(alignment: Alignment.bottomRight, child: BottomDock(onAdd: () {}, notes: notes, teaser: true)),
-        ),
-        text: 2.5));
+    await tester.pumpWidget(app(Align(alignment: Alignment.bottomCenter, child: BottomDock(onAdd: () {}, notes: notes, companion: false)), text: 2.5));
     expect(tester.takeException(), isNull);
-    expect(tester.getRect(find.byType(BottomDock)).left, greaterThanOrEqualTo(16));
-  });
-
-  test('the bubble shows once for each new set of notes and can be closed', () {
-    var changes = 0;
-    final teaser = TeaserTimer(() => changes++);
-    teaser.update(notes);
-    expect(teaser.visible, isTrue);
-    teaser.close();
-    expect(teaser.visible, isFalse);
-    expect(changes, 1);
-    teaser.update(notes);
-    expect(teaser.visible, isFalse, reason: 'Not again for the same notes');
-    teaser.update([notes.first]);
-    expect(teaser.visible, isTrue, reason: 'Again when they change');
-    teaser.dispose();
+    expect(find.byType(CompanionButton), findsNothing);
+    expect(find.text('2 avisos'), findsOneWidget);
   });
 
   for (final brightness in Brightness.values) {
@@ -115,15 +96,15 @@ void main() {
       await tester.pumpWidget(app(HomeScreen(calc: FinanceCalculator(sample(now)), month: DateTime(now.year, now.month), onMonth: (_) {}),
           brightness: brightness, padding: const EdgeInsets.only(top: top, bottom: bottom)));
       await tester.pumpAndSettle();
-      expect(tester.getTopLeft(find.text('Disponible para usar')).dy, greaterThanOrEqualTo(top), reason: 'Below the header');
+      expect(tester.getTopLeft(find.text('Disponible')).dy, greaterThanOrEqualTo(top), reason: 'Below the header');
       final list = tester.state<ScrollableState>(find.byType(Scrollable).first).position;
       // The end is only known once the items below are laid out.
       for (var i = 0; i < 10 && list.pixels < list.maxScrollExtent; i++) {
         list.jumpTo(list.maxScrollExtent);
         await tester.pumpAndSettle();
       }
-      final last = tester.getRect(find.ancestor(of: find.text('Últimos movimientos del mes'), matching: find.byType(Card)).first);
-      expect(last.bottom, lessThanOrEqualTo(667 - bottom - dockReserve + 1), reason: 'The last movement scrolls fully above the dock');
+      final last = tester.getRect(find.ancestor(of: find.text('Viaje ficticio'), matching: find.byType(Card)).first);
+      expect(last.bottom, lessThanOrEqualTo(667 - bottom - dockReserve + 1), reason: 'The last card scrolls fully above the band and the tabs');
     });
   }
 
@@ -135,6 +116,6 @@ void main() {
     await tester.pumpWidget(app(HomeScreen(calc: FinanceCalculator(sample(now)), month: DateTime(now.year, now.month), onMonth: (_) {}), text: 2));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
-    expect(find.text('Disponible para usar'), findsOneWidget);
+    expect(find.text('Disponible'), findsOneWidget);
   });
 }
