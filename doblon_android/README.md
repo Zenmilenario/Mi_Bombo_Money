@@ -41,12 +41,13 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
   - alta con el importe enfocado, la cuenta sin adivinar y lo opcional en «Más opciones»;
   - «Pendiente»: posibles duplicados o categoría incompatible (la categoría es opcional y no cuenta como tarea);
   - herramientas de revisión y entrenamiento de la IA solo para el administrador, en Ajustes › Avanzado;
-  - filtros, detalle y emparejado de traspasos entre tus cuentas;
+  - filtros y detalle;
+  - «Revisar y unir»: traspasos entre tus cuentas (también si un lado ya era traspaso) y duplicados, comparados, con vista previa del efecto en los saldos y deshacer; con la cuenta de administrador, «Unir o conciliar» dos movimientos elegidos a mano;
   - categoría sugerida por tus reglas, con opción de recordar la regla;
   - pagos con dinero reservado.
 - **Cuentas:**
   - crear, editar, archivar y recuperar cuentas;
-  - actualizar el saldo a mano;
+  - actualizar o regularizar el saldo a mano, con concepto y diferencia calculada, y deshacerlo desde «Ajustes de saldo»;
   - tarjetas, dinero reservado y últimos movimientos de cada cuenta.
 - **Presupuestos:**
   - límite solo de este mes o de todos los meses (guardar o arrastrar lo que sobra);

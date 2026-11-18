@@ -11,6 +11,7 @@ import 'edits.dart';
 import 'contributions.dart' show contributionPeriod;
 import 'models.dart';
 import 'presentation.dart' show money;
+import 'reconcile.dart' show MatchCase, MatchKind, sameTransferCases;
 
 // ---------------------------------------------------------------- periodic movements
 
@@ -318,7 +319,8 @@ List<CompanionNote> companionNotes(Finances data, DateTime now,
     List<BankHold> holds = const [],
     List<({String bank, int days})> renewals = const [],
     int overBudget = 0,
-    String budgetMonth = ''}) {
+    String budgetMonth = '',
+    Set<String> keptApart = const {}}) {
   final notes = <CompanionNote>[];
   // A bank permission about to expire: renewing it takes a minute, letting it expire stops the downloads.
   for (final (:bank, :days) in renewals) {
@@ -364,7 +366,12 @@ List<CompanionNote> companionNotes(Finances data, DateTime now,
         detail: 'Posibles duplicados o categorías que no encajan',
         tab: 1));
   }
-  final pairs = ownTransferPairs(data).length;
+  // Charge and credit between own accounts, and transfers recorded twice; not those the person kept apart.
+  final pairs = [
+        for (final p in ownTransferPairs(data))
+          if (!keptApart.contains(MatchCase(MatchKind.transfer, p.debit, p.credit).id)) p,
+      ].length +
+      sameTransferCases(data, keptApart: keptApart).length;
   if (pairs > 0) {
     notes.add(CompanionNote(
         id: 'pairs:$pairs',

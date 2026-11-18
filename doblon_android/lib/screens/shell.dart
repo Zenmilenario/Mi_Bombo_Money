@@ -22,6 +22,8 @@ import 'learning.dart' show AiMetricsScreen, ReviewProposalsScreen;
 import 'manage.dart';
 import 'tools.dart';
 import 'transaction_form.dart';
+import '../reconcile.dart' show ReconcileStore;
+import 'reconcile_screen.dart';
 import 'transaction_detail.dart';
 import 'transactions.dart';
 import 'widgets.dart' show RowGlyph;
@@ -83,6 +85,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
     repository.addListener(_changed);
     widget.preferences.addListener(_changed);
     _open();
+    // Joins to undo and pairs kept apart, saved on this device.
+    ReconcileStore.instance.load().then((_) {
+      if (mounted) setState(() {});
+    });
     _refreshTimer = Timer.periodic(foregroundRefresh, (_) {
       if (_foreground) unawaited(_open());
     });
@@ -146,7 +152,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
 
   // Don Bigotes' notes walk the whole history: kept until the finances, the bank reports or the day change, so a
   // notice about something else does not compute them again.
-  Object? _notesFrom, _notesActivity, _notesConnections;
+  Object? _notesFrom, _notesActivity, _notesConnections, _notesKept;
   String? _notesDay;
   List<CompanionNote> _notes = const [];
 
@@ -156,20 +162,26 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
     if (identical(data, _notesFrom) &&
         identical(repository.bankActivity, _notesActivity) &&
         identical(repository.bankConnections, _notesConnections) &&
+        identical(ReconcileStore.instance.keptApart, _notesKept) &&
         day == _notesDay) {
       return _notes;
     }
     _notesFrom = data;
     _notesActivity = repository.bankActivity;
     _notesConnections = repository.bankConnections;
+    _notesKept = ReconcileStore.instance.keptApart;
     _notesDay = day;
     final thisMonth = DateTime(now.year, now.month);
     final over = calc.budgetProgress(thisMonth).where((b) => b.limitMinor > 0 && b.spentMinor > b.limitMinor).length;
-    return _notes =
-        companionNotes(data, now, holds: bankHolds(data, repository.bankActivity), overBudget: over, budgetMonth: '${now.year}-${now.month}', renewals: [
-      for (final connection in repository.bankConnections)
-        if (permissionExpiresSoon(connection, now)) (bank: connection.bank, days: permissionDaysLeft(connection, now)!),
-    ]);
+    return _notes = companionNotes(data, now,
+        holds: bankHolds(data, repository.bankActivity),
+        overBudget: over,
+        budgetMonth: '${now.year}-${now.month}',
+        keptApart: ReconcileStore.instance.keptApart,
+        renewals: [
+          for (final connection in repository.bankConnections)
+            if (permissionExpiresSoon(connection, now)) (bank: connection.bank, days: permissionDaysLeft(connection, now)!),
+        ]);
   }
 
   /// Don Bigotes' notes, as on the iPhone (`CompanionNotesSheet`): his face, a button to update the banks and each
@@ -258,7 +270,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
                         FilledButton(
                           onPressed: () {
                             Navigator.pop(context);
-                            _select(note.tab);
+                            _openNote(note);
                           },
                           style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14), minimumSize: const Size(0, 34)),
                           child: const Text('Ver', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
@@ -297,6 +309,25 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
         );
       }),
     );
+  }
+
+  /// «Ver» opens the case itself: the records to compare for duplicates and transfers, the budgets for a budget
+  /// over its limit; the rest, the tab where it is solved.
+  void _openNote(CompanionNote note) {
+    switch (note.id.split(':').first) {
+      case 'pairs':
+      case 'review':
+        Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => ReconcileScreen(repository: repository, duplicatesFirst: note.id.startsWith('review'))))
+            .then((_) {
+          if (mounted) setState(() {});
+        });
+      case 'budgets':
+        setState(() => month = DateTime(DateTime.now().year, DateTime.now().month));
+        _select(3);
+      default:
+        _select(note.tab);
+    }
   }
 
   static IconData _noteIcon(CompanionNote note) => switch (note.id.split(':').first) {

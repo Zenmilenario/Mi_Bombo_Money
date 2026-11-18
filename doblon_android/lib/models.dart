@@ -208,16 +208,22 @@ class Transaction {
 }
 
 class BalanceSnapshot {
-  BalanceSnapshot({required this.id, required this.date, required this.balanceMinor, required this.accountId});
+  BalanceSnapshot({required this.id, required this.date, required this.balanceMinor, required this.accountId, this.source = '', this.notes = ''});
   final String id;
   final DateTime date;
   final int balanceMinor;
   final String? accountId;
+
+  /// «manual» when the person fixed the balance (an update or a regularization), «bankAPI» when the bank reported it.
+  final String source;
+  final String notes;
   factory BalanceSnapshot.fromJson(Map<String, dynamic> json) => BalanceSnapshot(
         id: _string(json['id']),
         date: _date(json['date']),
         balanceMinor: _int(json['balanceMinor']),
         accountId: _stringOrNull(json['accountID']),
+        source: _string(json['sourceRaw']),
+        notes: _string(json['notes']),
       );
 }
 

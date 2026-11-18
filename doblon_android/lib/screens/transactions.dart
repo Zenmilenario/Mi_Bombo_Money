@@ -13,6 +13,7 @@ import '../theme.dart';
 import 'banks.dart' show BankReviewScreen;
 import 'learning.dart' show ReviewProposalsScreen;
 import 'spending.dart';
+import 'reconcile_screen.dart';
 import 'transaction_detail.dart';
 import 'chrome.dart' show TabInsets, dockReserve;
 import 'widgets.dart';
@@ -150,46 +151,13 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               ),
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child:
-                  Text('Importes provisionales. Se reflejan en el historial y el presupuesto cuando el banco los da por definitivos.', style: TextStyle(fontSize: 12)),
+              child: Text('Importes provisionales. Se reflejan en el historial y el presupuesto cuando el banco los da por definitivos.',
+                  style: TextStyle(fontSize: 12)),
             ),
           ],
         ),
       ),
     ];
-  }
-
-  /// Each pair can be joined into one transfer (it stops counting as income and expense) or left as it is.
-  Future<void> _showPairs(Finances data) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
-          const Text('Si son la misma operación entre tus cuentas, únelas en un traspaso: dejará de contar como gasto e ingreso.'),
-          const SizedBox(height: 12),
-          for (final pair in ownTransferPairs(data))
-            Card(
-              child: Column(children: [
-                TransactionTile(transaction: pair.debit, data: data),
-                TransactionTile(transaction: pair.credit, data: data),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    icon: const Icon(Icons.merge_type),
-                    label: const Text('Unir como traspaso'),
-                    onPressed: () async {
-                      Navigator.pop(context);
-                      await widget.repository.apply(joinOwnTransfer(pair, data, DateTime.now()));
-                    },
-                  ),
-                ),
-              ]),
-            ),
-        ]),
-      ),
-    );
   }
 
   Future<void> _chooseFilters(Finances data) async {
@@ -265,8 +233,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   }
 
   Future<void> _reviewBank(List<BankProposal> proposals, Finances data) async {
-    final decisions = await Navigator.of(context)
-        .push<Map<String, String>>(MaterialPageRoute(builder: (_) => BankReviewScreen(proposals: proposals, data: data)));
+    final decisions =
+        await Navigator.of(context).push<Map<String, String>>(MaterialPageRoute(builder: (_) => BankReviewScreen(proposals: proposals, data: data)));
     if (decisions == null || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -296,11 +264,30 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
       floatingActionButton: selecting
           ? Padding(
               padding: const EdgeInsets.only(bottom: dockReserve - 8),
-              child: FloatingActionButton.extended(
-                onPressed: () => _categorizeSelected(data),
-                icon: const Icon(Icons.sell_outlined),
-                label: Text('Categorizar ${selected.length}'),
-              ),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                // The developer's account can join or reconcile two movements chosen by hand (it is a permission of
+                // the app, not access to anyone else's data).
+                if (selected.length == 2 && widget.repository.isAdministrator) ...[
+                  FloatingActionButton.extended(
+                    heroTag: 'join',
+                    onPressed: () async {
+                      final [first, second] = selected.toList();
+                      final done = await Navigator.of(context)
+                          .push<bool>(MaterialPageRoute(builder: (_) => MergePreviewScreen(repository: widget.repository, firstId: first, secondId: second)));
+                      if (done == true && mounted) setState(selected.clear);
+                    },
+                    icon: const Icon(Icons.merge_type),
+                    label: const Text('Unir o conciliar'),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                FloatingActionButton.extended(
+                  heroTag: 'categorize',
+                  onPressed: () => _categorizeSelected(data),
+                  icon: const Icon(Icons.sell_outlined),
+                  label: Text('Categorizar ${selected.length}'),
+                ),
+              ]),
             )
           : null,
       body: CustomScrollView(physics: const AlwaysScrollableScrollPhysics(), slivers: [
@@ -348,7 +335,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                     title: Text(pairs.length == 1 ? '1 posible traspaso entre tus cuentas' : '${pairs.length} posibles traspasos entre tus cuentas'),
                     subtitle: const Text('Un cargo y un abono del mismo importe'),
                     trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _showPairs(data),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReconcileScreen(repository: widget.repository))),
                   ),
                 ),
               const SizedBox(height: 8),
@@ -402,8 +389,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                     subtitle: const Text('Revisa y categoriza varios movimientos de una vez'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () async {
-                      final applied = await Navigator.of(context)
-                          .push<int>(MaterialPageRoute(builder: (_) => ReviewProposalsScreen(repository: widget.repository)));
+                      final applied =
+                          await Navigator.of(context).push<int>(MaterialPageRoute(builder: (_) => ReviewProposalsScreen(repository: widget.repository)));
                       if (applied != null && applied > 0 && context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$applied movimientos categorizados.')));
                       }
@@ -424,7 +411,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         if (ordered.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
-            child: Center(child: Text(filter.onlyReview ? (pendingCount > 0 ? 'Ningún movimiento por revisar: lo pendiente está arriba.' : 'Nada pendiente.') : 'Sin resultados')),
+            child: Center(
+                child: Text(filter.onlyReview
+                    ? (pendingCount > 0 ? 'Ningún movimiento por revisar: lo pendiente está arriba.' : 'Nada pendiente.')
+                    : 'Sin resultados')),
           )
         else
           SliverList.builder(

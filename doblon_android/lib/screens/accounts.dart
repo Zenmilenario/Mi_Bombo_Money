@@ -483,6 +483,37 @@ class AccountDetailScreen extends StatelessWidget {
                     ]),
             ),
             if (account.notes.isNotEmpty) ...[SectionTitle('Notas'), Card(child: Padding(padding: const EdgeInsets.all(16), child: Text(account.notes)))],
+            // Balances fixed by hand (updates and regularizations): traceable and undone by deleting them.
+            if (data.snapshots.where((s) => s.accountId == account.id && s.source == 'manual').toList() case final fixed when fixed.isNotEmpty) ...[
+              SectionTitle('Ajustes de saldo'),
+              Card(
+                child: Column(children: [
+                  for (final s in fixed..sort((a, b) => b.date.compareTo(a.date)))
+                    ListTile(
+                      title: Text('${money(s.balanceMinor)} · ${DateFormat("d MMM yyyy, HH:mm", 'es').format(s.date.toLocal())}'),
+                      subtitle: Text(s.notes),
+                      trailing: IconButton(
+                        tooltip: 'Deshacer este ajuste',
+                        icon: const Icon(Icons.undo),
+                        onPressed: () async {
+                          final sure = await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text('Deshacer el ajuste'),
+                              content: const Text('El saldo volverá a calcularse como antes de este ajuste. No se borra ningún movimiento.'),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+                                TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Deshacer')),
+                              ],
+                            ),
+                          );
+                          if (sure == true) await repository.apply(removeOperation('snapshots', s.id));
+                        },
+                      ),
+                    ),
+                ]),
+              ),
+            ],
           ]),
         );
       },
@@ -587,7 +618,14 @@ class BalanceFormScreen extends StatefulWidget {
 
 class _BalanceFormScreenState extends State<BalanceFormScreen> {
   late final _amount = TextEditingController(text: amountText(widget.current));
+  final _concept = TextEditingController(text: 'Saldo actualizado a mano');
   DateTime _date = DateTime.now();
+
+  /// What Doblón computes at the chosen moment, to show the difference the new balance fixes.
+  int get _computed {
+    final data = widget.repository.finances;
+    return data == null ? widget.current : FinanceCalculator(data).balance(widget.account, _date);
+  }
   String? _message;
 
   @override
@@ -606,7 +644,9 @@ class _BalanceFormScreenState extends State<BalanceFormScreen> {
                   'date': referenceSeconds(_date),
                   'balanceMinor': value,
                   'sourceRaw': 'manual',
-                  'notes': 'Saldo actualizado a mano',
+                  // Traceable: the concept, Doblón's balance and the bank's at that moment. Undone by deleting it.
+                  'notes': '${_concept.text.trim().isEmpty ? 'Saldo actualizado a mano' : _concept.text.trim()} · '
+                      'Doblón ${money(_computed)}, banco ${money(value)}, diferencia ${money(value - _computed, signed: true)}',
                   'createdAt': now,
                   'accountID': widget.account.id,
                 },
@@ -619,6 +659,19 @@ class _BalanceFormScreenState extends State<BalanceFormScreen> {
           Text('Escribe el saldo que ves hoy en ${widget.account.name}. Desde esa fecha, Doblón sumará los movimientos posteriores.'),
           AmountInput(controller: _amount, label: 'Saldo (€)', allowNegative: true),
           DateInput(label: 'Fecha', value: _date, onChanged: (v) => setState(() => _date = v ?? _date)),
+          TextInput(controller: _concept, label: 'Concepto'),
+          ListenableBuilder(
+            listenable: _amount,
+            builder: (context, _) {
+              final value = amountFrom(_amount);
+              return Text(
+                  value == null
+                      ? 'Doblón calcula ${money(_computed)} en esa fecha.'
+                      : 'Doblón calcula ${money(_computed)} en esa fecha: diferencia ${money(value - _computed, signed: true)}. '
+                          'No es un gasto ni un ingreso: no cuenta en presupuestos ni en el resumen del mes.',
+                  style: Theme.of(context).textTheme.bodySmall);
+            },
+          ),
         ],
       );
 }
