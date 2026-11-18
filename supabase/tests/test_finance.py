@@ -335,12 +335,19 @@ class CloudStorageTests(unittest.TestCase):
         self.db.execute('UPDATE public.finance_transactions SET deleted_at=NULL WHERE id=%s',(other,))
 
     def test_invalid_amounts_and_funding_shapes_are_rejected(self):
-        for changes in [dict(amount_minor=0),dict(amount_minor=-1),dict(reserved_amount_minor=1001),dict(reserved_amount_minor=None),dict(type='income'),dict(reserved_fund_id=None)]:
+        for changes in [dict(amount_minor=0),dict(amount_minor=-1),dict(reserved_amount_minor=1001),dict(reserved_amount_minor=None),dict(reserved_fund_id=None)]:
             with self.subTest(changes=changes):
                 row=self.record('transactions',new=True);row.update(changes)
                 self.expect_sqlstate('23514',lambda r=row:self.insert('transactions',r))
         row=self.record('cards',new=True);row['last_four']='1234567890123456'
         self.expect_sqlstate('23514',lambda:self.insert('cards',row))
+
+    def test_income_can_be_set_aside_for_a_reserve(self):
+        # 20261118000100_reserved_income: an income names its reserve and the part, never more than it is.
+        row=self.record('transactions',new=True);row.update(type='income',category_id=None)
+        self.insert('transactions',row)
+        too_much=self.record('transactions',new=True);too_much.update(type='income',category_id=None,reserved_amount_minor=too_much['amount_minor']+1)
+        self.expect_sqlstate('23514',lambda:self.insert('transactions',too_much))
 
     def test_provider_identifier_is_deduplicated_per_account(self):
         row=self.record('transactions',new=True);row['external_id']='fictitious-reference'
