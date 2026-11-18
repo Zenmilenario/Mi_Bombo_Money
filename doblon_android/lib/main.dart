@@ -107,6 +107,10 @@ Future<String?> checkPassword(String email, String password) async {
 
 class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
   late bool locked = widget.preferences.lockEnabled;
+
+  /// The app is built only after the first unlock: on opening, loading and computing the finances under the lock
+  /// delayed Face ID (0.29.0). From then on it stays alive under the lock, to return where the person was.
+  late bool started = !locked;
   bool asking = false;
 
   /// While the app is not in front: the content is hidden by a cover (recent apps, switching apps).
@@ -223,9 +227,13 @@ class _LockGateState extends State<LockGate> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final enabled = widget.preferences.lockEnabled;
     final hideContent = enabled && (locked || covered);
+    if (!started && !(enabled && locked)) started = true;
+    // Told after this frame: listeners may rebuild other widgets.
+    final isLocked = enabled && locked;
+    if (appLocked.value != isLocked) WidgetsBinding.instance.addPostFrameCallback((_) => appLocked.value = isLocked);
     return Stack(fit: StackFit.expand, children: [
       // Alive but not painted, not readable and not touchable while locked or covered.
-      Offstage(offstage: hideContent, child: TickerMode(enabled: !hideContent, child: widget.child)),
+      if (started) Offstage(offstage: hideContent, child: TickerMode(enabled: !hideContent, child: widget.child)),
       if (enabled && locked) _lockScreen(context) else if (enabled && covered) const PrivacyCover(),
     ]);
   }

@@ -65,6 +65,10 @@ class AppPreferences extends ChangeNotifier {
 }
 
 /// Fingerprint, face or the phone's own PIN or pattern. False when it fails or the device has no lock.
+/// True while the lock covers the app (set by `LockGate`): work on returning to the app waits for the unlock, so it
+/// does not compete with Face ID.
+final appLocked = ValueNotifier<bool>(false);
+
 Future<bool> authenticate(String reason) async {
   try {
     final auth = LocalAuthentication();

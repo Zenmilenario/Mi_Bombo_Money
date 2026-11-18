@@ -133,8 +133,23 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
     _foreground = state == AppLifecycleState.resumed;
     if (state == AppLifecycleState.resumed) {
       _postedToday = false;
-      _open();
+      _openWhenUnlocked();
     }
+  }
+
+  /// Refreshing on return waits until the lock is gone, so it does not slow Face ID down.
+  void _openWhenUnlocked() {
+    if (!appLocked.value) {
+      _open();
+      return;
+    }
+    void unlocked() {
+      if (appLocked.value) return;
+      appLocked.removeListener(unlocked);
+      if (mounted) _open();
+    }
+
+    appLocked.addListener(unlocked);
   }
 
   void _changed() => setState(() {});

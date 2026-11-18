@@ -16,8 +16,18 @@ class _Finances extends StatefulWidget {
   State<_Finances> createState() => _FinancesState();
 }
 
+/// How many times the finances were built from scratch (loading and computing them is what is costly).
+int starts = 0;
+
 class _FinancesState extends State<_Finances> {
   int tab = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    starts++;
+  }
+
   @override
   Widget build(BuildContext context) => Scaffold(
         body: Column(children: [
@@ -59,6 +69,7 @@ void main() {
       );
 
   setUp(() {
+    starts = 0;
     asked = 0;
     face = false;
     passwords = [];
@@ -158,5 +169,22 @@ void main() {
     await tester.pump();
     expect(find.textContaining('1.234,56'), findsOneWidget);
     expect(asked, 0);
+  });
+
+  testWidgets('the finances are not loaded under the lock on opening (it delayed Face ID), and are kept afterwards', (tester) async {
+    await tester.pumpWidget(app(AppPreferences()..lockEnabled = true));
+    await tester.pump();
+    expect(starts, 0, reason: 'Nothing is loaded while Face ID is asked on opening');
+    expect(appLocked.value, isTrue);
+    face = true;
+    await tester.tap(find.text('Volver a intentar con Face ID o huella'));
+    await tester.pumpAndSettle();
+    expect(starts, 1);
+    expect(appLocked.value, isFalse, reason: 'Work waiting for the unlock can start');
+    lifecycle(tester, [AppLifecycleState.inactive, AppLifecycleState.hidden, AppLifecycleState.paused]);
+    await tester.pump();
+    lifecycle(tester, [AppLifecycleState.hidden, AppLifecycleState.inactive, AppLifecycleState.resumed]);
+    await tester.pumpAndSettle();
+    expect(starts, 1, reason: 'Kept alive under later locks: back where it was, without loading again');
   });
 }
