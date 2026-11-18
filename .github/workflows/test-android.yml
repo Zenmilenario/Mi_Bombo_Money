@@ -50,7 +50,7 @@ jobs:
 
       - run: flutter pub get
 
-      # The Roboto of the SDK: some tests measure text with the real font (the test font draws squares).
+      # The SDK's Material fonts, so local and CI runs have the same artifacts (the tests do not depend on them).
       - name: Descargar las fuentes de Material
         run: flutter precache --universal
 
