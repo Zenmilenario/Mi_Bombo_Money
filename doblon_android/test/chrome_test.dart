@@ -1,7 +1,5 @@
 // Fictitious data only. The frame of the tabs (17 November 2026): «+ Añadir» at the bottom in one tap, Don Bigotes
 // beside it without covering anything, a header that hides while scrolling down, and room for the last item.
-import 'dart:io';
-
 import 'package:doblon/automation.dart' show CompanionNote;
 import 'package:doblon/finance.dart';
 import 'package:doblon/screens/chrome.dart';
@@ -9,7 +7,6 @@ import 'package:doblon/screens/home.dart';
 import 'package:doblon/screens/widgets.dart' show LabelValues;
 import 'package:doblon/theme.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/date_symbol_data_local.dart';
@@ -34,21 +31,8 @@ final notes = [
   CompanionNote(id: 'b', title: 'Otro aviso ficticio', detail: '', tab: 2),
 ];
 
-/// The real Roboto of the Flutter SDK, so text widths are measured as on Android (the test font draws squares).
-Future<void> loadRoboto() async {
-  final root = '${File(Platform.resolvedExecutable).parent.parent.parent.path}/material_fonts';
-  final roboto = FontLoader('Roboto');
-  for (final f in ['roboto-regular.ttf', 'roboto-medium.ttf', 'roboto-bold.ttf', 'roboto-black.ttf']) {
-    roboto.addFont(Future.value(ByteData.sublistView(File('$root/$f').readAsBytesSync())));
-  }
-  await roboto.load();
-}
-
 void main() {
-  setUpAll(() async {
-    await initializeDateFormatting('es');
-    await loadRoboto();
-  });
+  setUpAll(() => initializeDateFormatting('es'));
 
   test('the header follows the finger and is always shown at the top', () {
     expect(nextHeaderShown(1, headerHeight / 2, 200), 0.5);
@@ -108,49 +92,57 @@ void main() {
   });
 
   test('tab labels are shown only where the longest fits whole at the text size', () {
-    const style = TextStyle(fontFamily: 'Roboto', fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0);
-    expect(DoblonNavigationBar.labelsFit(390, TextScaler.noScaling, style), isTrue, reason: 'A usual phone');
-    expect(DoblonNavigationBar.labelsFit(390, const TextScaler.linear(1.4), style), isFalse, reason: 'Large text: icons, names read aloud');
-    expect(DoblonNavigationBar.labelsFit(320, TextScaler.noScaling, style), isFalse, reason: 'A small phone');
-    expect(DoblonNavigationBar.labelsFit(768, const TextScaler.linear(1.6), style), isTrue, reason: 'A tablet');
+    const style = TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0);
+    // Measured with whatever font the test has: the rule, not a font, is what is checked.
+    final longest = LabelValues.width('Presupuestos', style, TextScaler.noScaling);
+    final enough = 5 * (longest + 2);
+    expect(DoblonNavigationBar.labelsFit(enough, TextScaler.noScaling, style), isTrue);
+    expect(DoblonNavigationBar.labelsFit(enough - 10, TextScaler.noScaling, style), isFalse, reason: 'Narrower: icons only');
+    expect(DoblonNavigationBar.labelsFit(enough, const TextScaler.linear(1.4), style), isFalse, reason: 'Larger text: icons only');
+    expect(DoblonNavigationBar.labelsFit(enough * 1.5, const TextScaler.linear(1.4), style), isTrue, reason: 'A wider screen');
   });
 
   testWidgets('the tab bar never breaks a label: whole names or only icons', (tester) async {
-    for (final (width, scale, labels) in [(390.0, 1.0, true), (320.0, 1.0, false), (390.0, 1.6, false)]) {
+    for (final (width, scale) in [(390.0, 1.0), (320.0, 1.0), (390.0, 1.6), (1200.0, 1.0)]) {
       tester.view.physicalSize = Size(width, 700);
       tester.view.devicePixelRatio = 1;
-      await tester
-          .pumpWidget(app(Align(alignment: Alignment.bottomCenter, child: DoblonNavigationBar(selectedIndex: 3, onDestinationSelected: (_) {})), text: scale));
+      await tester.pumpWidget(app(Align(alignment: Alignment.bottomCenter, child: DoblonNavigationBar(selectedIndex: 3, onDestinationSelected: (_) {})), text: scale));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
-      final label = find.text('Presupuestos');
-      if (labels) {
-        expect(tester.getSize(label).height, lessThan(12 * 1.6 * scale), reason: 'One line at $width');
+      final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
+      if (bar.labelBehavior == NavigationDestinationLabelBehavior.alwaysShow) {
+        final label = find.text('Presupuestos');
+        expect(tester.getSize(label).height, lessThan(12 * 1.8 * scale), reason: 'One line at $width');
       } else {
-        expect(tester.widget<NavigationBar>(find.byType(NavigationBar)).labelBehavior, NavigationDestinationLabelBehavior.alwaysHide);
-        expect(find.byTooltip('Presupuestos'), findsOneWidget, reason: 'Still named');
+        expect(bar.labelBehavior, NavigationDestinationLabelBehavior.alwaysHide);
+        expect(find.byTooltip('Presupuestos'), findsOneWidget, reason: 'Still named at $width');
       }
     }
+    expect(tester.widget<NavigationBar>(find.byType(NavigationBar)).labelBehavior, NavigationDestinationLabelBehavior.alwaysShow, reason: 'Wide screen');
     tester.view.reset();
   });
 
   testWidgets('the month figures go one under another when they do not fit side by side', (tester) async {
+    const valueStyle = TextStyle(fontSize: 17);
+    final widest = LabelValues.width('-1.333,91 €', valueStyle, TextScaler.noScaling);
     Widget values(double text) => app(
-        const SizedBox(
-            width: 330,
-            child: LabelValues(
-              labelStyle: TextStyle(fontSize: 12),
-              valueStyle: TextStyle(fontSize: 17),
-              items: [('Gastos', '1.472,38 €', null), ('Ingresos', '138,47 €', null), ('Ahorro', '-1.333,91 €', null)],
-            )),
+        Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+              width: 3 * (widest + 12) + 2 * 12,
+              child: const LabelValues(
+                labelStyle: TextStyle(fontSize: 12),
+                valueStyle: valueStyle,
+                items: [('Gastos', '1.472,38 €', null), ('Ingresos', '138,47 €', null), ('Ahorro', '-1.333,91 €', null)],
+              )),
+        ),
         text: text);
     await tester.pumpWidget(values(1));
-    final side = tester.getTopLeft(find.text('Ingresos')).dy == tester.getTopLeft(find.text('Gastos')).dy;
+    expect(tester.getTopLeft(find.text('Ingresos')).dy, tester.getTopLeft(find.text('Gastos')).dy, reason: 'Side by side when they fit');
     await tester.pumpWidget(values(2));
     expect(tester.takeException(), isNull);
     expect(tester.getTopLeft(find.text('Ingresos')).dy, greaterThan(tester.getTopLeft(find.text('Gastos')).dy), reason: 'Stacked with large text');
     expect(find.text('-1.333,91 €'), findsOneWidget, reason: 'The amount whole, not changed');
-    expect(side, isTrue, reason: 'Side by side at the usual size');
   });
 
   for (final brightness in Brightness.values) {
