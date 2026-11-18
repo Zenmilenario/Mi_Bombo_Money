@@ -228,16 +228,23 @@ class BalanceSnapshot {
 }
 
 class ReservedFund {
-  ReservedFund({required this.id, required this.name, required this.amountMinor, required this.accountId});
+  ReservedFund({required this.id, required this.name, required this.amountMinor, required this.accountId, this.createdAt});
   final String id;
   final String name;
+
+  /// What was set aside when the reserve was created, in [accountId].
   final int amountMinor;
   final String? accountId;
+
+  /// When it was created: income linked to it before this date is where its starting amount came from (it is not
+  /// added again); income linked after it adds to the reserve.
+  final DateTime? createdAt;
   factory ReservedFund.fromJson(Map<String, dynamic> json) => ReservedFund(
         id: _string(json['id']),
         name: _string(json['name']),
         amountMinor: _int(json['amountMinor']),
         accountId: _stringOrNull(json['accountID']),
+        createdAt: json['createdAt'] is num ? referenceDate(json['createdAt'] as num) : null,
       );
 }
 

@@ -49,6 +49,7 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
   - crear, editar, archivar y recuperar cuentas;
   - actualizar o regularizar el saldo a mano, con concepto y diferencia calculada, y deshacerlo desde «Ajustes de saldo»;
   - tarjetas, dinero reservado y últimos movimientos de cada cuenta.
+- **Reservas:** dinero apartado en una cuenta (un pago futuro o un colchón): sale del disponible libre; los pagos que cubre y los ingresos destinados a ella quedan fuera del resultado cotidiano (Inicio, Movimientos, calendario, análisis y presupuestos), que muestran aparte el historial completo; los traslados solo cambian dónde está.
 - **Presupuestos:**
   - límite solo de este mes o de todos los meses (guardar o arrastrar lo que sobra);
   - gasto sin presupuesto;

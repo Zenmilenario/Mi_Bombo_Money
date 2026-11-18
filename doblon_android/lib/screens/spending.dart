@@ -22,7 +22,8 @@ class _SpendingAnalysisScreenState extends State<SpendingAnalysisScreen> {
     final pulso = Pulso.of(context);
     final hint = Theme.of(context).hintColor;
     final spending = widget.calc.spendingByCategory(month);
-    final total = widget.calc.monthlySummary(month).expenseMinor;
+    // Everyday spending, as Inicio and the budgets: what a reserve paid is left out.
+    final total = widget.calc.monthlySummary(month).dailyExpenseMinor;
     final top = spending.isEmpty ? 1 : spending.first.$2;
     Widget metric(String label, String value, IconData icon, Color color) => Expanded(
           child: Card(

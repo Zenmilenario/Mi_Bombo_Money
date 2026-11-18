@@ -6,7 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../automation.dart';
 import '../data.dart';
-import '../finance.dart' show ReservedEntry, reservedBalances;
+import '../finance.dart' show fundEntries, reservedBalances;
 import '../edits.dart';
 import '../learning.dart' show EditSnapshot;
 import '../models.dart';
@@ -162,25 +162,14 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     if (mounted) Navigator.of(context).pop(true);
   }
 
-  /// The reserves that have money in the chosen account (plus the one already used by this movement).
+  /// For a payment or a move, the reserves that have money in the chosen account (plus the one already used by this
+  /// movement); for an income, every reserve it can be set aside for.
   List<Widget> _reserveFields() {
+    final income = draft.type.countsAsIncome;
     final options = data.reservedFunds.where((fund) {
-      if (fund.id == draft.reservedFundId) return true;
+      if (fund.id == draft.reservedFundId || income) return fund.accountId != null || fund.id == draft.reservedFundId;
       if (fund.accountId == null || draft.sourceAccountId == null) return false;
-      final entries = [
-        for (final t in data.transactions)
-          if (t.id != widget.editing?.id &&
-              t.reservedFundId == fund.id &&
-              t.sourceAccountId != null &&
-              t.reservedAmountMinor != null &&
-              (t.type.countsAsExpense || t.type == TransactionType.transfer))
-            ReservedEntry(
-                id: t.id,
-                date: t.date,
-                source: t.sourceAccountId!,
-                destination: t.type == TransactionType.transfer ? t.destinationAccountId : null,
-                amount: t.reservedAmountMinor!),
-      ];
+      final entries = fundEntries(fund, data.transactions.where((t) => t.id != widget.editing?.id));
       return (reservedBalances(fund.accountId!, fund.amountMinor, entries, through: draft.date)?[draft.sourceAccountId] ?? 0) > 0;
     }).toList();
     if (options.isEmpty) return const [];
@@ -189,7 +178,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
         initialValue: draft.reservedFundId,
         isExpanded: true,
         decoration: InputDecoration(
-            labelText: draft.type == TransactionType.transfer ? 'Trasladar dinero reservado' : 'Pagar con dinero reservado',
+            labelText: income ? 'Destinar a una reserva' : (draft.type == TransactionType.transfer ? 'Trasladar dinero reservado' : 'Pagar con dinero reservado'),
             border: const OutlineInputBorder()),
         items: [
           const DropdownMenuItem<String?>(value: null, child: Text('No')),
@@ -207,11 +196,18 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
           decoration: InputDecoration(
-              labelText: draft.type == TransactionType.transfer ? 'Parte de la reserva que se traslada (€)' : 'Parte pagada con la reserva (€)',
+              labelText: income
+                  ? 'Parte que va a la reserva (€)'
+                  : (draft.type == TransactionType.transfer ? 'Parte de la reserva que se traslada (€)' : 'Parte pagada con la reserva (€)'),
               border: const OutlineInputBorder()),
         ),
         const SizedBox(height: 4),
-        Text(draft.type == TransactionType.transfer ? 'La reserva acompaña al dinero hasta la cuenta de destino.' : 'Esa parte no cuenta en tus presupuestos.',
+        Text(
+            income
+                ? 'Esa parte no cuenta como ingreso del día a día. Si el ingreso es posterior a la reserva, la aumenta (por ejemplo, intereses que decides guardar en ella).'
+                : (draft.type == TransactionType.transfer
+                    ? 'La reserva acompaña al dinero hasta la cuenta de destino.'
+                    : 'Esa parte no cuenta en tus presupuestos ni en el gasto del día a día; lo que supere la reserva, sí.'),
             style: Theme.of(context).textTheme.bodySmall),
       ],
       const SizedBox(height: 12),
@@ -376,7 +372,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                             selected: draft.type == TransactionType.interest,
                             onSelected: (on) => setState(() => draft.type = on ? TransactionType.interest : TransactionType.income)),
                     ]),
-                  if (draft.type.countsAsExpense || draft.type == TransactionType.transfer) ..._reserveFields(),
+                  ..._reserveFields(),
                   TextField(
                     controller: _notes,
                     maxLines: 3,

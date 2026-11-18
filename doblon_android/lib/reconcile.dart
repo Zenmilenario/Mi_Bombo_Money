@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'automation.dart' show bankKeys, encodedKeys, ownTransferPairs;
 import 'banking.dart' show accountIdentity, referenceSeconds;
 import 'edits.dart';
+import 'finance.dart' show fundEntries, reservedBalances;
 import 'models.dart';
 
 /// The local account a bank key comes from (`enable-entry:<server>:<remote account>:<reference>`), if linked.
@@ -303,8 +304,55 @@ class ReconcileStore {
     await _save();
   }
 
-  Future<void> keepApart(MatchCase c) async {
-    keptApart = {...keptApart, c.id};
+  Future<void> keepApart(MatchCase c) => keepApartId(c.id);
+
+  /// Any proposal the person answered «no» to (a pair, or a payment that is not from a reserve).
+  Future<void> keepApartId(String id) async {
+    keptApart = {...keptApart, id};
     await _save();
   }
 }
+
+/// A payment that looks like the earlier ones made with a reserve (the same amount, or the same category and concept):
+/// proposed to be paid with it, never linked on its own. Only what the reserve has in that account at that date.
+class ReservePaymentCase {
+  ReservePaymentCase(this.payment, this.fund, this.amountMinor);
+  final Transaction payment;
+  final ReservedFund fund;
+  final int amountMinor;
+  String get id => 'reserve:${payment.id}:${fund.id}';
+}
+
+List<ReservePaymentCase> reservePaymentCases(Finances data, {Set<String> keptApart = const {}}) {
+  final paidWith = [
+    for (final t in data.transactions)
+      if (t.type.countsAsExpense && t.reservedFundId != null) t
+  ];
+  if (paidWith.isEmpty) return const [];
+  final cases = <ReservePaymentCase>[];
+  for (final t in data.transactions) {
+    if (!t.type.countsAsExpense || t.reservedFundId != null || t.sourceAccountId == null) continue;
+    for (final fund in data.reservedFunds) {
+      if (fund.accountId == null) continue;
+      final like = paidWith.any((p) =>
+          p.reservedFundId == fund.id &&
+          p.id != t.id &&
+          (p.amountMinor == t.amountMinor ||
+              (p.categoryId != null && p.categoryId == t.categoryId && normalizeText(p.descriptionText) == normalizeText(t.descriptionText))));
+      if (!like) continue;
+      final c = ReservePaymentCase(t, fund, 0);
+      if (keptApart.contains(c.id)) continue;
+      final available = reservedBalances(fund.accountId!, fund.amountMinor, fundEntries(fund, data.transactions), through: t.date)?[t.sourceAccountId] ?? 0;
+      if (available <= 0) continue;
+      cases.add(ReservePaymentCase(t, fund, available < t.amountMinor ? available : t.amountMinor));
+      break;
+    }
+  }
+  return cases;
+}
+
+/// Pays the movement with the reserve (the covered part; the rest still counts as everyday spending).
+Operation payWithReserve(ReservePaymentCase c, DateTime now) => Operation('patch', {
+      'id': c.payment.id,
+      'fields': {'reservedFundID': c.fund.id, 'reservedAmountMinor': c.amountMinor, 'updatedAt': referenceSeconds(now)}
+    });

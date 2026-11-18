@@ -11,7 +11,7 @@ import 'edits.dart';
 import 'contributions.dart' show contributionPeriod;
 import 'models.dart';
 import 'presentation.dart' show money;
-import 'reconcile.dart' show MatchCase, MatchKind, sameTransferCases;
+import 'reconcile.dart' show MatchCase, MatchKind, reservePaymentCases, sameTransferCases;
 
 // ---------------------------------------------------------------- periodic movements
 
@@ -377,6 +377,15 @@ List<CompanionNote> companionNotes(Finances data, DateTime now,
         id: 'pairs:$pairs',
         title: pairs == 1 ? '1 posible traspaso entre tus cuentas' : '$pairs posibles traspasos entre tus cuentas',
         detail: 'Un cargo y un abono del mismo importe',
+        tab: 1));
+  }
+  // Payments that look like those made with a reserve: proposed, never linked on their own.
+  final reservePayments = reservePaymentCases(data, keptApart: keptApart).length;
+  if (reservePayments > 0) {
+    notes.add(CompanionNote(
+        id: 'reservePay:$reservePayments',
+        title: reservePayments == 1 ? '1 pago puede salir de una reserva' : '$reservePayments pagos pueden salir de una reserva',
+        detail: 'Se parecen a pagos anteriores hechos con ella',
         tab: 1));
   }
   final soon = now.add(const Duration(days: 3));

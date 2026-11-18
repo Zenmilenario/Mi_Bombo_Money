@@ -317,6 +317,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
     switch (note.id.split(':').first) {
       case 'pairs':
       case 'review':
+      case 'reservePay':
         Navigator.of(context)
             .push(MaterialPageRoute(builder: (_) => ReconcileScreen(repository: repository, duplicatesFirst: note.id.startsWith('review'))))
             .then((_) {

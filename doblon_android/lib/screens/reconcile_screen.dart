@@ -107,7 +107,34 @@ class ReconcileScreen extends StatelessWidget {
             for (final t in wrongCategory)
               Card(child: Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: RecordRow(transaction: t, data: data, onEdit: () => edit(t)))),
           ]);
-          final nothing = transfers.isEmpty && duplicates.isEmpty && wrongCategory.isEmpty;
+          final payments = reservePaymentCases(data, keptApart: store.keptApart);
+          final paymentSection = section('Pagos que pueden salir de una reserva', 'Se parecen a pagos anteriores hechos con esa reserva. Confírmalo o descártalo.', [
+            for (final p in payments)
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    RecordRow(transaction: p.payment, data: data, onEdit: () => edit(p.payment)),
+                    Text(
+                        p.amountMinor < p.payment.amountMinor
+                            ? 'La reserva «${p.fund.name}» cubriría ${money(p.amountMinor)}; el resto seguiría contando como gasto del día a día.'
+                            : 'La reserva «${p.fund.name}» lo cubriría entero: dejaría de contar como gasto del día a día.',
+                        style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
+                    Wrap(alignment: WrapAlignment.end, spacing: 8, children: [
+                      TextButton(
+                        onPressed: () async {
+                          await store.keepApartId(p.id);
+                          repository.notifyListeners();
+                        },
+                        child: const Text('No es de la reserva'),
+                      ),
+                      FilledButton(onPressed: () => repository.apply(payWithReserve(p, DateTime.now())), child: Text('Pagar con «${p.fund.name}»')),
+                    ]),
+                  ]),
+                ),
+              ),
+          ]);
+          final nothing = transfers.isEmpty && duplicates.isEmpty && wrongCategory.isEmpty && payments.isEmpty;
           return Scaffold(
             appBar: AppBar(title: const Text('Revisar y unir', style: TextStyle(fontWeight: FontWeight.w700))),
             body: ListView(padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + MediaQuery.paddingOf(context).bottom), children: [
@@ -121,6 +148,7 @@ class ReconcileScreen extends StatelessWidget {
                 if (duplicates.isNotEmpty) duplicateSection,
                 if (wrongCategory.isNotEmpty) categorySection,
               ],
+              if (payments.isNotEmpty) paymentSection,
               if (store.history.isNotEmpty) _History(repository: repository, data: data),
             ]),
           );

@@ -295,12 +295,23 @@ class _MonthPanel extends StatelessWidget {
               labelStyle: TextStyle(fontSize: 12, color: hint),
               valueStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
               items: [
-                ('Gastos', money(summary.expenseMinor), null),
-                ('Ingresos', money(summary.incomeMinor), null),
-                ('Ahorro', money(summary.netSavingsMinor, signed: true), summary.netSavingsMinor < 0 ? pulso.expense : null),
+                // Everyday figures: money of reserves (set aside or paid with them) is shown apart, below.
+                ('Gastos', money(summary.dailyExpenseMinor), null),
+                ('Ingresos', money(summary.dailyIncomeMinor), null),
+                ('Ahorro', money(summary.dailyNetMinor, signed: true), summary.dailyNetMinor < 0 ? pulso.expense : null),
               ],
             ),
           ),
+          if (summary.hasReserves)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+              child: Text(
+                  [
+                    if (summary.reservedExpenseMinor > 0) '${money(summary.reservedExpenseMinor)} pagados con reservas',
+                    if (summary.reservedIncomeMinor > 0) '${money(summary.reservedIncomeMinor)} a reservas',
+                  ].join(' · '),
+                  style: TextStyle(fontSize: 12, color: hint)),
+            ),
           if (p != null) ...[
             const SizedBox(height: 12),
             _BudgetPace(pace: p),

@@ -251,7 +251,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final data = widget.calc.data;
     final now = DateTime.now();
     final derived = _derive(data, now);
-    final (:reviewCount, :pairs, :visible, :days, :ordered, :income, :expense) = derived;
+    final (:reviewCount, :pairs, :visible, :days, :ordered, :income, :expense, :fullIncome, :fullExpense) = derived;
     final bankProposals = widget.repository.bankProposals;
     // «Pendiente»: everything that waits for a decision, the movements to review and the cards above them.
     final pendingCount = reviewCount + bankProposals.length + widget.repository.contributions.length + pairs.length;
@@ -403,6 +403,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   count: visible.length,
                   incomeMinor: income,
                   expenseMinor: expense,
+                  fullIncomeMinor: fullIncome,
+                  fullExpenseMinor: fullExpense,
                   onAnalysis: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SpendingAnalysisScreen(calc: widget.calc))),
                 ),
             ]),
@@ -467,6 +469,8 @@ typedef ListDerived = ({
   List<DateTime> ordered,
   int income,
   int expense,
+  int fullIncome,
+  int fullExpense,
 });
 
 /// Everything «Movimientos» computes over the whole history, in one pass per change of data or filter.
@@ -483,16 +487,29 @@ ListDerived deriveList(Finances data, MovementFilter filter, DateTime now) {
     visible: visible,
     days: days,
     ordered: days.keys.toList()..sort((a, b) => b.compareTo(a)),
-    income: visible.where((t) => t.type.countsAsIncome).fold(0, (s, t) => s + t.amountMinor),
-    expense: visible.where((t) => t.type.countsAsExpense).fold(0, (s, t) => s + t.amountMinor),
+    // Everyday: without income set aside for a reserve or the part of a payment a reserve covered.
+    income: visible.fold(0, (s, t) => s + FinanceCalculator.dailyIncomeAmount(t)),
+    expense: visible.fold(0, (s, t) => s + FinanceCalculator.budgetExpenseAmount(t)),
+    fullIncome: visible.where((t) => t.type.countsAsIncome).fold(0, (s, t) => s + t.amountMinor),
+    fullExpense: visible.where((t) => t.type.countsAsExpense).fold(0, (s, t) => s + t.amountMinor),
   );
 }
 
 /// What the list shows adds up to (Swift `TransactionPeriodSummaryCard`), with the way to the spending analysis.
 class _PeriodSummary extends StatelessWidget {
-  const _PeriodSummary({required this.title, required this.count, required this.incomeMinor, required this.expenseMinor, required this.onAnalysis});
+  const _PeriodSummary(
+      {required this.title,
+      required this.count,
+      required this.incomeMinor,
+      required this.expenseMinor,
+      this.fullIncomeMinor,
+      this.fullExpenseMinor,
+      required this.onAnalysis});
   final String title;
   final int count, incomeMinor, expenseMinor;
+
+  /// Everything, reserves included, when it differs from the everyday figures.
+  final int? fullIncomeMinor, fullExpenseMinor;
   final VoidCallback onAnalysis;
 
   @override
@@ -534,6 +551,13 @@ class _PeriodSummary extends StatelessWidget {
               tile('Neto', net, net >= 0 ? pulso.savings : pulso.expense, signed: true),
             ]),
           ),
+          if (fullIncomeMinor != null && (fullIncomeMinor != incomeMinor || fullExpenseMinor != expenseMinor))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(0, 8, 8, 0),
+              child: Text(
+                  'Día a día, sin dinero reservado. Con reservas: ingresos ${money(fullIncomeMinor!)} · gastos ${money(fullExpenseMinor!)} · neto ${money(fullIncomeMinor! - fullExpenseMinor!, signed: true)}',
+                  style: TextStyle(fontSize: 12, color: hint)),
+            ),
         ]),
       ),
     );

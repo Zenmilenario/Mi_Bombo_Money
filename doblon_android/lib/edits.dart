@@ -6,7 +6,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import 'banking.dart' show referenceSeconds;
-import 'finance.dart' show ReservedEntry, reservedBalances;
+import 'finance.dart' show ReservedEntry, fundEntries, reservedBalances;
 import 'models.dart';
 
 extension TransactionTypeTitle on TransactionType {
@@ -204,6 +204,15 @@ class TransactionDraft {
     final fundId = reservedFundId;
     if (fundId != null) {
       final reserved = reservedAmountMinor ?? 0;
+      final fund = data.reservedFunds.where((f) => f.id == fundId).firstOrNull;
+      if (fund == null || fund.accountId == null) return 'Esa reserva ya no existe.';
+      // An income can be set aside for a reserve (all of it or a part): it is not everyday income.
+      if (type.countsAsIncome) {
+        final part = reservedAmountMinor ?? amountMinor;
+        if (part <= 0) return 'Escribe la parte que va a la reserva.';
+        if (part > amountMinor) return 'La parte que va a la reserva no puede superar el importe.';
+        return null;
+      }
       if (!type.countsAsExpense && type != TransactionType.transfer) return 'La reserva se puede usar en un gasto o trasladar entre tus cuentas.';
       if (type == TransactionType.transfer) {
         final destination = data.account(destinationAccountId)!;
@@ -213,22 +222,9 @@ class TransactionDraft {
       }
       if (reserved <= 0) return 'Escribe la parte pagada con dinero reservado.';
       if (reserved > amountMinor) return 'El importe no puede ser menor que la parte pagada con dinero reservado.';
-      final fund = data.reservedFunds.where((f) => f.id == fundId).firstOrNull;
-      if (fund == null || fund.accountId == null) return 'Esa reserva ya no existe.';
       // Swift `reserveHistoryIsValid`: with this payment, every payment and move of the reserve stays covered.
       final entries = [
-        for (final t in data.transactions)
-          if (t.id != editing?.id &&
-              t.reservedFundId == fundId &&
-              (t.type.countsAsExpense || t.type == TransactionType.transfer) &&
-              t.sourceAccountId != null &&
-              t.reservedAmountMinor != null)
-            ReservedEntry(
-                id: t.id,
-                date: t.date,
-                source: t.sourceAccountId!,
-                destination: t.type == TransactionType.transfer ? t.destinationAccountId : null,
-                amount: t.reservedAmountMinor!),
+        ...fundEntries(fund, data.transactions.where((t) => t.id != editing?.id)),
         ReservedEntry(
             id: editing?.id ?? 'nuevo',
             date: date,
@@ -282,9 +278,9 @@ Operation saveOperation(TransactionDraft draft, Finances data, DateTime now, {Tr
     'sourceAccountID': source,
     'destinationAccountID': destination,
     'categoryID': draft.categoryId,
-    'reservedFundID': draft.type.countsAsExpense || draft.type == TransactionType.transfer ? draft.reservedFundId : null,
-    'reservedAmountMinor':
-        (draft.type.countsAsExpense || draft.type == TransactionType.transfer) && draft.reservedFundId != null ? draft.reservedAmountMinor : null,
+    // A payment or a move uses a reserve; an income can be set aside for one.
+    'reservedFundID': draft.reservedFundId,
+    'reservedAmountMinor': draft.reservedFundId != null ? draft.reservedAmountMinor : null,
     'updatedAt': referenceSeconds(now),
   };
   if (editing != null) {
