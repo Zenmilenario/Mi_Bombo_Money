@@ -1,9 +1,12 @@
-// The frame around the five tabs: a header that hides while scrolling down and comes back when scrolling up, and an
-// action band above the tabs with Don Bigotes (what is pending) and «+ Añadir», as two separate buttons.
+// The frame around the five tabs: a header that hides while scrolling down and comes back when scrolling up, and two
+// small floating controls above the tabs, Don Bigotes and «+ Añadir».
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../automation.dart' show CompanionNote;
 import '../theme.dart';
+import 'widgets.dart' show LabelValues;
 import 'shell.dart' show DonBigotesMark;
 
 /// «Buenos días», «Buenas tardes» or «Buenas noches», as on the iPhone.
@@ -12,8 +15,9 @@ String greeting(DateTime now) => now.hour >= 6 && now.hour < 12 ? 'Buenos días'
 /// Height of the header row under the status bar.
 const headerHeight = 52.0;
 
-/// Room under the last item of every tab. The band and the tabs are already in the bottom padding.
-const dockReserve = 20.0;
+/// Room under the last item of every tab (the tabs are already in the bottom padding), so it can always be scrolled
+/// above Don Bigotes and «+ Añadir».
+const dockReserve = 72.0;
 
 /// How far down the content of a tab starts: the status bar, the header and the error notice, when shown.
 class TabInsets extends InheritedWidget {
@@ -75,7 +79,8 @@ class ShellHeader extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.only(left: 20, right: 6),
           child: Row(children: [
-            Expanded(child: DefaultTextStyle.merge(maxLines: 1, overflow: TextOverflow.ellipsis, child: title)),
+            // Whole with any text size: it shrinks to the row rather than being cut.
+            Expanded(child: FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: title)),
             ...actions,
           ]),
         ),
@@ -84,102 +89,85 @@ class ShellHeader extends StatelessWidget {
   }
 }
 
-/// The action band, fixed above the tabs and part of the bottom bar: Don Bigotes with what is pending on the left
-/// and «+ Añadir» on the right, within reach of the thumb. Nothing floats over the content, so no amount, day or
-/// control is ever under them; the lists only scroll behind the translucent bar, as behind the tabs.
-class BottomDock extends StatelessWidget {
-  const BottomDock({super.key, this.onAdd, required this.notes, this.onCompanion, this.companion = true});
+/// Don Bigotes and «+ Añadir», two small floating controls above the tabs: the cat at the left with the number of
+/// notices (tapping him shows what they say), «+ Añadir» at the right. No band behind them. Every list keeps
+/// [dockReserve] free under its last item, so whatever is under them can always be scrolled into the clear.
+class FloatingActions extends StatelessWidget {
+  const FloatingActions({super.key, this.onAdd, required this.notes, this.onCompanion, this.companion = true});
   final VoidCallback? onAdd;
   final List<CompanionNote> notes;
   final VoidCallback? onCompanion;
 
-  /// With Don Bigotes switched off, the pending list is still reachable, without his face.
+  /// With Don Bigotes switched off, the notices are still reachable from a plain button.
   final bool companion;
-
-  /// Height of the band, without the tabs.
-  static const height = 64.0;
 
   @override
   Widget build(BuildContext context) {
-    // The band keeps its size with very large text; the screen reader still reads the full labels.
+    // The controls keep their size with very large text; the screen reader reads their full labels.
     return MediaQuery.withClampedTextScaling(
-      maxScaleFactor: 1.3,
-      child: SizedBox(
-        height: height,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-          child: Row(children: [
-            Expanded(child: Align(alignment: Alignment.centerLeft, child: _PendingPill(notes: notes, companion: companion, onTap: onCompanion))),
-            const SizedBox(width: 8),
-            if (onAdd != null)
-              Semantics(
-                button: true,
-                label: 'Añadir movimiento',
-                excludeSemantics: true,
-                child: FilledButton.icon(
-                  onPressed: onAdd,
-                  style:
-                      FilledButton.styleFrom(minimumSize: const Size(0, 46), padding: const EdgeInsets.symmetric(horizontal: 20), shape: const StadiumBorder()),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Añadir', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                ),
-              ),
-          ]),
-        ),
-      ),
+      maxScaleFactor: 1.2,
+      child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        if (companion)
+          CompanionButton(notes: notes, onTap: onCompanion ?? () {}, size: 44)
+        else if (notes.isNotEmpty)
+          _NoticesButton(notes: notes, onTap: onCompanion),
+        const Spacer(),
+        if (onAdd != null) AddButton(onPressed: onAdd!),
+      ]),
     );
   }
 }
 
-/// Don Bigotes and what is pending, in one compact button: «Todo en orden» or the number of notices and the first.
-class _PendingPill extends StatelessWidget {
-  const _PendingPill({required this.notes, required this.companion, this.onTap});
+/// «+ Añadir»: compact, with its word, and a touch area of at least 48 points.
+class AddButton extends StatelessWidget {
+  const AddButton({super.key, required this.onPressed});
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+        button: true,
+        label: 'Añadir movimiento',
+        excludeSemantics: true,
+        child: FilledButton.icon(
+          onPressed: onPressed,
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(48, 44),
+            tapTargetSize: MaterialTapTargetSize.padded,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            shape: const StadiumBorder(),
+            elevation: 3,
+            shadowColor: Colors.black38,
+          ),
+          icon: const Icon(Icons.add, size: 20),
+          label: const Text('Añadir', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+        ),
+      );
+}
+
+class _NoticesButton extends StatelessWidget {
+  const _NoticesButton({required this.notes, this.onTap});
   final List<CompanionNote> notes;
-  final bool companion;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final pulso = Pulso.of(context);
-    final hint = Theme.of(context).hintColor;
-    final awake = notes.isNotEmpty;
-    final urgent = notes.any((n) => n.urgent);
-    final count = notes.length == 1 ? '1 aviso' : '${notes.length} avisos';
     return Semantics(
       button: true,
-      label: awake ? '$count pendientes: ${notes.first.title}${urgent ? '. Urgente' : ''}' : 'Don Bigotes: todo en orden',
+      label: notes.length == 1 ? '1 aviso pendiente' : '${notes.length} avisos pendientes',
       excludeSemantics: true,
-      child: Material(
-        color: urgent ? pulso.warning.withValues(alpha: 0.16) : pulso.tertiary,
-        shape: const StadiumBorder(),
-        child: InkWell(
-          customBorder: const StadiumBorder(),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(4, 4, 14, 4),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (companion)
-                CompanionButton(notes: notes, onTap: onTap ?? () {}, size: 38)
-              else
-                Padding(padding: const EdgeInsets.all(8), child: Icon(awake ? Icons.inbox_outlined : Icons.check_circle_outline, size: 22, color: hint)),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(awake ? (urgent ? '$count · urgente' : count) : 'Todo en orden',
-                      maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-                  if (awake) Text(notes.first.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 11, color: hint)),
-                ]),
-              ),
-            ]),
-          ),
-        ),
+      child: Badge(
+        label: Text('${notes.length}'),
+        backgroundColor: pulso.warning,
+        textColor: Colors.black,
+        child: IconButton.filledTonal(onPressed: onTap, icon: const Icon(Icons.inbox_outlined)),
       ),
     );
   }
 }
 
 /// Don Bigotes, as on the iPhone: awake with a small badge counting his notes, asleep (faded and tilted) when
-/// everything is in order.
+/// everything is in order. The touch area is never smaller than 48 points.
 class CompanionButton extends StatelessWidget {
   const CompanionButton({super.key, required this.notes, required this.onTap, this.size = 56});
   final List<CompanionNote> notes;
@@ -190,6 +178,7 @@ class CompanionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final pulso = Pulso.of(context);
     final awake = notes.isNotEmpty;
+    final touch = math.max(48.0, size);
     return Semantics(
       button: true,
       label: awake ? 'Don Bigotes: ${notes.length == 1 ? 'tiene un aviso' : 'tiene ${notes.length} avisos'}' : 'Don Bigotes, sin novedades',
@@ -198,37 +187,86 @@ class CompanionButton extends StatelessWidget {
         onTap: onTap,
         behavior: HitTestBehavior.opaque,
         child: SizedBox(
-          width: size,
-          height: size,
-          child: Stack(clipBehavior: Clip.none, children: [
-            Opacity(
-              opacity: awake ? 1 : 0.7,
-              child: Transform.rotate(
-                angle: awake ? 0 : -0.21,
-                child: Container(
-                  width: size,
-                  height: size,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(color: pulso.card, shape: BoxShape.circle, border: Border.all(color: pulso.outline)),
-                  child: DonBigotesMark(awake: awake, size: size * (awake ? 0.72 : 0.62)),
+          width: touch,
+          height: touch,
+          child: Center(
+            child: SizedBox(
+              width: size,
+              height: size,
+              child: Stack(clipBehavior: Clip.none, children: [
+                Opacity(
+                  opacity: awake ? 1 : 0.75,
+                  child: Transform.rotate(
+                    angle: awake ? 0 : -0.21,
+                    child: Container(
+                      width: size,
+                      height: size,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: pulso.card,
+                        shape: BoxShape.circle,
+                        border: Border.all(color: pulso.outline),
+                        boxShadow: const [BoxShadow(color: Color(0x29000000), blurRadius: 8, offset: Offset(0, 3))],
+                      ),
+                      child: DonBigotesMark(awake: awake, size: size * (awake ? 0.74 : 0.64)),
+                    ),
+                  ),
                 ),
-              ),
+                if (awake)
+                  Positioned(
+                    right: -4,
+                    top: -4,
+                    child: Container(
+                      constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(color: pulso.warning, borderRadius: BorderRadius.circular(9), border: Border.all(color: pulso.page, width: 2)),
+                      child: Text('${notes.length}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.black)),
+                    ),
+                  ),
+              ]),
             ),
-            if (awake)
-              Positioned(
-                right: -4,
-                top: -4,
-                child: Container(
-                  constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(color: pulso.warning, borderRadius: BorderRadius.circular(9), border: Border.all(color: pulso.page, width: 2)),
-                  child: Text('${notes.length}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Colors.black)),
-                ),
-              ),
-          ]),
+          ),
         ),
       ),
+    );
+  }
+}
+
+/// The five tabs. Labels are read in full where they fit at the person's text size; where they do not (narrow
+/// screens or large text) only the icons stay, each with its name for the screen reader and as a tooltip, and the
+/// header names the tab. Never a label broken in two lines.
+class DoblonNavigationBar extends StatelessWidget {
+  const DoblonNavigationBar({super.key, required this.selectedIndex, required this.onDestinationSelected});
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+
+  static const _labels = ['Inicio', 'Movimientos', 'Cuentas', 'Presupuestos', 'Ajustes'];
+
+  /// Whether the longest label, measured in the tab bar's font at the person's text size, fits in one fifth of
+  /// `width` with a pixel to spare on each side.
+  static bool labelsFit(double width, TextScaler scale, TextStyle style) => _labels.every((label) => LabelValues.width(label, style, scale) + 2 <= width / 5);
+
+  @override
+  Widget build(BuildContext context) {
+    final style = DefaultTextStyle.of(context).style.merge(Theme.of(context).navigationBarTheme.labelTextStyle?.resolve({WidgetState.selected}));
+    final fit = labelsFit(MediaQuery.sizeOf(context).width, MediaQuery.textScalerOf(context), style);
+    return NavigationBar(
+      height: fit ? 64 : 56,
+      backgroundColor: Colors.transparent,
+      labelBehavior: fit ? NavigationDestinationLabelBehavior.alwaysShow : NavigationDestinationLabelBehavior.alwaysHide,
+      selectedIndex: selectedIndex,
+      onDestinationSelected: onDestinationSelected,
+      destinations: [
+        for (final (i, icons) in const [
+          (Icons.home_outlined, Icons.home),
+          (Icons.receipt_long_outlined, Icons.receipt_long),
+          (Icons.account_balance_outlined, Icons.account_balance),
+          (Icons.pie_chart_outline, Icons.pie_chart),
+          (Icons.settings_outlined, Icons.settings),
+        ].indexed)
+          NavigationDestination(icon: Icon(icons.$1), selectedIcon: Icon(icons.$2), label: _labels[i]),
+      ],
     );
   }
 }

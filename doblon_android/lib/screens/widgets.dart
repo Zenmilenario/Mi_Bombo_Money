@@ -273,3 +273,63 @@ class _DisclosureState extends State<Disclosure> {
     ]);
   }
 }
+
+/// A few labelled figures side by side when each one fits whole at the person's text size, measured, not guessed;
+/// otherwise one under another, label at the left and figure at the right. Figures are never shrunk or cut.
+class LabelValues extends StatelessWidget {
+  const LabelValues({super.key, required this.items, required this.labelStyle, required this.valueStyle, this.gap = 12});
+  final List<(String, String, Color?)> items;
+  final TextStyle labelStyle;
+  final TextStyle valueStyle;
+  final double gap;
+
+  static double width(String text, TextStyle style, TextScaler scaler) =>
+      (TextPainter(text: TextSpan(text: text, style: style), textScaler: scaler, maxLines: 1, textDirection: TextDirection.ltr)..layout()).width;
+
+  @override
+  Widget build(BuildContext context) {
+    final scaler = MediaQuery.textScalerOf(context);
+    // Measured in the font the texts are drawn with.
+    final base = DefaultTextStyle.of(context).style;
+    final labelStyle = base.merge(this.labelStyle), valueStyle = base.merge(this.valueStyle);
+    return LayoutBuilder(builder: (context, constraints) {
+      final each = (constraints.maxWidth - gap * (items.length - 1)) / items.length;
+      final fits = items.every((i) => width(i.$1, labelStyle, scaler) <= each && width(i.$2, valueStyle, scaler) <= each);
+      if (fits) {
+        return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          for (final (n, (label, value, color)) in items.indexed) ...[
+            if (n > 0) SizedBox(width: gap),
+            Expanded(
+              child: MergeSemantics(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(label, style: labelStyle, maxLines: 1, softWrap: false),
+                  Text(value, style: valueStyle.copyWith(color: color), maxLines: 1, softWrap: false),
+                ]),
+              ),
+            ),
+          ],
+        ]);
+      }
+      return Column(children: [
+        for (final (label, value, color) in items)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: MergeSemantics(
+              // Label and figure on one line when they fit; otherwise the figure goes below, whole. Only a figure wider
+              // than the whole screen is scaled down, never cut.
+              child: SizedBox(
+                width: double.infinity,
+                child: Wrap(alignment: WrapAlignment.spaceBetween, spacing: 12, children: [
+                  Text(label, style: labelStyle),
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+                    child: FittedBox(fit: BoxFit.scaleDown, child: Text(value, style: valueStyle.copyWith(color: color))),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+      ]);
+    });
+  }
+}

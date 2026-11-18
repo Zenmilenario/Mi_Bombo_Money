@@ -34,7 +34,8 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
   - el mes: gastos, ingresos y ahorro, lo presupuestado con su ritmo y margen, y el calendario de gasto diario (cada día lista sus movimientos);
   - patrimonio con su variación del mes y la línea desde el primer mes con historial (valor y fecha al tocarla);
   - presupuestos y objetivo destacado.
-- **Barra inferior:** franja fija con Don Bigotes (avisos pendientes) y «+ Añadir» (una pulsación), sobre las pestañas; la cabecera se recoge al bajar.
+- **Abajo:** Don Bigotes (avatar con contador de avisos) y «+ Añadir» (una pulsación), flotantes y separados sobre las pestañas; las etiquetas de las pestañas se ocultan, sin partirse, cuando no caben al tamaño de texto elegido; la cabecera se recoge al bajar.
+- **Plataformas:** el mismo código en iOS y Android; solo «Pagos con Apple Pay» es exclusivo de iOS.
 - **Movimientos:**
   - apuntar, editar y borrar; categorizar uno o varios;
   - alta con el importe enfocado, la cuenta sin adivinar y lo opcional en «Más opciones»;

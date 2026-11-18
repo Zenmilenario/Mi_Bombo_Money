@@ -422,6 +422,19 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
                 ),
             ]),
           ),
+          // Don Bigotes and «+ Añadir», small and apart, just above the tabs; out of the way while typing.
+          if (calc != null && !typing)
+            Positioned(
+              left: 8,
+              right: 12,
+              bottom: media.padding.bottom + 6,
+              child: FloatingActions(
+                onAdd: canAdd ? _add : null,
+                notes: notes,
+                companion: widget.preferences.companionEnabled,
+                onCompanion: () => _showCompanion(notes, reviewed),
+              ),
+            ),
         ]);
       }),
       bottomNavigationBar: ClipRect(
@@ -429,29 +442,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
           filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
           child: ColoredBox(
             color: pulso.card.withValues(alpha: 0.72),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              // Don Bigotes and «+ Añadir» in a band of their own, above the tabs: never over the content. Hidden while
-              // typing.
-              if (calc != null && !typing)
-                BottomDock(
-                  onAdd: canAdd ? _add : null,
-                  notes: notes,
-                  companion: widget.preferences.companionEnabled,
-                  onCompanion: () => _showCompanion(notes, reviewed),
-                ),
-              NavigationBar(
-                backgroundColor: Colors.transparent,
-                selectedIndex: tab,
-                onDestinationSelected: _select,
-                destinations: const [
-                  NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Inicio'),
-                  NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Movimientos'),
-                  NavigationDestination(icon: Icon(Icons.account_balance_outlined), selectedIcon: Icon(Icons.account_balance), label: 'Cuentas'),
-                  NavigationDestination(icon: Icon(Icons.pie_chart_outline), selectedIcon: Icon(Icons.pie_chart), label: 'Presupuestos'),
-                  NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Ajustes'),
-                ],
-              ),
-            ]),
+            child: DoblonNavigationBar(selectedIndex: tab, onDestinationSelected: _select),
           ),
         ),
       ),

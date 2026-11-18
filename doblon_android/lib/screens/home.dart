@@ -147,20 +147,10 @@ class _AvailableCard extends StatelessWidget {
     final reserved = calc.reservedTotal();
     final invested = calc.invested();
     const soft = Color(0xCCFFFFFF);
-    Widget stat(String label, int value) => MergeSemantics(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label, style: const TextStyle(fontSize: 12, color: soft)),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(money(value), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white)),
-            ),
-          ]),
-        );
-    final stats = [
-      if (reserved > 0) stat('Reservado', reserved),
-      if (heldMinor != 0) stat('Retenido', heldMinor.abs()),
-      if (invested != 0) stat('Invertido', invested),
+    final stats = <(String, String, Color?)>[
+      if (reserved > 0) ('Reservado', money(reserved), null),
+      if (heldMinor != 0) ('Retenido', money(heldMinor.abs()), null),
+      if (invested != 0) ('Invertido', money(invested), null),
     ];
     return Material(
       borderRadius: BorderRadius.circular(24),
@@ -198,9 +188,12 @@ class _AvailableCard extends StatelessWidget {
                   const SizedBox(height: 16),
                   Container(height: 1, color: const Color(0x33FFFFFF)),
                   const SizedBox(height: 12),
-                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    for (final (i, s) in stats.indexed) ...[if (i > 0) const SizedBox(width: 16), Expanded(child: s)],
-                  ]),
+                  LabelValues(
+                    gap: 16,
+                    labelStyle: const TextStyle(fontSize: 12, color: soft),
+                    valueStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
+                    items: stats,
+                  ),
                 ],
               ]),
             ),
@@ -283,21 +276,6 @@ class _MonthPanel extends StatelessWidget {
     final pulso = Pulso.of(context);
     final hint = Theme.of(context).hintColor;
     final summary = calc.monthlySummary(month);
-    Widget figure(String label, String value, {Color? color}) => Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: MergeSemantics(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(label, style: TextStyle(fontSize: 12, color: hint))),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: Alignment.centerLeft,
-                  child: Text(value, style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: color)),
-                ),
-              ]),
-            ),
-          ),
-        );
     final p = pace;
     final selected = day;
     final dayMovements = selected == null
@@ -313,11 +291,15 @@ class _MonthPanel extends StatelessWidget {
           MonthSelector(month: month, onMonth: onMonth),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              figure('Gastos', money(summary.expenseMinor)),
-              figure('Ingresos', money(summary.incomeMinor)),
-              figure('Ahorro', money(summary.netSavingsMinor, signed: true), color: summary.netSavingsMinor < 0 ? pulso.expense : null),
-            ]),
+            child: LabelValues(
+              labelStyle: TextStyle(fontSize: 12, color: hint),
+              valueStyle: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+              items: [
+                ('Gastos', money(summary.expenseMinor), null),
+                ('Ingresos', money(summary.incomeMinor), null),
+                ('Ahorro', money(summary.netSavingsMinor, signed: true), summary.netSavingsMinor < 0 ? pulso.expense : null),
+              ],
+            ),
           ),
           if (p != null) ...[
             const SizedBox(height: 12),
