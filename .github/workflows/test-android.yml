@@ -50,6 +50,10 @@ jobs:
 
       - run: flutter pub get
 
+      # The Roboto of the SDK: some tests measure text with the real font (the test font draws squares).
+      - name: Descargar las fuentes de Material
+        run: flutter precache --universal
+
       - name: Analizar el código
         run: flutter analyze --no-fatal-infos
 
