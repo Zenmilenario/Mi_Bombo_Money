@@ -63,10 +63,24 @@ void main() {
   });
 
   testWidgets('the list shows what needs review and filters it', (tester) async {
-    final data = sample();
+    var data = sample();
     await tester.pumpWidget(app(Scaffold(body: TransactionsScreen(calc: FinanceCalculator(data), repository: repositoryWith(data)))));
     await tester.pumpAndSettle();
-    expect(find.text('Pendiente · 1'), findsOneWidget, reason: 'The movement without category');
+    expect(find.textContaining('Pendiente'), findsNothing, reason: 'Without a category is not pending: it is optional');
+    expect(find.text('Sin categoría'), findsOneWidget, reason: 'It is still said, without a warning');
+    data = Finances.fromDocument({
+      'accounts': [
+        {'id': 'a1', 'name': 'Corriente ficticia', 'typeRaw': 'checking', 'openingDate': 0},
+      ],
+      'transactions': [
+        {'id': 't1', 'date': 815184000, 'typeRaw': 'expense', 'amountMinor': 450, 'descriptionText': 'Gasolinera ficticia', 'sourceAccountID': 'a1',
+          'duplicateStateRaw': 'possible'},
+        {'id': 't2', 'date': 815184000, 'typeRaw': 'expense', 'amountMinor': 990, 'descriptionText': 'Cena ficticia', 'sourceAccountID': 'a1'},
+      ],
+    });
+    await tester.pumpWidget(app(Scaffold(body: TransactionsScreen(calc: FinanceCalculator(data), repository: repositoryWith(data)))));
+    await tester.pumpAndSettle();
+    expect(find.text('Pendiente · 1'), findsOneWidget, reason: 'The possible duplicate');
     expect(find.text('Cena ficticia'), findsOneWidget);
     await tester.tap(find.text('Pendiente · 1'));
     await tester.pumpAndSettle();
@@ -87,6 +101,14 @@ void main() {
     await tester.pumpWidget(app(TransactionFormScreen(repository: repositoryWith(data))));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Traspaso'));
+    await tester.pumpAndSettle();
+    // Two accounts and nothing typed before: the origin is not guessed.
+    await tester.tap(find.ancestor(of: find.text('Desde'), matching: find.byType(DropdownButtonFormField<String>)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Origen ficticio').last);
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Más opciones'));
+    await tester.tap(find.text('Más opciones'));
     await tester.pumpAndSettle();
     final reserveField = find.ancestor(of: find.text('Trasladar dinero reservado'), matching: find.byType(DropdownButtonFormField<String?>));
     await tester.ensureVisible(reserveField);

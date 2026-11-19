@@ -115,18 +115,23 @@ void validatePrivateDocument(Map<String, dynamic> doc, String kind) {
       if (reserved is! int ||
           reserved <= 0 ||
           reserved > amount ||
-          !['expense', 'fee', 'transfer'].contains(type)) {
+          !['expense', 'fee', 'transfer', 'income', 'interest'].contains(type)) {
         throw const FormatException(
             'Asignación de dinero reservado no válida.');
       }
-      entries.putIfAbsent((fund as String).toLowerCase(), () => []).add(
-          ReservedEntry(
-              id: row['id'],
-              date: referenceDate(date),
-              source: source,
-              destination:
-                  type == 'transfer' ? row['destinationAccountID'] : null,
-              amount: reserved));
+      // As the cloud (20261118000100_reserved_income): income after the reserve was created adds to it; before it,
+      // it is where its starting amount came from and adds nothing.
+      final income = type == 'income' || type == 'interest';
+      final created = maps['reservedFunds']![(fund as String).toLowerCase()]?['createdAt'];
+      if (!income || (created is num && date > created)) {
+        entries.putIfAbsent(fund.toLowerCase(), () => []).add(ReservedEntry(
+            id: row['id'],
+            date: referenceDate(date),
+            source: source,
+            destination: type == 'transfer' ? row['destinationAccountID'] : null,
+            amount: reserved,
+            deposit: income));
+      }
     }
   }
   for (final fund in maps['reservedFunds']!.entries) {

@@ -13,8 +13,9 @@ import '../theme.dart';
 import 'banks.dart' show BankReviewScreen;
 import 'learning.dart' show ReviewProposalsScreen;
 import 'spending.dart';
+import 'reconcile_screen.dart';
 import 'transaction_detail.dart';
-import 'transaction_form.dart';
+import 'chrome.dart' show TabInsets, dockReserve;
 import 'widgets.dart';
 import 'contributions.dart';
 
@@ -52,7 +53,7 @@ class MovementFilter {
   bool get isActive => onlyReview || type != null || accountId != null || categoryId != null || period != Period.all;
 
   bool matches(Transaction t, Finances data, DateTime now) {
-    if (onlyReview && reviewIssues(t, data.category(t.categoryId)).isEmpty) return false;
+    if (onlyReview && pendingIssues(t, data.category(t.categoryId)).isEmpty) return false;
     if (type != null && t.type != type) return false;
     if (accountId != null && t.sourceAccountId != accountId && t.destinationAccountId != accountId) return false;
     if (categoryId != null && t.categoryId != categoryId) return false;
@@ -150,46 +151,13 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               ),
             const Padding(
               padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child:
-                  Text('Importes provisionales. Se reflejan en el historial y el presupuesto cuando el banco los da por definitivos.', style: TextStyle(fontSize: 12)),
+              child: Text('Importes provisionales. Se reflejan en el historial y el presupuesto cuando el banco los da por definitivos.',
+                  style: TextStyle(fontSize: 12)),
             ),
           ],
         ),
       ),
     ];
-  }
-
-  /// Each pair can be joined into one transfer (it stops counting as income and expense) or left as it is.
-  Future<void> _showPairs(Finances data) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (context) => SafeArea(
-        child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), children: [
-          const Text('Si son la misma operación entre tus cuentas, únelas en un traspaso: dejará de contar como gasto e ingreso.'),
-          const SizedBox(height: 12),
-          for (final pair in ownTransferPairs(data))
-            Card(
-              child: Column(children: [
-                TransactionTile(transaction: pair.debit, data: data),
-                TransactionTile(transaction: pair.credit, data: data),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    icon: const Icon(Icons.merge_type),
-                    label: const Text('Unir como traspaso'),
-                    onPressed: () async {
-                      Navigator.pop(context);
-                      await widget.repository.apply(joinOwnTransfer(pair, data, DateTime.now()));
-                    },
-                  ),
-                ),
-              ]),
-            ),
-        ]),
-      ),
-    );
   }
 
   Future<void> _chooseFilters(Finances data) async {
@@ -265,8 +233,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
   }
 
   Future<void> _reviewBank(List<BankProposal> proposals, Finances data) async {
-    final decisions = await Navigator.of(context)
-        .push<Map<String, String>>(MaterialPageRoute(builder: (_) => BankReviewScreen(proposals: proposals, data: data)));
+    final decisions =
+        await Navigator.of(context).push<Map<String, String>>(MaterialPageRoute(builder: (_) => BankReviewScreen(proposals: proposals, data: data)));
     if (decisions == null || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     try {
@@ -283,7 +251,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     final data = widget.calc.data;
     final now = DateTime.now();
     final derived = _derive(data, now);
-    final (:reviewCount, :pairs, :visible, :days, :ordered, :income, :expense) = derived;
+    final (:reviewCount, :pairs, :visible, :days, :ordered, :income, :expense, :fullIncome, :fullExpense) = derived;
     final bankProposals = widget.repository.bankProposals;
     // «Pendiente»: everything that waits for a decision, the movements to review and the cards above them.
     final pendingCount = reviewCount + bankProposals.length + widget.repository.contributions.length + pairs.length;
@@ -291,20 +259,40 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
 
     return Scaffold(
       backgroundColor: Colors.transparent,
+      // Adding a movement is the dock's «+ Añadir»; while choosing, the action floats above the dock.
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       floatingActionButton: selecting
-          ? FloatingActionButton.extended(
-              onPressed: () => _categorizeSelected(data),
-              icon: const Icon(Icons.sell_outlined),
-              label: Text('Categorizar ${selected.length}'),
+          ? Padding(
+              padding: const EdgeInsets.only(bottom: dockReserve - 8),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                // The developer's account can join or reconcile two movements chosen by hand (it is a permission of
+                // the app, not access to anyone else's data).
+                if (selected.length == 2 && widget.repository.isAdministrator) ...[
+                  FloatingActionButton.extended(
+                    heroTag: 'join',
+                    onPressed: () async {
+                      final [first, second] = selected.toList();
+                      final done = await Navigator.of(context)
+                          .push<bool>(MaterialPageRoute(builder: (_) => MergePreviewScreen(repository: widget.repository, firstId: first, secondId: second)));
+                      if (done == true && mounted) setState(selected.clear);
+                    },
+                    icon: const Icon(Icons.merge_type),
+                    label: const Text('Unir o conciliar'),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                FloatingActionButton.extended(
+                  heroTag: 'categorize',
+                  onPressed: () => _categorizeSelected(data),
+                  icon: const Icon(Icons.sell_outlined),
+                  label: Text('Categorizar ${selected.length}'),
+                ),
+              ]),
             )
-          : FloatingActionButton(
-              tooltip: 'Añadir movimiento',
-              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionFormScreen(repository: widget.repository))),
-              child: const Icon(Icons.add),
-            ),
+          : null,
       body: CustomScrollView(physics: const AlwaysScrollableScrollPhysics(), slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          padding: EdgeInsets.fromLTRB(16, TabInsets.topOf(context) + 8, 16, 0),
           sliver: SliverToBoxAdapter(
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               if (selecting)
@@ -347,7 +335,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                     title: Text(pairs.length == 1 ? '1 posible traspaso entre tus cuentas' : '${pairs.length} posibles traspasos entre tus cuentas'),
                     subtitle: const Text('Un cargo y un abono del mismo importe'),
                     trailing: const Icon(Icons.chevron_right),
-                    onTap: () => _showPairs(data),
+                    onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReconcileScreen(repository: widget.repository))),
                   ),
                 ),
               const SizedBox(height: 8),
@@ -391,7 +379,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   if (filter.period != Period.all) Chip(label: Text(filter.period.title)),
                 ]),
               ),
-              if (filter.onlyReview && !selecting)
+              // Labelling in bulk for the AI is a developer tool (Ajustes › Avanzado), not a guest's task.
+              if (filter.onlyReview && !selecting && widget.repository.isAdministrator)
                 Card(
                   margin: const EdgeInsets.only(top: 8),
                   child: ListTile(
@@ -400,8 +389,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                     subtitle: const Text('Revisa y categoriza varios movimientos de una vez'),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () async {
-                      final applied = await Navigator.of(context)
-                          .push<int>(MaterialPageRoute(builder: (_) => ReviewProposalsScreen(repository: widget.repository)));
+                      final applied =
+                          await Navigator.of(context).push<int>(MaterialPageRoute(builder: (_) => ReviewProposalsScreen(repository: widget.repository)));
                       if (applied != null && applied > 0 && context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$applied movimientos categorizados.')));
                       }
@@ -414,6 +403,8 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
                   count: visible.length,
                   incomeMinor: income,
                   expenseMinor: expense,
+                  fullIncomeMinor: fullIncome,
+                  fullExpenseMinor: fullExpense,
                   onAnalysis: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => SpendingAnalysisScreen(calc: widget.calc))),
                 ),
             ]),
@@ -422,7 +413,10 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         if (ordered.isEmpty)
           SliverFillRemaining(
             hasScrollBody: false,
-            child: Center(child: Text(filter.onlyReview ? (pendingCount > 0 ? 'Ningún movimiento por revisar: lo pendiente está arriba.' : 'Nada pendiente.') : 'Sin resultados')),
+            child: Center(
+                child: Text(filter.onlyReview
+                    ? (pendingCount > 0 ? 'Ningún movimiento por revisar: lo pendiente está arriba.' : 'Nada pendiente.')
+                    : 'Sin resultados')),
           )
         else
           SliverList.builder(
@@ -461,7 +455,7 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
               );
             },
           ),
-        SliverToBoxAdapter(child: SizedBox(height: 96 + MediaQuery.paddingOf(context).bottom)),
+        SliverToBoxAdapter(child: SizedBox(height: dockReserve + 8 + MediaQuery.paddingOf(context).bottom)),
       ]),
     );
   }
@@ -475,6 +469,8 @@ typedef ListDerived = ({
   List<DateTime> ordered,
   int income,
   int expense,
+  int fullIncome,
+  int fullExpense,
 });
 
 /// Everything «Movimientos» computes over the whole history, in one pass per change of data or filter.
@@ -486,21 +482,34 @@ ListDerived deriveList(Finances data, MovementFilter filter, DateTime now) {
     (days[DateTime(local.year, local.month, local.day)] ??= []).add(t);
   }
   return (
-    reviewCount: data.transactions.where((t) => reviewIssues(t, data.category(t.categoryId)).isNotEmpty).length,
+    reviewCount: data.transactions.where((t) => pendingIssues(t, data.category(t.categoryId)).isNotEmpty).length,
     pairs: ownTransferPairs(data),
     visible: visible,
     days: days,
     ordered: days.keys.toList()..sort((a, b) => b.compareTo(a)),
-    income: visible.where((t) => t.type.countsAsIncome).fold(0, (s, t) => s + t.amountMinor),
-    expense: visible.where((t) => t.type.countsAsExpense).fold(0, (s, t) => s + t.amountMinor),
+    // Everyday: without income set aside for a reserve or the part of a payment a reserve covered.
+    income: visible.fold(0, (s, t) => s + FinanceCalculator.dailyIncomeAmount(t)),
+    expense: visible.fold(0, (s, t) => s + FinanceCalculator.budgetExpenseAmount(t)),
+    fullIncome: visible.where((t) => t.type.countsAsIncome).fold(0, (s, t) => s + t.amountMinor),
+    fullExpense: visible.where((t) => t.type.countsAsExpense).fold(0, (s, t) => s + t.amountMinor),
   );
 }
 
 /// What the list shows adds up to (Swift `TransactionPeriodSummaryCard`), with the way to the spending analysis.
 class _PeriodSummary extends StatelessWidget {
-  const _PeriodSummary({required this.title, required this.count, required this.incomeMinor, required this.expenseMinor, required this.onAnalysis});
+  const _PeriodSummary(
+      {required this.title,
+      required this.count,
+      required this.incomeMinor,
+      required this.expenseMinor,
+      this.fullIncomeMinor,
+      this.fullExpenseMinor,
+      required this.onAnalysis});
   final String title;
   final int count, incomeMinor, expenseMinor;
+
+  /// Everything, reserves included, when it differs from the everyday figures.
+  final int? fullIncomeMinor, fullExpenseMinor;
   final VoidCallback onAnalysis;
 
   @override
@@ -542,6 +551,13 @@ class _PeriodSummary extends StatelessWidget {
               tile('Neto', net, net >= 0 ? pulso.savings : pulso.expense, signed: true),
             ]),
           ),
+          if (fullIncomeMinor != null && (fullIncomeMinor != incomeMinor || fullExpenseMinor != expenseMinor))
+            Padding(
+              padding: const EdgeInsets.fromLTRB(0, 8, 8, 0),
+              child: Text(
+                  'Día a día, sin dinero reservado. Con reservas: ingresos ${money(fullIncomeMinor!)} · gastos ${money(fullExpenseMinor!)} · neto ${money(fullIncomeMinor! - fullExpenseMinor!, signed: true)}',
+                  style: TextStyle(fontSize: 12, color: hint)),
+            ),
         ]),
       ),
     );

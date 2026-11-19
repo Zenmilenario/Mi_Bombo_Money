@@ -8,6 +8,15 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // With the lock on, a native cover hides the app as soon as it stops being active, before iOS takes the picture
+    // for the app switcher; Flutter's own cover may not be painted in time. lib/main.dart keeps the content hidden
+    // until it is unlocked.
+    NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
+      PrivacyCover.show()
+    }
+    NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+      PrivacyCover.hide()
+    }
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 
@@ -139,5 +148,47 @@ struct DoblonShortcuts: AppShortcutsProvider {
       shortTitle: "Apuntar pago",
       systemImageName: "creditcard"
     )
+  }
+}
+
+/// An opaque cover in the app's page colour with a lock, over every window. Only with the lock on (the
+/// preference that shared_preferences keeps as `flutter.lockEnabled`).
+enum PrivacyCover {
+  private static let tag = 0xD0B10
+
+  static func show() {
+    guard UserDefaults.standard.bool(forKey: "flutter.lockEnabled") else { return }
+    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+      for window in scene.windows where window.viewWithTag(tag) == nil {
+        let cover = UIView(frame: window.bounds)
+        cover.tag = tag
+        cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        cover.backgroundColor = UIColor { traits in
+          traits.userInterfaceStyle == .dark
+            ? UIColor(red: 0x0D / 255, green: 0x16 / 255, blue: 0x20 / 255, alpha: 1)
+            : UIColor(red: 0xF4 / 255, green: 0xF2 / 255, blue: 0xED / 255, alpha: 1)
+        }
+        let lock = UIImageView(image: UIImage(systemName: "lock.fill"))
+        lock.tintColor = UIColor(red: 0x0F / 255, green: 0x76 / 255, blue: 0x6E / 255, alpha: 1)
+        lock.translatesAutoresizingMaskIntoConstraints = false
+        cover.addSubview(lock)
+        NSLayoutConstraint.activate([
+          lock.centerXAnchor.constraint(equalTo: cover.centerXAnchor),
+          lock.centerYAnchor.constraint(equalTo: cover.centerYAnchor),
+          lock.widthAnchor.constraint(equalToConstant: 44),
+          lock.heightAnchor.constraint(equalToConstant: 44),
+        ])
+        lock.contentMode = .scaleAspectFit
+        window.addSubview(cover)
+      }
+    }
+  }
+
+  static func hide() {
+    for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+      for window in scene.windows {
+        window.viewWithTag(tag)?.removeFromSuperview()
+      }
+    }
   }
 }

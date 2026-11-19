@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../bank_activity.dart';
-import '../banking.dart' show referenceSeconds;
+import '../banking.dart' show referenceSeconds, stableUuid;
 import '../data.dart';
 import '../edits.dart';
 import '../finance.dart';
@@ -12,6 +12,7 @@ import '../theme.dart';
 import 'forms.dart';
 import 'manage.dart' show RecurringScreen;
 import 'transaction_detail.dart';
+import 'chrome.dart' show tabListPadding;
 import 'widgets.dart';
 
 /// Cuentas, as on the iPhone (`AccountsView`): net worth, available, reserved and invested; the accounts not updated
@@ -25,8 +26,17 @@ class AccountsScreen extends StatefulWidget {
 }
 
 /// Not updated by hand for 30 days and not fed by a bank.
-bool isStaleAccount(Account a, DateTime now) =>
-    a.bankIdentityKey == null && !a.isArchived && a.lastUpdatedAt.isBefore(now.subtract(const Duration(days: 30)));
+bool isStaleAccount(Account a, DateTime now) => a.bankIdentityKey == null && !a.isArchived && a.lastUpdatedAt.isBefore(now.subtract(const Duration(days: 30)));
+
+/// Label of a linked account: "Al día" only when the bank sent a booked balance in the last 2 days. Without
+/// one (Trade Republic may send none) the balance is the opening balance plus movements, not checked by the bank.
+String? bankBalanceLabel(Account a, List<BalanceSnapshot> snapshots, DateTime now) {
+  if (a.bankIdentityKey == null) return null;
+  final id = stableUuid('${a.bankIdentityKey}|booked-balance');
+  final bank = snapshots.where((s) => s.id.toLowerCase() == id).firstOrNull;
+  if (bank == null) return 'Sin saldo del banco';
+  return bank.date.isBefore(now.subtract(const Duration(days: 2))) ? 'Saldo sin confirmar' : 'Al día';
+}
 
 class _AccountsScreenState extends State<AccountsScreen> {
   bool onlyStale = false;
@@ -46,8 +56,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
       ]),
     );
     if (chosen != null && context.mounted) {
-      await Navigator.of(context).push(MaterialPageRoute(
-          builder: (_) => BalanceFormScreen(repository: widget.repository, account: chosen, current: widget.calc.balance(chosen))));
+      await Navigator.of(context)
+          .push(MaterialPageRoute(builder: (_) => BalanceFormScreen(repository: widget.repository, account: chosen, current: widget.calc.balance(chosen))));
     }
   }
 
@@ -92,89 +102,84 @@ class _AccountsScreenState extends State<AccountsScreen> {
         );
     return Scaffold(
       backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton(
-        tooltip: 'Añadir cuenta',
-        onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AccountFormScreen(repository: widget.repository))),
-        child: const Icon(Icons.add),
-      ),
-      body: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: EdgeInsets.fromLTRB(16, 16, 16, 88 + MediaQuery.paddingOf(context).bottom),
-          children: [
-            LayoutBuilder(builder: (context, c) {
-              final perRow = c.maxWidth >= 600 ? 4 : 2;
-              final width = (c.maxWidth - (perRow - 1) * 10) / perRow;
-              return Wrap(spacing: 10, runSpacing: 10, children: [
-                for (final t in [
-                  tile('Patrimonio', calc.netWorth(), Icons.functions, Theme.of(context).colorScheme.onSurface),
-                  tile('Disponible', calc.spendableCash(), Icons.account_balance_wallet_outlined, pulso.accent),
-                  tile('Reservado', calc.reservedTotal(), Icons.lock_outline, pulso.savings),
-                  tile('Invertido', calc.invested(), Icons.trending_up, pulso.investment),
-                ])
-                  SizedBox(width: width, child: t),
-              ]);
-            }),
-            if (stale.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Material(
-                color: pulso.warning.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(Pulso.compactRadius),
-                child: ListTile(
-                  dense: true,
-                  leading: Icon(Icons.update, color: pulso.warning),
-                  title: Text(onlyStale ? 'Mostrar todas las cuentas' : 'Revisar saldos sin actualizar (${stale.length})',
-                      style: TextStyle(color: pulso.warning, fontWeight: FontWeight.w600)),
-                  trailing: Icon(Icons.chevron_right, color: pulso.warning),
-                  onTap: () => setState(() => onlyStale = !onlyStale),
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(children: [
-                chip('Actualizar saldo', Icons.refresh, active.isEmpty ? null : () => _updateBalance(context, active)),
-                chip('Cargos periódicos', Icons.event_repeat,
-                    () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => RecurringScreen(repository: widget.repository)))),
-                chip('Añadir tarjeta', Icons.credit_card,
-                    () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CardFormScreen(repository: widget.repository)))),
-              ]),
+      body: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: tabListPadding(context, top: 12), children: [
+        LayoutBuilder(builder: (context, c) {
+          final perRow = c.maxWidth >= 600 ? 4 : 2;
+          final width = (c.maxWidth - (perRow - 1) * 10) / perRow;
+          return Wrap(spacing: 10, runSpacing: 10, children: [
+            for (final t in [
+              tile('Patrimonio', calc.netWorth(), Icons.functions, Theme.of(context).colorScheme.onSurface),
+              tile('Disponible', calc.spendableCash(), Icons.account_balance_wallet_outlined, pulso.accent),
+              tile('Reservado', calc.reservedTotal(), Icons.lock_outline, pulso.savings),
+              tile('Invertido', calc.invested(), Icons.trending_up, pulso.investment),
+            ])
+              SizedBox(width: width, child: t),
+          ]);
+        }),
+        if (stale.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          Material(
+            color: pulso.warning.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(Pulso.compactRadius),
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.update, color: pulso.warning),
+              title: Text(onlyStale ? 'Mostrar todas las cuentas' : 'Revisar saldos sin actualizar (${stale.length})',
+                  style: TextStyle(color: pulso.warning, fontWeight: FontWeight.w600)),
+              trailing: Icon(Icons.chevron_right, color: pulso.warning),
+              onTap: () => setState(() => onlyStale = !onlyStale),
             ),
-            if (active.isEmpty) const Padding(padding: EdgeInsets.only(top: 16), child: Text('Aún no tienes cuentas. Pulsa + para añadir la primera.')),
-            for (final (title, test) in groups)
-              if (shown.where(test).toList() case final items when items.isNotEmpty) ...[
-                SectionTitle(title),
-                for (final account in items) ...[
-                  _AccountCard(account: account, calc: calc, repository: widget.repository, now: now),
-                  const SizedBox(height: 10),
-                ],
-              ],
-            if (cards.isNotEmpty && !onlyStale) ...[
-              const SectionTitle('Tus tarjetas'),
-              Card(
-                child: Column(children: [
-                  for (final card in cards)
-                    ListTile(
-                      leading: RowGlyph(icon: card.type == CardType.credit ? Icons.credit_card : Icons.credit_card_outlined, tint: pulso.accent),
-                      title: Text(card.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                      subtitle: Text([
-                        card.type.title,
-                        if (card.lastFour.isNotEmpty) '•••• ${card.lastFour}',
-                        if (data.account(card.linkedAccountId) case final a?) a.name,
-                      ].join(' · ')),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () =>
-                          Navigator.of(context).push(MaterialPageRoute(builder: (_) => CardFormScreen(repository: widget.repository, editing: card))),
-                    ),
-                ]),
-              ),
-            ],
-            if (archived.isNotEmpty && !onlyStale)
-              ExpansionTile(
-                title: Text('Archivadas (${archived.length})'),
-                children: [for (final a in archived) _AccountCard(account: a, calc: calc, repository: widget.repository, now: now)],
-              ),
+          ),
+        ],
+        const SizedBox(height: 12),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(children: [
+            // In the content, not floating: nothing covers the accounts (the dock below has «+ Añadir» movement).
+            chip('Añadir cuenta', Icons.add,
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => AccountFormScreen(repository: widget.repository)))),
+            chip('Actualizar saldo', Icons.refresh, active.isEmpty ? null : () => _updateBalance(context, active)),
+            chip('Cargos periódicos', Icons.event_repeat,
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => RecurringScreen(repository: widget.repository)))),
+            chip('Añadir tarjeta', Icons.credit_card,
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CardFormScreen(repository: widget.repository)))),
           ]),
+        ),
+        if (active.isEmpty)
+          const Padding(padding: EdgeInsets.only(top: 16), child: Text('Aún no tienes cuentas. Pulsa «Añadir cuenta» para crear la primera.')),
+        for (final (title, test) in groups)
+          if (shown.where(test).toList() case final items when items.isNotEmpty) ...[
+            SectionTitle(title),
+            for (final account in items) ...[
+              _AccountCard(account: account, calc: calc, repository: widget.repository, now: now),
+              const SizedBox(height: 10),
+            ],
+          ],
+        if (cards.isNotEmpty && !onlyStale) ...[
+          const SectionTitle('Tus tarjetas'),
+          Card(
+            child: Column(children: [
+              for (final card in cards)
+                ListTile(
+                  leading: RowGlyph(icon: card.type == CardType.credit ? Icons.credit_card : Icons.credit_card_outlined, tint: pulso.accent),
+                  title: Text(card.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  subtitle: Text([
+                    card.type.title,
+                    if (card.lastFour.isNotEmpty) '•••• ${card.lastFour}',
+                    if (data.account(card.linkedAccountId) case final a?) a.name,
+                  ].join(' · ')),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CardFormScreen(repository: widget.repository, editing: card))),
+                ),
+            ]),
+          ),
+        ],
+        if (archived.isNotEmpty && !onlyStale)
+          ExpansionTile(
+            title: Text('Archivadas (${archived.length})'),
+            children: [for (final a in archived) _AccountCard(account: a, calc: calc, repository: widget.repository, now: now)],
+          ),
+      ]),
     );
   }
 }
@@ -199,7 +204,9 @@ class _AccountCard extends StatelessWidget {
     final balance = calc.balance(account);
     final reserved = account.type.isLiability || account.type == AccountType.investment ? 0 : calc.reservedAmount(account);
     final activity = account.bankIdentityKey == null ? null : repository.bankActivity[account.bankIdentityKey];
-    final charges = account.isArchived ? const <PendingMovement>[] : (activity?.pendingMovements ?? const <PendingMovement>[]).where((m) => m.signedAmountMinor < 0).toList();
+    final charges = account.isArchived
+        ? const <PendingMovement>[]
+        : (activity?.pendingMovements ?? const <PendingMovement>[]).where((m) => m.signedAmountMinor < 0).toList();
     final held = charges.fold(0, (s, m) => s - m.signedAmountMinor);
     final free = balance - reserved - held > 0 ? balance - reserved - held : 0;
     final institution = calc.data.institutions.where((i) => i.id == account.institutionId).firstOrNull;
@@ -246,8 +253,8 @@ class _AccountCard extends StatelessWidget {
               ),
               if (stale)
                 pill('Sin actualizar', pulso.warning, Icons.schedule)
-              else if (account.bankIdentityKey != null)
-                pill('Al día', pulso.accent),
+              else if (bankBalanceLabel(account, calc.data.snapshots, now) case final label?)
+                pill(label, label == 'Al día' ? pulso.accent : pulso.warning),
             ]),
             const SizedBox(height: 10),
             Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
@@ -267,7 +274,8 @@ class _AccountCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(4),
                 child: SizedBox(
                   height: 7,
-                  child: Row(children: [
+                  // Stretched: an empty coloured box would otherwise be zero pixels high.
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     if (free > 0) Expanded(flex: free, child: ColoredBox(color: pulso.accent)),
                     if (reserved > 0) ...[const SizedBox(width: 2), Expanded(flex: reserved, child: ColoredBox(color: pulso.savings))],
                     if (held > 0) ...[const SizedBox(width: 2), Expanded(flex: held, child: ColoredBox(color: pulso.warning))],
@@ -322,7 +330,8 @@ List<Widget> bankActivitySections(BuildContext context, BankActivity activity, A
           ListTile(title: const Text('Saldo disponible del banco'), trailing: Text(money(activity.availableBalance!, currency: activity.currency))),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-          child: Text('Consulta del $when. El disponible del banco puede reflejar retenciones y se muestra separado de tus reservas en la app.', style: caption),
+          child:
+              Text('Consulta del $when. El disponible del banco puede reflejar retenciones y se muestra separado de tus reservas en la app.', style: caption),
         ),
       ]),
     ),
@@ -343,7 +352,8 @@ List<Widget> bankActivitySections(BuildContext context, BankActivity activity, A
             ),
           ListTile(
             title: const Text('Saldo tras retenciones', style: TextStyle(fontWeight: FontWeight.w700)),
-            trailing: Text(money(balance + heldMinor(activity, account, data), currency: activity.currency), style: const TextStyle(fontWeight: FontWeight.w700)),
+            trailing:
+                Text(money(balance + heldMinor(activity, account, data), currency: activity.currency), style: const TextStyle(fontWeight: FontWeight.w700)),
           ),
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -473,6 +483,37 @@ class AccountDetailScreen extends StatelessWidget {
                     ]),
             ),
             if (account.notes.isNotEmpty) ...[SectionTitle('Notas'), Card(child: Padding(padding: const EdgeInsets.all(16), child: Text(account.notes)))],
+            // Balances fixed by hand (updates and regularizations): traceable and undone by deleting them.
+            if (data.snapshots.where((s) => s.accountId == account.id && s.source == 'manual').toList() case final fixed when fixed.isNotEmpty) ...[
+              SectionTitle('Ajustes de saldo'),
+              Card(
+                child: Column(children: [
+                  for (final s in fixed..sort((a, b) => b.date.compareTo(a.date)))
+                    ListTile(
+                      title: Text('${money(s.balanceMinor)} · ${DateFormat("d MMM yyyy, HH:mm", 'es').format(s.date.toLocal())}'),
+                      subtitle: Text(s.notes),
+                      trailing: IconButton(
+                        tooltip: 'Deshacer este ajuste',
+                        icon: const Icon(Icons.undo),
+                        onPressed: () async {
+                          final sure = await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text('Deshacer el ajuste'),
+                              content: const Text('El saldo volverá a calcularse como antes de este ajuste. No se borra ningún movimiento.'),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+                                TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Deshacer')),
+                              ],
+                            ),
+                          );
+                          if (sure == true) await repository.apply(removeOperation('snapshots', s.id));
+                        },
+                      ),
+                    ),
+                ]),
+              ),
+            ],
           ]),
         );
       },
@@ -577,7 +618,14 @@ class BalanceFormScreen extends StatefulWidget {
 
 class _BalanceFormScreenState extends State<BalanceFormScreen> {
   late final _amount = TextEditingController(text: amountText(widget.current));
+  final _concept = TextEditingController(text: 'Saldo actualizado a mano');
   DateTime _date = DateTime.now();
+
+  /// What Doblón computes at the chosen moment, to show the difference the new balance fixes.
+  int get _computed {
+    final data = widget.repository.finances;
+    return data == null ? widget.current : FinanceCalculator(data).balance(widget.account, _date);
+  }
   String? _message;
 
   @override
@@ -596,7 +644,9 @@ class _BalanceFormScreenState extends State<BalanceFormScreen> {
                   'date': referenceSeconds(_date),
                   'balanceMinor': value,
                   'sourceRaw': 'manual',
-                  'notes': 'Saldo actualizado a mano',
+                  // Traceable: the concept, Doblón's balance and the bank's at that moment. Undone by deleting it.
+                  'notes': '${_concept.text.trim().isEmpty ? 'Saldo actualizado a mano' : _concept.text.trim()} · '
+                      'Doblón ${money(_computed)}, banco ${money(value)}, diferencia ${money(value - _computed, signed: true)}',
                   'createdAt': now,
                   'accountID': widget.account.id,
                 },
@@ -609,6 +659,19 @@ class _BalanceFormScreenState extends State<BalanceFormScreen> {
           Text('Escribe el saldo que ves hoy en ${widget.account.name}. Desde esa fecha, Doblón sumará los movimientos posteriores.'),
           AmountInput(controller: _amount, label: 'Saldo (€)', allowNegative: true),
           DateInput(label: 'Fecha', value: _date, onChanged: (v) => setState(() => _date = v ?? _date)),
+          TextInput(controller: _concept, label: 'Concepto'),
+          ListenableBuilder(
+            listenable: _amount,
+            builder: (context, _) {
+              final value = amountFrom(_amount);
+              return Text(
+                  value == null
+                      ? 'Doblón calcula ${money(_computed)} en esa fecha.'
+                      : 'Doblón calcula ${money(_computed)} en esa fecha: diferencia ${money(value - _computed, signed: true)}. '
+                          'No es un gasto ni un ingreso: no cuenta en presupuestos ni en el resumen del mes.',
+                  style: Theme.of(context).textTheme.bodySmall);
+            },
+          ),
         ],
       );
 }

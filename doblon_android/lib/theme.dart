@@ -76,7 +76,25 @@ ThemeData doblonTheme(Brightness brightness) {
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Pulso.cardRadius), side: BorderSide(color: pulso.outline))),
     appBarTheme: AppBarTheme(backgroundColor: pulso.page, surfaceTintColor: Colors.transparent, centerTitle: false),
-    navigationBarTheme: NavigationBarThemeData(backgroundColor: pulso.card, indicatorColor: pulso.accent.withValues(alpha: 0.18)),
+    // The type scale of the app (sizes before the person's text size is applied): 46–48 the available figure, 22 titles
+    // of a screen, 17 card titles and key figures, 14 body, 12 labels and secondary lines, 11 the smallest (calendar).
+    textTheme: const TextTheme(
+      headlineMedium: TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
+      titleLarge: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+      titleMedium: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+      bodyLarge: TextStyle(fontSize: 16),
+      bodyMedium: TextStyle(fontSize: 14),
+      bodySmall: TextStyle(fontSize: 12),
+      labelLarge: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+      labelMedium: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+      labelSmall: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+    ),
+    navigationBarTheme: NavigationBarThemeData(
+      backgroundColor: pulso.card,
+      indicatorColor: pulso.accent.withValues(alpha: 0.18),
+      // Without the default letter spacing, «Presupuestos» fits in one line on a phone.
+      labelTextStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0)),
+    ),
     extensions: [pulso],
   );
 }

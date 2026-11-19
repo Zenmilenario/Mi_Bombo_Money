@@ -88,7 +88,13 @@ void main() {
           ..reservedAmountMinor = reserved;
     expect(reservedDraft().validate(withFund), isNull);
     expect(reservedDraft(amount: 2000).validate(withFund), contains('reservado'), reason: 'Never below the reserved part');
-    expect(reservedDraft(type: TransactionType.income).validate(withFund), contains('gasto'));
+    // An income set aside for a reserve: refused while the cloud refuses it (incomeReserves), never more than it is.
+    if (incomeReserves) {
+      expect(reservedDraft(type: TransactionType.income).validate(withFund), isNull);
+      expect(reservedDraft(type: TransactionType.income, amount: 2000).validate(withFund), contains('superar'));
+    } else {
+      expect(reservedDraft(type: TransactionType.income).validate(withFund), contains('gasto'));
+    }
     expect(reservedDraft(reserved: 4500).validate(withFund), contains('suficiente'), reason: 'More than the reserve holds');
   });
 

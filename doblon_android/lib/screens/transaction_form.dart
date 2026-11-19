@@ -6,12 +6,13 @@ import 'package:intl/intl.dart';
 
 import '../automation.dart';
 import '../data.dart';
-import '../finance.dart' show ReservedEntry, reservedBalances;
+import '../finance.dart' show fundEntries, reservedBalances;
 import '../edits.dart';
 import '../learning.dart' show EditSnapshot;
 import '../models.dart';
 import '../theme.dart';
 import 'learning.dart';
+import 'widgets.dart' show Disclosure;
 
 /// Reads "12,50", "1.234,56" or "12.5" as cents. Null when it is not an amount.
 int? parseAmount(String text) {
@@ -65,12 +66,14 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     super.initState();
     final t = widget.editing;
     final accounts = data.accounts.where((a) => !a.isArchived).toList();
+    // The account is never guessed: the only one there is, or the one of the last movement typed by hand.
+    final lastTyped = data.transactions.where((m) => !m.isBanking && accounts.any((a) => a.id == m.sourceAccountId)).firstOrNull;
     draft = TransactionDraft(
       date: t?.date ?? DateTime.now(),
       type: t?.type ?? TransactionType.expense,
       amountMinor: t?.amountMinor ?? 0,
       description: t?.descriptionText ?? '',
-      sourceAccountId: t?.sourceAccountId ?? (accounts.isEmpty ? null : accounts.first.id),
+      sourceAccountId: t?.sourceAccountId ?? (accounts.length == 1 ? accounts.first.id : lastTyped?.sourceAccountId),
       destinationAccountId: t?.destinationAccountId,
       categoryId: t?.categoryId,
       notes: t?.notes ?? '',
@@ -114,9 +117,11 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   }
 
   Future<void> _save() async {
+    // Without a concept, the chosen category names it (it can be changed later); without either, it is asked for.
+    final typed = _description.text.trim();
     draft
       ..amountMinor = parseAmount(_amount.text) ?? 0
-      ..description = _description.text
+      ..description = typed.isEmpty ? (data.category(draft.categoryId)?.name ?? '') : _description.text
       ..notes = _notes.text
       ..reservedAmountMinor = draft.reservedFundId == null ? null : parseAmount(_reserved.text);
     final problem = draft.validate(data, editing: widget.editing);
@@ -124,15 +129,31 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
       setState(() => _message = problem);
       return;
     }
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _message = null;
+    });
+    try {
+      await _store();
+    } catch (_) {
+      // Everything typed stays on the screen to try again.
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _message = 'No se ha podido guardar. Lo que has escrito sigue aquí: inténtalo de nuevo.';
+        });
+      }
+    }
+  }
+
+  Future<void> _store() async {
     final now = DateTime.now();
     final id = widget.editing?.id ?? widget.repository.newId();
     final op = saveOperation(draft, data, now, editing: widget.editing, newId: id);
     final category = data.category(draft.categoryId);
     // A new movement categorised without a rule: count whether the proposal shown was used.
     if (widget.editing == null && category != null && draft.type != TransactionType.transfer && matchRule(draft.description, draft.type, data) == null) {
-      await widget.repository.learning
-          ?.recordCategoryOutcome(proposedName: _shown?.category.name, source: _shown?.source, chosenName: category.name);
+      await widget.repository.learning?.recordCategoryOutcome(proposedName: _shown?.category.name, source: _shown?.source, chosenName: category.name);
     }
     final rule = _remember && category != null ? rememberRule(draft.description, draft.type, category, data, now, widget.repository.newId()) : null;
     await widget.repository.apply(rule == null ? op : batchOperation([op, rule]));
@@ -141,25 +162,14 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     if (mounted) Navigator.of(context).pop(true);
   }
 
-  /// The reserves that have money in the chosen account (plus the one already used by this movement).
+  /// For a payment or a move, the reserves that have money in the chosen account (plus the one already used by this
+  /// movement); for an income, every reserve it can be set aside for.
   List<Widget> _reserveFields() {
+    final income = draft.type.countsAsIncome;
     final options = data.reservedFunds.where((fund) {
-      if (fund.id == draft.reservedFundId) return true;
+      if (fund.id == draft.reservedFundId || income) return fund.accountId != null || fund.id == draft.reservedFundId;
       if (fund.accountId == null || draft.sourceAccountId == null) return false;
-      final entries = [
-        for (final t in data.transactions)
-          if (t.id != widget.editing?.id &&
-              t.reservedFundId == fund.id &&
-              t.sourceAccountId != null &&
-              t.reservedAmountMinor != null &&
-              (t.type.countsAsExpense || t.type == TransactionType.transfer))
-            ReservedEntry(
-                id: t.id,
-                date: t.date,
-                source: t.sourceAccountId!,
-                destination: t.type == TransactionType.transfer ? t.destinationAccountId : null,
-                amount: t.reservedAmountMinor!),
-      ];
+      final entries = fundEntries(fund, data.transactions.where((t) => t.id != widget.editing?.id));
       return (reservedBalances(fund.accountId!, fund.amountMinor, entries, through: draft.date)?[draft.sourceAccountId] ?? 0) > 0;
     }).toList();
     if (options.isEmpty) return const [];
@@ -168,7 +178,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
         initialValue: draft.reservedFundId,
         isExpanded: true,
         decoration: InputDecoration(
-            labelText: draft.type == TransactionType.transfer ? 'Trasladar dinero reservado' : 'Pagar con dinero reservado',
+            labelText: income ? 'Destinar a una reserva' : (draft.type == TransactionType.transfer ? 'Trasladar dinero reservado' : 'Pagar con dinero reservado'),
             border: const OutlineInputBorder()),
         items: [
           const DropdownMenuItem<String?>(value: null, child: Text('No')),
@@ -186,11 +196,18 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
           decoration: InputDecoration(
-              labelText: draft.type == TransactionType.transfer ? 'Parte de la reserva que se traslada (€)' : 'Parte pagada con la reserva (€)',
+              labelText: income
+                  ? 'Parte que va a la reserva (€)'
+                  : (draft.type == TransactionType.transfer ? 'Parte de la reserva que se traslada (€)' : 'Parte pagada con la reserva (€)'),
               border: const OutlineInputBorder()),
         ),
         const SizedBox(height: 4),
-        Text(draft.type == TransactionType.transfer ? 'La reserva acompaña al dinero hasta la cuenta de destino.' : 'Esa parte no cuenta en tus presupuestos.',
+        Text(
+            income
+                ? 'Esa parte no cuenta como ingreso del día a día. Si el ingreso es posterior a la reserva, la aumenta (por ejemplo, intereses que decides guardar en ella).'
+                : (draft.type == TransactionType.transfer
+                    ? 'La reserva acompaña al dinero hasta la cuenta de destino.'
+                    : 'Esa parte no cuenta en tus presupuestos ni en el gasto del día a día; lo que supere la reserva, sí.'),
             style: Theme.of(context).textTheme.bodySmall),
       ],
       const SizedBox(height: 12),
@@ -230,27 +247,12 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 },
                 onSelectionChanged: (value) => setState(() => draft.type = value.first),
               ),
-              if (draft.type == TransactionType.expense ||
-                  draft.type == TransactionType.fee ||
-                  draft.type == TransactionType.income ||
-                  draft.type == TransactionType.interest)
-                Wrap(spacing: 8, children: [
-                  if (draft.type == TransactionType.expense || draft.type == TransactionType.fee)
-                    ChoiceChip(
-                        label: const Text('Comisión'),
-                        selected: draft.type == TransactionType.fee,
-                        onSelected: (on) => setState(() => draft.type = on ? TransactionType.fee : TransactionType.expense)),
-                  if (draft.type == TransactionType.income || draft.type == TransactionType.interest)
-                    ChoiceChip(
-                        label: const Text('Interés'),
-                        selected: draft.type == TransactionType.interest,
-                        onSelected: (on) => setState(() => draft.type = on ? TransactionType.interest : TransactionType.income)),
-                ]),
               const SizedBox(height: 16),
               TextField(
                 controller: _amount,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+                autofocus: widget.editing == null,
                 decoration: const InputDecoration(labelText: 'Importe (€)', border: OutlineInputBorder()),
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
               ),
@@ -258,7 +260,10 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
               TextField(
                 controller: _description,
                 textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(labelText: 'Concepto', border: OutlineInputBorder()),
+                decoration: InputDecoration(
+                    labelText: 'Concepto',
+                    helperText: draft.categoryId == null ? null : 'Si lo dejas vacío, se usa el nombre de la categoría.',
+                    border: const OutlineInputBorder()),
                 onChanged: (text) {
                   if (_categoryChosen) return;
                   final suggested = matchRule(text, draft.type, data);
@@ -293,7 +298,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 key: ValueKey('category-${draft.categoryId}'),
                 initialValue: draft.categoryId,
                 isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Categoría', border: OutlineInputBorder()),
+                decoration: const InputDecoration(labelText: 'Categoría (opcional)', helperText: 'Puedes ponerla más tarde.', border: OutlineInputBorder()),
                 items: [
                   const DropdownMenuItem<String?>(value: null, child: Text('Sin categoría')),
                   for (final c in categories)
@@ -321,7 +326,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                       _proposal = null;
                     }),
                     icon: const Icon(Icons.auto_awesome),
-                    label: Text('Usar propuesta de IA: ${_proposal!.name}'),
+                    label: Text('Sugerencia: ${_proposal!.name}'),
                   ),
                 ),
               const SizedBox(height: 12),
@@ -344,18 +349,43 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                   onChanged: (v) => setState(() => _remember = v ?? false),
                   title: Text('Recordar: «${_description.text.trim()}» será siempre de esta categoría'),
                 ),
-              if (draft.type.countsAsExpense || draft.type == TransactionType.transfer) ..._reserveFields(),
-              TextField(
-                controller: _notes,
-                maxLines: 3,
-                minLines: 1,
-                decoration: const InputDecoration(labelText: 'Notas', border: OutlineInputBorder()),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Comprobado con el banco'),
-                value: draft.isReconciled,
-                onChanged: (value) => setState(() => draft.isReconciled = value),
+              // Less frequent details, folded: commission or interest, reserved money, notes and the bank check. Open when
+              // editing a movement that already uses them.
+              Disclosure(
+                title: 'Más opciones',
+                initiallyOpen: widget.editing != null &&
+                    (draft.type == TransactionType.fee || draft.type == TransactionType.interest || draft.reservedFundId != null || draft.notes.isNotEmpty),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  if (draft.type == TransactionType.expense ||
+                      draft.type == TransactionType.fee ||
+                      draft.type == TransactionType.income ||
+                      draft.type == TransactionType.interest)
+                    Wrap(spacing: 8, children: [
+                      if (draft.type == TransactionType.expense || draft.type == TransactionType.fee)
+                        ChoiceChip(
+                            label: const Text('Comisión'),
+                            selected: draft.type == TransactionType.fee,
+                            onSelected: (on) => setState(() => draft.type = on ? TransactionType.fee : TransactionType.expense)),
+                      if (draft.type == TransactionType.income || draft.type == TransactionType.interest)
+                        ChoiceChip(
+                            label: const Text('Interés'),
+                            selected: draft.type == TransactionType.interest,
+                            onSelected: (on) => setState(() => draft.type = on ? TransactionType.interest : TransactionType.income)),
+                    ]),
+                  if (!draft.type.countsAsIncome || incomeReserves) ..._reserveFields(),
+                  TextField(
+                    controller: _notes,
+                    maxLines: 3,
+                    minLines: 1,
+                    decoration: const InputDecoration(labelText: 'Notas (opcional)', border: OutlineInputBorder()),
+                  ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Comprobado con el banco'),
+                    value: draft.isReconciled,
+                    onChanged: (value) => setState(() => draft.isReconciled = value),
+                  ),
+                ]),
               ),
               if (_message != null) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_message!, style: TextStyle(color: pulso.expense))),
               const SizedBox(height: 16),

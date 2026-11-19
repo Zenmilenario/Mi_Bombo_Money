@@ -9,21 +9,26 @@ import '../banking.dart' show BankingError, permissionDaysLeft, permissionExpire
 import '../card_payments.dart';
 import '../data.dart';
 import '../finance.dart';
-import '../models.dart' show Finances;
 import '../preferences.dart';
 import '../theme.dart';
 import 'accounts.dart';
 import 'banks.dart';
 import 'budgets.dart';
 import 'card_payments.dart';
+import 'chrome.dart';
 import 'home.dart';
 import 'info.dart';
-import 'learning.dart' show AiMetricsScreen;
+import 'learning.dart' show AiMetricsScreen, ReviewProposalsScreen;
 import 'manage.dart';
 import 'tools.dart';
 import 'transaction_form.dart';
+import '../reconcile.dart' show ReconcileStore;
+import 'reconcile_screen.dart';
+import 'transaction_detail.dart';
 import 'transactions.dart';
 import 'widgets.dart' show RowGlyph;
+
+export 'chrome.dart' show CompanionButton;
 
 /// The same five tabs as the iPhone app, with Don Bigotes floating at the bottom right.
 class Shell extends StatefulWidget {
@@ -36,9 +41,35 @@ class Shell extends StatefulWidget {
 /// While open, the cloud copy and the banks are refreshed this often (and always on returning to the app).
 const foregroundRefresh = Duration(minutes: 5);
 
-class _ShellState extends State<Shell> with WidgetsBindingObserver {
+class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final repository = FinanceRepository();
   int tab = 0;
+
+  /// 1 while the header is shown, 0 once it has slid away; follows the finger and settles when the scroll stops.
+  late final header = AnimationController(vsync: this, value: 1, duration: const Duration(milliseconds: 180));
+  bool _scrolled = false;
+
+  bool _onScroll(ScrollNotification n) {
+    if (n.depth != 0 || n.metrics.axis != Axis.vertical) return false;
+    if (n is ScrollUpdateNotification && n.scrollDelta != null) {
+      header.value = nextHeaderShown(header.value, n.scrollDelta!, n.metrics.pixels);
+    } else if (n is ScrollEndNotification && header.value > 0 && header.value < 1) {
+      header.animateTo(header.value >= 0.5 || n.metrics.pixels < headerHeight ? 1 : 0, curve: Curves.easeOut);
+    }
+    final scrolled = n.metrics.pixels > 1;
+    if (scrolled != _scrolled) setState(() => _scrolled = scrolled);
+    return false;
+  }
+
+  void _select(int index) {
+    header.animateTo(1, curve: Curves.easeOut);
+    setState(() {
+      tab = index;
+      _scrolled = false;
+    });
+  }
+
+  void _add() => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionFormScreen(repository: repository)));
   DateTime month = DateTime(DateTime.now().year, DateTime.now().month);
   FinanceCalculator? _calculator;
   Object? _calculatedFrom;
@@ -54,6 +85,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     repository.addListener(_changed);
     widget.preferences.addListener(_changed);
     _open();
+    // Joins to undo and pairs kept apart, saved on this device.
+    ReconcileStore.instance.load().then((_) {
+      if (mounted) setState(() {});
+    });
     _refreshTimer = Timer.periodic(foregroundRefresh, (_) {
       if (_foreground) unawaited(_open());
     });
@@ -64,6 +99,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     repository.removeListener(_changed);
     _refreshTimer?.cancel();
+    header.dispose();
     repository.dispose();
     widget.preferences.removeListener(_changed);
     super.dispose();
@@ -97,8 +133,23 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
     _foreground = state == AppLifecycleState.resumed;
     if (state == AppLifecycleState.resumed) {
       _postedToday = false;
-      _open();
+      _openWhenUnlocked();
     }
+  }
+
+  /// Refreshing on return waits until the lock is gone, so it does not slow Face ID down.
+  void _openWhenUnlocked() {
+    if (!appLocked.value) {
+      _open();
+      return;
+    }
+    void unlocked() {
+      if (appLocked.value) return;
+      appLocked.removeListener(unlocked);
+      if (mounted) _open();
+    }
+
+    appLocked.addListener(unlocked);
   }
 
   void _changed() => setState(() {});
@@ -116,31 +167,41 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
 
   // Don Bigotes' notes walk the whole history: kept until the finances, the bank reports or the day change, so a
   // notice about something else does not compute them again.
-  Object? _notesFrom, _notesActivity, _notesConnections;
+  Object? _notesFrom, _notesActivity, _notesConnections, _notesKept;
   String? _notesDay;
   List<CompanionNote> _notes = const [];
 
-  List<CompanionNote> _companionNotes(Finances data) {
+  List<CompanionNote> _companionNotes(FinanceCalculator calc) {
+    final data = calc.data;
     final now = DateTime.now(), day = '${now.year}-${now.month}-${now.day}';
     if (identical(data, _notesFrom) &&
         identical(repository.bankActivity, _notesActivity) &&
         identical(repository.bankConnections, _notesConnections) &&
+        identical(ReconcileStore.instance.keptApart, _notesKept) &&
         day == _notesDay) {
       return _notes;
     }
     _notesFrom = data;
     _notesActivity = repository.bankActivity;
     _notesConnections = repository.bankConnections;
+    _notesKept = ReconcileStore.instance.keptApart;
     _notesDay = day;
-    return _notes = companionNotes(data, now, holds: bankHolds(data, repository.bankActivity), renewals: [
-      for (final connection in repository.bankConnections)
-        if (permissionExpiresSoon(connection, now)) (bank: connection.bank, days: permissionDaysLeft(connection, now)!),
-    ]);
+    final thisMonth = DateTime(now.year, now.month);
+    final over = calc.budgetProgress(thisMonth).where((b) => b.limitMinor > 0 && b.spentMinor > b.limitMinor).length;
+    return _notes = companionNotes(data, now,
+        holds: bankHolds(data, repository.bankActivity),
+        overBudget: over,
+        budgetMonth: '${now.year}-${now.month}',
+        keptApart: ReconcileStore.instance.keptApart,
+        renewals: [
+          for (final connection in repository.bankConnections)
+            if (permissionExpiresSoon(connection, now)) (bank: connection.bank, days: permissionDaysLeft(connection, now)!),
+        ]);
   }
 
   /// Don Bigotes' notes, as on the iPhone (`CompanionNotesSheet`): his face, a button to update the banks and each
   /// note with its icon, «Ahora no» and «Ver».
-  void _showCompanion(List<CompanionNote> notes) {
+  void _showCompanion(List<CompanionNote> notes, [List<CompanionNote> reviewed = const []]) {
     var refreshing = false;
     String? refreshed;
     showModalBottomSheet<void>(
@@ -159,7 +220,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(notes.isEmpty ? 'Todo en orden' : 'Lo que he visto', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                    Text(notes.isEmpty ? 'Todo en orden' : 'Lo que he visto',
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
                     Text(notes.isEmpty ? 'No hay nada pendiente. Vuelvo a mi esquina.' : 'Solo cosas tuyas, nada urgente.', style: TextStyle(color: hint)),
                   ]),
                 ),
@@ -223,7 +285,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                         FilledButton(
                           onPressed: () {
                             Navigator.pop(context);
-                            setState(() => tab = note.tab);
+                            _openNote(note);
                           },
                           style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 14), minimumSize: const Size(0, 34)),
                           child: const Text('Ver', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
@@ -232,12 +294,56 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
                     ),
                   ),
                 ),
+              // Seen with «Ahora no»: still true, no longer pending; they can come back.
+              if (reviewed.isNotEmpty) ...[
+                Text(reviewed.length == 1 ? '1 aviso revisado' : '${reviewed.length} avisos revisados', style: Theme.of(context).textTheme.labelLarge),
+                for (final note in reviewed)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Row(children: [
+                      Icon(Icons.done, size: 16, color: hint),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text(note.title, style: TextStyle(fontSize: 13, color: hint))),
+                    ]),
+                  ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () {
+                      widget.preferences.resetNotes();
+                      Navigator.pop(context);
+                    },
+                    child: const Text('Volver a mostrarlos como pendientes'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
               Text('Puedes apagarlo en Ajustes › A tu gusto.', style: TextStyle(fontSize: 12, color: hint)),
             ]),
           ),
         );
       }),
     );
+  }
+
+  /// «Ver» opens the case itself: the records to compare for duplicates and transfers, the budgets for a budget
+  /// over its limit; the rest, the tab where it is solved.
+  void _openNote(CompanionNote note) {
+    switch (note.id.split(':').first) {
+      case 'pairs':
+      case 'review':
+      case 'reservePay':
+        Navigator.of(context)
+            .push(MaterialPageRoute(builder: (_) => ReconcileScreen(repository: repository, duplicatesFirst: note.id.startsWith('review'))))
+            .then((_) {
+          if (mounted) setState(() {});
+        });
+      case 'budgets':
+        setState(() => month = DateTime(DateTime.now().year, DateTime.now().month));
+        _select(3);
+      default:
+        _select(note.tab);
+    }
   }
 
   static IconData _noteIcon(CompanionNote note) => switch (note.id.split(':').first) {
@@ -256,9 +362,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final calc = calculator;
     final pulso = Pulso.of(context);
-    final notes = calc == null || !widget.preferences.companionEnabled
-        ? <CompanionNote>[]
-        : _companionNotes(calc.data).where((n) => !widget.preferences.dismissedNotes.contains(n.id)).toList();
+    // One list of what is pending, shown by Inicio and by Don Bigotes (when he is on), never twice on the same screen.
+    final allNotes = calc == null ? <CompanionNote>[] : _companionNotes(calc);
+    final notes = allNotes.where((n) => !widget.preferences.dismissedNotes.contains(n.id)).toList();
+    final reviewed = allNotes.where((n) => widget.preferences.dismissedNotes.contains(n.id)).toList();
     final Widget body;
     if (calc == null) {
       body = Center(
@@ -277,15 +384,16 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
       void setMonth(DateTime m) => setState(() => month = m);
       body = RefreshIndicator(
         onRefresh: _open,
+        edgeOffset: MediaQuery.paddingOf(context).top + headerHeight,
         child: switch (tab) {
           0 => HomeScreen(
               calc: calc,
               month: month,
               onMonth: setMonth,
-              onAdd: () => setState(() => tab = 2),
-              onOpenTab: (index) => setState(() => tab = index),
-              hiddenAlerts: widget.preferences.dismissedNotes,
-              onHideAlert: widget.preferences.dismissNote,
+              onAdd: () => _select(2),
+              onOpenTab: _select,
+              onOpenTransaction: (t) =>
+                  Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionDetailScreen(repository: repository, transactionId: t.id))),
               // Charges the bank holds and has not booked yet, as on the iPhone's «Disponible tras retenciones».
               heldMinor: bankHolds(calc.data, repository.bankActivity)
                   .where((h) => h.movement.signedAmountMinor < 0)
@@ -297,78 +405,91 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver {
         },
       );
     }
+    final banner = calc != null && repository.error != null;
+    // Read outside the Scaffold, which takes the keyboard out of its body's insets.
+    final typing = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final canAdd = calc != null && calc.data.accounts.any((a) => !a.isArchived);
     return Scaffold(
       // The content scrolls under the translucent tab bar, as on the iPhone app.
       extendBody: true,
-      appBar: AppBar(
-        // Inicio has its greeting instead of a title, as on the iPhone; the tab bar already names the others too,
-        // but their title keeps the place of the screen when scrolling.
-        title: tab == 0 ? null : Text(const ['Inicio', 'Movimientos', 'Cuentas', 'Presupuestos', 'Ajustes'][tab], style: const TextStyle(fontWeight: FontWeight.w700)),
-        actions: [
-          if (repository.pending.isNotEmpty)
-            Tooltip(
-              message: '${repository.pending.length} cambios sin subir',
-              child: IconButton(icon: const Icon(Icons.cloud_upload_outlined), onPressed: repository.refresh),
-            ),
-          if (repository.loading && calc != null)
-            const Padding(padding: EdgeInsets.all(16), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
-          // As on the iPhone's Inicio: hide the amounts at a glance and add a movement.
-          if (tab == 0) ...[
-            IconButton(
-              tooltip: widget.preferences.hideAmounts ? 'Mostrar importes' : 'Ocultar importes',
-              icon: Icon(widget.preferences.hideAmounts ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-              onPressed: () => widget.preferences.setHideAmounts(!widget.preferences.hideAmounts),
-            ),
-            if (calc != null && calc.data.accounts.any((a) => !a.isArchived))
-              IconButton(
-                tooltip: 'Añadir movimiento',
-                icon: const Icon(Icons.add),
-                onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionFormScreen(repository: repository))),
+      // Read inside the Scaffold: its bottom padding includes the tab bar.
+      body: Builder(builder: (context) {
+        final media = MediaQuery.of(context);
+        return Stack(children: [
+          Positioned.fill(
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _onScroll,
+              // The lists start below the header and the error notice (see `tabListPadding`). The status bar is taken
+              // out of the padding so lists and grids inside the cards do not add it again.
+              child: TabInsets(
+                top: media.padding.top + headerHeight + (banner ? 56 : 0),
+                child: MediaQuery.removePadding(context: context, removeTop: true, child: body),
               ),
-          ],
-        ],
-      ),
-      body: Stack(children: [
-        Positioned.fill(
-          child: calc != null && repository.error != null
-          ? Column(children: [
-              Material(
-                color: pulso.warning.withValues(alpha: 0.15),
-                child: ListTile(
-                  dense: true,
-                  leading: Icon(Icons.cloud_off_outlined, color: pulso.warning),
-                  title: Text(repository.error!),
-                  trailing: TextButton(onPressed: repository.refresh, child: const Text('Reintentar')),
-                ),
-              ),
-              Expanded(child: body),
-            ])
-          : body,
-        ),
-        if (widget.preferences.companionEnabled && calc != null)
-          Builder(
-            builder: (context) => Positioned(
-              right: 16,
-              // Above the tab bar, and above the add button of Movimientos, Cuentas and Presupuestos.
-              bottom: MediaQuery.paddingOf(context).bottom + (tab >= 1 && tab <= 3 ? 88 : 16),
-              child: CompanionButton(notes: notes, onTap: () => _showCompanion(notes)),
             ),
           ),
-      ]),
+          Positioned(
+            left: 0,
+            right: 0,
+            top: 0,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              ShellHeader(
+                shown: header,
+                scrolled: _scrolled,
+                title: Text(tab == 0 ? greeting(DateTime.now()) : const ['Inicio', 'Movimientos', 'Cuentas', 'Presupuestos', 'Ajustes'][tab],
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                actions: [
+                  if (repository.pending.isNotEmpty)
+                    IconButton(
+                      tooltip: '${repository.pending.length} cambios sin subir',
+                      icon: const Icon(Icons.cloud_upload_outlined),
+                      onPressed: repository.refresh,
+                    ),
+                  if (repository.loading && calc != null)
+                    const Padding(padding: EdgeInsets.all(15), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))),
+                  // Hide the amounts at a glance, on every tab.
+                  IconButton(
+                    tooltip: widget.preferences.hideAmounts ? 'Mostrar importes' : 'Ocultar importes',
+                    icon: Icon(widget.preferences.hideAmounts ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                    onPressed: () => widget.preferences.setHideAmounts(!widget.preferences.hideAmounts),
+                  ),
+                ],
+              ),
+              if (banner)
+                Material(
+                  color: Color.alphaBlend(pulso.warning.withValues(alpha: 0.15), pulso.page),
+                  child: SizedBox(
+                    height: 56,
+                    child: ListTile(
+                      dense: true,
+                      leading: Icon(Icons.cloud_off_outlined, color: pulso.warning),
+                      title: Text(repository.error!, maxLines: 2, overflow: TextOverflow.ellipsis),
+                      trailing: TextButton(onPressed: repository.refresh, child: const Text('Reintentar')),
+                    ),
+                  ),
+                ),
+            ]),
+          ),
+          // Don Bigotes and «+ Añadir», small and apart, just above the tabs; out of the way while typing.
+          if (calc != null && !typing)
+            Positioned(
+              left: 8,
+              right: 12,
+              bottom: media.padding.bottom + 6,
+              child: FloatingActions(
+                onAdd: canAdd ? _add : null,
+                notes: notes,
+                companion: widget.preferences.companionEnabled,
+                onCompanion: () => _showCompanion(notes, reviewed),
+              ),
+            ),
+        ]);
+      }),
       bottomNavigationBar: ClipRect(
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-          child: NavigationBar(
-            backgroundColor: pulso.card.withValues(alpha: 0.72),
-            selectedIndex: tab,
-            onDestinationSelected: (index) => setState(() => tab = index),
-            destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: 'Inicio'),
-          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long), label: 'Movimientos'),
-          NavigationDestination(icon: Icon(Icons.account_balance_outlined), selectedIcon: Icon(Icons.account_balance), label: 'Cuentas'),
-          NavigationDestination(icon: Icon(Icons.pie_chart_outline), selectedIcon: Icon(Icons.pie_chart), label: 'Presupuestos'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: 'Ajustes'),
-            ],
+          child: ColoredBox(
+            color: pulso.card.withValues(alpha: 0.72),
+            child: DoblonNavigationBar(selectedIndex: tab, onDestinationSelected: _select),
           ),
         ),
       ),
@@ -416,8 +537,8 @@ class _SettingsPage extends StatelessWidget {
     try {
       await repository.deleteAccount();
     } catch (error) {
-      messenger.showSnackBar(SnackBar(
-          content: Text(error is BankingError ? error.message : 'No se ha podido eliminar la cuenta. Comprueba la conexión e inténtalo de nuevo.')));
+      messenger.showSnackBar(
+          SnackBar(content: Text(error is BankingError ? error.message : 'No se ha podido eliminar la cuenta. Comprueba la conexión e inténtalo de nuevo.')));
     }
   }
 
@@ -436,7 +557,7 @@ class _SettingsPage extends StatelessWidget {
           Padding(padding: const EdgeInsets.fromLTRB(4, 16, 4, 8), child: Text(title, style: Theme.of(context).textTheme.titleSmall)),
           Card(child: Column(children: children)),
         ]);
-    return ListView(padding: EdgeInsets.fromLTRB(16, 16, 16, 16 + MediaQuery.paddingOf(context).bottom), children: [
+    return ListView(padding: tabListPadding(context), children: [
       section('Cuenta y bancos', [
         ListTile(
           leading: Icon(Icons.cloud_done_outlined, color: pulso.accent),
@@ -509,10 +630,15 @@ class _SettingsPage extends StatelessWidget {
       section('Tus datos', [
         route(Icons.upload_file, 'Importar movimientos CSV', 'Añade un extracto de tu banco', () => CsvImportScreen(repository: repository)),
         route(Icons.save_alt, 'Copia de seguridad', 'Guardar, exportar o restaurar', () => BackupScreen(repository: repository)),
-        // The figures of the AI for the TFM: an administrator tool. The counters are still kept for everyone.
-        if (repository.isAdministrator)
-          route(Icons.insights, 'Acierto de la IA', 'Cuántas propuestas de categoría aceptas', () => AiMetricsScreen(repository: repository)),
       ]),
+      // Review and training tools of the developer, apart from everyday use. Guests never get tasks whose only purpose
+      // is to label movements for the AI; their private learning keeps working as before, without asking anything.
+      if (repository.isAdministrator)
+        section('Avanzado · revisión y entrenamiento', [
+          route(Icons.auto_awesome, 'Aplicar las propuestas de la IA', 'Categoriza de una vez lo que está sin categoría',
+              () => ReviewProposalsScreen(repository: repository)),
+          route(Icons.insights, 'Acierto de la IA', 'Cuántas propuestas de categoría se aceptan', () => AiMetricsScreen(repository: repository)),
+        ]),
       section('Ayuda', [
         route(Icons.help_outline, 'Cómo usar la app', 'Primeros pasos y conceptos importantes', () => const HelpScreen()),
         route(Icons.front_hand_outlined, 'Privacidad y protección de datos', '', () => const PrivacyScreen()),
@@ -555,68 +681,6 @@ class _SettingsPage extends StatelessWidget {
       const SizedBox(height: 8),
       Center(child: Text('Doblón $appVersion', style: Theme.of(context).textTheme.bodySmall)),
     ]);
-  }
-}
-
-/// Don Bigotes, as on the iPhone: awake with a bubble when he has something to point out, asleep (faded and
-/// tilted) when everything is in order. His name is always visible.
-class CompanionButton extends StatelessWidget {
-  const CompanionButton({super.key, required this.notes, required this.onTap});
-  final List<CompanionNote> notes;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final pulso = Pulso.of(context);
-    final scheme = Theme.of(context).colorScheme;
-    final awake = notes.isNotEmpty;
-    final text = !awake ? 'Don Bigotes' : 'Don Bigotes · ${notes.length == 1 ? 'tengo un aviso' : 'tengo ${notes.length} avisos'}';
-    return Semantics(
-      button: true,
-      label: awake ? 'Don Bigotes tiene ${notes.length == 1 ? 'algo' : '${notes.length} cosas'} que contarte' : 'Don Bigotes, sin novedades',
-      excludeSemantics: true,
-      child: GestureDetector(
-        onTap: onTap,
-        child: Row(mainAxisSize: MainAxisSize.min, children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: awake ? scheme.onSurface : scheme.surfaceContainerHighest,
-              borderRadius: const BorderRadius.only(
-                  topLeft: Radius.circular(18), bottomLeft: Radius.circular(18), topRight: Radius.circular(18), bottomRight: Radius.circular(4)),
-              boxShadow: awake ? const [BoxShadow(color: Color(0x2E000000), blurRadius: 8, offset: Offset(0, 4))] : null,
-            ),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (awake) ...[
-                Container(width: 8, height: 8, decoration: BoxDecoration(color: pulso.warning, shape: BoxShape.circle)),
-                const SizedBox(width: 7),
-              ],
-              Text(text,
-                  style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w600, color: awake ? scheme.surface : scheme.onSurfaceVariant)),
-            ]),
-          ),
-          const SizedBox(width: 8),
-          Opacity(
-            opacity: awake ? 1 : 0.6,
-            child: Transform.rotate(
-              angle: awake ? 0 : -0.21,
-              child: Container(
-                width: 54,
-                height: 54,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: awake ? pulso.card : pulso.tertiary,
-                  shape: BoxShape.circle,
-                  boxShadow: awake ? const [BoxShadow(color: Color(0x33000000), blurRadius: 9, offset: Offset(0, 5))] : null,
-                ),
-                child: DonBigotesMark(awake: awake, size: awake ? 40 : 34),
-              ),
-            ),
-          ),
-        ]),
-      ),
-    );
   }
 }
 

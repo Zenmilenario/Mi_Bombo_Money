@@ -58,10 +58,22 @@ void main() {
     expect([for (final (c, amount) in calc.spendingByCategory(DateTime(now.year, now.month))) '${c.name} $amount'], ['Comida 3000', 'Ocio 2000']);
   });
 
-  test('the notices of Inicio: budget over its limit, duplicate and account not updated', () {
-    final alerts = homeAlerts(FinanceCalculator(sample(now)), DateTime(now.year, now.month), now, Pulso.light);
-    expect(alerts.map((a) => a.title), ['Has superado 1 presupuesto', 'Hay 1 posible movimiento duplicado', '1 cuenta lleva más de 30 días sin actualizarse']);
-    expect(alerts.map((a) => a.tab), [3, 1, 2]);
+  testWidgets('Inicio: tapping a day of the calendar lists its movements below, and each opens', (tester) async {
+    final opened = <String>[];
+    tester.view.physicalSize = const Size(430, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final data = sample(now);
+    await tester.pumpWidget(app(HomeScreen(
+        calc: FinanceCalculator(data), month: DateTime(now.year, now.month), onMonth: (_) {}, onOpenTransaction: (t) => opened.add(t.id))));
+    await tester.pumpAndSettle();
+    final first = data.transactions.where((t) => t.date.toLocal().year == now.year && t.date.toLocal().month == now.month).last;
+    final day = first.date.toLocal().day;
+    await tester.tap(find.bySemanticsLabel(RegExp(' $day de ')).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(first.descriptionText).last);
+    expect(opened, contains(first.id));
+    expect(find.text('Necesita tu atención'), findsNothing, reason: 'No list of notices on Inicio: Don Bigotes has it');
   });
 
   testWidgets('Movimientos: quick filters and the summary of what is shown', (tester) async {

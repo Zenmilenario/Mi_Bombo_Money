@@ -78,14 +78,42 @@ class BalanceIndex {
 }
 
 class ReservedEntry {
-  ReservedEntry({required this.id, required this.date, required this.source, this.destination, required this.amount});
+  ReservedEntry({required this.id, required this.date, required this.source, this.destination, required this.amount, this.deposit = false});
   final String id;
   final DateTime date;
   final String source;
   final String? destination;
   final int amount;
+
+  /// Income set aside for the reserve after it existed (for example, the interest the person decides to keep in it):
+  /// it adds to the reserve in [source].
+  final bool deposit;
   bool get isTransfer => destination != null;
 }
+
+/// A reserve's history: payments and moves of its money, and income set aside for it after it was created.
+List<ReservedEntry> fundEntries(ReservedFund fund, Iterable<Transaction> transactions) => [
+      for (final t in transactions)
+        if (t.reservedFundId == fund.id &&
+            (t.type.countsAsExpense || t.type == TransactionType.transfer) &&
+            t.sourceAccountId != null &&
+            t.reservedAmountMinor != null)
+          ReservedEntry(
+              id: t.id,
+              date: t.date,
+              source: t.sourceAccountId!,
+              destination: t.type == TransactionType.transfer ? t.destinationAccountId : null,
+              amount: t.reservedAmountMinor!)
+        // Income for the reserve after it was created adds to it; before, it is where its starting amount came
+        // from, which is already counted.
+        else if (t.reservedFundId == fund.id &&
+            t.type.countsAsIncome &&
+            t.sourceAccountId != null &&
+            FinanceCalculator.reservedIncomeAmount(t) > 0 &&
+            fund.createdAt != null &&
+            t.date.isAfter(fund.createdAt!))
+          ReservedEntry(id: t.id, date: t.date, source: t.sourceAccountId!, amount: FinanceCalculator.reservedIncomeAmount(t), deposit: true),
+    ];
 
 /// Where a reserve's money is, account by account (Swift: `ReservedLedger.balances`). A transfer moves
 /// reserved money; only an expense consumes it. Returns null when the history is not valid.
@@ -99,6 +127,9 @@ Map<String, int>? reservedBalances(String origin, int funding, List<ReservedEntr
   for (final instant in groups.keys.toList()..sort()) {
     final group = groups[instant]!;
     if (!group.every((e) => e.amount > 0 && e.destination != e.source)) return null;
+    for (final entry in group.where((e) => e.deposit)) {
+      balances[entry.source] = (balances[entry.source] ?? 0) + entry.amount;
+    }
     final pending = group.where((e) => e.isTransfer).toList()..sort((a, b) => a.id.toUpperCase().compareTo(b.id.toUpperCase()));
     // Transfers at the same instant may form a chain, but an unfunded circle never creates money.
     while (pending.isNotEmpty) {
@@ -108,7 +139,7 @@ Map<String, int>? reservedBalances(String origin, int funding, List<ReservedEntr
       balances[entry.source] = (balances[entry.source] ?? 0) - entry.amount;
       balances[entry.destination!] = (balances[entry.destination!] ?? 0) + entry.amount;
     }
-    for (final entry in group.where((e) => !e.isTransfer)) {
+    for (final entry in group.where((e) => !e.isTransfer && !e.deposit)) {
       if ((balances[entry.source] ?? 0) < entry.amount) return null;
       balances[entry.source] = (balances[entry.source] ?? 0) - entry.amount;
     }
@@ -141,13 +172,22 @@ class MonthPace {
   }
 }
 
+/// A month's income and expenses. The «everyday» figures leave out the money of reserves: income set aside for a
+/// reserve and the part of a payment it covered. The full history keeps everything.
 class MonthlySummary {
-  MonthlySummary(this.incomeMinor, this.expenseMinor, this.reservedExpenseMinor);
+  MonthlySummary(this.incomeMinor, this.expenseMinor, this.reservedExpenseMinor, [this.reservedIncomeMinor = 0]);
   final int incomeMinor;
   final int expenseMinor;
   final int reservedExpenseMinor;
+  final int reservedIncomeMinor;
   int get budgetExpenseMinor => expenseMinor - reservedExpenseMinor;
   int get netSavingsMinor => incomeMinor - expenseMinor;
+  int get dailyIncomeMinor => incomeMinor - reservedIncomeMinor;
+  int get dailyExpenseMinor => budgetExpenseMinor;
+  int get dailyNetMinor => dailyIncomeMinor - dailyExpenseMinor;
+
+  /// Whether reserves change the month: then the everyday figures differ from the full ones.
+  bool get hasReserves => reservedExpenseMinor != 0 || reservedIncomeMinor != 0;
 }
 
 class BudgetLimit {
@@ -190,19 +230,17 @@ class FinanceCalculator {
 
   static int budgetExpenseAmount(Transaction t) => t.type.countsAsExpense ? t.amountMinor.abs() - reservedExpenseAmount(t) : 0;
 
-  List<ReservedEntry> reserveEntries(ReservedFund fund) => [
-        for (final t in data.transactions)
-          if (t.reservedFundId == fund.id &&
-              (t.type.countsAsExpense || t.type == TransactionType.transfer) &&
-              t.sourceAccountId != null &&
-              t.reservedAmountMinor != null)
-            ReservedEntry(
-                id: t.id,
-                date: t.date,
-                source: t.sourceAccountId!,
-                destination: t.type == TransactionType.transfer ? t.destinationAccountId : null,
-                amount: t.reservedAmountMinor!),
-      ];
+  /// The part of an income set aside for a reserve: the amount chosen, or all of it. It is not everyday income.
+  static int reservedIncomeAmount(Transaction t) {
+    if (!t.type.countsAsIncome || t.reservedFundId == null) return 0;
+    final part = t.reservedAmountMinor ?? t.amountMinor;
+    return part < 0 ? 0 : (part < t.amountMinor ? part : t.amountMinor);
+  }
+
+  /// Income for everyday use: without what went to a reserve.
+  static int dailyIncomeAmount(Transaction t) => t.type.countsAsIncome ? t.amountMinor.abs() - reservedIncomeAmount(t) : 0;
+
+  List<ReservedEntry> reserveEntries(ReservedFund fund) => fundEntries(fund, data.transactions);
 
   /// Reserved money located in this account now, across every reserve.
   int reservedAmount(Account account) {
@@ -235,7 +273,8 @@ class FinanceCalculator {
       final local = t.date.toLocal();
       final id = t.categoryId;
       if (!t.type.countsAsExpense || id == null || local.year != month.year || local.month != month.month) continue;
-      totals[id] = (totals[id] ?? 0) + t.amountMinor.abs();
+      final amount = budgetExpenseAmount(t);
+      if (amount > 0) totals[id] = (totals[id] ?? 0) + amount;
     }
     return [
       for (final MapEntry(key: id, value: amount) in totals.entries)
@@ -254,21 +293,24 @@ class FinanceCalculator {
     for (final t in data.transactions) {
       final local = t.date.toLocal();
       if (!t.type.countsAsExpense || local.year != month.year || local.month != month.month) continue;
-      spend[local.day] = (spend[local.day] ?? 0) + t.amountMinor.abs();
+      // Everyday spending: what a reserve paid is not counted again.
+      final amount = budgetExpenseAmount(t);
+      if (amount > 0) spend[local.day] = (spend[local.day] ?? 0) + amount;
     }
     return spend;
   }
 
   MonthlySummary monthlySummary(DateTime month) {
     final key = monthKey(month);
-    var income = 0, expense = 0, reserved = 0;
+    var income = 0, expense = 0, reserved = 0, reservedIncome = 0;
     for (final t in data.transactions) {
       if (monthKey(t.date) != key) continue;
       if (t.type.countsAsIncome) income += t.amountMinor.abs();
       if (t.type.countsAsExpense) expense += t.amountMinor.abs();
       reserved += reservedExpenseAmount(t);
+      reservedIncome += reservedIncomeAmount(t);
     }
-    return MonthlySummary(income, expense, reserved);
+    return MonthlySummary(income, expense, reserved, reservedIncome);
   }
 
   static RecurringBudget? activeRecurringBudget(Category category, int month, List<RecurringBudget> plans) {

@@ -50,6 +50,10 @@ jobs:
 
       - run: flutter pub get
 
+      # The SDK's Material fonts, so local and CI runs have the same artifacts (the tests do not depend on them).
+      - name: Descargar las fuentes de Material
+        run: flutter precache --universal
+
       - name: Analizar el código
         run: flutter analyze --no-fatal-infos
 

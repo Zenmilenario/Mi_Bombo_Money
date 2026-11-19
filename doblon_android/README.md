@@ -28,21 +28,28 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
 
 ## Qué hace
 
-- **Entrada:** con la misma cuenta de Doblón; alta de cuenta nueva y bloqueo con huella o PIN del móvil.
-- **Inicio:**
-  - patrimonio con su gráfico de 12 meses y la variación del mes;
-  - disponible e invertido, y lo disponible al día hasta fin de mes;
-  - ingresos, gastos y ahorro del mes, presupuestos y últimos movimientos.
+- **Entrada:** con la misma cuenta de Doblón; alta de cuenta nueva y bloqueo con Face ID, huella o PIN del móvil, o con el correo y la contraseña de la cuenta; el bloqueo cubre todas las pantallas y, al salir de la app, una cubierta oculta los datos también en la vista de apps recientes.
+- **Inicio** (0.25.0):
+  - Disponible en su tarjeta, con lo reservado, retenido e invertido;
+  - el mes: gastos, ingresos y ahorro, lo presupuestado con su ritmo y margen, y el calendario de gasto diario (cada día lista sus movimientos);
+  - patrimonio con su variación del mes y la línea desde el primer mes con historial (valor y fecha al tocarla);
+  - presupuestos y objetivo destacado.
+- **Abajo:** Don Bigotes (avatar con contador de avisos) y «+ Añadir» (una pulsación), flotantes y separados sobre las pestañas; las etiquetas de las pestañas se ocultan, sin partirse, cuando no caben al tamaño de texto elegido; la cabecera se recoge al bajar.
+- **Plataformas:** el mismo código en iOS y Android; solo «Pagos con Apple Pay» es exclusivo de iOS.
 - **Movimientos:**
   - apuntar, editar y borrar; categorizar uno o varios;
-  - «Por revisar»: duplicados, sin categoría o con categoría incompatible;
-  - filtros, detalle y emparejado de traspasos entre tus cuentas;
+  - alta con el importe enfocado, la cuenta sin adivinar y lo opcional en «Más opciones»;
+  - «Pendiente»: posibles duplicados o categoría incompatible (la categoría es opcional y no cuenta como tarea);
+  - herramientas de revisión y entrenamiento de la IA solo para el administrador, en Ajustes › Avanzado;
+  - filtros y detalle;
+  - «Revisar y unir»: traspasos entre tus cuentas (también si un lado ya era traspaso) y duplicados, comparados, con vista previa del efecto en los saldos y deshacer; con la cuenta de administrador, «Unir o conciliar» dos movimientos elegidos a mano;
   - categoría sugerida por tus reglas, con opción de recordar la regla;
   - pagos con dinero reservado.
 - **Cuentas:**
   - crear, editar, archivar y recuperar cuentas;
-  - actualizar el saldo a mano;
+  - actualizar o regularizar el saldo a mano, con concepto y diferencia calculada, y deshacerlo desde «Ajustes de saldo»;
   - tarjetas, dinero reservado y últimos movimientos de cada cuenta.
+- **Reservas:** dinero apartado en una cuenta (un pago futuro o un colchón): sale del disponible libre; los pagos que cubre y los ingresos destinados a ella quedan fuera del resultado cotidiano (Inicio, Movimientos, calendario, análisis y presupuestos), que muestran aparte el historial completo; los traslados solo cambian dónde está.
 - **Presupuestos:**
   - límite solo de este mes o de todos los meses (guardar o arrastrar lo que sobra);
   - gasto sin presupuesto;

@@ -9,6 +9,7 @@ import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
 import 'forms.dart';
+import 'chrome.dart' show tabListPadding;
 import 'widgets.dart';
 
 /// A month as the cloud stores it: the first day at noon UTC.
@@ -39,37 +40,36 @@ class BudgetsScreen extends StatelessWidget {
     final hint = Theme.of(context).hintColor;
     return Scaffold(
       backgroundColor: Colors.transparent,
-      floatingActionButton: FloatingActionButton(
-        tooltip: 'Añadir presupuesto',
-        onPressed: () async {
-          final options = [...unbudgeted.map((i) => i.category), ...withoutAny];
-          if (options.isEmpty) return;
-          final chosen = await showModalBottomSheet<Category>(
-            context: context,
-            showDragHandle: true,
-            builder: (context) => ListView(children: [
-              for (final c in options)
-                ListTile(
-                    leading: CircleAvatar(radius: 8, backgroundColor: colorFromHex(c.colorHex)), title: Text(c.name), onTap: () => Navigator.pop(context, c)),
-            ]),
-          );
-          if (chosen != null && context.mounted) _edit(context, chosen);
-        },
-        child: const Icon(Icons.add),
-      ),
-      body: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: EdgeInsets.fromLTRB(16, 16, 16, 88 + MediaQuery.paddingOf(context).bottom), children: [
-        MonthSelector(month: month, onMonth: onMonth),
+      body: ListView(physics: const AlwaysScrollableScrollPhysics(), padding: tabListPadding(context, top: 12), children: [
+        Row(children: [
+          Expanded(child: MonthSelector(month: month, onMonth: onMonth)),
+          // In the content, not floating: nothing covers the budgets.
+          IconButton.filledTonal(
+              tooltip: 'Añadir presupuesto',
+              icon: const Icon(Icons.add),
+              onPressed: () async {
+                final options = [...unbudgeted.map((i) => i.category), ...withoutAny];
+                if (options.isEmpty) return;
+                final chosen = await showModalBottomSheet<Category>(
+                  context: context,
+                  showDragHandle: true,
+                  builder: (context) => ListView(children: [
+                    for (final c in options)
+                      ListTile(
+                          leading: CircleAvatar(radius: 8, backgroundColor: colorFromHex(c.colorHex)),
+                          title: Text(c.name),
+                          onTap: () => Navigator.pop(context, c)),
+                  ]),
+                );
+                if (chosen != null && context.mounted) _edit(context, chosen);
+              }),
+        ]),
         const SizedBox(height: 8),
-        BudgetOverview(
-            limitMinor: total,
-            spentMinor: spent,
-            unbudgetedSpentMinor: unbudgeted.fold(0, (sum, i) => sum + i.spentMinor),
-            month: month),
+        BudgetOverview(limitMinor: total, spentMinor: spent, unbudgetedSpentMinor: unbudgeted.fold(0, (sum, i) => sum + i.spentMinor), month: month),
         if (budgeted.isNotEmpty) ...[
           const SizedBox(height: 14),
           _ComparisonCard(
-              items: budgeted,
-              onAnalysis: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => BudgetAnalysisScreen(calc: calc, month: month)))),
+              items: budgeted, onAnalysis: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => BudgetAnalysisScreen(calc: calc, month: month)))),
         ],
         if (DateTime(month.year, month.month).isBefore(DateTime(DateTime.now().year, DateTime.now().month)) && unspentKept(calc, month) > 0) ...[
           const SizedBox(height: 14),
@@ -105,7 +105,10 @@ class BudgetsScreen extends StatelessWidget {
           const SizedBox(height: 14),
           _AddToBudgetCard(
             categories: [...unbudgeted.map((i) => i.category), ...withoutAny],
-            withSpending: {for (final i in unbudgeted) if (i.spentMinor > 0) i.category.id},
+            withSpending: {
+              for (final i in unbudgeted)
+                if (i.spentMinor > 0) i.category.id
+            },
             onTap: (c) => _edit(context, c),
           ),
         ],
@@ -131,11 +134,9 @@ String budgetPacingText(int limitMinor, int spentMinor, DateTime month, DateTime
   if (chosen.isBefore(current)) {
     return limitMinor - spentMinor >= 0 ? 'Cerraste el mes por debajo del presupuesto' : 'Cerraste el mes por encima del presupuesto';
   }
-  final difference = MonthPace(limitMinor: limitMinor, spentMinor: spentMinor, day: now.day, daysInMonth: DateTime(now.year, now.month + 1, 0).day)
-      .differenceMinor;
-  return difference >= 0
-      ? 'Vas ${money(difference)} por debajo del ritmo previsto'
-      : 'Vas ${money(-difference)} por encima del ritmo previsto';
+  final difference =
+      MonthPace(limitMinor: limitMinor, spentMinor: spentMinor, day: now.day, daysInMonth: DateTime(now.year, now.month + 1, 0).day).differenceMinor;
+  return difference >= 0 ? 'Vas ${money(difference)} por debajo del ritmo previsto' : 'Vas ${money(-difference)} por encima del ritmo previsto';
 }
 
 /// A small coloured label with the state of a budget (Swift `StatusPill`).
@@ -266,7 +267,8 @@ class _ComparisonCard extends StatelessWidget {
           Text('Primero, las categorías con mayor uso del presupuesto', style: TextStyle(fontSize: 13, color: hint)),
           const SizedBox(height: 14),
           if (amountsHidden)
-            Padding(padding: const EdgeInsets.symmetric(vertical: 24), child: Center(child: Text('Gráfico oculto por privacidad', style: TextStyle(color: hint))))
+            Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24), child: Center(child: Text('Gráfico oculto por privacidad', style: TextStyle(color: hint))))
           else
             for (final item in shown)
               Padding(
@@ -347,8 +349,7 @@ class _BudgetRow extends StatelessWidget {
             Expanded(child: Text('Gastado: ${money(item.spentMinor)}', style: TextStyle(fontSize: 12, color: hint))),
             Text('Disponible: ${money(item.availableMinor)}', style: TextStyle(fontSize: 12, color: hint)),
           ]),
-          if (item.carriedInMinor > 0)
-            Text('Incluye ${money(item.carriedInMinor)} del mes anterior', style: TextStyle(fontSize: 12, color: hint)),
+          if (item.carriedInMinor > 0) Text('Incluye ${money(item.carriedInMinor)} del mes anterior', style: TextStyle(fontSize: 12, color: hint)),
         ]),
       ),
     );
@@ -719,7 +720,10 @@ class GoalDetailScreen extends StatelessWidget {
                       Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 13, color: hint))),
                     ]),
                     const SizedBox(height: 6),
-                    FittedBox(fit: BoxFit.scaleDown, alignment: Alignment.centerLeft, child: Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: color))),
+                    FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: color))),
                   ]),
                 ),
               );
@@ -776,7 +780,10 @@ class GoalDetailScreen extends StatelessWidget {
               const SectionTitle('Detalles'),
               Card(
                 child: Column(children: [
-                  ListTile(leading: Icon(Icons.account_balance_outlined, color: tint), title: const Text('Cuenta vinculada'), trailing: Text(account?.name ?? 'Ninguna')),
+                  ListTile(
+                      leading: Icon(Icons.account_balance_outlined, color: tint),
+                      title: const Text('Cuenta vinculada'),
+                      trailing: Text(account?.name ?? 'Ninguna')),
                   ListTile(
                     leading: Icon(Icons.calendar_today_outlined, color: tint),
                     title: const Text('Fecha objetivo'),
@@ -846,7 +853,9 @@ class _BudgetAnalysisScreenState extends State<BudgetAnalysisScreen> {
               Text('Compara lo planificado con lo que realmente has gastado', style: TextStyle(fontSize: 13, color: hint)),
               const SizedBox(height: 16),
               if (amountsHidden)
-                Padding(padding: const EdgeInsets.symmetric(vertical: 40), child: Center(child: Text('Gráfico oculto por privacidad', style: TextStyle(color: hint))))
+                Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 40),
+                    child: Center(child: Text('Gráfico oculto por privacidad', style: TextStyle(color: hint))))
               else if (shown.isEmpty)
                 Padding(
                     padding: const EdgeInsets.symmetric(vertical: 40),
