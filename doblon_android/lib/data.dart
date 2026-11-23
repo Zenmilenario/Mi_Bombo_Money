@@ -10,6 +10,7 @@ import 'package:uuid/uuid.dart';
 import 'bank_activity.dart';
 import 'banking.dart';
 import 'bank_sync.dart';
+import 'forecast_store.dart';
 import 'edits.dart';
 import 'contributions.dart';
 import 'learning.dart';
@@ -87,7 +88,7 @@ class LocalStore {
   Future<void> saveBankState(String user, Map<String, dynamic> value) => _write(_file(user, 'bank-sync'), value);
 
   Future<void> clear(String user) async {
-    for (final name in ['cloud', 'pending', 'bank-sync']) {
+    for (final name in ['cloud', 'pending', 'bank-sync', 'forecast']) {
       final file = _file(user, name);
       await _diskWrites[file.path];
       if (await file.exists()) await file.delete();
@@ -207,6 +208,8 @@ class FinanceRepository extends ChangeNotifier {
           // What is taught here reaches the person's other devices a moment later.
           ..onChange = _scheduleLearningSync;
         bankActivity = await BankActivityStore(store.directory).load(user);
+        forecast = await ForecastStore.open(store.directory, user)
+          ..addListener(notifyListeners);
         final bankState = await store.loadBankState(user);
         if (_disposed || generation != _generation || user != _user) return;
         bankSchedule.load(bankState);
@@ -347,6 +350,9 @@ class FinanceRepository extends ChangeNotifier {
 
   /// What the person has taught the models on this device and profile (null until the first load).
   Learning? learning;
+
+  /// Forecast assumptions and simulations, kept on this device apart from the finances (null until the first load).
+  ForecastStore? forecast;
 
   /// The last bank report of each linked account (holds, balances, what it sent), by bank identity.
   Map<String, BankActivity> bankActivity = {};
@@ -764,6 +770,7 @@ class FinanceRepository extends ChangeNotifier {
     bankSchedule.load({});
     _learningTimer?.cancel();
     learning = null;
+    forecast = null;
     finances = null;
     copy = null;
     document = null;

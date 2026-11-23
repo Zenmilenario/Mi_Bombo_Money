@@ -15,13 +15,24 @@ import 'widgets.dart';
 /// net worth over time, then the budgets and the goal. Short labels; every amount once.
 class HomeScreen extends StatefulWidget {
   const HomeScreen(
-      {super.key, required this.calc, required this.month, required this.onMonth, this.onAdd, this.heldMinor = 0, this.onOpenTab, this.onOpenTransaction});
+      {super.key,
+      required this.calc,
+      required this.month,
+      required this.onMonth,
+      this.onAdd,
+      this.heldMinor = 0,
+      this.onOpenTab,
+      this.onOpenTransaction,
+      this.onForecast});
   final FinanceCalculator calc;
   final DateTime month;
   final ValueChanged<DateTime> onMonth;
   final VoidCallback? onAdd;
   final ValueChanged<int>? onOpenTab;
   final ValueChanged<Transaction>? onOpenTransaction;
+
+  /// Opens «Previsión y simulaciones».
+  final VoidCallback? onForecast;
 
   /// Charges the bank holds and has not booked yet (negative), already taken from what is available.
   final int heldMinor;
@@ -95,7 +106,8 @@ class _HomeScreenState extends State<HomeScreen> {
     return LayoutBuilder(builder: (context, constraints) {
       final wide = constraints.maxWidth >= 720;
       return ListView(physics: const AlwaysScrollableScrollPhysics(), padding: tabListPadding(context, top: 4), children: [
-        spaced(_AvailableCard(calc: calc, heldMinor: widget.heldMinor, onOpen: widget.onOpenTab == null ? null : () => widget.onOpenTab!(2))),
+        spaced(_AvailableCard(
+            calc: calc, heldMinor: widget.heldMinor, onOpen: widget.onOpenTab == null ? null : () => widget.onOpenTab!(2), onForecast: widget.onForecast)),
         if (wide)
           // iPad: the month on the left, net worth, budgets and goal on the right.
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -135,10 +147,11 @@ const _cardTop = Color(0xFF12857C), _cardBottom = Color(0xFF0A4E4A), _cardTopDar
 /// «Disponible», alone in its card and the largest figure of the app, on a deep teal with the faint rings of a coin
 /// (a doblón). Below it, what is not available: reserved, held by the bank and invested. Tapping opens Cuentas.
 class _AvailableCard extends StatelessWidget {
-  const _AvailableCard({required this.calc, required this.heldMinor, this.onOpen});
+  const _AvailableCard({required this.calc, required this.heldMinor, this.onOpen, this.onForecast});
   final FinanceCalculator calc;
   final int heldMinor;
   final VoidCallback? onOpen;
+  final VoidCallback? onForecast;
 
   @override
   Widget build(BuildContext context) {
@@ -193,6 +206,27 @@ class _AvailableCard extends StatelessWidget {
                     labelStyle: const TextStyle(fontSize: 12, color: soft),
                     valueStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white),
                     items: stats,
+                  ),
+                ],
+                // The way to the forecast: one line, so Inicio does not grow.
+                if (onForecast != null) ...[
+                  const SizedBox(height: 12),
+                  Material(
+                    color: const Color(0x26FFFFFF),
+                    shape: const StadiumBorder(),
+                    clipBehavior: Clip.antiAlias,
+                    child: InkWell(
+                      onTap: onForecast,
+                      child: const Padding(
+                        padding: EdgeInsets.fromLTRB(12, 8, 8, 8),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.insights, size: 18, color: Colors.white),
+                          SizedBox(width: 8),
+                          Text('Previsión y simulaciones', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
+                          Icon(Icons.chevron_right, size: 18, color: Colors.white),
+                        ]),
+                      ),
+                    ),
                   ),
                 ],
               ]),

@@ -54,12 +54,20 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
   - límite solo de este mes o de todos los meses (guardar o arrastrar lo que sobra);
   - gasto sin presupuesto;
   - objetivos de ahorro, a mano o siguiendo el saldo de una cuenta.
+- **Previsión y simulaciones** (0.32.0, `lib/forecast.dart`, `lib/forecast_store.dart`, `lib/screens/forecast_screen.dart`; se abre desde la tarjeta Disponible de Inicio y desde los avisos de Don Bigotes):
+  - saldo y disponible libre (saldo menos reservas) día a día a 30, 60 o 90 días, en conjunto o por cuenta, con gráfica, calendario y detalle de cada día;
+  - parte de hoy y distingue el saldo recibido del banco, el indicado a mano y el calculado con movimientos, con su fecha y los límites de la previsión (poco historial, saldos antiguos, otra moneda);
+  - cuenta lo ya apuntado con fecha futura, los pagos periódicos (confirmados), lo que se repite cada mes en el historial y el gasto variable (estimados) y los cargos retenidos por el banco;
+  - sin dobles cuentas: el movimiento real sustituye a su previsión aunque llegue unos días antes o después (un pago retrasado hasta 7 días se sigue esperando, para hoy); lo repetido en el historial no se estima si ya hay un pago periódico parecido; un presupuesto solo añade lo que deja libre después de los pagos previstos de su categoría;
+  - supuestos editables sin tocar movimientos ni pagos: colchón, gasto variable automático o propio, aprender del historial, y dejar fuera o cambiar el importe de cada pago previsto;
+  - simulaciones guardadas («qué pasaría si»): compra puntual (también pagada con una reserva), gasto mensual nuevo, cambio o retraso de un ingreso y aportación a una reserva; se comparan con la previsión base (mínimo y fecha, final del periodo, colchón, reservas, cuentas sin saldo y objetivos afectados);
+  - los supuestos y las simulaciones se guardan solo en el dispositivo (`forecast-<usuario>.json`), fuera de la nube y de la contabilidad: no crean movimientos, no cambian saldos ni enseñan a la IA, y se borran al cerrar sesión. Aún no se comparten entre dispositivos.
 - **Ajustes:**
   - Mis bancos: conectar, actualizar, revisar coincidencias con lo apuntado y desconectar;
   - categorías, reglas de categorización, cargos y aportaciones periódicas (se apuntan solos al abrir), y bancos y entidades;
   - apariencia, ocultar importes, Don Bigotes y bloqueo;
   - importar CSV, exportar CSV y copia de seguridad (guardar y restaurar).
-- **Don Bigotes:** en la barra superior. Dormido si no hay nada y con un número si hay avisos: revisión, posibles traspasos, cargos próximos, cuentas sin actualizar y pagos que no llegan del banco. Señala, nunca aconseja.
+- **Don Bigotes:** en la barra superior. Dormido si no hay nada y con un número si hay avisos: revisión, posibles traspasos, cargos próximos, cuentas sin actualizar, pagos que no llegan del banco y, desde la 0.32.0, una cuenta que podría quedarse sin saldo para un cargo previsto o el disponible por debajo del colchón en los próximos 30 días (abre la previsión en ese día y cuenta). Señala, nunca aconseja ni mueve dinero.
 - **Sin conexión:** copia local y cola de cambios; se suben sobre la copia más reciente de la nube.
 - **Inteligencia artificial** (`lib/learning.dart`, los mismos tres modelos y umbrales que el iPhone):
   - propone la categoría a partir del concepto, en el formulario, en «Por revisar» y al importar un CSV;

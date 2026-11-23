@@ -26,6 +26,8 @@ import 'tools.dart';
 import 'transaction_form.dart';
 import '../reconcile.dart' show ReconcileStore;
 import 'reconcile_screen.dart';
+import 'forecast_screen.dart';
+import '../forecast.dart' show buildForecast, forecastDay, forecastNotes, simulateForecast;
 import 'transaction_detail.dart';
 import 'transactions.dart';
 import 'widgets.dart' show RowGlyph;
@@ -169,7 +171,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
 
   // Don Bigotes' notes walk the whole history: kept until the finances, the bank reports or the day change, so a
   // notice about something else does not compute them again.
-  Object? _notesFrom, _notesActivity, _notesConnections, _notesKept;
+  Object? _notesFrom, _notesActivity, _notesConnections, _notesKept, _notesForecast;
   String? _notesDay;
   List<CompanionNote> _notes = const [];
 
@@ -180,6 +182,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
         identical(repository.bankActivity, _notesActivity) &&
         identical(repository.bankConnections, _notesConnections) &&
         identical(ReconcileStore.instance.keptApart, _notesKept) &&
+        identical(repository.forecast?.settings, _notesForecast) &&
         day == _notesDay) {
       return _notes;
     }
@@ -187,19 +190,35 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
     _notesActivity = repository.bankActivity;
     _notesConnections = repository.bankConnections;
     _notesKept = ReconcileStore.instance.keptApart;
+    _notesForecast = repository.forecast?.settings;
     _notesDay = day;
     final thisMonth = DateTime(now.year, now.month);
     final over = calc.budgetProgress(thisMonth).where((b) => b.limitMinor > 0 && b.spentMinor > b.limitMinor).length;
-    return _notes = companionNotes(data, now,
-        holds: bankHolds(data, repository.bankActivity),
+    final holds = bankHolds(data, repository.bankActivity);
+    // The forecast's notices: an account short for a charge, the free money below the cushion.
+    final settings = repository.forecast?.settings;
+    final forecast = settings == null
+        ? const <CompanionNote>[]
+        : forecastNotes(simulateForecast(buildForecast(calc, now, settings, holds: [
+            for (final h in holds)
+              if (h.movement.signedAmountMinor < 0) (h.account.id, h.movement.signedAmountMinor)
+          ])));
+    return _notes = [
+      ...companionNotes(data, now,
+        holds: holds,
         overBudget: over,
         budgetMonth: '${now.year}-${now.month}',
         keptApart: ReconcileStore.instance.keptApart,
         renewals: [
           for (final connection in repository.bankConnections)
             if (permissionExpiresSoon(connection, now)) (bank: connection.bank, days: permissionDaysLeft(connection, now)!),
-        ]);
+        ]),
+      ...forecast,
+    ];
   }
+
+  void _openForecast({DateTime? day, String? accountId}) => Navigator.of(context)
+      .push(MaterialPageRoute(builder: (_) => ForecastScreen(repository: repository, focusDay: day, focusAccountId: accountId)));
 
   /// Don Bigotes' notes, as on the iPhone (`CompanionNotesSheet`): his face, a button to update the banks and each
   /// note with its icon, «Ahora no» and «Ver».
@@ -312,6 +331,11 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
       case 'budgets':
         setState(() => month = DateTime(DateTime.now().year, DateTime.now().month));
         _select(3);
+      case 'forecast':
+        // forecast:account:<account>:<day> or forecast:cushion:<day>: the day and the account it is about.
+        final parts = note.id.split(':');
+        final day = DateTime.tryParse(parts.last);
+        _openForecast(day: day == null ? null : forecastDay(day), accountId: parts[1] == 'account' && parts.length == 4 ? parts[2] : null);
       default:
         _select(note.tab);
     }
@@ -326,6 +350,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
         'recurring' => Icons.event,
         'stale' => Icons.schedule,
         'awaiting' => Icons.credit_card,
+        'forecast' => Icons.insights,
         _ => Icons.lightbulb_outline,
       };
 
@@ -363,6 +388,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
               onMonth: setMonth,
               onAdd: () => _select(2),
               onOpenTab: _select,
+              onForecast: _openForecast,
               onOpenTransaction: (t) =>
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionDetailScreen(repository: repository, transactionId: t.id))),
               // Charges the bank holds and has not booked yet, as on the iPhone's «Disponible tras retenciones».
