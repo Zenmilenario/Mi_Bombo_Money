@@ -11,6 +11,7 @@ import 'package:doblon/cloud_privacy.dart';
 import 'package:doblon/data.dart';
 import 'package:doblon/learning.dart';
 import 'package:doblon/screens/bank_refresh.dart';
+import 'package:doblon/screens/shell.dart' show DonBigotesMark;
 import 'package:doblon/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -197,5 +198,64 @@ void main() {
     expect(find.text('Actualizado: 2 movimientos nuevos'), findsOneWidget);
     expect(find.text('Actualizar mis bancos'), findsOneWidget);
     expect(find.byType(ThinkingDots), findsNothing);
+  });
+
+  test('Don Bigotes shows the real task and how it ended, then rests', () async {
+    final (repo, _) = await repository();
+    final bank = _Bank()..gate = Completer<void>();
+    addTearDown(bank.close);
+    final seen = <CompanionMood>[];
+    repo.companionMood.addListener(() => seen.add(repo.companionMood.value));
+    final run = repo.synchronizeBanks(manual: true, client: bank);
+    expect(repo.companionMood.value, CompanionMood.thinking);
+    bank.gate!.complete();
+    await run;
+    expect(seen, contains(CompanionMood.thinking));
+    expect(repo.companionMood.value, CompanionMood.happy, reason: 'A pleased moment when it worked');
+    await Future<void>.delayed(const Duration(milliseconds: 1600));
+    expect(repo.companionMood.value, CompanionMood.idle, reason: 'Never stays pleased');
+
+    seen.clear();
+    await repo.update((document) => (document, null));
+    expect(seen, [CompanionMood.saving, CompanionMood.idle], reason: 'Saving to the cloud while it lasts');
+
+    final failing = _Bank()..offline = true;
+    addTearDown(failing.close);
+    await repo.synchronizeBanks(manual: true, client: failing);
+    expect(repo.companionMood.value, CompanionMood.worried, reason: 'Ears back when the banks could not be asked');
+    await Future<void>.delayed(const Duration(milliseconds: 4100));
+    expect(repo.companionMood.value, CompanionMood.idle);
+  });
+
+  testWidgets('each gesture moves only while its task lasts, and not at all with fewer animations', (tester) async {
+    Future<void> show(CompanionMood mood, {bool still = false}) => tester.pumpWidget(MaterialApp(
+        theme: doblonTheme(Brightness.light),
+        home: Builder(
+            builder: (context) => MediaQuery(
+                data: MediaQuery.of(context).copyWith(disableAnimations: still), child: Center(child: DonBigotesMark(mood: mood))))));
+
+    for (final mood in [CompanionMood.thinking, CompanionMood.saving, CompanionMood.reading]) {
+      await show(mood);
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.hasRunningAnimations, isTrue, reason: '$mood moves while working');
+      await show(mood, still: true);
+      await tester.pump();
+      expect(tester.hasRunningAnimations, isFalse, reason: '$mood keeps still with fewer animations');
+    }
+    await show(CompanionMood.saving);
+    await tester.pump(const Duration(milliseconds: 100));
+    await show(CompanionMood.idle);
+    await tester.pump();
+    expect(tester.hasRunningAnimations, isFalse, reason: 'Stops as soon as the task ends');
+
+    await show(CompanionMood.happy);
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.hasRunningAnimations, isTrue);
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.hasRunningAnimations, isFalse, reason: 'The pleased hop plays once');
+
+    await show(CompanionMood.worried);
+    await tester.pump();
+    expect(tester.hasRunningAnimations, isFalse, reason: 'A pose, not a loop');
   });
 }

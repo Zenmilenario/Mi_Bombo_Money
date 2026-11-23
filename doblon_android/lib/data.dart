@@ -96,10 +96,49 @@ class LocalStore {
 }
 
 /// Downloads and saves the person's finances with the same functions the iPhone uses to sync.
+/// What Don Bigotes is doing, taken only from real work: asking the banks, saving to the cloud, reading the cloud
+/// copy, and how the last bank refresh ended (a short moment, then back to idle).
+enum CompanionMood { idle, thinking, saving, reading, happy, worried }
+
 class FinanceRepository extends ChangeNotifier {
   FinanceRepository({LocalStore? store, SupabaseClient? cloudClient})
       : _store = store,
-        _cloud = cloudClient;
+        _cloud = cloudClient {
+    bankProgress.addListener(_updateMood);
+  }
+
+  final companionMood = ValueNotifier(CompanionMood.idle);
+  int _saving = 0;
+  CompanionMood? _moment;
+  Timer? _momentTimer;
+
+  void _updateMood() {
+    if (_disposed) return;
+    companionMood.value = bankProgress.value != null
+        ? CompanionMood.thinking
+        : _saving > 0
+            ? CompanionMood.saving
+            : loading
+                ? CompanionMood.reading
+                : _moment ?? CompanionMood.idle;
+  }
+
+  /// How a bank refresh ended, shown for a moment: pleased when it worked, ears back when a bank failed.
+  void _showOutcome(BankSyncResult? result) {
+    final mood = switch (result?.outcome) {
+      BankSyncOutcome.updated || BankSyncOutcome.noChanges => CompanionMood.happy,
+      BankSyncOutcome.partial || BankSyncOutcome.failed || BankSyncOutcome.waiting => CompanionMood.worried,
+      _ => null,
+    };
+    if (mood == null || _disposed) return;
+    _moment = mood;
+    _momentTimer?.cancel();
+    _momentTimer = Timer(Duration(milliseconds: mood == CompanionMood.happy ? 1500 : 4000), () {
+      _moment = null;
+      _updateMood();
+    });
+    _updateMood();
+  }
 
   LocalStore? _store;
   final SupabaseClient? _cloud;
@@ -154,6 +193,7 @@ class FinanceRepository extends ChangeNotifier {
     final generation = _generation;
     loading = true;
     error = null;
+    _updateMood();
     notifyListeners();
     try {
       if (!_opened) {
@@ -194,6 +234,7 @@ class FinanceRepository extends ChangeNotifier {
           : 'Sin conexión: ves la última copia de este dispositivo.';
     } finally {
       loading = false;
+      _updateMood();
       notifyListeners();
     }
   }
@@ -219,7 +260,16 @@ class FinanceRepository extends ChangeNotifier {
   /// new document, up to three times, so nothing saved elsewhere is overwritten.
   Future<T> update<T>((Map<String, dynamic>, T) Function(Map<String, dynamic> document) change) {
     final user = _user, generation = _generation;
-    final task = _writes.then((_) => _update(change, user, generation));
+    final task = _writes.then((_) async {
+      _saving++;
+      _updateMood();
+      try {
+        return await _update(change, user, generation);
+      } finally {
+        _saving--;
+        _updateMood();
+      }
+    });
     _writes = task.then<void>((_) {}, onError: (Object _, StackTrace __) {});
     return task;
   }
@@ -563,6 +613,7 @@ class FinanceRepository extends ChangeNotifier {
     _bankRun = next;
     _bankRunManual = manual;
     bankProgress.value = const BankSyncProgress('Consultando tus bancos…');
+    next.then(_showOutcome, onError: (Object _) {});
     next.whenComplete(() {
       if (identical(_bankRun, next)) {
         _bankRun = null;
@@ -728,6 +779,8 @@ class FinanceRepository extends ChangeNotifier {
     _disposed = true;
     _generation++;
     _learningTimer?.cancel();
+    _momentTimer?.cancel();
+    bankProgress.removeListener(_updateMood);
     super.dispose();
   }
 }

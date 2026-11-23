@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -216,8 +217,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
             child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(20, 0, 20, 20), children: [
               Row(children: [
                 ValueListenableBuilder(
-                    valueListenable: repository.bankProgress,
-                    builder: (context, progress, _) => DonBigotesMark(awake: notes.isNotEmpty || progress != null, thinking: progress != null, size: 52)),
+                    valueListenable: repository.companionMood,
+                    builder: (context, mood, _) => DonBigotesMark(awake: notes.isNotEmpty, mood: mood, size: 52)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -445,13 +446,13 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
               left: 8,
               right: 12,
               bottom: media.padding.bottom + 6,
-              // Don Bigotes keeps thinking on his button while the banks are refreshed, also with his panel closed.
+              // Don Bigotes shows on his button what he is doing (banks, saving…), also with his panel closed.
               child: ValueListenableBuilder(
-                valueListenable: repository.bankProgress,
-                builder: (context, progress, _) => FloatingActions(
+                valueListenable: repository.companionMood,
+                builder: (context, mood, _) => FloatingActions(
                   onAdd: canAdd ? _add : null,
                   notes: notes,
-                  thinking: progress != null,
+                  mood: mood,
                   companion: widget.preferences.companionEnabled,
                   onCompanion: () => _showCompanion(notes, reviewed),
                 ),
@@ -660,73 +661,158 @@ class _SettingsPage extends StatelessWidget {
 }
 
 /// Don Bigotes' face, drawn as on the iPhone app (Swift `DonBigotesMark`): open eyes when he has something to point
-/// out, closed when everything is in order, and the bow tie in the accent colour.
-class DonBigotesMark extends StatelessWidget {
-  const DonBigotesMark({super.key, this.awake = true, this.size = 44, this.thinking = false});
+/// out, closed when everything is in order, and the bow tie in the accent colour. Each real task has its gesture
+/// (`CompanionMood`): it moves only while the task lasts, and with fewer animations it keeps the pose without moving.
+class DonBigotesMark extends StatefulWidget {
+  const DonBigotesMark({super.key, this.awake = true, this.size = 44, this.mood = CompanionMood.idle});
   final bool awake;
   final double size;
-
-  /// Working on something (the banks): eyes open and looking up, as if thinking.
-  final bool thinking;
+  final CompanionMood mood;
 
   @override
-  Widget build(BuildContext context) =>
-      ExcludeSemantics(child: CustomPaint(size: Size.square(size), painter: _DonBigotesPainter(awake || thinking, Pulso.of(context).accent, thinking)));
+  State<DonBigotesMark> createState() => _DonBigotesMarkState();
+}
+
+class _DonBigotesMarkState extends State<DonBigotesMark> with SingleTickerProviderStateMixin {
+  late final _motion = AnimationController(vsync: this);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _drive();
+  }
+
+  @override
+  void didUpdateWidget(DonBigotesMark old) {
+    super.didUpdateWidget(old);
+    if (old.mood != widget.mood) _drive();
+  }
+
+  /// Working moods loop while the work lasts; the pleased one plays once; the others are still poses.
+  void _drive() {
+    final still = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    _motion.stop();
+    if (still) {
+      _motion.value = 0;
+      return;
+    }
+    switch (widget.mood) {
+      case CompanionMood.thinking || CompanionMood.saving || CompanionMood.reading:
+        _motion.repeat(period: const Duration(milliseconds: 1600));
+      case CompanionMood.happy:
+        _motion.duration = const Duration(milliseconds: 900);
+        _motion.forward(from: 0);
+      case CompanionMood.idle || CompanionMood.worried:
+        _motion.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _motion.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+      child: RepaintBoundary(
+          child: CustomPaint(
+              size: Size.square(widget.size),
+              painter: _DonBigotesPainter(widget.awake || widget.mood != CompanionMood.idle, Pulso.of(context).accent, widget.mood, _motion))));
 }
 
 class _DonBigotesPainter extends CustomPainter {
-  _DonBigotesPainter(this.awake, this.accent, [this.thinking = false]);
+  _DonBigotesPainter(this.awake, this.accent, this.mood, this.motion) : super(repaint: motion);
   final bool awake;
   final Color accent;
-  final bool thinking;
+  final CompanionMood mood;
+  final Animation<double> motion;
 
   @override
   void paint(Canvas canvas, Size size) {
     final s = size.shortestSide / 48;
+    final t = motion.value, wave = math.sin(2 * math.pi * t);
     Offset p(double x, double y) => Offset(x * s, y * s);
     Paint fill(Color color) => Paint()..color = color;
     const ink = Color(0xFF14202C);
+    final stroke = Paint()
+      ..color = ink
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6 * s
+      ..strokeCap = StrokeCap.round;
+    // Pleased: a small hop, once.
+    if (mood == CompanionMood.happy) canvas.translate(0, -2.5 * s * math.sin(math.pi * t));
+    // Ear tips: up and twitching while saving, flat and to the sides when worried.
+    var (leftTip, rightTip) = (p(13, 6), p(35, 6));
+    if (mood == CompanionMood.saving) {
+      leftTip = p(13 - 0.6, 6 - 1.8 * wave.abs());
+      rightTip = p(35 + 0.6, 6 - 1.8 * (1 - wave.abs()));
+    } else if (mood == CompanionMood.worried) {
+      (leftTip, rightTip) = (p(6.5, 11.5), p(41.5, 11.5));
+    }
     canvas.drawPath(
         Path()
           ..moveTo(10 * s, 20 * s)
-          ..lineTo(13 * s, 6 * s)
+          ..lineTo(leftTip.dx, leftTip.dy)
           ..lineTo(21 * s, 14 * s)
           ..close()
           ..moveTo(38 * s, 20 * s)
-          ..lineTo(35 * s, 6 * s)
+          ..lineTo(rightTip.dx, rightTip.dy)
           ..lineTo(27 * s, 14 * s)
           ..close(),
         fill(const Color(0xFFE9E1D6)));
     canvas.drawOval(Rect.fromLTWH(9 * s, 10.5 * s, 30 * s, 27 * s), fill(const Color(0xFFF3EEE6)));
-    if (awake && thinking) {
-      // Looking up and to one side: the pupils high in the eyes.
+    void lookingEyes(double dx, double dy) {
       canvas.drawOval(Rect.fromLTWH(16 * s, 19 * s, 6 * s, 6 * s), fill(Colors.white));
       canvas.drawOval(Rect.fromLTWH(26 * s, 19 * s, 6 * s, 6 * s), fill(Colors.white));
-      canvas.drawOval(Rect.fromLTWH(18.6 * s, 19.2 * s, 3.4 * s, 3.4 * s), fill(ink));
-      canvas.drawOval(Rect.fromLTWH(28.6 * s, 19.2 * s, 3.4 * s, 3.4 * s), fill(ink));
-    } else if (awake) {
-      canvas.drawOval(Rect.fromLTWH(16 * s, 20 * s, 6 * s, 6 * s), fill(ink));
-      canvas.drawOval(Rect.fromLTWH(26 * s, 20 * s, 6 * s, 6 * s), fill(ink));
-      canvas.drawOval(Rect.fromLTWH(19.5 * s, 20.6 * s, 1.8 * s, 1.8 * s), fill(Colors.white));
-      canvas.drawOval(Rect.fromLTWH(29.5 * s, 20.6 * s, 1.8 * s, 1.8 * s), fill(Colors.white));
-    } else {
-      final lid = Paint()
-        ..color = ink
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6 * s
-        ..strokeCap = StrokeCap.round;
-      canvas.drawPath(
-          Path()
-            ..moveTo(16 * s, 24 * s)
-            ..quadraticBezierTo(19 * s, 26.5 * s, 22 * s, 24 * s)
-            ..moveTo(26 * s, 24 * s)
-            ..quadraticBezierTo(29 * s, 26.5 * s, 32 * s, 24 * s),
-          lid);
+      canvas.drawOval(Rect.fromLTWH((17.3 + dx) * s, (20.3 + dy) * s, 3.4 * s, 3.4 * s), fill(ink));
+      canvas.drawOval(Rect.fromLTWH((27.3 + dx) * s, (20.3 + dy) * s, 3.4 * s, 3.4 * s), fill(ink));
+    }
+
+    switch (mood) {
+      case CompanionMood.thinking:
+        // Looking up, drifting from one side to the other as he thinks.
+        lookingEyes(0.9 + 0.4 * wave, -1.1);
+      case CompanionMood.reading:
+        // Reading: the eyes go along the lines; still, they rest on one side.
+        lookingEyes(motion.isAnimating ? 1.2 * wave : 1.2, 0.4);
+      case CompanionMood.worried:
+        lookingEyes(0, 1.1);
+        canvas.drawPath(
+            Path()
+              ..moveTo(16 * s, 17.5 * s)
+              ..lineTo(21 * s, 16.5 * s)
+              ..moveTo(32 * s, 17.5 * s)
+              ..lineTo(27 * s, 16.5 * s),
+            stroke);
+      case CompanionMood.happy:
+        canvas.drawPath(
+            Path()
+              ..moveTo(16 * s, 24 * s)
+              ..quadraticBezierTo(19 * s, 20.5 * s, 22 * s, 24 * s)
+              ..moveTo(26 * s, 24 * s)
+              ..quadraticBezierTo(29 * s, 20.5 * s, 32 * s, 24 * s),
+            stroke);
+      case CompanionMood.idle || CompanionMood.saving:
+        if (awake) {
+          canvas.drawOval(Rect.fromLTWH(16 * s, 20 * s, 6 * s, 6 * s), fill(ink));
+          canvas.drawOval(Rect.fromLTWH(26 * s, 20 * s, 6 * s, 6 * s), fill(ink));
+          canvas.drawOval(Rect.fromLTWH(19.5 * s, 20.6 * s, 1.8 * s, 1.8 * s), fill(Colors.white));
+          canvas.drawOval(Rect.fromLTWH(29.5 * s, 20.6 * s, 1.8 * s, 1.8 * s), fill(Colors.white));
+        } else {
+          canvas.drawPath(
+              Path()
+                ..moveTo(16 * s, 24 * s)
+                ..quadraticBezierTo(19 * s, 26.5 * s, 22 * s, 24 * s)
+                ..moveTo(26 * s, 24 * s)
+                ..quadraticBezierTo(29 * s, 26.5 * s, 32 * s, 24 * s),
+              stroke);
+        }
     }
     canvas.drawPath(Path()..addPolygon([p(22.5, 29), p(25.5, 29), p(24, 31)], true), fill(const Color(0xFFC98C85)));
     canvas.drawPath(Path()..addPolygon([p(24, 37), p(21, 44), p(24, 47), p(27, 44)], true), fill(accent));
   }
 
   @override
-  bool shouldRepaint(_DonBigotesPainter old) => old.awake != awake || old.accent != accent || old.thinking != thinking;
+  bool shouldRepaint(_DonBigotesPainter old) => old.awake != awake || old.accent != accent || old.mood != mood;
 }

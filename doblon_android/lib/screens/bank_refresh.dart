@@ -95,7 +95,7 @@ class BankRefreshPanel extends StatelessWidget {
                 child: Semantics(
                   liveRegion: true,
                   child: Row(children: [
-                    const DonBigotesMark(size: 30, thinking: true),
+                    const DonBigotesMark(size: 30, mood: CompanionMood.thinking),
                     const SizedBox(width: 10),
                     Expanded(child: Text(progress.text, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600))),
                   ]),
