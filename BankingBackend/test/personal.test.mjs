@@ -213,3 +213,30 @@ test('a restricted session without linked accounts is revoked and never stored',
   await assert.rejects(exchange('fixture', 'Bankinter', env, transport), { code: 'no_linked_accounts' });
   assert.ok(calls.includes(`DELETE /sessions/${session}`), 'The provider session is not left behind');
 });
+
+test('an account download asks movements and balances at once, and checks the application once per few minutes', async () => {
+  const remote = { id: 'private-account', uid: 'private-uid', currency: 'EUR' };
+  const calls = [];
+  let release;
+  const movementsHeld = new Promise(resolve => { release = resolve; });
+  // One transport for several pages, as the global fetch in production.
+  const transport = async url => {
+    const path = new URL(url).pathname;
+    calls.push(path.split('/').pop());
+    if (url.endsWith('/application')) return Response.json(application);
+    if (path.endsWith('/balances')) return Response.json({ balances: [] });
+    await movementsHeld;
+    return Response.json({ transactions: [] });
+  };
+  const first = accountData({}, remote, '2026-11-01', '2026-11-03', null, env, transport, {}, true);
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.deepEqual(calls, ['application', 'balances', 'transactions'], 'Balances asked without waiting for the movements');
+  release();
+  await first;
+  await accountData({}, remote, '2026-11-01', '2026-11-03', 'next-page', env, transport, {}, true);
+  assert.equal(calls.filter(c => c === 'application').length, 1, 'The passed check is reused for the next page');
+  assert.equal(calls.filter(c => c === 'balances').length, 1, 'Later pages do not ask the balances again');
+  // A failed check is never kept: another transport with an inactive application is refused.
+  await assert.rejects(accountData({}, remote, '2026-11-01', '2026-11-03', null, env,
+    async url => url.endsWith('/application') ? Response.json({ ...application, active: false }) : Response.json({ transactions: [], balances: [] }), {}, true));
+});

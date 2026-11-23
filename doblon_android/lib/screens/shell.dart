@@ -15,6 +15,7 @@ import 'accounts.dart';
 import 'banks.dart';
 import 'budgets.dart';
 import 'card_payments.dart';
+import 'bank_refresh.dart';
 import 'chrome.dart';
 import 'home.dart';
 import 'info.dart';
@@ -202,8 +203,6 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
   /// Don Bigotes' notes, as on the iPhone (`CompanionNotesSheet`): his face, a button to update the banks and each
   /// note with its icon, «Ahora no» and «Ver».
   void _showCompanion(List<CompanionNote> notes, [List<CompanionNote> reviewed = const []]) {
-    var refreshing = false;
-    String? refreshed;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -216,7 +215,9 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
             constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.8),
             child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(20, 0, 20, 20), children: [
               Row(children: [
-                DonBigotesMark(awake: notes.isNotEmpty || refreshing, size: 52),
+                ValueListenableBuilder(
+                    valueListenable: repository.bankProgress,
+                    builder: (context, progress, _) => DonBigotesMark(awake: notes.isNotEmpty || progress != null, thinking: progress != null, size: 52)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -227,38 +228,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
                 ),
               ]),
               const SizedBox(height: 16),
-              if (repository.bankConnections.isNotEmpty) ...[
-                FilledButton.icon(
-                  onPressed: refreshing
-                      ? null
-                      : () async {
-                          setSheet(() {
-                            refreshing = true;
-                            refreshed = null;
-                          });
-                          final result = await repository.synchronizeBanks(manual: true);
-                          if (context.mounted) {
-                            setSheet(() {
-                              refreshing = false;
-                              refreshed = result?.summary;
-                            });
-                          }
-                        },
-                  style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
-                  icon: refreshing
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.refresh),
-                  label: Text(refreshing ? 'Consultando tus bancos…' : 'Actualizar mis bancos'),
-                ),
-                if (refreshed case final text? when text.isNotEmpty)
-                  Container(
-                    margin: const EdgeInsets.only(top: 8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: pulso.tertiary, borderRadius: BorderRadius.circular(Pulso.compactRadius)),
-                    child: Text(text, style: const TextStyle(fontSize: 13)),
-                  ),
-                const SizedBox(height: 12),
-              ],
+              if (repository.bankConnections.isNotEmpty) BankRefreshPanel(repository: repository),
               for (final note in notes)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
@@ -475,11 +445,16 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
               left: 8,
               right: 12,
               bottom: media.padding.bottom + 6,
-              child: FloatingActions(
-                onAdd: canAdd ? _add : null,
-                notes: notes,
-                companion: widget.preferences.companionEnabled,
-                onCompanion: () => _showCompanion(notes, reviewed),
+              // Don Bigotes keeps thinking on his button while the banks are refreshed, also with his panel closed.
+              child: ValueListenableBuilder(
+                valueListenable: repository.bankProgress,
+                builder: (context, progress, _) => FloatingActions(
+                  onAdd: canAdd ? _add : null,
+                  notes: notes,
+                  thinking: progress != null,
+                  companion: widget.preferences.companionEnabled,
+                  onCompanion: () => _showCompanion(notes, reviewed),
+                ),
               ),
             ),
         ]);
@@ -687,19 +662,23 @@ class _SettingsPage extends StatelessWidget {
 /// Don Bigotes' face, drawn as on the iPhone app (Swift `DonBigotesMark`): open eyes when he has something to point
 /// out, closed when everything is in order, and the bow tie in the accent colour.
 class DonBigotesMark extends StatelessWidget {
-  const DonBigotesMark({super.key, this.awake = true, this.size = 44});
+  const DonBigotesMark({super.key, this.awake = true, this.size = 44, this.thinking = false});
   final bool awake;
   final double size;
 
+  /// Working on something (the banks): eyes open and looking up, as if thinking.
+  final bool thinking;
+
   @override
   Widget build(BuildContext context) =>
-      ExcludeSemantics(child: CustomPaint(size: Size.square(size), painter: _DonBigotesPainter(awake, Pulso.of(context).accent)));
+      ExcludeSemantics(child: CustomPaint(size: Size.square(size), painter: _DonBigotesPainter(awake || thinking, Pulso.of(context).accent, thinking)));
 }
 
 class _DonBigotesPainter extends CustomPainter {
-  _DonBigotesPainter(this.awake, this.accent);
+  _DonBigotesPainter(this.awake, this.accent, [this.thinking = false]);
   final bool awake;
   final Color accent;
+  final bool thinking;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -719,7 +698,13 @@ class _DonBigotesPainter extends CustomPainter {
           ..close(),
         fill(const Color(0xFFE9E1D6)));
     canvas.drawOval(Rect.fromLTWH(9 * s, 10.5 * s, 30 * s, 27 * s), fill(const Color(0xFFF3EEE6)));
-    if (awake) {
+    if (awake && thinking) {
+      // Looking up and to one side: the pupils high in the eyes.
+      canvas.drawOval(Rect.fromLTWH(16 * s, 19 * s, 6 * s, 6 * s), fill(Colors.white));
+      canvas.drawOval(Rect.fromLTWH(26 * s, 19 * s, 6 * s, 6 * s), fill(Colors.white));
+      canvas.drawOval(Rect.fromLTWH(18.6 * s, 19.2 * s, 3.4 * s, 3.4 * s), fill(ink));
+      canvas.drawOval(Rect.fromLTWH(28.6 * s, 19.2 * s, 3.4 * s, 3.4 * s), fill(ink));
+    } else if (awake) {
       canvas.drawOval(Rect.fromLTWH(16 * s, 20 * s, 6 * s, 6 * s), fill(ink));
       canvas.drawOval(Rect.fromLTWH(26 * s, 20 * s, 6 * s, 6 * s), fill(ink));
       canvas.drawOval(Rect.fromLTWH(19.5 * s, 20.6 * s, 1.8 * s, 1.8 * s), fill(Colors.white));
@@ -743,5 +728,5 @@ class _DonBigotesPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_DonBigotesPainter old) => old.awake != awake || old.accent != accent;
+  bool shouldRepaint(_DonBigotesPainter old) => old.awake != awake || old.accent != accent || old.thinking != thinking;
 }

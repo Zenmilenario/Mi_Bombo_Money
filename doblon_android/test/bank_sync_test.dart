@@ -61,11 +61,14 @@ void main() {
           client: client,
           connections: banks,
           isLinked: (_) => true,
-          incorporate: (feed, _) async {
-            if (failCommit && feed.account.id == 'a1') throw StateError('fictitious save failure');
-            saved.add(feed.account.id);
-            return ImportResult(inserted: 1);
-          },
+          // One save for everything; each account still fails on its own.
+          incorporateAll: (feeds) async => [
+            for (final (feed, _) in feeds)
+              if (failCommit && feed.account.id == 'a1') StateError('fictitious save failure') else () {
+                saved.add(feed.account.id);
+                return ImportResult(inserted: 1);
+              }(),
+          ],
           persist: () async {},
           isCurrent: () => true,
           clock: () => start);
@@ -89,7 +92,7 @@ void main() {
         client: client,
         connections: order,
         isLinked: (_) => true,
-        incorporate: (_, __) async => ImportResult(),
+        incorporateAll: (feeds) async => [for (final _ in feeds) ImportResult()],
         persist: () async {},
         isCurrent: () => true,
         clock: () => now,
@@ -116,7 +119,7 @@ void main() {
         client: client,
         connections: banks,
         isLinked: (a) => a.id == 'b',
-        incorporate: (_, __) async => ImportResult(),
+        incorporateAll: (feeds) async => [for (final _ in feeds) ImportResult()],
         persist: () async {},
         isCurrent: () => true,
         clock: () => now,
@@ -148,18 +151,19 @@ void main() {
         client: client,
         connections: banks,
         isLinked: (_) => true,
-        incorporate: (_, __) async => ImportResult(),
+        incorporateAll: (feeds) async => [for (final _ in feeds) ImportResult()],
         persist: () async {},
         isCurrent: () => current,
         clock: () => start);
     final first = run();
     await Future<void>.delayed(Duration.zero);
     await run();
-    expect(client.requests, ['a1']);
+    // Banks are asked at the same time, each bank's accounts one after another: the first account of each bank.
+    expect(client.requests, ['a1', 'b', 'c'], reason: 'The second opening adds no request');
     current = false;
     gate.complete();
     expect((await first).downloaded, 0);
-    expect(client.requests, ['a1']);
+    expect(client.requests, ['a1', 'b', 'c'], reason: 'After the profile change, a2 is not asked');
   });
 
   test('bank schedules and complete review feeds survive disk writes and stay isolated by profile', () async {

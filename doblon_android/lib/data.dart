@@ -458,6 +458,66 @@ class FinanceRepository extends ChangeNotifier {
     return result;
   }
 
+  /// Everything downloaded in one refresh, incorporated with a single read and save of the cloud copy (one per
+  /// account before). Each account stays isolated: one that cannot be imported gets its error and the rest go on.
+  Future<List<Object>> _incorporateFeeds(List<(AccountFeed, DateTime)> feeds, String user) async {
+    final generation = _generation;
+    void checkProfile() {
+      if (_disposed || generation != _generation || _user != user) throw BankingError('unauthorized');
+    }
+
+    checkProfile();
+    for (final (feed, date) in feeds) {
+      _bankReviews[accountIdentity(feed.account.id)] = {'feed': feed.toJson(), 'at': date.millisecondsSinceEpoch, 'committed': false};
+    }
+    _reviewsVersion++;
+    await _saveBankState(user);
+    checkProfile();
+    var included = const <Operation>[];
+    final outcomes = await update((doc) {
+      included = List<Operation>.from(pending);
+      var next = withPending(doc, included);
+      final results = <Object>[];
+      for (final (feed, date) in feeds) {
+        try {
+          final (imported, result) = importFeeds(next, [feed], date);
+          next = imported;
+          results.add(result);
+        } catch (error) {
+          results.add(error);
+        }
+      }
+      return (next, results);
+    });
+    checkProfile();
+    if (included.isNotEmpty) {
+      pending = [for (final op in pending) if (!included.any((saved) => identical(saved, op))) op];
+      await (await _local()).savePending(user, pending);
+      if (copy != null) _show(copy!);
+    }
+    bankActivity = {
+      ...bankActivity,
+      for (final (i, (feed, date)) in feeds.indexed)
+        if (outcomes[i] is ImportResult) accountIdentity(feed.account.id): feed.activity(date),
+    };
+    await BankActivityStore((await _local()).directory).save(user, bankActivity);
+    checkProfile();
+    for (final (i, (feed, _)) in feeds.indexed) {
+      final key = accountIdentity(feed.account.id);
+      final outcome = outcomes[i];
+      if (outcome is ImportResult && outcome.proposals.isEmpty) {
+        _bankReviews.remove(key);
+      } else if (outcome is ImportResult) {
+        _bankReviews[key]!['committed'] = true;
+      }
+      if (outcome is ImportResult) bankSchedule.failures.remove(key);
+    }
+    _reviewsVersion++;
+    await _saveBankState(user);
+    notifyListeners();
+    return outcomes;
+  }
+
   Future<void> reconcileContribution(ContributionProposal proposal, Set<String> selected) async {
     await _upload();
     if (pending.isNotEmpty) throw BankingError('network');
@@ -489,7 +549,30 @@ class FinanceRepository extends ChangeNotifier {
   bool _synchronizingBanks = false;
   DateTime? _connectionsReadAt;
 
-  Future<BankSyncResult?> synchronizeBanks({bool manual = false, String? bank, BankingClient? client}) async {
+  /// What the bank refresh is doing now (null when idle): Don Bigotes shows it, also after closing and reopening him.
+  final bankProgress = ValueNotifier<BankSyncProgress?>(null);
+  Future<BankSyncResult?>? _bankRun;
+  bool _bankRunManual = false;
+
+  /// One refresh at a time. Pressing again joins the one in progress instead of starting another; a manual refresh
+  /// asked during an automatic one runs right after it (the automatic one may skip accounts updated recently).
+  Future<BankSyncResult?> synchronizeBanks({bool manual = false, String? bank, BankingClient? client}) {
+    final running = _bankRun;
+    if (running != null && (!manual || _bankRunManual)) return running;
+    final next = (running ?? Future<BankSyncResult?>.value()).then((_) => _synchronizeBanks(manual: manual, bank: bank, client: client));
+    _bankRun = next;
+    _bankRunManual = manual;
+    bankProgress.value = const BankSyncProgress('Consultando tus bancos…');
+    next.whenComplete(() {
+      if (identical(_bankRun, next)) {
+        _bankRun = null;
+        bankProgress.value = null;
+      }
+    });
+    return next;
+  }
+
+  Future<BankSyncResult?> _synchronizeBanks({bool manual = false, String? bank, BankingClient? client}) async {
     final user = _user, generation = _generation;
     final token = _client.auth.currentSession?.accessToken;
     if (user == null || finances == null || _synchronizingBanks || (client == null && token == null)) return bankResult;
@@ -497,7 +580,9 @@ class FinanceRepository extends ChangeNotifier {
     // Set only once nothing can fail before the try: the flag is always released in finally.
     _synchronizingBanks = true;
     final api = client ?? BankingClient(token!);
+    final watch = Stopwatch()..start();
     try {
+      bankProgress.value = const BankSyncProgress('Consultando tus bancos…');
       if (manual || _connectionsReadAt == null || DateTime.now().difference(_connectionsReadAt!) >= const Duration(minutes: 1)) {
         bankConnections = await api.connections();
         _connectionsReadAt = DateTime.now();
@@ -530,18 +615,26 @@ class FinanceRepository extends ChangeNotifier {
           } catch (_) {/* Each bank retries independently. */}
         }
       }
+      final connectionsTime = watch.elapsedMilliseconds;
       final result = await _bankSync.run(
           client: api,
           connections: bankConnections,
           isLinked: linked,
-          incorporate: (feed, date) => _incorporateFeed(feed, date, user),
+          incorporateAll: (feeds) => _incorporateFeeds(feeds, user),
           persist: () => _saveBankState(user),
           isCurrent: current,
           manual: manual,
-          onlyBank: bank);
+          onlyBank: bank,
+          onProgress: (progress) => bankProgress.value = progress);
       if (!current()) return null;
-      bankResult = result;
+      result.timings['Conexiones'] = connectionsTime;
+      bankProgress.value = const BankSyncProgress('Revisando lo aprendido…');
+      final learned = watch.elapsedMilliseconds;
       await applyLearnedCorrections();
+      result.timings['Correcciones aprendidas'] = watch.elapsedMilliseconds - learned;
+      result.timings['Total'] = watch.elapsedMilliseconds;
+      debugPrint('Doblón · tiempos de la actualización bancaria (ms): ${result.timings}');
+      bankResult = result;
       notifyListeners();
       return result;
     } catch (error) {
