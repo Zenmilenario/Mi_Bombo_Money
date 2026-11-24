@@ -6,7 +6,6 @@ import 'package:doblon/bank_activity.dart';
 import 'package:doblon/finance.dart';
 import 'package:doblon/investments.dart';
 import 'package:doblon/models.dart';
-import 'package:doblon/screens/invested_breakdown.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final now = DateTime(2026, 11, 24, 18);
@@ -34,7 +33,7 @@ void main() {
     expect(calc.spendableCash() + spendableHolds(data, activity), 100000 - 1005);
   });
 
-  test('«Invertido» with a portfolio out of net worth: says it is a part, and the breakdown explains each value', () {
+  test('«Invertido»: the portfolios of the summary are chosen apart from net worth, and the breakdown explains each value', () {
     final data = Finances(
       accounts: [
         account('efectivo', AccountType.checking),
@@ -66,8 +65,15 @@ void main() {
       ]..sort((a, b) => b.date.compareTo(a.date)),
     );
     final calc = FinanceCalculator(data);
-    expect(calc.invested(), 1924, reason: 'Only what counts in net worth');
-    expect(investedLabel(data), 'Invertido en patrimonio');
+    expect(calc.invested(), 1924, reason: 'Net worth keeps the choice of the person');
+    // The investment summary is another choice: by default every portfolio, also one out of net worth.
+    expect(investedInSummary(data, calc.balance, {}, now), 30000 + 3 * 3999 + 1924);
+    expect(investedInSummary(data, calc.balance, {'saveback'}, now), 30000 + 3 * 3999, reason: 'Only the chosen portfolio');
+    expect(summaryPortfolios(data, {'saveback'}).map((a) => a.id), ['valores']);
+    final chosen = investmentFlows(data, DateTime(2026, 11), now: now, accounts: {'valores'});
+    expect((chosen.contributedMinor, chosen.feesMinor), (3 * 3999, 150), reason: 'The order and its fee belong to the chosen portfolio');
+    expect(investmentFlows(data, DateTime(2026, 11), now: now, accounts: {'saveback'}).isEmpty, isTrue);
+    expect(data.accounts.firstWhere((a) => a.id == 'valores').includeInNetWorth, isFalse, reason: 'Never changed by the summary');
     final values = {for (final v in portfolioValues(data, calc.balance, now)) v.account.id: v};
     final shares = values['valores']!;
     expect((shares.counted, shares.valueMinor, shares.afterMinor, shares.movementsAfter), (false, 30000 + 3 * 3999, 3 * 3999, 3));
@@ -93,6 +99,6 @@ void main() {
     final calc = FinanceCalculator(data);
     final value = portfolioValues(data, calc.balance, now).single;
     expect((value.valueMinor, value.movementsAfter), (12500, 0));
-    expect(investedLabel(data), 'Invertido');
+
   });
 }

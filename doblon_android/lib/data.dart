@@ -87,8 +87,19 @@ class LocalStore {
 
   Future<void> saveBankState(String user, Map<String, dynamic> value) => _write(_file(user, 'bank-sync'), value);
 
+  /// The portfolios the person took out of the investment summary (a choice of this device and profile).
+  Future<Set<String>> loadHiddenPortfolios(String user) async {
+    try {
+      return {for (final id in jsonDecode(await _file(user, 'portfolios').readAsString()) as List) '$id'};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> saveHiddenPortfolios(String user, Set<String> ids) => _write(_file(user, 'portfolios'), ids.toList()..sort());
+
   Future<void> clear(String user) async {
-    for (final name in ['cloud', 'pending', 'bank-sync', 'forecast']) {
+    for (final name in ['cloud', 'pending', 'bank-sync', 'forecast', 'portfolios']) {
       final file = _file(user, name);
       await _diskWrites[file.path];
       if (await file.exists()) await file.delete();
@@ -208,6 +219,7 @@ class FinanceRepository extends ChangeNotifier {
           // What is taught here reaches the person's other devices a moment later.
           ..onChange = _scheduleLearningSync;
         bankActivity = await BankActivityStore(store.directory).load(user);
+        hiddenPortfolios = await store.loadHiddenPortfolios(user);
         forecast = await ForecastStore.open(store.directory, user)
           ..addListener(notifyListeners);
         final bankState = await store.loadBankState(user);
@@ -353,6 +365,18 @@ class FinanceRepository extends ChangeNotifier {
 
   /// Forecast assumptions and simulations, kept on this device apart from the finances (null until the first load).
   ForecastStore? forecast;
+
+  /// Portfolios taken out of the investment summary. Net worth is decided apart, in each account.
+  Set<String> hiddenPortfolios = {};
+
+  /// Shows a portfolio in the investment summary or takes it out; kept on this device for this person.
+  Future<void> setPortfolioInSummary(String accountId, bool shown) async {
+    final user = _user;
+    if (user == null) return;
+    hiddenPortfolios = shown ? ({...hiddenPortfolios}..remove(accountId)) : {...hiddenPortfolios, accountId};
+    notifyListeners();
+    await (await _local()).saveHiddenPortfolios(user, hiddenPortfolios);
+  }
 
   /// The last bank report of each linked account (holds, balances, what it sent), by bank identity.
   Map<String, BankActivity> bankActivity = {};
@@ -771,6 +795,7 @@ class FinanceRepository extends ChangeNotifier {
     _learningTimer?.cancel();
     learning = null;
     forecast = null;
+    hiddenPortfolios = {};
     finances = null;
     copy = null;
     document = null;

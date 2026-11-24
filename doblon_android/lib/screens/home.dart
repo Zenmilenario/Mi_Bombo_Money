@@ -6,7 +6,6 @@ import 'package:intl/intl.dart';
 
 import '../finance.dart';
 import '../investments.dart';
-import 'invested_breakdown.dart' show investedLabel;
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
@@ -25,7 +24,8 @@ class HomeScreen extends StatefulWidget {
       this.heldMinor = 0,
       this.onOpenTab,
       this.onOpenTransaction,
-      this.onForecast});
+      this.onForecast,
+      this.hiddenPortfolios = const {}});
   final FinanceCalculator calc;
   final DateTime month;
   final ValueChanged<DateTime> onMonth;
@@ -35,6 +35,9 @@ class HomeScreen extends StatefulWidget {
 
   /// Opens «Previsión y simulaciones».
   final VoidCallback? onForecast;
+
+  /// Portfolios taken out of the investment summary (the same choice as in Cuentas).
+  final Set<String> hiddenPortfolios;
 
   /// Charges the bank holds and has not booked yet (negative), already taken from what is available.
   final int heldMinor;
@@ -94,6 +97,7 @@ class _HomeScreenState extends State<HomeScreen> {
       onOpenTransaction: widget.onOpenTransaction,
       onAll: widget.onOpenTab == null ? null : () => widget.onOpenTab!(1),
       onForecast: widget.onForecast,
+      portfolios: {for (final a in summaryPortfolios(calc.data, widget.hiddenPortfolios)) a.id},
     );
     final side = <Widget>[
       _NetWorthPanel(calc: calc),
@@ -109,7 +113,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return LayoutBuilder(builder: (context, constraints) {
       final wide = constraints.maxWidth >= 720;
       return ListView(physics: const AlwaysScrollableScrollPhysics(), padding: tabListPadding(context, top: 4), children: [
-        spaced(_AvailableCard(calc: calc, heldMinor: widget.heldMinor, onOpen: widget.onOpenTab == null ? null : () => widget.onOpenTab!(2))),
+        spaced(_AvailableCard(
+            calc: calc,
+            heldMinor: widget.heldMinor,
+            investedMinor: investedInSummary(calc.data, calc.balance, widget.hiddenPortfolios, DateTime.now()),
+            onOpen: widget.onOpenTab == null ? null : () => widget.onOpenTab!(2))),
         if (wide)
           // iPad: the month on the left, net worth, budgets and goal on the right.
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -149,9 +157,10 @@ const _cardTop = Color(0xFF12857C), _cardBottom = Color(0xFF0A4E4A), _cardTopDar
 /// «Disponible», alone in its card and the largest figure of the app, on a deep teal with the faint rings of a coin
 /// (a doblón). Below it, what is not available: reserved, held by the bank and invested. Tapping opens Cuentas.
 class _AvailableCard extends StatelessWidget {
-  const _AvailableCard({required this.calc, required this.heldMinor, this.onOpen});
+  const _AvailableCard({required this.calc, required this.heldMinor, required this.investedMinor, this.onOpen});
   final FinanceCalculator calc;
   final int heldMinor;
+  final int investedMinor;
   final VoidCallback? onOpen;
 
   @override
@@ -159,12 +168,12 @@ class _AvailableCard extends StatelessWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final available = calc.spendableCash() + heldMinor;
     final reserved = calc.reservedTotal();
-    final invested = calc.invested();
+    final invested = investedMinor;
     const soft = Color(0xCCFFFFFF);
     final stats = <(String, String, Color?)>[
       if (reserved > 0) ('Reservado', money(reserved), null),
       if (heldMinor != 0) ('Retenido', money(heldMinor.abs()), null),
-      if (invested != 0) (investedLabel(calc.data), money(invested), null),
+      if (invested != 0) ('Invertido', money(invested), null),
     ];
     return Material(
       borderRadius: BorderRadius.circular(24),
@@ -276,7 +285,8 @@ class _MonthPanel extends StatelessWidget {
       required this.onDay,
       this.onOpenTransaction,
       this.onAll,
-      this.onForecast});
+      this.onForecast,
+      this.portfolios});
   final FinanceCalculator calc;
   final DateTime month;
   final ValueChanged<DateTime> onMonth;
@@ -288,6 +298,9 @@ class _MonthPanel extends StatelessWidget {
 
   /// «Ver previsión»: the only way to the forecast from Inicio, next to the month it continues.
   final VoidCallback? onForecast;
+
+  /// The portfolios of the investment summary, for the month's investing line.
+  final Set<String>? portfolios;
 
   @override
   Widget build(BuildContext context) {
@@ -331,7 +344,7 @@ class _MonthPanel extends StatelessWidget {
               ),
             ),
           // Investing this month, apart from income and spending: contributed, withdrawn and fees (never a return).
-          if (investmentFlows(calc.data, month) case final flows when !flows.isEmpty)
+          if (investmentFlows(calc.data, month, accounts: portfolios) case final flows when !flows.isEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
               child: Text(

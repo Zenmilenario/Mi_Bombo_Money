@@ -122,8 +122,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
               tile('Disponible', calc.spendableCash() + held, Icons.account_balance_wallet_outlined, pulso.accent,
                   note: held == 0 ? null : 'Descuenta ${money(-held)} retenidos'),
               tile('Reservado', calc.reservedTotal(), Icons.lock_outline, pulso.savings),
-              tile(investedLabel(data), calc.invested(), Icons.trending_up, pulso.investment,
-                  note: 'Ver desglose', onTap: () => showInvestedBreakdown(context, calc)),
+              tile('Invertido', investedInSummary(data, calc.balance, widget.repository.hiddenPortfolios, now), Icons.trending_up, pulso.investment,
+                  note: 'Ver carteras', onTap: () => showInvestedBreakdown(context, widget.repository)),
             ])
               SizedBox(width: width, child: t),
           ]);
@@ -162,7 +162,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
         for (final (title, test) in groups)
           if (shown.where(test).toList() case final items when items.isNotEmpty) ...[
             SectionTitle(title),
-            if (title == 'Inversiones') ...[_InvestmentMonth(calc: calc, now: now), const SizedBox(height: 10)],
+            if (title == 'Inversiones') ...[_InvestmentMonth(calc: calc, repository: widget.repository, now: now), const SizedBox(height: 10)],
             for (final account in items) ...[
               _AccountCard(account: account, calc: calc, repository: widget.repository, now: now),
               const SizedBox(height: 10),
@@ -200,17 +200,18 @@ class _AccountsScreenState extends State<AccountsScreen> {
 /// This month's investing and the value of the portfolios, each figure apart: money contributed or withdrawn is not a
 /// return, and a fee is a cost. The value is the one recorded (the last valuation and the movements after it).
 class _InvestmentMonth extends StatelessWidget {
-  const _InvestmentMonth({required this.calc, required this.now});
+  const _InvestmentMonth({required this.calc, required this.repository, required this.now});
   final FinanceCalculator calc;
+  final FinanceRepository repository;
   final DateTime now;
 
   @override
   Widget build(BuildContext context) {
     final pulso = Pulso.of(context);
     final hint = Theme.of(context).hintColor;
-    final flows = investmentFlows(calc.data, DateTime(now.year, now.month), now: now);
-    final portfolios = calc.data.accounts.where((a) => !a.isArchived && a.type == AccountType.investment).toList();
-    final outside = portfolios.where((a) => !a.includeInNetWorth).fold(0, (sum, a) => sum + calc.balance(a));
+    final shown = {for (final a in summaryPortfolios(calc.data, repository.hiddenPortfolios)) a.id};
+    final flows = investmentFlows(calc.data, DateTime(now.year, now.month), now: now, accounts: shown);
+    final value = investedInSummary(calc.data, calc.balance, repository.hiddenPortfolios, now);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),
@@ -227,12 +228,14 @@ class _InvestmentMonth extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text('Valor registrado de tus carteras: ${money(calc.invested())}${outside != 0 ? ' (y ${money(outside)} fuera del patrimonio)' : ''}',
+          Text('Valor registrado de ${shown.length == 1 ? '1 cartera' : '${shown.length} carteras'} del resumen: ${money(value)}',
               style: const TextStyle(fontWeight: FontWeight.w600)),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton(
-                style: TextButton.styleFrom(padding: EdgeInsets.zero), onPressed: () => showInvestedBreakdown(context, calc), child: const Text('Ver desglose por cartera')),
+                style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                onPressed: () => showInvestedBreakdown(context, repository),
+                child: const Text('Ver y elegir carteras')),
           ),
           Text('Aportar o retirar no es rentabilidad. La comisión sale del efectivo y no se invierte.', style: TextStyle(fontSize: 12, color: hint)),
         ]),

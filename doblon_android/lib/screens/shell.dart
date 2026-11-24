@@ -395,7 +395,8 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
               onOpenTransaction: (t) =>
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionDetailScreen(repository: repository, transactionId: t.id))),
               // Charges the bank holds and has not booked yet, as on the iPhone's «Disponible tras retenciones».
-              heldMinor: spendableHolds(calc.data, repository.bankActivity)),
+              heldMinor: spendableHolds(calc.data, repository.bankActivity),
+              hiddenPortfolios: repository.hiddenPortfolios),
           1 => TransactionsScreen(calc: calc, repository: repository),
           2 => AccountsScreen(calc: calc, repository: repository),
           3 => BudgetsScreen(calc: calc, month: month, onMonth: setMonth, repository: repository),

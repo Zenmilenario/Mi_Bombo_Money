@@ -43,21 +43,23 @@ class InvestmentFlows {
   bool get isEmpty => contributedMinor == 0 && withdrawnMinor == 0 && feesMinor == 0;
 }
 
-InvestmentFlows investmentFlows(Finances data, DateTime month, {DateTime? now, String? accountId}) {
+/// [accounts] limits the flows to those portfolios (the ones of the investment summary); [accountId] to one.
+InvestmentFlows investmentFlows(Finances data, DateTime month, {DateTime? now, String? accountId, Set<String>? accounts}) {
+  bool mine(String? id) => (accountId == null || id == accountId) && (accounts == null || accounts.contains(id));
   final until = now ?? DateTime.now();
   final key = monthKey(month);
   var contributed = 0, withdrawn = 0, fees = 0, operations = 0;
   for (final t in data.transactions) {
     if (monthKey(t.date) != key || t.date.isAfter(until)) continue;
-    if (isContribution(t, data) && (accountId == null || t.destinationAccountId == accountId)) {
+    if (isContribution(t, data) && mine(t.destinationAccountId)) {
       contributed += t.amountMinor;
       operations++;
-    } else if (isWithdrawal(t, data) && (accountId == null || t.sourceAccountId == accountId)) {
+    } else if (isWithdrawal(t, data) && mine(t.sourceAccountId)) {
       withdrawn += t.amountMinor;
       operations++;
     } else if (t.isInvestmentFee) {
       final operation = data.transactions.where((o) => o.id.toLowerCase() == t.investmentOperationId?.toLowerCase()).firstOrNull;
-      if (accountId == null || operation?.destinationAccountId == accountId) fees += t.amountMinor;
+      if (mine(operation?.destinationAccountId)) fees += t.amountMinor;
     }
   }
   return InvestmentFlows(contributedMinor: contributed, withdrawnMinor: withdrawn, feesMinor: fees, operations: operations);
@@ -153,3 +155,13 @@ List<PortfolioValue> portfolioValues(Finances data, int Function(Account, DateTi
   }
   return values;
 }
+
+/// The portfolios of the investment summary (Inicio and Cuentas): every active investment account except those the
+/// person took out of it. Independent of net worth: a portfolio left out of net worth is still shown here unless it
+/// is taken out of the summary too.
+List<Account> summaryPortfolios(Finances data, Set<String> hidden) =>
+    [for (final a in data.accounts) if (!a.isArchived && a.type == AccountType.investment && !hidden.contains(a.id)) a];
+
+/// What the investment summary shows: the recorded value of its portfolios ([balanceAt] is `FinanceCalculator.balance`).
+int investedInSummary(Finances data, int Function(Account, DateTime) balanceAt, Set<String> hidden, DateTime now) =>
+    summaryPortfolios(data, hidden).fold(0, (sum, a) => sum + balanceAt(a, now));
