@@ -67,7 +67,7 @@ class Cloud {
   Cloud(this.user, {required this.encrypted, required this.document});
   final String user;
   final bool encrypted;
-  final Map<String, dynamic> document;
+  Map<String, dynamic> document;
   late final workspace = 'workspace-$user';
   late final cipher = CloudCipher(List.generate(32, (i) => (i * 7 + user.length) % 256), keyId);
   final envelopes = <String, Map<String, dynamic>>{};
@@ -125,6 +125,8 @@ class Cloud {
         return _json({'workspace_id': workspace, 'revision': revisions['finance'], 'document': document}, request);
       case 'finance_save_snapshot':
         financeSaves++;
+        document = Map<String, dynamic>.from(body['p_document'] as Map);
+        revisions['finance'] = revisions['finance']! + 1;
         return _json({'workspace_id': workspace, 'revision': revisions['finance'], 'document': document}, request);
     }
     return _json({'message': 'Fictitious learning unavailable', 'code': '42883'}, request, 404);

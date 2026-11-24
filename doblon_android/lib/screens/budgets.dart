@@ -8,6 +8,7 @@ import '../finance.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
+import 'budget_detail.dart';
 import 'forms.dart';
 import 'chrome.dart' show tabListPadding;
 import 'widgets.dart';
@@ -22,6 +23,10 @@ class BudgetsScreen extends StatelessWidget {
   final DateTime month;
   final ValueChanged<DateTime> onMonth;
   final FinanceRepository repository;
+
+  /// A budget opens its detail for the month being looked at; from there it can be edited.
+  void _detail(BuildContext context, Category category) => Navigator.of(context)
+      .push(MaterialPageRoute(builder: (_) => BudgetDetailScreen(repository: repository, categoryId: category.id, month: month)));
 
   void _edit(BuildContext context, Category category) =>
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => BudgetEditorScreen(repository: repository, category: category, month: month)));
@@ -95,11 +100,11 @@ class BudgetsScreen extends StatelessWidget {
         ],
         if (attention.isNotEmpty) ...[
           const SectionTitle('Necesitan atención'),
-          Card(child: Column(children: [for (final i in attention) _BudgetRow(item: i, onTap: () => _edit(context, i.category))])),
+          Card(child: Column(children: [for (final i in attention) _BudgetRow(item: i, onTap: () => _detail(context, i.category))])),
         ],
         if (healthy.isNotEmpty) ...[
           const SectionTitle('Dentro del presupuesto'),
-          Card(child: Column(children: [for (final i in healthy) _BudgetRow(item: i, onTap: () => _edit(context, i.category))])),
+          Card(child: Column(children: [for (final i in healthy) _BudgetRow(item: i, onTap: () => _detail(context, i.category))])),
         ],
         if (unbudgeted.isNotEmpty || withoutAny.isNotEmpty) ...[
           const SizedBox(height: 14),
@@ -231,7 +236,9 @@ class BudgetOverview extends StatelessWidget {
             Row(children: [
               Icon(Icons.error_outline, size: 15, color: pulso.warning),
               const SizedBox(width: 5),
-              Text('Gasto sin presupuesto: ${money(unbudgetedSpentMinor)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: pulso.warning)),
+              Expanded(
+                  child: Text('Gasto sin presupuesto: ${money(unbudgetedSpentMinor)}',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: pulso.warning))),
             ]),
           ],
         ]),
@@ -404,7 +411,7 @@ class _AddToBudgetCard extends StatelessWidget {
             Row(children: [
               Icon(Icons.circle, size: 8, color: pulso.warning),
               const SizedBox(width: 6),
-              Text('El punto naranja indica gasto sin presupuesto.', style: TextStyle(fontSize: 12, color: pulso.warning)),
+              Expanded(child: Text('El punto naranja indica gasto sin presupuesto.', style: TextStyle(fontSize: 12, color: pulso.warning))),
             ]),
           ],
         ]),

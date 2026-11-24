@@ -197,6 +197,16 @@ class BudgetLimit {
   final bool isRecurring;
 }
 
+/// A movement as a budget counts it: its whole amount, the part a reserve paid and the part that consumes the budget.
+class BudgetContribution {
+  BudgetContribution(this.transaction, this.totalMinor, this.reservedMinor);
+  final Transaction transaction;
+  final int totalMinor;
+  final int reservedMinor;
+  int get countedMinor => totalMinor - reservedMinor;
+  bool get isPartial => reservedMinor > 0;
+}
+
 class BudgetProgress {
   BudgetProgress({required this.category, required this.limitMinor, required this.spentMinor, this.carriedInMinor = 0, this.isRecurring = false});
   final Category category;
@@ -357,13 +367,27 @@ class FinanceCalculator {
     return BudgetLimit(0, 0, false);
   }
 
+  /// Whether a movement counts in its category's budget: spending and fees with a category, never transfers or
+  /// income. The budget and its detail use this same rule.
+  static bool countsInBudget(Transaction t) => t.type.countsAsExpense && t.categoryId != null;
+
+  /// The movements behind a category's spending in a month, newest first. Their counted amounts add up to that
+  /// budget's spending (`budgetProgress(...).spentMinor`).
+  List<BudgetContribution> budgetContributions(String categoryId, DateTime month) {
+    final target = monthKey(month);
+    return [
+      for (final t in data.transactions)
+        if (countsInBudget(t) && t.categoryId == categoryId && monthKey(t.date) == target) BudgetContribution(t, t.amountMinor.abs(), reservedExpenseAmount(t))
+    ];
+  }
+
   /// Budgets of a month for every expense category, most used first (Swift: `budgetProgress`).
   List<BudgetProgress> budgetProgress(DateTime month, {DateTime? asOf}) {
     final target = monthKey(month);
     final spentByCategory = <String, Map<int, int>>{};
     final spentThisMonth = <String, int>{};
     for (final t in data.transactions) {
-      if (!t.type.countsAsExpense || t.categoryId == null) continue;
+      if (!countsInBudget(t)) continue;
       final key = monthKey(t.date);
       if (key > target) continue;
       final amount = budgetExpenseAmount(t);

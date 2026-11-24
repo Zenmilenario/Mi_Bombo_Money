@@ -51,6 +51,7 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
   - tarjetas, dinero reservado y últimos movimientos de cada cuenta.
 - **Reservas:** dinero apartado en una cuenta (un pago futuro o un colchón): sale del disponible libre; los pagos que cubre y los ingresos destinados a ella quedan fuera del resultado cotidiano (Inicio, Movimientos, calendario, análisis y presupuestos), que muestran aparte el historial completo; los traslados solo cambian dónde está.
 - **Presupuestos:**
+  - detalle de cada presupuesto (0.33.0, `lib/screens/budget_detail.dart`): al pulsarlo, el mes consultado con límite (y lo arrastrado del mes anterior aparte), consumido y restante o exceso, y los movimientos que lo consumen agrupados por día, con fecha, concepto, cuenta e importe; un pago en parte cubierto por una reserva muestra el total y lo que consume. Usa la misma regla que el cálculo (`FinanceCalculator.countsInBudget` y `budgetContributions`): gastos y comisiones de la categoría con fecha en ese mes, de todas las cuentas, sin transferencias; la suma coincide siempre con el gasto del presupuesto. Cada movimiento abre su detalle y una edición actualiza detalle y resumen a la vez; «Editar presupuesto» en la barra superior;
   - límite solo de este mes o de todos los meses (guardar o arrastrar lo que sobra);
   - gasto sin presupuesto;
   - objetivos de ahorro, a mano o siguiendo el saldo de una cuenta.
