@@ -202,7 +202,7 @@ void main() {
     await settle(tester);
 
     // Inicio: the way to the forecast, in the Disponible card.
-    expect(find.text('Previsión y simulaciones'), findsOneWidget);
+    expect(find.text('Ver previsión'), findsOneWidget);
     // Don Bigotes: the notice about this person's own account, and «Ver» opens that day and account.
     await tester.tap(find.byType(CompanionButton));
     await settle(tester, 3);
@@ -213,19 +213,23 @@ void main() {
     await tester.tap(find.descendant(of: card, matching: find.text('Ver')));
     await settle(tester, 4);
     expect(find.byType(ForecastScreen), findsOneWidget);
-    expect(find.text('Estimación con tus supuestos, no una garantía.'), findsOneWidget);
+    expect(find.text('Libre para gastar'), findsOneWidget);
     expect(find.widgetWithText(DropdownButton<String?>, checking), findsOneWidget, reason: 'Opened on the account of the notice');
-    expect(find.textContaining('sin saldo el'), findsWidgets);
+    expect(find.textContaining('Descubierto ·'), findsOneWidget, reason: 'Don Bigotes points out the date inside the forecast');
 
     // A simulation, saved on this device only.
-    await tester.tap(find.text('Simular'));
+    await tester.scrollUntilVisible(find.text('Nueva simulación'), 300, scrollable: find.byType(Scrollable).last);
+    await tester.ensureVisible(find.text('Nueva simulación'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 100), EnginePhase.sendSemanticsUpdate, const Duration(seconds: 2));
+    await tester.tap(find.text('Nueva simulación'));
     await settle(tester, 2);
     await tester.enterText(find.widgetWithText(TextField, 'Nombre'), scenario);
     await tester.enterText(find.widgetWithText(TextField, 'Importe'), '150');
     await tester.tap(find.text('Guardar y comparar'));
     await settle(tester, 3);
+    await tester.scrollUntilVisible(find.widgetWithText(ChoiceChip, scenario), 300, scrollable: find.byType(Scrollable).last);
     expect(find.widgetWithText(ChoiceChip, scenario), findsOneWidget);
-    expect(find.text('Tus reservas no se tocan.'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Tus reservas no se tocan.'), -300, scrollable: find.byType(Scrollable).last);
     expect(tester.takeException(), isNull);
     await settle(tester, 6); // lets the simulation's file finish writing
 

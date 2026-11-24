@@ -7,6 +7,7 @@ import 'package:doblon/cloud_privacy.dart';
 import 'package:doblon/data.dart';
 import 'package:doblon/learning.dart';
 import 'package:doblon/screens/forecast_screen.dart';
+import 'package:doblon/screens/shell.dart' show DonBigotesMark;
 import 'package:doblon/theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -125,9 +126,13 @@ void main() {
       final (repo, _) = await open(tester);
       await tester.pumpWidget(app(repo));
       await tester.pumpAndSettle();
-      expect(find.text('Estimación con tus supuestos, no una garantía.'), findsOneWidget);
-      expect(find.text('Mínimo libre previsto'), findsOneWidget);
+      expect(find.byType(DonBigotesMark), findsWidgets, reason: 'Don Bigotes inside the forecast');
+      expect(find.textContaining('¿Cuánto tendré el'), findsOneWidget);
+      expect(find.text('Libre para gastar'), findsOneWidget);
+      expect(find.text('Saldo total'), findsOneWidget);
+      await tester.scrollUntilVisible(find.textContaining('Parte de hoy'), 300, scrollable: find.byType(Scrollable).first);
       expect(find.textContaining('Parte de hoy: 1 saldo del banco, 1 indicados por ti'), findsOneWidget);
+      expect(find.textContaining('no una garantía'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }
@@ -141,15 +146,20 @@ void main() {
     await tester.pumpWidget(app(repo));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Simular'));
+    await tester.scrollUntilVisible(find.text('Nueva simulación'), 300, scrollable: find.byType(Scrollable).first);
+    await tester.ensureVisible(find.text('Nueva simulación'));
+    await tester.pumpAndSettle(const Duration(milliseconds: 100), EnginePhase.sendSemanticsUpdate, const Duration(seconds: 2));
+    await tester.tap(find.text('Nueva simulación'));
     await tester.pumpAndSettle();
-    expect(find.text('Nueva simulación'), findsOneWidget);
+    expect(find.text('Guardar y comparar'), findsOneWidget);
     await tester.enterText(find.widgetWithText(TextField, 'Importe'), '400');
     await tester.tap(find.text('Guardar y comparar'));
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 100)));
     await tester.pumpAndSettle();
 
+    await tester.scrollUntilVisible(find.widgetWithText(ChoiceChip, 'Compra puntual'), 300, scrollable: find.byType(Scrollable).first);
     expect(find.widgetWithText(ChoiceChip, 'Compra puntual'), findsOneWidget);
+    await tester.scrollUntilVisible(find.textContaining('Simulando «Compra puntual»'), -300, scrollable: find.byType(Scrollable).first);
     expect(find.text('Tus reservas no se tocan.'), findsOneWidget);
     expect(find.textContaining('frente a la previsión'), findsOneWidget);
     expect(repo.forecast!.scenarios.single.changes.single.amountMinor, 40000);

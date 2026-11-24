@@ -12,10 +12,12 @@ import '../forecast_store.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
+import 'shell.dart' show DonBigotesMark;
 import 'transaction_form.dart' show parseAmount;
 
-/// Previsión y simulaciones: how the balance and the free money could evolve with the person's assumptions, and
-/// «what if» simulations compared with it. An estimate, never a guarantee; nothing here changes the finances.
+/// Previsión: how much money there could be on a future date, from the real balance of the last days to the
+/// estimate of the next ones, with Don Bigotes pointing out the dates that matter. Simulations are a secondary
+/// action at the end, compared with this forecast; nothing here changes the finances.
 class ForecastScreen extends StatefulWidget {
   const ForecastScreen({super.key, required this.repository, this.focusDay, this.focusAccountId});
   final FinanceRepository repository;
@@ -31,9 +33,7 @@ class ForecastScreen extends StatefulWidget {
 class _ForecastScreenState extends State<ForecastScreen> {
   String? scenarioId;
   String? accountId;
-  bool showFree = true;
   DateTime? selectedDay;
-  late DateTime calendarMonth;
 
   Object? _planFrom, _planSettings, _planActivity;
   ForecastPlan? _plan;
@@ -45,9 +45,7 @@ class _ForecastScreenState extends State<ForecastScreen> {
   void initState() {
     super.initState();
     accountId = widget.focusAccountId;
-    final today = forecastDay(DateTime.now());
-    selectedDay = widget.focusDay == null ? today : forecastDay(widget.focusDay!);
-    calendarMonth = DateTime.utc(selectedDay!.year, selectedDay!.month);
+    selectedDay = widget.focusDay == null ? null : forecastDay(widget.focusDay!);
   }
 
   /// One plan per version of the finances, of the assumptions and of the bank reports.
@@ -76,13 +74,23 @@ class _ForecastScreenState extends State<ForecastScreen> {
         final forecast = _forecast();
         final store = repository.forecast;
         return Scaffold(
-          appBar: AppBar(title: const Text('Previsión')),
+          appBar: AppBar(title: const Text('Previsión'), actions: [
+            if (forecast != null && store != null)
+              IconButton(tooltip: 'Supuestos', icon: const Icon(Icons.tune), onPressed: () => _assumptions(forecast.$1, store)),
+          ]),
           body: forecast == null || store == null
               ? const Center(child: CircularProgressIndicator())
               : _body(context, forecast.$1, forecast.$2, store),
         );
       },
     );
+  }
+
+  /// By default, what there would be at the end of this month (or of the horizon, if sooner).
+  DateTime _defaultDay(ForecastPlan plan) {
+    final monthEnd = DateTime.utc(plan.today.year, plan.today.month + 1, 0);
+    final day = monthEnd.isAfter(plan.end) ? plan.end : monthEnd;
+    return day == plan.today ? plan.end : day;
   }
 
   Widget _body(BuildContext context, ForecastPlan plan, ForecastResult base, ForecastStore store) {
@@ -95,123 +103,142 @@ class _ForecastScreenState extends State<ForecastScreen> {
     final simulated = scenario == null ? null : simulateForecast(plan, scenarioEvents(plan, scenario));
     final shown = simulated ?? base;
     if (accountId != null && plan.account(accountId!) == null) accountId = null;
-    if (selectedDay != null && (selectedDay!.isBefore(plan.today) || selectedDay!.isAfter(plan.end))) selectedDay = plan.today;
-    List<int> series(ForecastResult r) => showFree ? r.free(accountId) : r.balance(accountId);
-    final limit = accountId == null && showFree ? plan.settings.cushionMinor : 0;
+    var day = selectedDay ?? _defaultDay(plan);
+    if (day.isBefore(plan.today) || day.isAfter(plan.end)) day = _defaultDay(plan);
+    final change = shown.explain(day, accountId);
 
+    void select(DateTime d) => setState(() => selectedDay = d);
     return ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 32), children: [
-      // What it is: an estimate with assumptions, and where its starting point comes from.
-      Row(children: [
-        Icon(Icons.info_outline, size: 16, color: hint),
-        const SizedBox(width: 6),
-        Expanded(child: Text('Estimación con tus supuestos, no una garantía.', style: TextStyle(fontSize: 13, color: hint))),
-        TextButton(onPressed: () => _assumptions(plan, store), child: const Text('Supuestos')),
-      ]),
-      _StartLine(plan: plan),
+      if (scenario != null) ...[
+        _ScenarioBanner(name: scenario.name, onClear: () => setState(() => scenarioId = null)),
+        _ScenarioSummary(comparison: ScenarioComparison(base, simulated!, scenario), onEdit: () => _editScenario(plan, store, editing: scenario), onDelete: () => _deleteScenario(store, scenario)),
+        const SizedBox(height: 8),
+      ],
+      _Companion(result: base, onMoment: (m) {
+        select(m.day);
+        if (m.accountId != null && m.kind == MomentKind.overdraft) setState(() => accountId = m.accountId);
+        _moment(shown, m);
+      }),
       const SizedBox(height: 8),
-      Row(children: [
-        Expanded(
-          child: SegmentedButton<int>(
-            segments: const [ButtonSegment(value: 30, label: Text('30 días')), ButtonSegment(value: 60, label: Text('60 días')), ButtonSegment(value: 90, label: Text('90 días'))],
-            selected: {plan.settings.horizonDays},
-            showSelectedIcon: false,
-            onSelectionChanged: (v) => store.saveSettings(plan.settings.copyWith(horizonDays: v.single)),
-          ),
-        ),
-      ]),
-      const SizedBox(height: 10),
-      // Simulations: the base forecast, the saved ones, and a new one.
-      Wrap(spacing: 8, runSpacing: 4, children: [
-        ChoiceChip(label: const Text('Previsión base'), selected: scenario == null, onSelected: (_) => setState(() => scenarioId = null)),
-        for (final s in store.scenarios) ChoiceChip(label: Text(s.name), selected: s.id == scenarioId, onSelected: (_) => setState(() => scenarioId = s.id)),
-        ActionChip(avatar: const Icon(Icons.add, size: 18), label: const Text('Simular'), onPressed: () => _editScenario(plan, store)),
-      ]),
-      const SizedBox(height: 8),
-      Row(children: [
-        Expanded(
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String?>(
-              isExpanded: true,
-              value: accountId,
-              items: [
-                const DropdownMenuItem(value: null, child: Text('Todas las cuentas')),
-                for (final s in plan.starts) DropdownMenuItem(value: s.account.id, child: Text(s.account.name, overflow: TextOverflow.ellipsis)),
-              ],
-              onChanged: (v) => setState(() => accountId = v),
-            ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        SegmentedButton<bool>(
-          segments: const [ButtonSegment(value: true, label: Text('Libre')), ButtonSegment(value: false, label: Text('Saldo'))],
-          selected: {showFree},
-          showSelectedIcon: false,
-          onSelectionChanged: (v) => setState(() => showFree = v.single),
-        ),
-      ]),
-      Text(showFree ? 'Libre: saldo menos lo apartado en reservas.' : 'Saldo: todo el dinero de las cuentas, también el reservado.',
-          style: TextStyle(fontSize: 12, color: hint)),
+      _DayPanel(change: change, accountId: accountId, onPick: () => _pickDay(plan, day), onEvent: (e) => _event(plan, store, e)),
       const SizedBox(height: 8),
       Card(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(8, 16, 16, 8),
-          child: SizedBox(
-            height: 200,
-            child: amountsHidden
-                ? Center(child: Text('Importes ocultos', style: TextStyle(color: hint)))
-                : _ForecastChart(
-                    result: shown,
-                    base: simulated == null ? null : series(base),
-                    values: series(shown),
-                    limit: limit,
-                    selected: selectedDay == null ? null : shown.indexOf(selectedDay!),
-                    onSelect: (i) => setState(() {
-                      selectedDay = shown.dayAt(i);
-                      calendarMonth = DateTime.utc(selectedDay!.year, selectedDay!.month);
-                    }),
+          padding: const EdgeInsets.fromLTRB(8, 12, 12, 8),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (plan.starts.length > 1)
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String?>(
+                    isExpanded: true,
+                    value: accountId,
+                    items: [
+                      const DropdownMenuItem(value: null, child: Text('Todas las cuentas')),
+                      for (final s in plan.starts) DropdownMenuItem(value: s.account.id, child: Text(s.account.name, overflow: TextOverflow.ellipsis)),
+                    ],
+                    onChanged: (v) => setState(() => accountId = v),
                   ),
-          ),
+                ),
+              ),
+            SizedBox(
+              height: 210,
+              child: amountsHidden
+                  ? Center(child: Text('Importes ocultos', style: TextStyle(color: hint)))
+                  : _ForecastChart(result: shown, base: simulated == null ? null : base, accountId: accountId, selected: day, onSelect: select),
+            ),
+            _Legend(simulated: simulated != null),
+            const SizedBox(height: 8),
+            Center(
+              child: SegmentedButton<int>(
+                segments: const [ButtonSegment(value: 30, label: Text('30 días')), ButtonSegment(value: 60, label: Text('60 días')), ButtonSegment(value: 90, label: Text('90 días'))],
+                selected: {plan.settings.horizonDays},
+                showSelectedIcon: false,
+                onSelectionChanged: (v) => store.saveSettings(plan.settings.copyWith(horizonDays: v.single)),
+              ),
+            ),
+          ]),
         ),
       ),
-      if (simulated != null) _Legend(scenario: scenario!.name),
+      if (!plan.hasIncome || plan.pendingProposals.isNotEmpty || plan.settings.incomes.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        _IncomeCard(plan: plan, store: store, onAdd: () => _addIncome(plan, store)),
+      ],
       const SizedBox(height: 8),
-      if (scenario == null)
-        _BaseSummary(
-            result: base,
-            onCushion: () => _assumptions(plan, store),
-            onShortfall: (s) => setState(() {
-                  accountId = s.account.id;
-                  selectedDay = s.day;
-                  calendarMonth = DateTime.utc(s.day.year, s.day.month);
-                }))
-      else
-        _ScenarioSummary(
-          comparison: ScenarioComparison(base, simulated!, scenario),
-          onEdit: () => _editScenario(plan, store, editing: scenario),
-          onDelete: () => _deleteScenario(store, scenario),
-        ),
+      _Upcoming(result: shown, accountId: accountId, onEvent: (e) => _event(plan, store, e)),
       const SizedBox(height: 8),
-      _ForecastCalendar(
-        result: shown,
-        values: series(shown),
-        limit: limit,
-        month: calendarMonth,
-        selected: selectedDay,
-        onMonth: (m) => setState(() => calendarMonth = m),
-        onDay: (day) => setState(() => selectedDay = day),
+      _StartLine(plan: plan),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
+        child: Text('Es una estimación con tus datos y tus supuestos, no una garantía. Se calcula con reglas fijas en tu móvil, sin IA.',
+            style: TextStyle(fontSize: 12, color: hint)),
       ),
-      if (selectedDay != null) _DayDetail(result: shown, day: selectedDay!, accountId: accountId, showFree: showFree, onEvent: (e) => _event(plan, store, e)),
-      const SizedBox(height: 16),
-      Text('Las simulaciones no crean movimientos, no cambian tus saldos ni enseñan a la IA. Se guardan solo en este dispositivo.',
-          style: TextStyle(fontSize: 12, color: hint)),
+      const SizedBox(height: 24),
+      // Simulations: secondary, apart from the forecast.
+      _SimulationSection(
+        scenarios: store.scenarios,
+        selected: scenarioId,
+        onSelect: (id) => setState(() => scenarioId = id == scenarioId ? null : id),
+        onNew: () => _editScenario(plan, store),
+      ),
     ]);
   }
+
+  Future<void> _pickDay(ForecastPlan plan, DateTime day) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime(day.year, day.month, day.day),
+      firstDate: DateTime(plan.today.year, plan.today.month, plan.today.day),
+      lastDate: DateTime(plan.end.year, plan.end.month, plan.end.day),
+      locale: const Locale('es', 'ES'),
+      helpText: '¿Cuánto tendré el…?',
+    );
+    if (picked != null) setState(() => selectedDay = DateTime.utc(picked.year, picked.month, picked.day));
+  }
+
+  Future<void> _moment(ForecastResult result, ForecastMoment moment) => showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        builder: (context) {
+          final change = result.explain(moment.day, moment.kind == MomentKind.overdraft ? moment.accountId : accountId);
+          final hint = Theme.of(context).hintColor;
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  const DonBigotesMark(size: 36),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text(moment.title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                      Text(_longDay(moment.day), style: TextStyle(color: hint)),
+                    ]),
+                  ),
+                ]),
+                const SizedBox(height: 12),
+                Text(moment.detail),
+                const SizedBox(height: 12),
+                _Breakdown(change: change),
+              ]),
+            ),
+          );
+        },
+      );
 
   Future<void> _assumptions(ForecastPlan plan, ForecastStore store) => showModalBottomSheet<void>(
         context: context,
         isScrollControlled: true,
         showDragHandle: true,
         builder: (_) => _AssumptionsSheet(plan: plan, store: store),
+      );
+
+  Future<void> _addIncome(ForecastPlan plan, ForecastStore store) => showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (_) => _IncomeSheet(plan: plan, store: store, newId: repository.newId),
       );
 
   Future<void> _editScenario(ForecastPlan plan, ForecastStore store, {Scenario? editing}) async {
@@ -248,6 +275,593 @@ class _ForecastScreenState extends State<ForecastScreen> {
         isScrollControlled: true,
         builder: (_) => _EventSheet(plan: plan, store: store, event: event),
       );
+}
+
+String _longDay(DateTime day) => toBeginningOfSentenceCase(DateFormat("EEEE d 'de' MMMM", 'es').format(day));
+
+/// Don Bigotes inside the forecast: one or two sentences from its results and the dates worth a look.
+class _Companion extends StatelessWidget {
+  const _Companion({required this.result, required this.onMoment});
+  final ForecastResult result;
+  final ValueChanged<ForecastMoment> onMoment;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    final lines = forecastSummary(result);
+    final moments = forecastMoments(result).take(4).toList();
+    IconData icon(MomentKind k) => switch (k) {
+          MomentKind.income => Icons.south_west,
+          MomentKind.lowest => Icons.trending_down,
+          MomentKind.overdraft => Icons.warning_amber_rounded,
+          MomentKind.cushion => Icons.shield_outlined,
+        };
+    Color tint(MomentKind k) => switch (k) {
+          MomentKind.income => pulso.income,
+          MomentKind.lowest => pulso.accent,
+          MomentKind.overdraft || MomentKind.cushion => pulso.warning,
+        };
+    String short(ForecastMoment m) => switch (m.kind) {
+          MomentKind.income => 'Ingreso',
+          MomentKind.lowest => 'Mínimo',
+          MomentKind.overdraft => 'Descubierto',
+          MomentKind.cushion => 'Colchón',
+        };
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const DonBigotesMark(size: 40),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                for (final line in lines) Padding(padding: const EdgeInsets.only(bottom: 2), child: Text(line, style: const TextStyle(fontWeight: FontWeight.w600))),
+              ]),
+            ),
+          ]),
+          if (moments.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Wrap(spacing: 8, runSpacing: 6, children: [
+              for (final m in moments)
+                ActionChip(
+                  avatar: Icon(icon(m.kind), size: 16, color: tint(m.kind)),
+                  label: Text('${short(m)} · ${shortDay(m.day)}'),
+                  tooltip: m.title,
+                  onPressed: () => onMoment(m),
+                ),
+            ]),
+          ],
+          const SizedBox(height: 6),
+          Text('Toca una fecha para ver por qué.', style: TextStyle(fontSize: 12, color: hint)),
+        ]),
+      ),
+    );
+  }
+}
+
+/// «¿Cuánto tendré?»: the free money and the balance on the chosen date, and what explains the change from today.
+class _DayPanel extends StatelessWidget {
+  const _DayPanel({required this.change, this.accountId, required this.onPick, required this.onEvent});
+  final ForecastChange change;
+  final String? accountId;
+  final VoidCallback onPick;
+  final ValueChanged<ForecastEvent> onEvent;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    final difference = change.endFree - change.startFree;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 8, 14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Expanded(child: Text('¿Cuánto tendré el ${DateFormat("d 'de' MMMM", 'es').format(change.day)}?', style: const TextStyle(fontWeight: FontWeight.w700))),
+            TextButton(onPressed: onPick, child: const Text('Otra fecha')),
+          ]),
+          Wrap(spacing: 24, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.end, children: [
+            Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text('Libre para gastar', style: TextStyle(fontSize: 12, color: hint)),
+              Text(money(change.endFree), style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.5, color: change.endFree < 0 ? pulso.expense : null)),
+            ]),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+              Text('Saldo total', style: TextStyle(fontSize: 12, color: hint)),
+              Text(money(change.endBalance), style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+            ]),
+          ]),
+          Text('${money(difference, signed: true)} desde hoy', style: TextStyle(fontSize: 13, color: difference < 0 ? pulso.expense : pulso.income, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 10),
+          _Breakdown(change: change, onEvent: onEvent),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Incomes, payments and the variable spending between today and a date, and how much of it is sure.
+class _Breakdown extends StatefulWidget {
+  const _Breakdown({required this.change, this.onEvent});
+  final ForecastChange change;
+  final ValueChanged<ForecastEvent>? onEvent;
+
+  @override
+  State<_Breakdown> createState() => _BreakdownState();
+}
+
+class _BreakdownState extends State<_Breakdown> {
+  bool open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    final c = widget.change;
+    Widget line(String label, int value, Color color) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(children: [
+            Expanded(child: Text(label)),
+            Text(money(value, signed: true), style: TextStyle(fontWeight: FontWeight.w700, color: value == 0 ? hint : color)),
+          ]),
+        );
+    final items = [...c.incomes, ...c.expenses]..sort((a, b) => a.$1.day.compareTo(b.$1.day));
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      line(c.incomes.length == 1 ? 'Ingresos (1)' : 'Ingresos (${c.incomes.length})', c.incomeMinor, pulso.income),
+      line(c.expenses.length == 1 ? 'Pagos previstos (1)' : 'Pagos previstos (${c.expenses.length})', c.expenseMinor, pulso.expense),
+      line('Gasto variable estimado', c.variableMinor, pulso.expense),
+      Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text('Seguro (apuntado o periódico): ${money(c.sureMinor, signed: true)} · Estimado: ${money(c.estimatedMinor, signed: true)}',
+            style: TextStyle(fontSize: 12, color: hint)),
+      ),
+      if (items.isNotEmpty)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            style: TextButton.styleFrom(padding: EdgeInsets.zero),
+            onPressed: () => setState(() => open = !open),
+            icon: Icon(open ? Icons.expand_less : Icons.expand_more, size: 18),
+            label: Text(open ? 'Ocultar el detalle' : 'Ver qué lo explica'),
+          ),
+        ),
+      if (open)
+        for (final (e, effect) in items)
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            onTap: widget.onEvent == null ? null : () => widget.onEvent!(e),
+            title: Text(e.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text('${shortDay(e.day)} · ${e.certainty.title}'),
+            trailing: Text(money(effect, signed: true), style: TextStyle(fontWeight: FontWeight.w700, color: effect >= 0 ? pulso.income : pulso.expense)),
+          ),
+    ]);
+  }
+}
+
+/// The free money over time: the real line of the last 30 days, then the estimate (dashed), today marked, the
+/// incomes as green dots so the recovery after them is seen, and the total balance as a thin line for reference.
+class _ForecastChart extends StatelessWidget {
+  const _ForecastChart({required this.result, this.base, this.accountId, required this.selected, required this.onSelect});
+  final ForecastResult result;
+  final ForecastResult? base;
+  final String? accountId;
+  final DateTime selected;
+  final ValueChanged<DateTime> onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    const past = ForecastPlan.pastDays;
+    final pastFree = result.pastFree(accountId), future = result.free(accountId);
+    final pastBalance = result.pastBalance(accountId), futureBalance = result.balance(accountId);
+    final baseFree = base?.free(accountId);
+    final all = [...pastFree, ...future, ...pastBalance, ...futureBalance, ...?baseFree, 0];
+    final low = all.reduce(math.min) / 100, high = all.reduce(math.max) / 100;
+    final margin = math.max((high - low) * 0.1, 10.0);
+    final incomeDays = {
+      for (final e in result.events)
+        if (e.amountMinor > 0 && !e.isTransfer && (accountId == null || e.accountId == accountId)) result.indexOf(e.day)
+    };
+    final selectedIndex = result.indexOf(selected);
+    FlSpot spot(int x, int v) => FlSpot(x.toDouble(), v / 100);
+    DateTime dayOf(int x) => x < past ? DateTime.utc(result.plan.today.year, result.plan.today.month, result.plan.today.day - (past - x)) : result.dayAt(x - past);
+    final total = past + future.length;
+    final step = total > 75 ? 21 : 14;
+    return Semantics(
+      label: 'Dinero libre: hoy ${money(future.first)}, el ${shortDay(selected)} ${money(future[selectedIndex])}, al final ${money(future.last)}.',
+      child: LineChart(LineChartData(
+        minY: low - margin,
+        maxY: high + margin,
+        gridData: FlGridData(
+          drawVerticalLine: false,
+          getDrawingHorizontalLine: (_) => FlLine(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06), strokeWidth: 1),
+        ),
+        borderData: FlBorderData(show: false),
+        extraLinesData: ExtraLinesData(
+          horizontalLines: [HorizontalLine(y: 0, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.25), strokeWidth: 1)],
+          verticalLines: [
+            VerticalLine(
+              x: past.toDouble(),
+              color: hint.withValues(alpha: 0.6),
+              strokeWidth: 1,
+              dashArray: [3, 3],
+              label: VerticalLineLabel(show: true, alignment: Alignment.topLeft, labelResolver: (_) => 'Hoy', style: TextStyle(fontSize: 11, color: hint, fontWeight: FontWeight.w700)),
+            ),
+            VerticalLine(x: (past + selectedIndex).toDouble(), color: pulso.accent.withValues(alpha: 0.5), strokeWidth: 1.5),
+          ],
+        ),
+        lineTouchData: LineTouchData(
+          touchCallback: (event, response) {
+            final hit = response?.lineBarSpots?.firstOrNull;
+            if (event is FlTapUpEvent && hit != null && hit.x.round() >= past) onSelect(result.dayAt(hit.x.round() - past));
+          },
+          touchTooltipData: LineTouchTooltipData(
+            getTooltipColor: (_) => Theme.of(context).colorScheme.onSurface,
+            getTooltipItems: (spots) => [
+              for (final (n, s) in spots.indexed)
+                n == 0
+                    ? LineTooltipItem('${shortDay(dayOf(s.x.round()))} · ${s.x.round() < past ? 'real' : 'previsto'}\n', TextStyle(color: pulso.page, fontSize: 11), children: [
+                        TextSpan(text: 'Libre ${money((s.y * 100).round())}', style: TextStyle(color: pulso.page, fontWeight: FontWeight.w800, fontSize: 13)),
+                      ])
+                    : null,
+            ],
+          ),
+        ),
+        titlesData: FlTitlesData(
+          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          bottomTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              interval: 1,
+              reservedSize: 22,
+              getTitlesWidget: (value, meta) {
+                final x = value.round();
+                if (x < 0 || x >= total || (x - past) % step != 0) return const SizedBox.shrink();
+                final d = dayOf(x);
+                return Padding(padding: const EdgeInsets.only(top: 4), child: Text('${d.day}/${d.month}', style: Theme.of(context).textTheme.bodySmall));
+              },
+            ),
+          ),
+        ),
+        lineBarsData: [
+          // 0: free money, real (solid). 1: free money, estimated (dashed, with its area). 2: total balance (thin).
+          LineChartBarData(
+            spots: [for (var i = 0; i < past; i++) spot(i, pastFree[i]), spot(past, future.first)],
+            color: pulso.accent,
+            barWidth: 3,
+            dotData: const FlDotData(show: false),
+          ),
+          LineChartBarData(
+            spots: [for (var i = 0; i < future.length; i++) spot(past + i, future[i])],
+            color: pulso.accent,
+            barWidth: 3,
+            dashArray: [6, 4],
+            dotData: FlDotData(
+              checkToShowDot: (s, _) => incomeDays.contains(s.x.round() - past) || s.x.round() - past == selectedIndex,
+              getDotPainter: (s, _, __, ___) => FlDotCirclePainter(
+                  radius: s.x.round() - past == selectedIndex ? 5 : 4,
+                  color: s.x.round() - past == selectedIndex ? pulso.accent : pulso.income,
+                  strokeWidth: 2,
+                  strokeColor: pulso.card),
+            ),
+            belowBarData: BarAreaData(
+              show: true,
+              gradient: LinearGradient(
+                  begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [pulso.accent.withValues(alpha: 0.14), pulso.accent.withValues(alpha: 0)]),
+            ),
+          ),
+          LineChartBarData(
+            spots: [for (var i = 0; i < past; i++) spot(i, pastBalance[i]), for (var i = 0; i < futureBalance.length; i++) spot(past + i, futureBalance[i])],
+            color: hint.withValues(alpha: 0.55),
+            barWidth: 1.2,
+            dotData: const FlDotData(show: false),
+          ),
+          if (baseFree != null)
+            LineChartBarData(
+              spots: [for (var i = 0; i < baseFree.length; i++) spot(past + i, baseFree[i])],
+              color: hint,
+              barWidth: 2,
+              dashArray: [2, 4],
+              dotData: const FlDotData(show: false),
+            ),
+        ],
+      )),
+    );
+  }
+}
+
+class _Legend extends StatelessWidget {
+  const _Legend({required this.simulated});
+  final bool simulated;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    Widget mark(Widget sample, String text) => Row(mainAxisSize: MainAxisSize.min, children: [
+          sample,
+          const SizedBox(width: 6),
+          Flexible(child: Text(text, style: TextStyle(fontSize: 12, color: hint))),
+        ]);
+    Widget bar(Color color, double h) => Container(width: 16, height: h, color: color);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 6, 0, 0),
+      child: Wrap(spacing: 14, runSpacing: 4, children: [
+        mark(bar(pulso.accent, 3), simulated ? 'Libre con la simulación' : 'Libre real hasta hoy'),
+        if (!simulated) mark(Row(mainAxisSize: MainAxisSize.min, children: [bar(pulso.accent, 3), const SizedBox(width: 3), bar(pulso.accent, 3)]), 'Libre previsto'),
+        if (simulated) mark(bar(hint, 2), 'Previsión sin simular'),
+        mark(bar(hint.withValues(alpha: 0.55), 1.2), 'Saldo total (incluye reservas)'),
+        mark(Container(width: 8, height: 8, decoration: BoxDecoration(color: pulso.income, shape: BoxShape.circle)), 'Ingreso'),
+      ]),
+    );
+  }
+}
+
+/// Incomes: the ones found in the history to confirm, the ones the person added, and a way to add one when the
+/// forecast has none (otherwise the line can only go down).
+class _IncomeCard extends StatelessWidget {
+  const _IncomeCard({required this.plan, required this.store, required this.onAdd});
+  final ForecastPlan plan;
+  final ForecastStore store;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    final pending = plan.pendingProposals;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 12, 8),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Tus ingresos', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+          if (!plan.hasIncome)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Icon(Icons.info_outline, size: 18, color: pulso.warning),
+                const SizedBox(width: 6),
+                const Expanded(child: Text('No hay ingresos previstos: esta previsión solo cuenta gastos y no es fiable para saber cuánto tendrás.')),
+              ]),
+            ),
+          for (final p in pending)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(p.label, maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+                Text('${p.isIncome ? '+' : '−'}${money(p.amountMinor)} hacia el día ${p.dayOfMonth} · visto ${p.times} meses en tu historial',
+                    style: TextStyle(fontSize: 12, color: hint)),
+                Row(children: [
+                  Expanded(child: Text('¿Cuento con él?', style: TextStyle(fontSize: 13, color: hint))),
+                  TextButton(onPressed: () => store.saveSettings(plan.settings.review(p.source, keep: false)), child: const Text('No')),
+                  FilledButton.tonal(onPressed: () => store.saveSettings(plan.settings.review(p.source, keep: true)), child: const Text('Sí')),
+                ]),
+              ]),
+            ),
+          for (final i in plan.settings.incomes)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: Text(i.name),
+              subtitle: Text('+${money(i.amountMinor)} el día ${i.dayOfMonth} · indicado por ti, no es un movimiento'),
+              trailing: IconButton(
+                tooltip: 'Quitar',
+                icon: const Icon(Icons.close),
+                onPressed: () => store.saveSettings(plan.settings.copyWith(incomes: [for (final x in plan.settings.incomes) if (x.id != i.id) x])),
+              ),
+            ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(onPressed: onAdd, icon: const Icon(Icons.add), label: const Text('Añadir un ingreso previsto')),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+/// What comes next (not the variable spending), a few lines; the rest on demand.
+class _Upcoming extends StatelessWidget {
+  const _Upcoming({required this.result, this.accountId, required this.onEvent});
+  final ForecastResult result;
+  final String? accountId;
+  final ValueChanged<ForecastEvent> onEvent;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    final items = [
+      for (final e in result.events)
+        if (!e.isVariable && (accountId == null || e.accountId == accountId || e.destinationId == accountId)) e
+    ];
+    Widget row(ForecastEvent e) {
+      final effect = accountId != null && e.destinationId == accountId ? -e.amountMinor : e.amountMinor;
+      final transfer = e.isTransfer && accountId == null;
+      return ListTile(
+        contentPadding: EdgeInsets.zero,
+        onTap: () => onEvent(e),
+        leading: SizedBox(width: 44, child: Text(shortDay(e.day), style: const TextStyle(fontWeight: FontWeight.w700))),
+        title: Text(e.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        subtitle: Text([e.certainty.title, if (transfer) 'traspaso entre tus cuentas'].join(' · ')),
+        trailing: Text(transfer ? money(e.amountMinor.abs()) : money(effect, signed: true),
+            style: TextStyle(fontWeight: FontWeight.w700, color: transfer ? hint : (effect >= 0 ? pulso.income : pulso.expense))),
+      );
+    }
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 12, 4),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Lo que viene', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+          if (items.isEmpty) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text('Nada previsto aparte del gasto variable.', style: TextStyle(color: hint))),
+          for (final e in items.take(5)) row(e),
+          if (items.length > 5)
+            TextButton(
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                showDragHandle: true,
+                isScrollControlled: true,
+                builder: (context) => SafeArea(
+                  child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(20, 0, 20, 20), children: [
+                    Text('Todo lo previsto', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                    for (final e in items) row(e),
+                  ]),
+                ),
+              ),
+              child: Text('Ver los ${items.length}'),
+            ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _ScenarioBanner extends StatelessWidget {
+  const _ScenarioBanner({required this.name, required this.onClear});
+  final String name;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        color: Pulso.of(context).accent.withValues(alpha: 0.10),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
+          child: Row(children: [
+            const Icon(Icons.science_outlined, size: 18),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Simulando «$name»: no cambia tus cuentas', style: const TextStyle(fontWeight: FontWeight.w600))),
+            TextButton(onPressed: onClear, child: const Text('Quitar')),
+          ]),
+        ),
+      );
+}
+
+/// Simulations, apart: a short explanation, the saved ones to compare, and a new one.
+class _SimulationSection extends StatelessWidget {
+  const _SimulationSection({required this.scenarios, required this.selected, required this.onSelect, required this.onNew});
+  final List<Scenario> scenarios;
+  final String? selected;
+  final ValueChanged<String> onSelect;
+  final VoidCallback onNew;
+
+  @override
+  Widget build(BuildContext context) {
+    final hint = Theme.of(context).hintColor;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Simular una decisión', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+      Text('Prueba una compra, un gasto nuevo o un cobro que se retrasa y compáralo con esta previsión, sin tocar tus cuentas.', style: TextStyle(color: hint)),
+      const SizedBox(height: 8),
+      if (scenarios.isNotEmpty)
+        Wrap(spacing: 8, runSpacing: 4, children: [
+          for (final s in scenarios) ChoiceChip(label: Text(s.name), selected: s.id == selected, onSelected: (_) => onSelect(s.id)),
+        ]),
+      const SizedBox(height: 4),
+      OutlinedButton.icon(onPressed: onNew, icon: const Icon(Icons.science_outlined), label: const Text('Nueva simulación')),
+    ]);
+  }
+}
+
+/// An income the person expects, for the forecast only: name, amount, day and account, filled in from the history.
+class _IncomeSheet extends StatefulWidget {
+  const _IncomeSheet({required this.plan, required this.store, required this.newId});
+  final ForecastPlan plan;
+  final ForecastStore store;
+  final String Function() newId;
+
+  @override
+  State<_IncomeSheet> createState() => _IncomeSheetState();
+}
+
+class _IncomeSheetState extends State<_IncomeSheet> {
+  late final name = TextEditingController(text: 'Nómina');
+  late final amount = TextEditingController();
+  late final day = TextEditingController();
+  String? accountId;
+
+  @override
+  void initState() {
+    super.initState();
+    accountId = widget.plan.defaultAccountId;
+    // The last income of the history as a starting point, if there is one.
+    final last = widget.plan.data.transactions
+        .where((t) => t.type == TransactionType.income && widget.plan.account(t.sourceAccountId ?? '') != null && t.amountMinor > 0)
+        .firstOrNull;
+    if (last != null) {
+      amount.text = _amountText(last.amountMinor);
+      day.text = '${last.date.toLocal().day}';
+      accountId = last.sourceAccountId;
+    }
+  }
+
+  @override
+  void dispose() {
+    name.dispose();
+    amount.dispose();
+    day.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hint = Theme.of(context).hintColor;
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+        child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(20, 0, 20, 20), children: [
+          Text('Ingreso previsto', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+          Text('Solo para la previsión: no crea ningún movimiento. Cuando llegue el real, ocupa su lugar.', style: TextStyle(color: hint)),
+          const SizedBox(height: 12),
+          TextField(controller: name, decoration: const InputDecoration(labelText: 'Nombre')),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+              child: TextField(
+                  controller: amount,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(labelText: 'Importe al mes', suffixText: '€')),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 110,
+              child: TextField(controller: day, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Día del mes')),
+            ),
+          ]),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            initialValue: accountId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Cuenta'),
+            items: [for (final s in widget.plan.starts) DropdownMenuItem(value: s.account.id, child: Text(s.account.name, overflow: TextOverflow.ellipsis))],
+            onChanged: (v) => setState(() => accountId = v),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: () {
+              final value = parseAmount(amount.text), dayOfMonth = int.tryParse(day.text.trim());
+              if (value == null || value <= 0 || dayOfMonth == null || dayOfMonth < 1 || dayOfMonth > 31 || accountId == null) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Indica un importe y un día del 1 al 31.')));
+                return;
+              }
+              final settings = widget.store.settings;
+              widget.store.saveSettings(settings.copyWith(incomes: [
+                ...settings.incomes,
+                PlannedIncome(
+                    id: widget.newId(), name: name.text.trim().isEmpty ? 'Ingreso' : name.text.trim(), amountMinor: value, dayOfMonth: dayOfMonth, accountId: accountId!),
+              ]));
+              Navigator.pop(context);
+            },
+            child: const Text('Añadir a la previsión'),
+          ),
+        ]),
+      ),
+    );
+  }
 }
 
 /// The starting point: when each balance was received or calculated, and what limits the forecast.
@@ -311,192 +925,6 @@ class _StartLine extends StatelessWidget {
   }
 }
 
-class _ForecastChart extends StatelessWidget {
-  const _ForecastChart({required this.result, required this.values, this.base, required this.limit, this.selected, required this.onSelect});
-  final ForecastResult result;
-  final List<int> values;
-  final List<int>? base;
-  final int limit;
-  final int? selected;
-  final ValueChanged<int> onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final pulso = Pulso.of(context);
-    final all = [...values, ...?base, limit];
-    final low = all.reduce(math.min) / 100, high = all.reduce(math.max) / 100;
-    final margin = math.max((high - low) * 0.12, 10.0);
-    var lowest = 0;
-    for (var i = 1; i < values.length; i++) {
-      if (values[i] < values[lowest]) lowest = i;
-    }
-    final day = DateFormat("d 'de' MMM", 'es');
-    final step = values.length > 45 ? 14 : 7;
-    LineChartBarData line(List<int> v, Color color, {bool dashed = false, bool marks = false}) => LineChartBarData(
-          spots: [for (var i = 0; i < v.length; i++) FlSpot(i.toDouble(), v[i] / 100)],
-          isCurved: false,
-          color: color,
-          barWidth: dashed ? 2 : 3,
-          dashArray: dashed ? [5, 4] : null,
-          dotData: FlDotData(
-            show: marks,
-            checkToShowDot: (spot, _) => spot.x.round() == lowest || spot.x.round() == selected,
-            getDotPainter: (spot, _, __, ___) => FlDotCirclePainter(radius: 4.5, color: color, strokeWidth: 2, strokeColor: pulso.card),
-          ),
-          belowBarData: BarAreaData(
-            show: !dashed,
-            gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [color.withValues(alpha: 0.18), color.withValues(alpha: 0)]),
-          ),
-        );
-    final (minValue, minDay) = (values[lowest], result.dayAt(lowest));
-    return Semantics(
-      label: 'Previsión: mínimo ${money(minValue)} el ${day.format(minDay)}; al final ${money(values.last)}.',
-      child: LineChart(LineChartData(
-        minY: low - margin,
-        maxY: high + margin,
-        gridData: FlGridData(
-          drawVerticalLine: false,
-          getDrawingHorizontalLine: (_) => FlLine(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06), strokeWidth: 1),
-        ),
-        borderData: FlBorderData(show: false),
-        extraLinesData: ExtraLinesData(horizontalLines: [
-          if (limit > 0)
-            HorizontalLine(
-              y: limit / 100,
-              color: pulso.warning,
-              strokeWidth: 1.5,
-              dashArray: [6, 4],
-              label: HorizontalLineLabel(
-                  show: true, alignment: Alignment.topRight, labelResolver: (_) => 'Colchón', style: TextStyle(color: pulso.warning, fontSize: 11, fontWeight: FontWeight.w700)),
-            )
-          else
-            HorizontalLine(y: 0, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.25), strokeWidth: 1),
-        ]),
-        lineTouchData: LineTouchData(
-          touchCallback: (event, response) {
-            final spot = response?.lineBarSpots?.firstOrNull;
-            if (event is FlTapUpEvent && spot != null) onSelect(spot.x.round());
-          },
-          touchTooltipData: LineTouchTooltipData(
-            getTooltipColor: (_) => Theme.of(context).colorScheme.onSurface,
-            getTooltipItems: (spots) => [
-              for (final (n, s) in spots.indexed)
-                LineTooltipItem(n == 0 ? '${day.format(result.dayAt(s.x.round()))}\n' : '', TextStyle(color: pulso.page, fontSize: 11), children: [
-                  TextSpan(
-                      text: '${base != null ? (s.barIndex == 0 ? 'Previsión ' : 'Simulación ') : ''}${money((s.y * 100).round())}',
-                      style: TextStyle(color: pulso.page, fontWeight: FontWeight.w800, fontSize: 13)),
-                ]),
-            ],
-          ),
-        ),
-        titlesData: FlTitlesData(
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          bottomTitles: AxisTitles(
-            sideTitles: SideTitles(
-              showTitles: true,
-              interval: 1,
-              reservedSize: 22,
-              getTitlesWidget: (value, meta) {
-                final i = value.round();
-                if (i < 0 || i >= values.length || i % step != 0) return const SizedBox.shrink();
-                final d = result.dayAt(i);
-                return Padding(padding: const EdgeInsets.only(top: 4), child: Text('${d.day}/${d.month}', style: Theme.of(context).textTheme.bodySmall));
-              },
-            ),
-          ),
-        ),
-        lineBarsData: [
-          if (base != null) line(base!, Theme.of(context).hintColor, dashed: true),
-          line(values, pulso.accent, marks: true),
-        ],
-      )),
-    );
-  }
-}
-
-class _Legend extends StatelessWidget {
-  const _Legend({required this.scenario});
-  final String scenario;
-
-  @override
-  Widget build(BuildContext context) {
-    final hint = Theme.of(context).hintColor;
-    Widget mark(Color color, String text, {bool dashed = false}) => Row(mainAxisSize: MainAxisSize.min, children: [
-          Container(width: 18, height: dashed ? 2 : 3, color: color),
-          const SizedBox(width: 6),
-          Flexible(child: Text(text, style: TextStyle(fontSize: 12, color: hint), overflow: TextOverflow.ellipsis)),
-        ]);
-    return Padding(
-      padding: const EdgeInsets.only(top: 6, left: 4),
-      child: Wrap(spacing: 16, runSpacing: 4, children: [mark(Pulso.of(context).accent, 'Con «$scenario»'), mark(hint, 'Previsión base', dashed: true)]),
-    );
-  }
-}
-
-/// The base forecast in a few figures: the low point and when, the end, the cushion and the accounts that run short.
-class _BaseSummary extends StatelessWidget {
-  const _BaseSummary({required this.result, required this.onCushion, required this.onShortfall});
-  final ForecastResult result;
-  final VoidCallback onCushion;
-  final ValueChanged<Shortfall> onShortfall;
-
-  @override
-  Widget build(BuildContext context) {
-    final pulso = Pulso.of(context);
-    final hint = Theme.of(context).hintColor;
-    final (low, lowDay) = result.minimum;
-    final cushion = result.plan.settings.cushionMinor;
-    final breach = result.cushionBreach();
-    final cause = breach == null ? null : result.mainOutflowUntil(breach);
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Mínimo libre previsto', style: TextStyle(fontSize: 13, color: hint)),
-          Text(money(low), style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, letterSpacing: -0.5, color: breach != null ? pulso.warning : null)),
-          Text('El ${DateFormat("EEEE d 'de' MMMM", 'es').format(lowDay)} · al final del periodo ${money(result.endFree)}', style: TextStyle(color: hint)),
-          const SizedBox(height: 12),
-          InkWell(
-            onTap: onCushion,
-            child: Row(children: [
-              Icon(breach == null ? Icons.verified_outlined : Icons.warning_amber_rounded, size: 18, color: breach == null ? pulso.income : pulso.warning),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  cushion <= 0
-                      ? (breach == null ? 'No baja de cero. Define tu colchón para avisarte antes.' : 'Bajaría de cero el ${shortDay(breach)}.')
-                      : breach == null
-                          ? 'Se mantiene por encima de tu colchón de ${money(cushion)}.'
-                          : 'Bajaría de tu colchón de ${money(cushion)} el ${shortDay(breach)}${cause == null ? '' : ', sobre todo por ${cause.label}'}.',
-                ),
-              ),
-              const Icon(Icons.edit_outlined, size: 16),
-            ]),
-          ),
-          for (final s in result.shortfalls)
-            Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: InkWell(
-                onTap: () => onShortfall(s),
-                child: Row(children: [
-                  Icon(Icons.account_balance_wallet_outlined, size: 18, color: pulso.warning),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text('«${s.account.name}» sin saldo el ${shortDay(s.day)}${s.cause == null ? '' : ' por ${s.cause!.label}'}'
-                        '${s.elsewhereFreeMinor >= -s.balanceMinor ? '; en otras cuentas hay dinero libre' : ''}.'),
-                  ),
-                  const Icon(Icons.chevron_right, size: 18),
-                ]),
-              ),
-            ),
-        ]),
-      ),
-    );
-  }
-}
-
 class _ScenarioSummary extends StatelessWidget {
   const _ScenarioSummary({required this.comparison, required this.onEdit, required this.onDelete});
   final ScenarioComparison comparison;
@@ -527,154 +955,6 @@ class _ScenarioSummary extends StatelessWidget {
             ),
         ]),
       ),
-    );
-  }
-}
-
-/// The horizon as a calendar: a dot on days with planned items, the day number in warning colour when the money
-/// shown goes below the cushion (or zero). Tapping a day lists what happens in it.
-class _ForecastCalendar extends StatelessWidget {
-  const _ForecastCalendar(
-      {required this.result, required this.values, required this.limit, required this.month, this.selected, required this.onMonth, required this.onDay});
-  final ForecastResult result;
-  final List<int> values;
-  final int limit;
-  final DateTime month;
-  final DateTime? selected;
-  final ValueChanged<DateTime> onMonth;
-  final ValueChanged<DateTime> onDay;
-
-  @override
-  Widget build(BuildContext context) {
-    final pulso = Pulso.of(context);
-    final hint = Theme.of(context).hintColor;
-    final plan = result.plan;
-    final first = DateTime.utc(month.year, month.month);
-    final days = DateTime.utc(month.year, month.month + 1, 0).day;
-    final lead = first.weekday - 1;
-    final canBack = first.isAfter(DateTime.utc(plan.today.year, plan.today.month));
-    final canForward = DateTime.utc(month.year, month.month + 1).isBefore(plan.end) || DateTime.utc(month.year, month.month + 1) == plan.end;
-    final planned = <DateTime>{for (final e in result.events) if (!e.isVariable) e.day};
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 4, 8, 12),
-        child: Column(children: [
-          Row(children: [
-            IconButton(
-                tooltip: 'Mes anterior', onPressed: canBack ? () => onMonth(DateTime.utc(month.year, month.month - 1)) : null, icon: const Icon(Icons.chevron_left)),
-            Expanded(
-                child: Text(toBeginningOfSentenceCase(DateFormat('MMMM yyyy', 'es').format(month)),
-                    textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w700))),
-            IconButton(
-                tooltip: 'Mes siguiente',
-                onPressed: canForward ? () => onMonth(DateTime.utc(month.year, month.month + 1)) : null,
-                icon: const Icon(Icons.chevron_right)),
-          ]),
-          Row(children: [
-            for (final d in const ['L', 'M', 'X', 'J', 'V', 'S', 'D'])
-              Expanded(child: Text(d, textAlign: TextAlign.center, style: TextStyle(fontSize: 12, color: hint, fontWeight: FontWeight.w600))),
-          ]),
-          const SizedBox(height: 4),
-          for (var week = 0; week * 7 < lead + days; week++)
-            Row(children: [
-              for (var col = 0; col < 7; col++)
-                Expanded(
-                  child: Builder(builder: (context) {
-                    final n = week * 7 + col - lead + 1;
-                    if (n < 1 || n > days) return const SizedBox(height: 44);
-                    final day = DateTime.utc(month.year, month.month, n);
-                    final inside = !day.isBefore(plan.today) && !day.isAfter(plan.end);
-                    final value = inside ? values[result.indexOf(day)] : null;
-                    final low = value != null && value < limit;
-                    final isSelected = day == selected;
-                    return Semantics(
-                      button: inside,
-                      label: inside ? '${DateFormat("d 'de' MMMM", 'es').format(day)}: ${money(value!)}${planned.contains(day) ? ', con movimientos previstos' : ''}' : null,
-                      excludeSemantics: true,
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(10),
-                        onTap: inside ? () => onDay(day) : null,
-                        child: Container(
-                          height: 44,
-                          margin: const EdgeInsets.all(1.5),
-                          decoration: BoxDecoration(
-                            color: isSelected ? pulso.accent.withValues(alpha: 0.16) : null,
-                            borderRadius: BorderRadius.circular(10),
-                            border: day == plan.today ? Border.all(color: pulso.accent) : null,
-                          ),
-                          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                            Text('$n',
-                                style: TextStyle(
-                                  fontWeight: isSelected ? FontWeight.w800 : FontWeight.w500,
-                                  color: !inside ? hint.withValues(alpha: 0.4) : (low ? pulso.warning : null),
-                                )),
-                            const SizedBox(height: 3),
-                            Container(
-                              width: 5,
-                              height: 5,
-                              decoration: BoxDecoration(shape: BoxShape.circle, color: inside && planned.contains(day) ? pulso.accent : Colors.transparent),
-                            ),
-                          ]),
-                        ),
-                      ),
-                    );
-                  }),
-                ),
-            ]),
-        ]),
-      ),
-    );
-  }
-}
-
-/// What happens on the chosen day and what is left at its end. The variable spending is one line.
-class _DayDetail extends StatelessWidget {
-  const _DayDetail({required this.result, required this.day, this.accountId, required this.showFree, required this.onEvent});
-  final ForecastResult result;
-  final DateTime day;
-  final String? accountId;
-  final bool showFree;
-  final ValueChanged<ForecastEvent> onEvent;
-
-  @override
-  Widget build(BuildContext context) {
-    final pulso = Pulso.of(context);
-    final hint = Theme.of(context).hintColor;
-    final events = result.on(day, accountId);
-    final planned = events.where((e) => !e.isVariable).toList();
-    final variable = events.where((e) => e.isVariable).fold(0, (sum, e) => sum + e.amountMinor);
-    final index = result.indexOf(day);
-    final value = (showFree ? result.free(accountId) : result.balance(accountId))[index];
-    int effect(ForecastEvent e) => accountId != null && e.destinationId == accountId ? -e.amountMinor : (accountId == null && e.isTransfer ? 0 : e.amountMinor);
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(toBeginningOfSentenceCase(DateFormat("EEEE d 'de' MMMM", 'es').format(day)), style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-        Text('${showFree ? 'Libre' : 'Saldo'} al final del día: ${money(value)}', style: TextStyle(color: hint)),
-        if (planned.isEmpty && variable == 0) Padding(padding: const EdgeInsets.only(top: 8), child: Text('Nada previsto este día.', style: TextStyle(color: hint))),
-        for (final e in planned)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            onTap: () => onEvent(e),
-            title: Text(e.label, maxLines: 2, overflow: TextOverflow.ellipsis),
-            subtitle: Text([
-              e.certainty.title,
-              result.plan.account(e.accountId)?.name ?? '',
-              if (e.destinationId != null) '→ ${result.plan.account(e.destinationId!)?.name ?? ''}',
-              if (e.detail.isNotEmpty) e.detail,
-            ].where((t) => t.isNotEmpty).join(' · ')),
-            trailing: Text(e.isTransfer && accountId == null ? money(e.amountMinor.abs()) : money(effect(e), signed: true),
-                style: TextStyle(fontWeight: FontWeight.w700, color: e.isTransfer && accountId == null ? hint : (effect(e) >= 0 ? pulso.income : pulso.expense))),
-          ),
-        if (variable != 0)
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            onTap: () => onEvent(events.firstWhere((e) => e.isVariable)),
-            title: const Text('Gasto variable estimado'),
-            subtitle: const Text('Estimado · lo que dejan tus presupuestos y tu gasto habitual'),
-            trailing: Text(money(variable), style: TextStyle(fontWeight: FontWeight.w700, color: pulso.expense)),
-          ),
-      ]),
     );
   }
 }

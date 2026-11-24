@@ -55,14 +55,15 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
   - límite solo de este mes o de todos los meses (guardar o arrastrar lo que sobra);
   - gasto sin presupuesto;
   - objetivos de ahorro, a mano o siguiendo el saldo de una cuenta.
-- **Previsión y simulaciones** (0.32.0, `lib/forecast.dart`, `lib/forecast_store.dart`, `lib/screens/forecast_screen.dart`; se abre desde la tarjeta Disponible de Inicio y desde los avisos de Don Bigotes):
-  - saldo y disponible libre (saldo menos reservas) día a día a 30, 60 o 90 días, en conjunto o por cuenta, con gráfica, calendario y detalle de cada día;
-  - parte de hoy y distingue el saldo recibido del banco, el indicado a mano y el calculado con movimientos, con su fecha y los límites de la previsión (poco historial, saldos antiguos, otra moneda);
-  - cuenta lo ya apuntado con fecha futura, los pagos periódicos (confirmados), lo que se repite cada mes en el historial y el gasto variable (estimados) y los cargos retenidos por el banco;
-  - sin dobles cuentas: el movimiento real sustituye a su previsión aunque llegue unos días antes o después (un pago retrasado hasta 7 días se sigue esperando, para hoy); lo repetido en el historial no se estima si ya hay un pago periódico parecido; un presupuesto solo añade lo que deja libre después de los pagos previstos de su categoría;
-  - supuestos editables sin tocar movimientos ni pagos: colchón, gasto variable automático o propio, aprender del historial, y dejar fuera o cambiar el importe de cada pago previsto;
-  - simulaciones guardadas («qué pasaría si»): compra puntual (también pagada con una reserva), gasto mensual nuevo, cambio o retraso de un ingreso y aportación a una reserva; se comparan con la previsión base (mínimo y fecha, final del periodo, colchón, reservas, cuentas sin saldo y objetivos afectados);
-  - los supuestos y las simulaciones se guardan solo en el dispositivo (`forecast-<usuario>.json`), fuera de la nube y de la contabilidad: no crean movimientos, no cambian saldos ni enseñan a la IA, y se borran al cerrar sesión. Aún no se comparten entre dispositivos.
+- **Previsión** (rediseñada en 0.34.0, `lib/forecast.dart`, `lib/forecast_store.dart`, `lib/screens/forecast_screen.dart`; se abre con «Ver previsión» en el resumen del mes de Inicio y desde los avisos de Don Bigotes):
+  - al entrar, la previsión base: Don Bigotes resume en una o dos frases lo que sale del cálculo y señala fechas (ingreso esperado, mínimo de disponible, posible descubierto, colchón) que se abren con su explicación;
+  - «¿Cuánto tendré el…?»: dinero libre (saldo menos reservas) y saldo total en una fecha (fin de mes por defecto, o la que se toque en la gráfica o se elija), con lo que lo explica desde hoy: ingresos, pagos previstos y gasto variable estimado, y qué parte es segura (apuntado o periódico) y cuál estimada;
+  - gráfica con el dinero libre real de los últimos 30 días (reconstruido desde el saldo de hoy con los movimientos reales), la línea prevista discontinua, «Hoy» marcado, los ingresos como puntos verdes y el saldo total como línea fina; 30, 60 o 90 días y por cuenta;
+  - ingresos: las recurrencias confirmadas; lo que se repite cada mes en el historial (agrupado sin números, meses ni palabras de relleno del concepto) se propone para revisar («¿Cuento con él?») y nunca duplica un pago periódico; los ingresos sin día o importe fijos no se cuentan y se indican; si no hay ingresos previstos, se avisa de que la previsión no es fiable y se puede añadir un ingreso previsto solo para la previsión (no crea movimientos);
+  - sin dobles cuentas: el movimiento real (también uno apuntado con fecha futura) sustituye a su previsión aunque llegue unos días antes o después; un presupuesto solo añade lo que deja libre; lo repetido no se estima si ya hay un pago periódico parecido;
+  - «Lo que viene», datos de partida (saldo del banco, indicado a mano o calculado, con su fecha y límites) y supuestos editables (botón de ajustes);
+  - simulaciones, aparte al final («Simular una decisión»): compra puntual (también con una reserva), gasto mensual, cambio o retraso de un ingreso y aportación a una reserva, comparadas con la base sin mezclarse;
+  - todo se calcula con reglas fijas en el dispositivo, sin aprendizaje automático ni servicios externos; supuestos, ingresos previstos y simulaciones se guardan solo en el dispositivo (`forecast-<usuario>.json`), no crean movimientos ni enseñan a la IA, y se borran al cerrar sesión. Aún no se comparten entre dispositivos.
 - **Ajustes:**
   - Mis bancos: conectar, actualizar, revisar coincidencias con lo apuntado y desconectar;
   - categorías, reglas de categorización, cargos y aportaciones periódicas (se apuntan solos al abrir), y bancos y entidades;

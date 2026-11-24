@@ -25,15 +25,33 @@ DateTime? _parseDay(Object? raw) {
 
 String shortDay(DateTime day) => '${day.day}/${day.month}';
 
+/// The words that name a repeated movement, without what changes every month: numbers, month names and filler
+/// words of bank concepts («NOMINA JULIO EMPRESA» and «NOMINA AGOSTO EMPRESA» are the same income).
+String patternWords(String description) {
+  const filler = {
+    'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'setiembre', 'octubre', 'noviembre', 'diciembre', //
+    'ene', 'feb', 'mar', 'abr', 'jun', 'jul', 'ago', 'sep', 'sept', 'oct', 'nov', 'dic', 'mes', //
+    'de', 'del', 'la', 'el', 'los', 'las', 'en', 'por', 'para', 'con', //
+    'transferencia', 'recibida', 'emitida', 'inmediata', 'trans', 'inm', 'transf', 'ref', 'referencia', 'concepto', 'abono', 'cargo', 'recibo',
+  };
+  return ruleText(description)
+      .replaceAll(RegExp(r'\d+'), ' ')
+      .split(' ')
+      .where((w) => w.length > 1 && !filler.contains(w))
+      .take(3)
+      .join(' ');
+}
+
 /// How sure an item of the forecast is: a movement already recorded with a future date, a periodic payment the
 /// person set up, an estimate from the history or the budgets, or a change that only exists in a simulation.
-enum ForecastCertainty { recorded, confirmed, estimated, simulated }
+enum ForecastCertainty { recorded, confirmed, estimated, assumed, simulated }
 
 extension ForecastCertaintyTitle on ForecastCertainty {
   String get title => switch (this) {
         ForecastCertainty.recorded => 'Apuntado',
         ForecastCertainty.confirmed => 'Confirmado',
         ForecastCertainty.estimated => 'Estimado',
+        ForecastCertainty.assumed => 'Indicado por ti',
         ForecastCertainty.simulated => 'Simulado',
       };
 }
@@ -94,10 +112,43 @@ class ForecastEvent {
 }
 
 /// The person's assumptions. Changing them never touches a movement or a periodic payment.
+/// An income the person expects every month, written only for the forecast: it never becomes a movement. When a
+/// real income of a similar amount arrives in that account around its day, it takes its place.
+class PlannedIncome {
+  const PlannedIncome({required this.id, required this.name, required this.amountMinor, required this.dayOfMonth, required this.accountId});
+  final String id;
+  final String name;
+  final int amountMinor;
+  final int dayOfMonth;
+  final String accountId;
+
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'amountMinor': amountMinor, 'dayOfMonth': dayOfMonth, 'accountId': accountId};
+
+  static PlannedIncome? fromJson(Map<String, dynamic> json) {
+    final day = json['dayOfMonth'], amount = json['amountMinor'];
+    if (json['id'] is! String || json['accountId'] is! String || day is! int || amount is! int || day < 1 || day > 31 || amount <= 0) return null;
+    return PlannedIncome(
+        id: json['id'] as String, name: json['name'] is String ? json['name'] as String : 'Ingreso', amountMinor: amount, dayOfMonth: day, accountId: json['accountId'] as String);
+  }
+}
+
 class ForecastSettings {
   const ForecastSettings(
-      {this.horizonDays = 60, this.cushionMinor = 0, this.useHistory = true, this.variableMonthlyMinor, this.excluded = const {}, this.amounts = const {}});
+      {this.horizonDays = 60,
+      this.cushionMinor = 0,
+      this.useHistory = true,
+      this.variableMonthlyMinor,
+      this.excluded = const {},
+      this.amounts = const {},
+      this.accepted = const {},
+      this.incomes = const []});
   final int horizonDays;
+
+  /// Repetitions found in the history that the person confirmed («Sí, cuenta con él»).
+  final Set<String> accepted;
+
+  /// Incomes the person expects and wrote for the forecast.
+  final List<PlannedIncome> incomes;
 
   /// Free money the person does not want to go below.
   final int cushionMinor;
@@ -113,7 +164,14 @@ class ForecastSettings {
   final Map<String, int> amounts;
 
   ForecastSettings copyWith(
-          {int? horizonDays, int? cushionMinor, bool? useHistory, int? Function()? variableMonthlyMinor, Set<String>? excluded, Map<String, int>? amounts}) =>
+          {int? horizonDays,
+          int? cushionMinor,
+          bool? useHistory,
+          int? Function()? variableMonthlyMinor,
+          Set<String>? excluded,
+          Map<String, int>? amounts,
+          Set<String>? accepted,
+          List<PlannedIncome>? incomes}) =>
       ForecastSettings(
         horizonDays: horizonDays ?? this.horizonDays,
         cushionMinor: cushionMinor ?? this.cushionMinor,
@@ -121,6 +179,14 @@ class ForecastSettings {
         variableMonthlyMinor: variableMonthlyMinor == null ? this.variableMonthlyMinor : variableMonthlyMinor(),
         excluded: excluded ?? this.excluded,
         amounts: amounts ?? this.amounts,
+        accepted: accepted ?? this.accepted,
+        incomes: incomes ?? this.incomes,
+      );
+
+  /// Counts a repetition from the history (accepted) or leaves it out; either way it is no longer a proposal.
+  ForecastSettings review(String source, {required bool keep}) => copyWith(
+        accepted: keep ? ({...accepted, source}) : ({...accepted}..remove(source)),
+        excluded: keep ? ({...excluded}..remove(source)) : ({...excluded, source}),
       );
 
   Map<String, dynamic> toJson() => {
@@ -130,6 +196,8 @@ class ForecastSettings {
         'variableMonthlyMinor': variableMonthlyMinor,
         'excluded': excluded.toList()..sort(),
         'amounts': amounts,
+        'accepted': accepted.toList()..sort(),
+        'incomes': [for (final i in incomes) i.toJson()],
       };
 
   factory ForecastSettings.fromJson(Map<String, dynamic> json) => ForecastSettings(
@@ -142,6 +210,11 @@ class ForecastSettings {
           for (final entry in ((json['amounts'] as Map?) ?? const {}).entries)
             if (entry.value is int && (entry.value as int) >= 0) '${entry.key}': entry.value as int
         },
+        accepted: {for (final item in (json['accepted'] as List?) ?? const []) '$item'},
+        incomes: [
+          for (final raw in (json['incomes'] as List?) ?? const [])
+            if (raw is Map) PlannedIncome.fromJson(Map<String, dynamic>.from(raw))
+        ].whereType<PlannedIncome>().toList(),
       );
 }
 
@@ -221,6 +294,19 @@ class Scenario {
 /// Where an account's starting balance comes from.
 enum StartBasis { bank, manual, computed }
 
+/// Something that repeated in the history about once a month: a proposal the person can confirm or leave out.
+class HistoryProposal {
+  const HistoryProposal(
+      {required this.source, required this.label, required this.amountMinor, required this.dayOfMonth, required this.accountId, required this.isIncome, required this.times});
+  final String source;
+  final String label;
+  final int amountMinor;
+  final int dayOfMonth;
+  final String accountId;
+  final bool isIncome;
+  final int times;
+}
+
 class AccountStart {
   AccountStart({required this.account, required this.balanceMinor, required this.reservedMinor, required this.basis, this.basisDate});
   final Account account;
@@ -251,7 +337,26 @@ class ForecastPlan {
     required this.variableMonthlyMinor,
     required this.variableFromBudgetsMinor,
     required this.historyDays,
+    this.proposals = const [],
+    this.irregularIncomes = const [],
+    this.pastBalances = const {},
+    this.pastReserved = const {},
   });
+
+  /// What repeats in the history, to review: counted as an estimate until the person says otherwise.
+  final List<HistoryProposal> proposals;
+
+  /// Incomes of the history that do not repeat regularly: never counted, only pointed out.
+  final List<String> irregularIncomes;
+
+  /// The real balance and reserved money of each account at the end of each of the last [pastDays] days, oldest
+  /// first (today is the starting point of the forecast).
+  final Map<String, List<int>> pastBalances;
+  final Map<String, List<int>> pastReserved;
+  static const pastDays = 30;
+
+  /// Whether any income is expected in the horizon: without one, the line can only go down.
+  bool get hasIncome => active.any((e) => e.amountMinor > 0 && !e.isTransfer && e.certainty != ForecastCertainty.simulated);
   final Finances data;
   final DateTime now, today, end;
   final ForecastSettings settings;
@@ -268,6 +373,8 @@ class ForecastPlan {
 
   /// Days of history the estimates could learn from.
   final int historyDays;
+
+  List<HistoryProposal> get pendingProposals => [for (final p in proposals) if (!settings.accepted.contains(p.source) && !settings.excluded.contains(p.source)) p];
 
   int get days => _between(today, end);
   List<ForecastEvent> get active => [for (final e in events) if (!e.excluded) e];
@@ -498,37 +605,67 @@ ForecastPlan buildForecast(FinanceCalculator calc, DateTime now, ForecastSetting
   // 3. Repeated in the history: about once a month, a similar amount on a similar day (a salary, a bill without a
   // periodic payment). An estimate, never confirmed.
   final repeated = <String>{};
+  final proposals = <HistoryProposal>[];
+  final irregular = <String>[];
   if (settings.useHistory) {
     final since = now.subtract(const Duration(days: 185));
     final groups = <String, List<Transaction>>{};
     for (final t in history) {
       if (t.date.isBefore(since) || !everyday(t) || !(t.type.countsAsIncome || t.type.countsAsExpense) || t.amountMinor <= 0) continue;
-      final words = ruleText(t.descriptionText).replaceAll(RegExp(r'\d+'), ' ').split(' ').where((w) => w.length > 1).take(3).join(' ');
+      final words = patternWords(t.descriptionText);
       if (words.isEmpty) continue;
       (groups['${t.sourceAccountId}|${t.type.countsAsIncome ? 'in' : 'out'}|$words'] ??= []).add(t);
     }
+    // Movements already recorded with a later date, by group: real, so they take the place of that month's estimate.
+    final recordedLater = <String, List<Transaction>>{};
+    for (final t in data.transactions) {
+      if (!t.date.isAfter(now)) break; // newest first
+      if (!tracked.containsKey(t.sourceAccountId) || !(t.type.countsAsIncome || t.type.countsAsExpense)) continue;
+      (recordedLater['${t.sourceAccountId}|${t.type.countsAsIncome ? 'in' : 'out'}|${patternWords(t.descriptionText)}'] ??= []).add(t);
+    }
     for (final MapEntry(key: group, value: items) in groups.entries) {
       final months = items.map((t) => monthKey(t.date)).toSet();
-      if (items.length < 3 || months.length < 3 || items.length > months.length + 1) continue;
-      if (_between(forecastDay(items.first.date), today) > 45) continue;
+      final isIncome = items.first.type.countsAsIncome;
+      final label = bankTitle(items.first.descriptionText, isBanking: items.first.isBanking);
+      bool regular() {
+        if (items.length < 3 || months.length < 3 || items.length > months.length + 1) return false;
+        if (_between(forecastDay(items.first.date), today) > 45) return false;
+        final amounts = items.map((t) => t.amountMinor).toList()..sort();
+        final typical = amounts[amounts.length ~/ 2];
+        if (amounts.any((a) => (a - typical).abs() > math.max(100, (typical * 0.2).round()))) return false;
+        final daysOfMonth = items.map((t) => t.date.toLocal().day).toList()..sort();
+        return daysOfMonth.last - daysOfMonth.first <= 8;
+      }
+
+      if (!regular()) {
+        // An income seen in two or more months, but without a steady amount or day: never assumed to come back.
+        if (isIncome && months.length >= 2) irregular.add(label);
+        continue;
+      }
       final amounts = items.map((t) => t.amountMinor).toList()..sort();
       final typical = amounts[amounts.length ~/ 2];
-      if (amounts.any((a) => (a - typical).abs() > math.max(100, (typical * 0.2).round()))) continue;
       final daysOfMonth = items.map((t) => t.date.toLocal().day).toList()..sort();
-      if (daysOfMonth.last - daysOfMonth.first > 8) continue;
       final dayOfMonth = daysOfMonth[daysOfMonth.length ~/ 2];
       repeated.addAll(items.map((t) => t.id));
       final latest = items.first;
       final source = 'pat:$group';
       final first = forecastDay(items.last.date);
+      final accepted = settings.accepted.contains(source);
+      proposals.add(HistoryProposal(
+          source: source,
+          label: label,
+          amountMinor: settings.amounts[source] ?? typical,
+          dayOfMonth: dayOfMonth,
+          accountId: latest.sourceAccountId!,
+          isIncome: isIncome,
+          times: items.length));
       for (var offset = 0;; offset++) {
         final year = today.year + (today.month - 1 + offset) ~/ 12, month = (today.month - 1 + offset) % 12 + 1;
         final day = DateTime.utc(year, month, math.min(dayOfMonth, _daysInMonth(year, month)));
         if (day.isAfter(end)) break;
-        final arrived = items.any((t) => monthKey(t.date) == year * 12 + month - 1 || _between(day, forecastDay(t.date)).abs() <= 6);
+        final arrived = [...items, ...?recordedLater[group]].any((t) => monthKey(t.date) == year * 12 + month - 1 || _between(day, forecastDay(t.date)).abs() <= 6);
         if (arrived) continue;
         final late = _between(day, today);
-        final label = bankTitle(latest.descriptionText, isBanking: latest.isBanking);
         if (late > grace) {
           limitations.add('«$label» no ha llegado este mes (solía llegar hacia el día $dayOfMonth): no se cuenta.');
           continue;
@@ -543,11 +680,43 @@ ForecastPlan buildForecast(FinanceCalculator calc, DateTime now, ForecastSetting
             from: latest.sourceAccountId,
             certainty: ForecastCertainty.estimated,
             categoryId: latest.categoryId,
-            detail: late > 0
-                ? 'Solía llegar hacia el día $dayOfMonth; aún no ha llegado'
-                : 'Se repite cada mes desde ${shortDay(first)} (${items.length} veces)');
+            detail: [
+              late > 0 ? 'Solía llegar hacia el día $dayOfMonth; aún no ha llegado' : 'Se repite cada mes desde ${shortDay(first)} (${items.length} veces)',
+              accepted ? 'confirmado por ti' : 'detectado en tu historial, por revisar',
+            ].join(' · '));
         if (event != null) events.add(event);
       }
+    }
+  }
+
+  // 3b. Incomes the person expects and wrote for the forecast. A real income of a similar amount in that account
+  // around its day (a week before or after) takes its place, so it is never counted twice.
+  for (final income in settings.incomes) {
+    if (!tracked.containsKey(income.accountId)) continue;
+    final source = 'plan:${income.id}';
+    for (var offset = -1;; offset++) {
+      final year = today.year + (today.month - 1 + offset) ~/ 12, month = (today.month - 1 + offset) % 12 + 1;
+      final day = DateTime.utc(year, month, math.min(income.dayOfMonth, _daysInMonth(year, month)));
+      if (day.isAfter(end)) break;
+      final late = _between(day, today);
+      if (late > grace) continue;
+      // Any real income: also one recorded with a later date, which already counts as it is.
+      final arrived = data.transactions.any((t) =>
+          t.sourceAccountId == income.accountId &&
+          t.type.countsAsIncome &&
+          (t.amountMinor - income.amountMinor).abs() <= math.max(100, (income.amountMinor * 0.25).round()) &&
+          _between(day, forecastDay(t.date)).abs() <= grace);
+      if (arrived) continue;
+      events.add(ForecastEvent(
+          key: '$source:${isoDay(day)}',
+          source: source,
+          day: late > 0 ? today : day,
+          label: income.name,
+          amountMinor: income.amountMinor,
+          accountId: income.accountId,
+          certainty: ForecastCertainty.assumed,
+          detail: late > 0 ? 'Lo esperabas el ${shortDay(day)}; aún no ha llegado' : 'Ingreso que esperas cada mes, el día ${income.dayOfMonth}',
+          excluded: settings.excluded.contains(source)));
     }
   }
 
@@ -665,6 +834,39 @@ ForecastPlan buildForecast(FinanceCalculator calc, DateTime now, ForecastSetting
         detail: 'El banco lo retiene y aún no lo ha cargado'));
   }
 
+  // The real balance of the last days: today's starting balance, going back through the real movements, so the
+  // line meets today's figure (a bank balance received today is not contradicted by an older calculation).
+  final pastBalances = <String, List<int>>{}, pastReserved = <String, List<int>>{};
+  final since = now.subtract(const Duration(days: ForecastPlan.pastDays + 2));
+  final recent = [for (final t in data.transactions) if (!t.date.isAfter(now) && t.date.isAfter(since)) t];
+  for (final start in starts) {
+    final id = start.account.id;
+    int effect(Transaction t) {
+      final amount = t.amountMinor.abs();
+      if (t.type == TransactionType.transfer) return (t.destinationAccountId == id && t.sourceAccountId != id ? amount : 0) - (t.sourceAccountId == id ? amount : 0);
+      if (t.sourceAccountId != id) return 0;
+      return t.type.countsAsIncome ? amount : -amount;
+    }
+
+    final balances = <int>[], reserved = <int>[];
+    for (var back = ForecastPlan.pastDays; back >= 1; back--) {
+      final day = _plus(today, -back);
+      final close = DateTime(day.year, day.month, day.day, 23, 59, 59);
+      balances.add(start.balanceMinor - recent.where((t) => t.date.isAfter(close)).fold(0, (sum, t) => sum + effect(t)));
+      var held = 0;
+      for (final fund in data.reservedFunds) {
+        if (fund.accountId == null || (fund.createdAt != null && fund.createdAt!.isAfter(close))) continue;
+        held += reservedBalances(fund.accountId!, fund.amountMinor, calc.reserveEntries(fund), through: close)?[start.account.id] ?? 0;
+      }
+      reserved.add(held);
+    }
+    pastBalances[start.account.id] = balances;
+    pastReserved[start.account.id] = reserved;
+  }
+  if (irregular.isNotEmpty) {
+    limitations.add('Ingresos sin día o importe fijos (${irregular.take(2).map((l) => '«$l»').join(', ')}): no se cuentan. Añádelos como ingreso previsto si los esperas.');
+  }
+
   events.sort((a, b) => a.day.compareTo(b.day));
   return ForecastPlan(
     data: data,
@@ -679,6 +881,10 @@ ForecastPlan buildForecast(FinanceCalculator calc, DateTime now, ForecastSetting
     variableMonthlyMinor: budgetsThisMonth + unbudgetedMonthly,
     variableFromBudgetsMinor: budgetsThisMonth,
     historyDays: historyDays,
+    proposals: proposals,
+    irregularIncomes: irregular,
+    pastBalances: pastBalances,
+    pastReserved: pastReserved,
   );
 }
 
@@ -768,6 +974,40 @@ class ForecastResult {
     final options = events.where((e) => !e.isVariable && !e.isTransfer && e.amountMinor < 0 && !e.day.isAfter(day)).toList()
       ..sort((a, b) => a.amountMinor.compareTo(b.amountMinor));
     return options.firstOrNull;
+  }
+
+  /// The real values of the last days (oldest first), as they were: not estimated.
+  List<int> pastBalance([String? accountId]) => _past(accountId, (id, i) => plan.pastBalances[id]![i]);
+  List<int> pastFree([String? accountId]) => _past(accountId, (id, i) => plan.pastBalances[id]![i] - plan.pastReserved[id]![i]);
+  List<int> _past(String? accountId, int Function(String, int) value) => [
+        for (var i = 0; i < ForecastPlan.pastDays; i++)
+          [for (final id in plan.pastBalances.keys) if (accountId == null || id == accountId) value(id, i)].fold(0, (a, b) => a + b)
+      ];
+
+  /// From today to [day]: what comes in, what goes out and how sure each part is.
+  ForecastChange explain(DateTime day, [String? accountId]) {
+    final until = forecastDay(day);
+    int effect(ForecastEvent e) {
+      if (accountId == null) return e.isTransfer ? 0 : e.amountMinor;
+      if (e.accountId == accountId) return e.amountMinor;
+      return e.destinationId == accountId ? -e.amountMinor : 0;
+    }
+
+    final items = [
+      for (final e in events)
+        if (!e.day.isAfter(until) && !e.isVariable && effect(e) != 0) (e, effect(e))
+    ];
+    final variable = events.where((e) => e.isVariable && !e.day.isAfter(until) && (accountId == null || e.accountId == accountId)).fold(0, (sum, e) => sum + e.amountMinor);
+    final index = indexOf(until);
+    return ForecastChange(
+      day: until,
+      startFree: free(accountId).first,
+      endFree: free(accountId)[index],
+      endBalance: balance(accountId)[index],
+      incomes: [for (final i in items) if (i.$2 > 0) i],
+      expenses: [for (final i in items) if (i.$2 < 0) i],
+      variableMinor: variable,
+    );
   }
 
   List<ForecastEvent> on(DateTime day, [String? accountId]) =>
@@ -997,4 +1237,119 @@ List<CompanionNote> forecastNotes(ForecastResult result, {int days = 30}) {
     ));
   }
   return notes;
+}
+
+/// What explains the money of a day: from today, the incomes and the payments in between (with how sure each one
+/// is) and the estimated variable spending.
+class ForecastChange {
+  ForecastChange(
+      {required this.day,
+      required this.startFree,
+      required this.endFree,
+      required this.endBalance,
+      required this.incomes,
+      required this.expenses,
+      required this.variableMinor});
+  final DateTime day;
+  final int startFree, endFree, endBalance;
+  final List<(ForecastEvent, int)> incomes, expenses;
+  final int variableMinor;
+
+  int get incomeMinor => incomes.fold(0, (sum, i) => sum + i.$2);
+  int get expenseMinor => expenses.fold(0, (sum, i) => sum + i.$2);
+
+  /// The part that is sure (recorded or confirmed) and the part that is estimated, assumed or simulated.
+  int get sureMinor => [...incomes, ...expenses].where((i) => i.$1.certainty == ForecastCertainty.recorded || i.$1.certainty == ForecastCertainty.confirmed).fold(0, (s, i) => s + i.$2);
+  int get estimatedMinor => incomeMinor + expenseMinor - sureMinor + variableMinor;
+}
+
+enum MomentKind { income, lowest, overdraft, cushion }
+
+/// A date worth pointing out, from the forecast itself.
+class ForecastMoment {
+  const ForecastMoment({required this.kind, required this.day, required this.title, required this.detail, this.accountId});
+  final MomentKind kind;
+  final DateTime day;
+  final String title;
+  final String detail;
+  final String? accountId;
+}
+
+/// The dates Don Bigotes points out: the expected incomes, the lowest free money (if lower than today), a possible
+/// overdraft and the cushion. All of them are results of the forecast, never guesses.
+List<ForecastMoment> forecastMoments(ForecastResult r) {
+  final plan = r.plan;
+  final moments = <ForecastMoment>[];
+  final incomeDays = <DateTime, List<ForecastEvent>>{};
+  for (final e in r.events) {
+    if (e.amountMinor > 0 && !e.isTransfer && !e.isVariable) (incomeDays[e.day] ??= []).add(e);
+  }
+  for (final MapEntry(key: day, value: list) in incomeDays.entries.take(2)) {
+    final main = (list..sort((a, b) => b.amountMinor.compareTo(a.amountMinor))).first;
+    final total = list.fold(0, (sum, e) => sum + e.amountMinor);
+    moments.add(ForecastMoment(
+      kind: MomentKind.income,
+      day: day,
+      title: 'Ingreso esperado',
+      detail: '${main.label}: ${money(total, signed: true)} (${main.certainty.title.toLowerCase()}). ${main.detail}',
+      accountId: main.accountId,
+    ));
+  }
+  final (low, lowDay) = r.minimum;
+  // Only a real dip: at least 50 € or 5 % below today, not the small daily estimate.
+  if (r.totalFree.first - low >= math.max(5000, (r.totalFree.first.abs() * 0.05).round())) {
+    final cause = r.mainOutflowUntil(lowDay);
+    final recovery = incomeDays.keys.where((d) => d.isAfter(lowDay)).firstOrNull;
+    moments.add(ForecastMoment(
+      kind: MomentKind.lowest,
+      day: lowDay,
+      title: 'Mínimo de disponible',
+      detail: 'Tu dinero libre bajaría a ${money(low)}${cause == null ? '' : ', sobre todo por ${cause.label}'}.'
+          '${recovery == null ? ' No hay ingresos previstos después en este periodo.' : ' Se recupera el ${shortDay(recovery)}.'}',
+    ));
+  }
+  final negative = r.cushionBreach(0);
+  for (final s in r.shortfalls) {
+    if (s.cause == null || s.cause!.isVariable) continue;
+    moments.add(ForecastMoment(
+      kind: MomentKind.overdraft,
+      day: s.day,
+      title: 'Posible descubierto',
+      detail: '«${s.account.name}» bajaría a ${money(s.balanceMinor)} por ${s.cause!.label} (${s.cause!.certainty.title.toLowerCase()}).'
+          '${s.elsewhereFreeMinor >= -s.balanceMinor ? ' En otras cuentas tienes dinero libre suficiente.' : ''}',
+      accountId: s.account.id,
+    ));
+  }
+  if (negative != null && !r.shortfalls.any((s) => s.day == negative)) {
+    moments.add(ForecastMoment(
+        kind: MomentKind.overdraft, day: negative, title: 'Disponible por debajo de cero', detail: 'Tu dinero libre en total sería negativo desde ese día.'));
+  }
+  final cushion = plan.settings.cushionMinor;
+  final breach = cushion > 0 ? r.cushionBreach() : null;
+  if (breach != null && (negative == null || breach.isBefore(negative))) {
+    moments.add(ForecastMoment(
+        kind: MomentKind.cushion, day: breach, title: 'Por debajo del colchón', detail: 'Tu dinero libre bajaría de ${money(cushion)} desde ese día.'));
+  }
+  moments.sort((a, b) => a.day.compareTo(b.day));
+  return moments;
+}
+
+/// Don Bigotes' summary of the forecast in one or two short sentences, from its results.
+List<String> forecastSummary(ForecastResult r) {
+  final plan = r.plan;
+  final moments = forecastMoments(r);
+  final income = moments.where((m) => m.kind == MomentKind.income).firstOrNull;
+  final lowest = moments.where((m) => m.kind == MomentKind.lowest).firstOrNull;
+  final overdraft = moments.where((m) => m.kind == MomentKind.overdraft).firstOrNull;
+  final lines = <String>[];
+  if (!plan.hasIncome) {
+    lines.add('No veo ingresos previstos: la línea solo puede bajar. Revisa o añade tus ingresos.');
+  } else if (lowest != null && income != null && lowest.day.isBefore(income.day)) {
+    lines.add('Bajarías a ${money(r.minimum.$1)} el ${shortDay(lowest.day)} y te recuperas el ${shortDay(income.day)} con el ingreso esperado.');
+  } else if (income != null) {
+    lines.add('El ${shortDay(income.day)} esperas un ingreso; acabarías el periodo con ${money(r.endFree)} libres.');
+  }
+  if (overdraft != null) lines.add('Ojo al ${shortDay(overdraft.day)}: ${overdraft.title.toLowerCase()}.');
+  if (lines.isEmpty) lines.add('Acabarías el periodo con ${money(r.endFree)} libres, sin bajar de ${money(r.minimum.$1)}.');
+  return lines;
 }
