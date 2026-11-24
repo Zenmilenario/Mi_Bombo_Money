@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../finance.dart';
 import '../investments.dart';
+import 'invested_breakdown.dart' show investedLabel;
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
@@ -163,7 +164,7 @@ class _AvailableCard extends StatelessWidget {
     final stats = <(String, String, Color?)>[
       if (reserved > 0) ('Reservado', money(reserved), null),
       if (heldMinor != 0) ('Retenido', money(heldMinor.abs()), null),
-      if (invested != 0) ('Invertido', money(invested), null),
+      if (invested != 0) (investedLabel(calc.data), money(invested), null),
     ];
     return Material(
       borderRadius: BorderRadius.circular(24),

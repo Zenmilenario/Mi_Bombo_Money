@@ -116,3 +116,40 @@ List<Operation> feeOperations({
     })
   ];
 }
+
+/// What a portfolio is worth in the app and where that figure comes from: the last valuation (written by the person,
+/// or the balance a bank reported) and the movements recorded after it, or only the movements when it has none. It
+/// is the recorded value, not a market price: a valuation keeps its date.
+class PortfolioValue {
+  PortfolioValue({required this.account, required this.valueMinor, this.valuation, required this.afterMinor, required this.movementsAfter});
+  final Account account;
+  final int valueMinor;
+  final BalanceSnapshot? valuation;
+
+  /// Contributions, withdrawals and other movements recorded after the valuation (already in [valueMinor]).
+  final int afterMinor;
+  final int movementsAfter;
+
+  bool get fromBank => valuation?.source == 'bankAPI';
+  bool get counted => account.includeInNetWorth;
+}
+
+/// Every active portfolio, with its value as the calculator gives it ([balanceAt] is `FinanceCalculator.balance`).
+List<PortfolioValue> portfolioValues(Finances data, int Function(Account, DateTime) balanceAt, DateTime now) {
+  final values = <PortfolioValue>[];
+  for (final account in data.accounts.where((a) => !a.isArchived && a.type == AccountType.investment)) {
+    final valuation = (data.snapshots.where((s) => s.accountId == account.id && !s.date.isAfter(now)).toList()..sort((a, b) => b.date.compareTo(a.date)))
+        .firstOrNull;
+    var after = 0, count = 0;
+    for (final t in data.transactions) {
+      if (t.date.isAfter(now) || (valuation != null && !t.date.isAfter(valuation.date))) continue;
+      final into = t.destinationAccountId == account.id && t.type == TransactionType.transfer;
+      final out = t.sourceAccountId == account.id;
+      if (!into && !out) continue;
+      count++;
+      after += into ? t.amountMinor : (t.type.countsAsIncome ? t.amountMinor : -t.amountMinor);
+    }
+    values.add(PortfolioValue(account: account, valueMinor: balanceAt(account, now), valuation: valuation, afterMinor: after, movementsAfter: count));
+  }
+  return values;
+}

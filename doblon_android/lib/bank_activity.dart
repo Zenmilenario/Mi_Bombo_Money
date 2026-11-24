@@ -258,3 +258,15 @@ List<BankHold> bankHolds(Finances data, Map<String, BankActivity> activity) {
 /// Charges held for an account and not yet counted as a recorded payment (zero or negative).
 int heldMinor(BankActivity? entry, Account account, Finances data) =>
     entry == null ? 0 : _uncovered(entry, account, data).fold(0, (sum, m) => sum + (m.signedAmountMinor < 0 ? m.signedAmountMinor : 0));
+
+/// Charges the bank holds and has not booked yet, in the accounts whose money counts as available (current, savings,
+/// cash and others in net worth; not investments or credit cards). Negative. «Disponible» is the same on every screen:
+/// the available money of those accounts plus this. The balance used is the bank's booked one, which does not include
+/// the holds, so they are taken once.
+int spendableHolds(Finances data, Map<String, BankActivity> activity) => bankHolds(data, activity)
+    .where((h) =>
+        h.movement.signedAmountMinor < 0 &&
+        h.account.includeInNetWorth &&
+        h.account.type != AccountType.investment &&
+        !h.account.type.isLiability)
+    .fold(0, (sum, h) => sum + h.movement.signedAmountMinor);

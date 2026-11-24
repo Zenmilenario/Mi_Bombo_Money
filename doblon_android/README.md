@@ -55,7 +55,9 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
   - en el formulario de un traspaso a una cartera, el importe es el total cargado y la comisión, opcional, se escribe aparte; se muestra y valida el desglose (lo invertido, la comisión y la salida total); orden y comisión se guardan, corrigen y borran juntas;
   - la comisión no cuenta como gasto del día a día ni en presupuestos; Inicio (resumen del mes) y Cuentas (Inversiones) muestran aportado, retirado y comisiones del mes por separado, y el valor registrado de las carteras; aportar no es rentabilidad;
   - el banco (Enable Banking) no envía comisiones ni desglose: llegan el importe total y el concepto. Un cargo posterior se propone para conciliar con la orden registrada a mano (el total de orden y comisión, o cada parte si llegan separadas), sin insertar otra salida;
-  - una valoración posterior de la cartera sustituye al saldo anterior y no suma otra vez la aportación; la inclusión en el patrimonio se respeta.
+  - una valoración posterior de la cartera sustituye al saldo anterior y no suma otra vez la aportación; la inclusión en el patrimonio se respeta;
+  - «Invertido» (Inicio y Cuentas) suma las carteras que cuentan en el patrimonio y, si alguna está fuera, se llama «Invertido en patrimonio». Su desglose (Cuentas, 0.35.1, `lib/screens/invested_breakdown.dart`) muestra cada cartera con su valor, si cuenta en el patrimonio y de dónde sale: la valoración que indicaste o el saldo comunicado por el banco, con su fecha (y su antigüedad si pasa de una semana), más los movimientos posteriores; no es una cotización en tiempo real.
+- **Disponible** (0.35.1): el mismo en Inicio y Cuentas, el dinero disponible de las cuentas corrientes, de ahorro, efectivo y otras del patrimonio, menos lo que el banco retiene en esas mismas cuentas (`spendableHolds`), una sola vez: el saldo del banco que se usa es el contable, que no incluye las retenciones. Las retenciones de tarjetas de crédito o de cuentas fuera del patrimonio no lo reducen.
 - **Reservas:** dinero apartado en una cuenta (un pago futuro o un colchón): sale del disponible libre; los pagos que cubre y los ingresos destinados a ella quedan fuera del resultado cotidiano (Inicio, Movimientos, calendario, análisis y presupuestos), que muestran aparte el historial completo; los traslados solo cambian dónde está.
 - **Presupuestos:**
   - detalle de cada presupuesto (0.33.0, `lib/screens/budget_detail.dart`): al pulsarlo, el mes consultado con límite (y lo arrastrado del mes anterior aparte), consumido y restante o exceso, y los movimientos que lo consumen agrupados por día, con fecha, concepto, cuenta e importe; un pago en parte cubierto por una reserva muestra el total y lo que consume. Usa la misma regla que el cálculo (`FinanceCalculator.countsInBudget` y `budgetContributions`): gastos y comisiones de la categoría con fecha en ese mes, de todas las cuentas, sin transferencias; la suma coincide siempre con el gasto del presupuesto. Cada movimiento abre su detalle y una edición actualiza detalle y resumen a la vez; «Editar presupuesto» en la barra superior;
@@ -118,3 +120,12 @@ flutter run
 ## Datos de terceros
 
 - **Name Suggestion Index** de OpenStreetMap (marcas y su tipo de comercio): © name-suggestion-index contributors, licencia BSD 3-Clause. Texto en `third_party/name-suggestion-index/LICENSE.md`.
+
+## Privacidad del repositorio
+
+El repositorio es público para usar las comprobaciones y compilaciones de GitHub Actions. Por eso:
+
+- el código y las pruebas usan solo datos ficticios; las pruebas no acceden a finanzas reales;
+- los datos personales (exportaciones, copias de la app, hojas de cálculo, extractos, claves y configuración personal del servidor bancario) quedan fuera del repositorio y del seguimiento de Git (`.gitignore`);
+- `tools/privacy_check.py` revisa en cada PR y en `main` (workflow «Comprobar privacidad») que los archivos versionados no contengan claves privadas, tokens que no sean públicos, correos de proveedores personales, IBAN fuera de los datos de prueba ni archivos de datos personales. Solo indica la ubicación y el tipo, nunca el valor; `--self-test` comprueba que lo detecta;
+- los secretos de CI se usan solo como secretos de GitHub, sin imprimirlos ni incluirlos en artefactos. Los instalables no llevan datos personales: solo la dirección pública del servidor bancario y la configuración pública de la nube.

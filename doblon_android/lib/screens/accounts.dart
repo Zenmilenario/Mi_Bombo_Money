@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../bank_activity.dart';
+import 'invested_breakdown.dart';
 import '../banking.dart' show referenceSeconds, stableUuid;
 import '../data.dart';
 import '../edits.dart';
@@ -81,14 +82,19 @@ class _AccountsScreenState extends State<AccountsScreen> {
       ('Deudas y crédito', (a) => a.type.isLiability),
       ('Otras cuentas', (a) => a.type == AccountType.other),
     ];
-    Widget tile(String label, int value, IconData icon, Color color) => Container(
+    // «Disponible» as on Inicio: the available money minus what the bank holds, once.
+    final held = spendableHolds(data, widget.repository.bankActivity);
+    Widget tile(String label, int value, IconData icon, Color color, {String? note, VoidCallback? onTap}) => InkWell(
+        borderRadius: BorderRadius.circular(Pulso.cardRadius),
+        onTap: onTap,
+        child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(Pulso.cardRadius)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               Icon(icon, size: 15, color: color),
               const SizedBox(width: 5),
-              Text(label, style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
+              Expanded(child: Text(label, style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor))),
             ]),
             const SizedBox(height: 4),
             FittedBox(
@@ -96,8 +102,10 @@ class _AccountsScreenState extends State<AccountsScreen> {
               alignment: Alignment.centerLeft,
               child: Text(money(value), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: color)),
             ),
+            if (note != null) Text(note, style: TextStyle(fontSize: 11, color: Theme.of(context).hintColor)),
           ]),
-        );
+        ),
+      );
     Widget chip(String label, IconData icon, VoidCallback? onTap) => Padding(
           padding: const EdgeInsets.only(right: 8),
           child: ActionChip(avatar: Icon(icon, size: 17, color: pulso.accent), label: Text(label), onPressed: onTap),
@@ -111,9 +119,11 @@ class _AccountsScreenState extends State<AccountsScreen> {
           return Wrap(spacing: 10, runSpacing: 10, children: [
             for (final t in [
               tile('Patrimonio', calc.netWorth(), Icons.functions, Theme.of(context).colorScheme.onSurface),
-              tile('Disponible', calc.spendableCash(), Icons.account_balance_wallet_outlined, pulso.accent),
+              tile('Disponible', calc.spendableCash() + held, Icons.account_balance_wallet_outlined, pulso.accent,
+                  note: held == 0 ? null : 'Descuenta ${money(-held)} retenidos'),
               tile('Reservado', calc.reservedTotal(), Icons.lock_outline, pulso.savings),
-              tile('Invertido', calc.invested(), Icons.trending_up, pulso.investment),
+              tile(investedLabel(data), calc.invested(), Icons.trending_up, pulso.investment,
+                  note: 'Ver desglose', onTap: () => showInvestedBreakdown(context, calc)),
             ])
               SizedBox(width: width, child: t),
           ]);
@@ -219,6 +229,11 @@ class _InvestmentMonth extends StatelessWidget {
           const SizedBox(height: 8),
           Text('Valor registrado de tus carteras: ${money(calc.invested())}${outside != 0 ? ' (y ${money(outside)} fuera del patrimonio)' : ''}',
               style: const TextStyle(fontWeight: FontWeight.w600)),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+                style: TextButton.styleFrom(padding: EdgeInsets.zero), onPressed: () => showInvestedBreakdown(context, calc), child: const Text('Ver desglose por cartera')),
+          ),
           Text('Aportar o retirar no es rentabilidad. La comisión sale del efectivo y no se invierte.', style: TextStyle(fontSize: 12, color: hint)),
         ]),
       ),

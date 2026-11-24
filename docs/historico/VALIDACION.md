@@ -12,7 +12,7 @@ Este documento conserva la validación histórica de la primera entrega. La revi
 - Proyecto Xcode regenerado desde `Tools/generate_xcodeproj.py` y comprobado para evitar referencias de fuente ausentes.
 - Parser CSV compilado y ejecutado de forma aislada con seis movimientos válidos, incluidos formatos decimales españoles, comillas y transferencias.
 - Motor financiero compilado y ejecutado de forma aislada con casos de saldo inicial, ingresos, gastos, comisiones, transferencias, presupuestos, valoraciones y pasivos.
-- Los casos del Excel reproducen: Bankinter 850,00 €, Trade Republic 650,00 €, BBVA 540,66 € y patrimonio 2.040,66 €.
+- Los casos del Excel reproducen: Banco A 1.200,00 €, Banco B 900,00 €, Banco C 900,00 € y patrimonio 3.000,00 €.
 - Las dos transferencias iniciales no alteran ingresos, gastos ni ahorro mensual.
 
 

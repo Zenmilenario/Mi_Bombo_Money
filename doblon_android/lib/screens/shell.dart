@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../automation.dart';
-import '../bank_activity.dart' show bankHolds;
+import '../bank_activity.dart' show bankHolds, spendableHolds;
 import '../banking.dart' show BankingError, permissionDaysLeft, permissionExpiresSoon;
 import '../card_payments.dart';
 import '../data.dart';
@@ -395,9 +395,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
               onOpenTransaction: (t) =>
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionDetailScreen(repository: repository, transactionId: t.id))),
               // Charges the bank holds and has not booked yet, as on the iPhone's «Disponible tras retenciones».
-              heldMinor: bankHolds(calc.data, repository.bankActivity)
-                  .where((h) => h.movement.signedAmountMinor < 0)
-                  .fold(0, (sum, h) => sum + h.movement.signedAmountMinor)),
+              heldMinor: spendableHolds(calc.data, repository.bankActivity)),
           1 => TransactionsScreen(calc: calc, repository: repository),
           2 => AccountsScreen(calc: calc, repository: repository),
           3 => BudgetsScreen(calc: calc, month: month, onMonth: setMonth, repository: repository),
