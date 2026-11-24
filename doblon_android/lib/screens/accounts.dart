@@ -6,6 +6,7 @@ import '../banking.dart' show referenceSeconds, stableUuid;
 import '../data.dart';
 import '../edits.dart';
 import '../finance.dart';
+import '../investments.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
@@ -151,6 +152,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
         for (final (title, test) in groups)
           if (shown.where(test).toList() case final items when items.isNotEmpty) ...[
             SectionTitle(title),
+            if (title == 'Inversiones') ...[_InvestmentMonth(calc: calc, now: now), const SizedBox(height: 10)],
             for (final account in items) ...[
               _AccountCard(account: account, calc: calc, repository: widget.repository, now: now),
               const SizedBox(height: 10),
@@ -181,6 +183,45 @@ class _AccountsScreenState extends State<AccountsScreen> {
             children: [for (final a in archived) _AccountCard(account: a, calc: calc, repository: widget.repository, now: now)],
           ),
       ]),
+    );
+  }
+}
+
+/// This month's investing and the value of the portfolios, each figure apart: money contributed or withdrawn is not a
+/// return, and a fee is a cost. The value is the one recorded (the last valuation and the movements after it).
+class _InvestmentMonth extends StatelessWidget {
+  const _InvestmentMonth({required this.calc, required this.now});
+  final FinanceCalculator calc;
+  final DateTime now;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    final flows = investmentFlows(calc.data, DateTime(now.year, now.month), now: now);
+    final portfolios = calc.data.accounts.where((a) => !a.isArchived && a.type == AccountType.investment).toList();
+    final outside = portfolios.where((a) => !a.includeInNetWorth).fold(0, (sum, a) => sum + calc.balance(a));
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Este mes', style: TextStyle(fontSize: 12, color: hint)),
+          const SizedBox(height: 4),
+          LabelValues(
+            labelStyle: TextStyle(fontSize: 12, color: hint),
+            valueStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            items: [
+              ('Aportado', money(flows.contributedMinor), pulso.investment),
+              ('Retirado', money(flows.withdrawnMinor), null),
+              ('Comisiones', money(flows.feesMinor), flows.feesMinor > 0 ? pulso.expense : null),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('Valor registrado de tus carteras: ${money(calc.invested())}${outside != 0 ? ' (y ${money(outside)} fuera del patrimonio)' : ''}',
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text('Aportar o retirar no es rentabilidad. La comisión sale del efectivo y no se invierte.', style: TextStyle(fontSize: 12, color: hint)),
+        ]),
+      ),
     );
   }
 }

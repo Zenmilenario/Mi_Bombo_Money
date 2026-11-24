@@ -10,6 +10,9 @@ DateTime monthStart(DateTime date) => DateTime(date.year, date.month);
 
 enum TransactionType { income, expense, interest, fee, transfer }
 
+/// The `externalID` of an investment order's fee: this marker and the id of the order.
+const investmentFeeMarker = 'investment-fee:';
+
 extension TransactionTypeRules on TransactionType {
   bool get countsAsIncome => this == TransactionType.income || this == TransactionType.interest;
   bool get countsAsExpense => this == TransactionType.expense || this == TransactionType.fee;
@@ -183,6 +186,11 @@ class Transaction {
 
   /// Recorded with Apple Pay on the iPhone and still waiting for the bank posting.
   bool get awaitsBank => bankEntryKey == null && (externalId?.startsWith('applepay:') ?? false);
+
+  /// The fee of an investment order, linked to the order (a transfer to an investment account): a cost of investing,
+  /// apart from everyday spending and budgets (`lib/investments.dart`).
+  bool get isInvestmentFee => type == TransactionType.fee && (externalId?.startsWith(investmentFeeMarker) ?? false);
+  String? get investmentOperationId => isInvestmentFee ? externalId!.substring(investmentFeeMarker.length) : null;
 
   factory Transaction.fromJson(Map<String, dynamic> json) => Transaction(
         id: _string(json['id']),

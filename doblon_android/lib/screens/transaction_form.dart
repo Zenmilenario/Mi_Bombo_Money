@@ -8,6 +8,8 @@ import '../automation.dart';
 import '../data.dart';
 import '../finance.dart' show fundEntries, reservedBalances;
 import '../edits.dart';
+import '../investments.dart';
+import '../presentation.dart' show money;
 import '../learning.dart' show EditSnapshot;
 import '../models.dart';
 import '../theme.dart';
@@ -44,6 +46,10 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   final _description = TextEditingController();
   final _notes = TextEditingController();
   final _reserved = TextEditingController();
+
+  /// The fee of an investment order (written by the person: the bank does not send it apart), and the one it had.
+  final _fee = TextEditingController();
+  Transaction? _currentFee;
   String? _message;
   bool _saving = false;
   // A category the person picked is never replaced by a rule's suggestion.
@@ -84,6 +90,12 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     );
     if (t?.reservedAmountMinor != null) _reserved.text = (t!.reservedAmountMinor! / 100).toStringAsFixed(2).replaceAll('.', ',');
     if (t != null) _amount.text = (t.amountMinor / 100).toStringAsFixed(2).replaceAll('.', ',');
+    // An order with its fee is edited as one: the total that left the cash, and the fee.
+    _currentFee = t == null || t.type != TransactionType.transfer ? null : linkedFee(data, t.id);
+    if (_currentFee != null) {
+      _amount.text = ((t!.amountMinor + _currentFee!.amountMinor) / 100).toStringAsFixed(2).replaceAll('.', ',');
+      _fee.text = (_currentFee!.amountMinor / 100).toStringAsFixed(2).replaceAll('.', ',');
+    }
     _description.text = draft.description;
     _notes.text = draft.notes;
     if (t != null) _before = widget.repository.learning?.captureEdit(t, data);
@@ -114,16 +126,34 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     _description.dispose();
     _notes.dispose();
     _reserved.dispose();
+    _fee.dispose();
     super.dispose();
   }
+
+  /// A transfer from cash to an account of type Investment: an order, which can have a fee. The account type decides
+  /// it, not the name of the category.
+  bool get _investing =>
+      draft.type == TransactionType.transfer &&
+      data.account(draft.destinationAccountId)?.type == AccountType.investment &&
+      data.account(draft.sourceAccountId)?.type != AccountType.investment;
+
+  int get _feeMinor => _investing ? (_fee.text.trim().isEmpty ? 0 : (parseAmount(_fee.text) ?? -1)) : 0;
 
   Future<void> _save() async {
     // A second tap before the button is disabled on screen never saves twice.
     if (_saving) return;
     // Without a concept, the chosen category names it (it can be changed later); without either, it is asked for.
     final typed = _description.text.trim();
+    final total = parseAmount(_amount.text) ?? 0, fee = _feeMinor;
+    if (_investing) {
+      final problem = validateSplit(totalMinor: total, feeMinor: fee);
+      if (problem != null) {
+        setState(() => _message = problem);
+        return;
+      }
+    }
     draft
-      ..amountMinor = parseAmount(_amount.text) ?? 0
+      ..amountMinor = total - fee
       ..description = typed.isEmpty ? (data.category(draft.categoryId)?.name ?? '') : _description.text
       ..notes = _notes.text
       ..reservedAmountMinor = draft.reservedFundId == null ? null : parseAmount(_reserved.text);
@@ -162,7 +192,17 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
       await widget.repository.learning?.recordCategoryOutcome(proposedName: _shown?.category.name, source: _shown?.source, chosenName: category.name);
     }
     final rule = _remember && category != null ? rememberRule(draft.description, draft.type, category, data, now, widget.repository.newId()) : null;
-    await widget.repository.apply(rule == null ? op : batchOperation([op, rule]));
+    // The order and its fee are saved together: the fee is created, changed or removed, never added twice.
+    final fee = feeOperations(
+        transferId: id,
+        currentFee: _currentFee,
+        feeMinor: _feeMinor,
+        sourceAccountId: draft.sourceAccountId,
+        date: draft.date,
+        orderDescription: draft.description,
+        now: now);
+    final ops = [op, ...fee, if (rule != null) rule];
+    await widget.repository.apply(ops.length == 1 ? op : batchOperation(ops));
     // What the person decided teaches the models: the category chosen and, in a bank movement, the correction.
     await learnFromEdit(widget.repository, _before, id, categoryConfirmed: _categoryChosen && category != null);
   }
@@ -219,6 +259,36 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     ];
   }
 
+  /// The fee of an order and the split it gives: what is invested, the fee and the total that left the cash.
+  List<Widget> _feeFields(BuildContext context) {
+    final total = parseAmount(_amount.text) ?? 0, fee = _feeMinor;
+    final problem = total > 0 ? validateSplit(totalMinor: total, feeMinor: fee) : null;
+    final hint = Theme.of(context).hintColor;
+    return [
+      const SizedBox(height: 12),
+      TextField(
+        controller: _fee,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
+        decoration: const InputDecoration(
+          labelText: 'Comisión de la orden (€, opcional)',
+          helperText: 'El banco no la envía aparte: escríbela si la hubo. Se descuenta del efectivo, no se invierte.',
+          helperMaxLines: 4,
+          border: OutlineInputBorder(),
+        ),
+        onChanged: (_) => setState(() {}),
+      ),
+      if (total > 0)
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Text(
+            problem ?? 'Se invierten ${money(total - fee)}${fee > 0 ? ' · comisión ${money(fee)}' : ''} · salida total del efectivo ${money(total)}',
+            style: TextStyle(fontSize: 12, color: problem == null ? hint : Pulso.of(context).expense),
+          ),
+        ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final pulso = Pulso.of(context);
@@ -261,8 +331,11 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]'))],
                 autofocus: widget.editing == null,
-                decoration: const InputDecoration(labelText: 'Importe (€)', border: OutlineInputBorder()),
+                decoration: InputDecoration(labelText: _investing ? 'Importe total cargado (€)' : 'Importe (€)', border: const OutlineInputBorder()),
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+                onChanged: (_) {
+                  if (_investing) setState(() {});
+                },
               ),
               const SizedBox(height: 12),
               TextField(
@@ -299,6 +372,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                   ],
                   onChanged: (value) => setState(() => draft.destinationAccountId = value),
                 ),
+                if (_investing) ..._feeFields(context),
               ],
               const SizedBox(height: 12),
               DropdownButtonFormField<String?>(
@@ -324,6 +398,15 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                   _proposal = null;
                 }),
               ),
+              if (draft.type == TransactionType.transfer &&
+                  !_investing &&
+                  draft.destinationAccountId != null &&
+                  (data.category(draft.categoryId)?.name.toLowerCase().contains('invers') ?? false))
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text('Si es una aportación a tu cartera, marca la cuenta de destino como «Inversión» en Cuentas: así cuenta como aportación del mes.',
+                      style: Theme.of(context).textTheme.bodySmall),
+                ),
               if (!_categoryChosen && _proposal != null && draft.categoryId == null)
                 Align(
                   alignment: Alignment.centerLeft,

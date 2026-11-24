@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../finance.dart';
+import '../investments.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
@@ -327,6 +328,18 @@ class _MonthPanel extends StatelessWidget {
                 icon: const Icon(Icons.insights, size: 18),
                 label: const Text('Ver previsión'),
               ),
+            ),
+          // Investing this month, apart from income and spending: contributed, withdrawn and fees (never a return).
+          if (investmentFlows(calc.data, month) case final flows when !flows.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+              child: Text(
+                  'Inversión: ${[
+                    if (flows.contributedMinor > 0) 'aportado ${money(flows.contributedMinor)}',
+                    if (flows.withdrawnMinor > 0) 'retirado ${money(flows.withdrawnMinor)}',
+                    if (flows.feesMinor > 0) 'comisiones ${money(flows.feesMinor)}',
+                  ].join(' · ')}',
+                  style: TextStyle(fontSize: 12, color: hint)),
             ),
           if (summary.hasReserves)
             Padding(

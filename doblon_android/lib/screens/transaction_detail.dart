@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../data.dart';
 import '../edits.dart';
 import '../finance.dart';
+import '../investments.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
@@ -45,9 +46,12 @@ class _Detail extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Borrar movimiento'),
-        content: Text(t.isBanking
-            ? 'Viene de tu banco: si lo borras, volverá a aparecer en la próxima descarga. Si está repetido, es mejor conservarlo y borrar el otro.'
-            : 'Se borrará de todos tus dispositivos.'),
+        content: Text([
+          t.isBanking
+              ? 'Viene de tu banco: si lo borras, volverá a aparecer en la próxima descarga. Si está repetido, es mejor conservarlo y borrar el otro.'
+              : 'Se borrará de todos tus dispositivos.',
+          if (linkedFee(data, t.id) case final fee?) 'También se borra su comisión de ${money(fee.amountMinor)}.',
+        ].join(' ')),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
           TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Borrar')),
@@ -55,7 +59,9 @@ class _Detail extends StatelessWidget {
       ),
     );
     if (confirmed != true) return;
-    await repository.apply(deleteOperation(t));
+    // An order goes with its fee: deleting one never leaves the other behind.
+    final fee = linkedFee(data, t.id);
+    await repository.apply(fee == null ? deleteOperation(t) : batchOperation([deleteOperation(t), deleteOperation(fee)]));
     if (context.mounted) closeOwnScreen(context);
   }
 
@@ -190,6 +196,14 @@ class _Detail extends StatelessWidget {
             if (destination != null) ...[
               row(Icons.north_east, 'Cuenta de origen', source?.name ?? 'Sin cuenta'),
               row(Icons.south_west, 'Cuenta de destino', destination.name),
+              // An order to a portfolio: what is invested, its fee and the total that left the cash, apart.
+              if (isContribution(t, data)) ...[
+                row(Icons.trending_up, 'Aportado a la inversión', money(t.amountMinor)),
+                if (linkedFee(data, t.id) case final fee?) ...[
+                  row(Icons.receipt_long_outlined, 'Comisión de la orden', money(fee.amountMinor)),
+                  row(Icons.payments_outlined, 'Salida total del efectivo', money(t.amountMinor + fee.amountMinor)),
+                ],
+              ],
             ] else
               row(Icons.account_balance_outlined, 'Cuenta', source?.name ?? 'Sin cuenta'),
             ListTile(
@@ -206,6 +220,15 @@ class _Detail extends StatelessWidget {
                     },
             ),
             if (t.awaitsBank) row(Icons.hourglass_bottom, 'Estado', 'Pendiente del banco'),
+            if (t.isInvestmentFee)
+              if (data.transactions.where((o) => o.id.toLowerCase() == t.investmentOperationId?.toLowerCase()).firstOrNull case final order?)
+                ListTile(
+                  leading: Icon(Icons.trending_up, color: tint),
+                  title: const Text('Comisión de la orden'),
+                  subtitle: Text('${bankTitle(order.descriptionText, isBanking: order.isBanking)} · ${money(order.amountMinor)} invertidos. No cuenta como gasto del día a día.'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionDetailScreen(repository: repository, transactionId: order.id))),
+                ),
             if (t.reservedFundId != null) ...[
               row(Icons.lock_open, 'Pagado con reserva', data.reservedFunds.where((f) => f.id == t.reservedFundId).firstOrNull?.name ?? 'Reserva eliminada'),
               row(Icons.payments_outlined, 'Importe de la reserva', money(t.reservedAmountMinor ?? 0)),
