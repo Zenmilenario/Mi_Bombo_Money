@@ -77,6 +77,10 @@ class Cloud {
   final plaintextCalls = <String>[];
   int financeSaves = 0;
 
+  /// A slow cloud, or one that refuses the next saves (for the tests of the movement form).
+  Duration saveDelay = Duration.zero;
+  int failingSaves = 0;
+
   Future<void> prepare() async {
     if (!encrypted) return;
     keyCheck = await cipher.seal({'check': 'doblon-key-v1'}, user, workspace, 'key-check', 0);
@@ -112,7 +116,14 @@ class Cloud {
           return _json({'workspace_id': workspace, 'revision': revisions[kind], 'document': envelopes[kind]}, request);
         case 'finance_encrypted_save':
           final kind = body['p_kind'] as String;
-          if (kind == 'finance') financeSaves++;
+          if (kind == 'finance') {
+            if (saveDelay > Duration.zero) await Future<void>.delayed(saveDelay);
+            if (failingSaves > 0) {
+              failingSaves--;
+              return _json({'message': 'Fictitious outage'}, request, 503);
+            }
+            financeSaves++;
+          }
           envelopes[kind] = Map<String, dynamic>.from(body['p_envelope'] as Map);
           revisions[kind] = revisions[kind]! + 1;
           return _json({'workspace_id': workspace, 'revision': revisions[kind], 'document': envelopes[kind]}, request);
@@ -124,6 +135,11 @@ class Cloud {
       case 'finance_snapshot':
         return _json({'workspace_id': workspace, 'revision': revisions['finance'], 'document': document}, request);
       case 'finance_save_snapshot':
+        if (saveDelay > Duration.zero) await Future<void>.delayed(saveDelay);
+        if (failingSaves > 0) {
+          failingSaves--;
+          return _json({'message': 'Fictitious outage'}, request, 503);
+        }
         financeSaves++;
         document = Map<String, dynamic>.from(body['p_document'] as Map);
         revisions['finance'] = revisions['finance']! + 1;

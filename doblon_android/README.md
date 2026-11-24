@@ -37,7 +37,7 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
 - **Abajo:** Don Bigotes (avatar con contador de avisos) y «+ Añadir» (una pulsación), flotantes y separados sobre las pestañas; las etiquetas de las pestañas se ocultan, sin partirse, cuando no caben al tamaño de texto elegido; la cabecera se recoge al bajar.
 - **Plataformas:** el mismo código en iOS y Android; solo «Pagos con Apple Pay» es exclusivo de iOS.
 - **Movimientos:**
-  - apuntar, editar y borrar; categorizar uno o varios;
+  - apuntar, editar y borrar; categorizar uno o varios. Al guardar (0.34.1), el formulario no admite toques mientras guarda («Guardando…»), guarda una sola vez y cierra solo su pantalla: lo que siga abierto encima, como el menú de categorías, se cierra antes como cancelado (`closeOwnScreen` en `lib/screens/navigation.dart`, usado por todas las pantallas que se cierran tras guardar o borrar). Si el guardado falla en el dispositivo, la edición se conserva para reintentar; si falla la nube, queda en la cola y se sube después;
   - alta con el importe enfocado, la cuenta sin adivinar y lo opcional en «Más opciones»;
   - «Pendiente»: posibles duplicados o categoría incompatible (la categoría es opcional y no cuenta como tarea);
   - herramientas de revisión y entrenamiento de la IA solo para el administrador, en Ajustes › Avanzado;

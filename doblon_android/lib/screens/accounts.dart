@@ -14,6 +14,7 @@ import 'manage.dart' show RecurringScreen;
 import 'transaction_detail.dart';
 import 'chrome.dart' show tabListPadding;
 import 'widgets.dart';
+import 'navigation.dart';
 
 /// Cuentas, as on the iPhone (`AccountsView`): net worth, available, reserved and invested; the accounts not updated
 /// for 30 days; quick actions; the accounts grouped by kind and the cards.
@@ -576,7 +577,7 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
           },
           create: true));
     }
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) closeOwnScreen(context);
   }
 
   @override
@@ -707,7 +708,7 @@ class _CardFormScreenState extends State<CardFormScreen> {
             onPressed: () async {
               await widget.repository
                   .apply(upsertOperation('cards', {'id': editing.id, 'isArchived': true, 'updatedAt': referenceSeconds(DateTime.now())}, create: false));
-              if (context.mounted) Navigator.of(context).pop();
+              if (context.mounted) closeOwnScreen(context);
             },
           ),
       ],
@@ -794,7 +795,7 @@ class _ReserveFormScreenState extends State<ReserveFormScreen> {
             onPressed: () async {
               if (!await confirm(context, 'Borrar reserva', 'El dinero vuelve a estar libre en la cuenta.', action: 'Borrar')) return;
               await widget.repository.apply(removeOperation('reservedFunds', editing.id));
-              if (context.mounted) Navigator.of(context).pop();
+              if (context.mounted) closeOwnScreen(context);
             },
           ),
       ],

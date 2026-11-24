@@ -123,7 +123,10 @@ void main() {
     expect(repo.bankProgress.value?.text, 'Consultando tus bancos…', reason: 'Immediately, before any answer');
     final again = repo.synchronizeBanks(manual: true, client: bank);
     expect(identical(first, again), isTrue, reason: 'No second refresh');
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    // Until it asks the banks (with every test file running at once, this machine may take longer than a moment).
+    for (var i = 0; i < 100 && bank.downloads < 2; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
     expect(repo.bankProgress.value?.text, contains('Descargando de'), reason: 'A real phase: which banks are being asked');
     expect(bank.downloads, 2, reason: 'Both banks at the same time, once each');
     bank.gate!.complete();

@@ -10,6 +10,7 @@ import '../theme.dart';
 import 'learning.dart';
 import 'transaction_form.dart';
 import 'widgets.dart';
+import 'navigation.dart';
 
 /// One movement: what it is, what needs review, and edit or delete.
 class TransactionDetailScreen extends StatelessWidget {
@@ -55,7 +56,7 @@ class _Detail extends StatelessWidget {
     );
     if (confirmed != true) return;
     await repository.apply(deleteOperation(t));
-    if (context.mounted) Navigator.of(context).pop();
+    if (context.mounted) closeOwnScreen(context);
   }
 
   @override

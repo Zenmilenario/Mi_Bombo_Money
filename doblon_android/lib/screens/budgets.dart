@@ -12,6 +12,7 @@ import 'budget_detail.dart';
 import 'forms.dart';
 import 'chrome.dart' show tabListPadding;
 import 'widgets.dart';
+import 'navigation.dart';
 
 /// A month as the cloud stores it: the first day at noon UTC.
 num monthSeconds(DateTime month) => referenceSeconds(DateTime.utc(month.year, month.month, 1, 12));
@@ -492,7 +493,7 @@ class _BudgetEditorScreenState extends State<BudgetEditorScreen> {
               create: true));
     }
     await widget.repository.apply(batchOperation(ops));
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) closeOwnScreen(context);
   }
 
   Future<void> _remove() async {
@@ -506,7 +507,7 @@ class _BudgetEditorScreenState extends State<BudgetEditorScreen> {
           : upsertOperation('recurringBudgets', {'id': current.id, 'endMonth': monthSeconds(widget.month), 'updatedAt': now}, create: false));
     }
     if (ops.isNotEmpty) await widget.repository.apply(batchOperation(ops));
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) closeOwnScreen(context);
   }
 
   @override
@@ -648,7 +649,7 @@ class _GoalFormScreenState extends State<GoalFormScreen> {
             onPressed: () async {
               if (!await confirm(context, 'Borrar objetivo', 'Se borrará de todos tus dispositivos.', action: 'Borrar')) return;
               await widget.repository.apply(removeOperation('goals', editing.id));
-              if (context.mounted) Navigator.of(context).pop();
+              if (context.mounted) closeOwnScreen(context);
             },
           ),
       ],

@@ -13,6 +13,7 @@ import '../models.dart';
 import '../theme.dart';
 import 'learning.dart';
 import 'widgets.dart' show Disclosure;
+import 'navigation.dart';
 
 /// Reads "12,50", "1.234,56" or "12.5" as cents. Null when it is not an amount.
 int? parseAmount(String text) {
@@ -117,6 +118,8 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   }
 
   Future<void> _save() async {
+    // A second tap before the button is disabled on screen never saves twice.
+    if (_saving) return;
     // Without a concept, the chosen category names it (it can be changed later); without either, it is asked for.
     final typed = _description.text.trim();
     draft
@@ -136,14 +139,17 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     try {
       await _store();
     } catch (_) {
-      // Everything typed stays on the screen to try again.
+      // The save failed: everything typed stays on the screen to try again.
       if (mounted) {
         setState(() {
           _saving = false;
           _message = 'No se ha podido guardar. Lo que has escrito sigue aquí: inténtalo de nuevo.';
         });
       }
+      return;
     }
+    // Saved. Closing is not part of the save: a problem closing never offers to save again.
+    if (mounted) closeOwnScreen(context, true);
   }
 
   Future<void> _store() async {
@@ -159,7 +165,6 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
     await widget.repository.apply(rule == null ? op : batchOperation([op, rule]));
     // What the person decided teaches the models: the category chosen and, in a bank movement, the correction.
     await learnFromEdit(widget.repository, _before, id, categoryConfirmed: _categoryChosen && category != null);
-    if (mounted) Navigator.of(context).pop(true);
   }
 
   /// For a payment or a move, the reserves that have money in the chosen account (plus the one already used by this
@@ -225,7 +230,10 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
       appBar: AppBar(title: Text(widget.editing == null ? 'Nuevo movimiento' : 'Editar movimiento', style: const TextStyle(fontWeight: FontWeight.w700))),
       body: accounts.isEmpty
           ? const Center(child: Padding(padding: EdgeInsets.all(24), child: Text('Primero necesitas una cuenta.', textAlign: TextAlign.center)))
-          : ListView(padding: const EdgeInsets.all(16), children: [
+          // While saving nothing underneath can be touched: no menu opens over a screen about to close.
+          : AbsorbPointer(
+              absorbing: _saving,
+              child: ListView(padding: const EdgeInsets.all(16), children: [
               if (isBanking)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -392,7 +400,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
               FilledButton(
                 onPressed: _saving ? null : _save,
                 style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52), backgroundColor: const Color(0xFF0F766E)),
-                child: Text(widget.editing == null ? 'Guardar movimiento' : 'Guardar cambios'),
+                child: Text(_saving ? 'Guardando…' : (widget.editing == null ? 'Guardar movimiento' : 'Guardar cambios')),
               ),
               if (widget.editing == null) ...[
                 const SizedBox(height: 8),
@@ -400,6 +408,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
                     style: Theme.of(context).textTheme.bodySmall),
               ],
             ]),
+            ),
     );
   }
 }

@@ -14,6 +14,7 @@ import '../presentation.dart';
 import '../theme.dart';
 import 'forms.dart';
 import 'learning.dart' show proposeCategory;
+import 'navigation.dart';
 
 /// Importar movimientos CSV: pick a file, check every row, then import what is new.
 class CsvImportScreen extends StatefulWidget {
@@ -181,7 +182,7 @@ class _CsvImportScreenState extends State<CsvImportScreen> {
                     }
                     if (!context.mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${count('new') + count('possible')} movimientos importados.')));
-                    Navigator.of(context).pop();
+                    closeOwnScreen(context);
                   },
             style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
             child: Text('Importar ${count('new') + count('possible')} movimientos'),
