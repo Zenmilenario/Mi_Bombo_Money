@@ -127,5 +127,5 @@ El repositorio es público para usar las comprobaciones y compilaciones de GitHu
 
 - el código y las pruebas usan solo datos ficticios; las pruebas no acceden a finanzas reales;
 - los datos personales (exportaciones, copias de la app, hojas de cálculo, extractos, claves y configuración personal del servidor bancario) quedan fuera del repositorio y del seguimiento de Git (`.gitignore`);
-- `tools/privacy_check.py` revisa en cada PR y en `main` (workflow «Comprobar privacidad») que los archivos versionados no contengan claves privadas, tokens que no sean públicos, correos de proveedores personales, IBAN fuera de los datos de prueba ni archivos de datos personales. Solo indica la ubicación y el tipo, nunca el valor; `--self-test` comprueba que lo detecta;
+- `Tools/privacy_check.py` revisa en cada PR y en `main` (workflow «Comprobar privacidad») que los archivos versionados no contengan claves privadas, tokens que no sean públicos, correos de proveedores personales, IBAN fuera de los datos de prueba ni archivos de datos personales. Solo indica la ubicación y el tipo, nunca el valor; `--self-test` comprueba que lo detecta;
 - los secretos de CI se usan solo como secretos de GitHub, sin imprimirlos ni incluirlos en artefactos. Los instalables no llevan datos personales: solo la dirección pública del servidor bancario y la configuración pública de la nube.
