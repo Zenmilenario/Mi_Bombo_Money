@@ -222,7 +222,11 @@ class _AvailableCard extends StatelessWidget {
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
                           Icon(Icons.insights, size: 18, color: Colors.white),
                           SizedBox(width: 8),
-                          Text('Previsión y simulaciones', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
+                          // Very large text shortens the label instead of overflowing the card.
+                          Flexible(
+                            child: Text('Previsión y simulaciones',
+                                maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13)),
+                          ),
                           Icon(Icons.chevron_right, size: 18, color: Colors.white),
                         ]),
                       ),

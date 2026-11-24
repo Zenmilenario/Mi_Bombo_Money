@@ -36,8 +36,11 @@ export 'chrome.dart' show CompanionButton;
 
 /// The same five tabs as the iPhone app, with Don Bigotes floating at the bottom right.
 class Shell extends StatefulWidget {
-  const Shell({super.key, required this.preferences});
+  const Shell({super.key, required this.preferences, this.repository});
   final AppPreferences preferences;
+
+  /// The tests give a repository with a fictitious cloud (an administrator or an encrypted guest); the app makes its own.
+  final FinanceRepository? repository;
   @override
   State<Shell> createState() => _ShellState();
 }
@@ -46,7 +49,7 @@ class Shell extends StatefulWidget {
 const foregroundRefresh = Duration(minutes: 5);
 
 class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTickerProviderStateMixin {
-  final repository = FinanceRepository();
+  late final repository = widget.repository ?? FinanceRepository();
   int tab = 0;
 
   /// 1 while the header is shown, 0 once it has slid away; follows the finger and settles when the scroll stops.
@@ -104,7 +107,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
     repository.removeListener(_changed);
     _refreshTimer?.cancel();
     header.dispose();
-    repository.dispose();
+    if (widget.repository == null) repository.dispose();
     widget.preferences.removeListener(_changed);
     super.dispose();
   }
