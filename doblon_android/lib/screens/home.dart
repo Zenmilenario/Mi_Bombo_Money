@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../finance.dart';
+import '../investments.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
@@ -15,13 +16,25 @@ import 'widgets.dart';
 /// net worth over time, then the budgets and the goal. Short labels; every amount once.
 class HomeScreen extends StatefulWidget {
   const HomeScreen(
-      {super.key, required this.calc, required this.month, required this.onMonth, this.onAdd, this.heldMinor = 0, this.onOpenTab, this.onOpenTransaction});
+      {super.key,
+      required this.calc,
+      required this.month,
+      required this.onMonth,
+      this.onAdd,
+      this.heldMinor = 0,
+      this.onOpenTab,
+      this.onOpenTransaction,
+      this.onForecast});
   final FinanceCalculator calc;
   final DateTime month;
   final ValueChanged<DateTime> onMonth;
   final VoidCallback? onAdd;
   final ValueChanged<int>? onOpenTab;
   final ValueChanged<Transaction>? onOpenTransaction;
+
+  /// Opens «Previsión y simulaciones».
+  final VoidCallback? onForecast;
+
 
   /// Charges the bank holds and has not booked yet (negative), already taken from what is available.
   final int heldMinor;
@@ -80,6 +93,8 @@ class _HomeScreenState extends State<HomeScreen> {
       onDay: (d) => setState(() => day = d == day ? null : d),
       onOpenTransaction: widget.onOpenTransaction,
       onAll: widget.onOpenTab == null ? null : () => widget.onOpenTab!(1),
+      onForecast: widget.onForecast,
+      portfolios: {for (final a in summaryPortfolios(calc.data)) a.id},
     );
     final side = <Widget>[
       _NetWorthPanel(calc: calc),
@@ -95,7 +110,11 @@ class _HomeScreenState extends State<HomeScreen> {
     return LayoutBuilder(builder: (context, constraints) {
       final wide = constraints.maxWidth >= 720;
       return ListView(physics: const AlwaysScrollableScrollPhysics(), padding: tabListPadding(context, top: 4), children: [
-        spaced(_AvailableCard(calc: calc, heldMinor: widget.heldMinor, onOpen: widget.onOpenTab == null ? null : () => widget.onOpenTab!(2))),
+        spaced(_AvailableCard(
+            calc: calc,
+            heldMinor: widget.heldMinor,
+            investedMinor: investedInSummary(calc.data, calc.balance, DateTime.now()),
+            onOpen: widget.onOpenTab == null ? null : () => widget.onOpenTab!(2))),
         if (wide)
           // iPad: the month on the left, net worth, budgets and goal on the right.
           Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -135,9 +154,10 @@ const _cardTop = Color(0xFF12857C), _cardBottom = Color(0xFF0A4E4A), _cardTopDar
 /// «Disponible», alone in its card and the largest figure of the app, on a deep teal with the faint rings of a coin
 /// (a doblón). Below it, what is not available: reserved, held by the bank and invested. Tapping opens Cuentas.
 class _AvailableCard extends StatelessWidget {
-  const _AvailableCard({required this.calc, required this.heldMinor, this.onOpen});
+  const _AvailableCard({required this.calc, required this.heldMinor, required this.investedMinor, this.onOpen});
   final FinanceCalculator calc;
   final int heldMinor;
+  final int investedMinor;
   final VoidCallback? onOpen;
 
   @override
@@ -145,7 +165,7 @@ class _AvailableCard extends StatelessWidget {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final available = calc.spendableCash() + heldMinor;
     final reserved = calc.reservedTotal();
-    final invested = calc.invested();
+    final invested = investedMinor;
     const soft = Color(0xCCFFFFFF);
     final stats = <(String, String, Color?)>[
       if (reserved > 0) ('Reservado', money(reserved), null),
@@ -261,7 +281,9 @@ class _MonthPanel extends StatelessWidget {
       required this.day,
       required this.onDay,
       this.onOpenTransaction,
-      this.onAll});
+      this.onAll,
+      this.onForecast,
+      this.portfolios});
   final FinanceCalculator calc;
   final DateTime month;
   final ValueChanged<DateTime> onMonth;
@@ -270,6 +292,12 @@ class _MonthPanel extends StatelessWidget {
   final ValueChanged<int> onDay;
   final ValueChanged<Transaction>? onOpenTransaction;
   final VoidCallback? onAll;
+
+  /// «Ver previsión»: the only way to the forecast from Inicio, next to the month it continues.
+  final VoidCallback? onForecast;
+
+  /// The portfolios of the investment summary, for the month's investing line.
+  final Set<String>? portfolios;
 
   @override
   Widget build(BuildContext context) {
@@ -302,6 +330,28 @@ class _MonthPanel extends StatelessWidget {
               ],
             ),
           ),
+          if (onForecast != null)
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onForecast,
+                style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                icon: const Icon(Icons.insights, size: 18),
+                label: const Text('Ver previsión'),
+              ),
+            ),
+          // Investing this month, apart from income and spending: contributed, withdrawn and fees (never a return).
+          if (investmentFlows(calc.data, month, accounts: portfolios) case final flows when !flows.isEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+              child: Text(
+                  'Inversión: ${[
+                    if (flows.contributedMinor > 0) 'aportado ${money(flows.contributedMinor)}',
+                    if (flows.withdrawnMinor > 0) 'retirado ${money(flows.withdrawnMinor)}',
+                    if (flows.feesMinor > 0) 'comisiones ${money(flows.feesMinor)}',
+                  ].join(' · ')}',
+                  style: TextStyle(fontSize: 12, color: hint)),
+            ),
           if (summary.hasReserves)
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),

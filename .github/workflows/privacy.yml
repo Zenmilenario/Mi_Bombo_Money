@@ -1,0 +1,33 @@
+name: Comprobar privacidad
+
+# The repository is public: no personal financial data or secrets in the tracked files. It prints only where a
+# problem is and its kind, never the value, and needs no secret.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  privacy:
+    name: Sin datos personales ni secretos
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Comprobar que la revisión detecta datos privados
+        run: |
+          git config --global user.email "ci@example.com"
+          git config --global user.name "CI"
+          python3 Tools/privacy_check.py --self-test
+      - name: Revisar los archivos versionados
+        run: python3 Tools/privacy_check.py

@@ -37,7 +37,7 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
 - **Abajo:** Don Bigotes (avatar con contador de avisos) y «+ Añadir» (una pulsación), flotantes y separados sobre las pestañas; las etiquetas de las pestañas se ocultan, sin partirse, cuando no caben al tamaño de texto elegido; la cabecera se recoge al bajar.
 - **Plataformas:** el mismo código en iOS y Android; solo «Pagos con Apple Pay» es exclusivo de iOS.
 - **Movimientos:**
-  - apuntar, editar y borrar; categorizar uno o varios;
+  - apuntar, editar y borrar; categorizar uno o varios. Al guardar (0.34.1), el formulario no admite toques mientras guarda («Guardando…»), guarda una sola vez y cierra solo su pantalla: lo que siga abierto encima, como el menú de categorías, se cierra antes como cancelado (`closeOwnScreen` en `lib/screens/navigation.dart`, usado por todas las pantallas que se cierran tras guardar o borrar). Si el guardado falla en el dispositivo, la edición se conserva para reintentar; si falla la nube, queda en la cola y se sube después;
   - alta con el importe enfocado, la cuenta sin adivinar y lo opcional en «Más opciones»;
   - «Pendiente»: posibles duplicados o categoría incompatible (la categoría es opcional y no cuenta como tarea);
   - herramientas de revisión y entrenamiento de la IA solo para el administrador, en Ajustes › Avanzado;
@@ -49,17 +49,36 @@ Validación local del lote: 76 pruebas Flutter correctas, `flutter analyze` sin 
   - crear, editar, archivar y recuperar cuentas;
   - actualizar o regularizar el saldo a mano, con concepto y diferencia calculada, y deshacerlo desde «Ajustes de saldo»;
   - tarjetas, dinero reservado y últimos movimientos de cada cuenta.
+- **Inversiones con comisión** (0.35.0, `lib/investments.dart`):
+  - una orden comprada desde el efectivo de un bróker es un traspaso del efectivo a la cuenta de tipo Inversión por el capital, y su comisión un movimiento «comisión» del mismo efectivo, vinculado a la orden (`externalID` `investment-fee:<id de la orden>` e identificador derivado de la orden, sin campos nuevos ni migración); la salida del efectivo es la suma y la cartera solo recibe el capital;
+  - qué es una aportación lo decide el tipo de la cuenta de destino (Inversión), no el nombre de la categoría; si la categoría parece de inversión y el destino no es una cartera, el formulario lo advierte;
+  - en el formulario de un traspaso a una cartera, el importe es el total cargado y la comisión, opcional, se escribe aparte; se muestra y valida el desglose (lo invertido, la comisión y la salida total); orden y comisión se guardan, corrigen y borran juntas;
+  - la comisión no cuenta como gasto del día a día ni en presupuestos; Inicio (resumen del mes) y Cuentas (Inversiones) muestran aportado, retirado y comisiones del mes por separado, y el valor registrado de las carteras; aportar no es rentabilidad;
+  - el banco (Enable Banking) no envía comisiones ni desglose: llegan el importe total y el concepto. Un cargo posterior se propone para conciliar con la orden registrada a mano (el total de orden y comisión, o cada parte si llegan separadas), sin insertar otra salida;
+  - una valoración posterior de la cartera sustituye al saldo anterior y no suma otra vez la aportación; la inclusión en el patrimonio se respeta;
+  - «Invertido» (Inicio y Cuentas, 0.35.2) es el resumen de inversión: por defecto todas las carteras activas, también las que están fuera del patrimonio; desde «Ver carteras» (`lib/screens/invested_breakdown.dart`) se elige cuáles lo forman. Es una decisión distinta de la inclusión en el patrimonio, que se mantiene en cada cuenta y no cambia. Desde la 0.36.0 la elección se guarda con cada cuenta en la nube (`inInvestmentSummary`, columna `in_investment_summary`, migración `20261124000100_investment_summary.sql`; vacío significa «sí»), así que es la misma en todos los dispositivos de la persona; la que la 0.35.2 guardaba en el dispositivo se traslada una vez a la nube. La usan igual Inicio, Cuentas y la línea de inversión del mes. El desglose muestra cada cartera con su valor, si cuenta en el patrimonio y de dónde sale: la valoración que indicaste o el saldo comunicado por el banco, con su fecha (y su antigüedad si pasa de una semana), más los movimientos posteriores; no es una cotización en tiempo real.
+- **Disponible** (0.35.1): el mismo en Inicio y Cuentas, el dinero disponible de las cuentas corrientes, de ahorro, efectivo y otras del patrimonio, menos lo que el banco retiene en esas mismas cuentas (`spendableHolds`), una sola vez: el saldo del banco que se usa es el contable, que no incluye las retenciones. Las retenciones de tarjetas de crédito o de cuentas fuera del patrimonio no lo reducen.
 - **Reservas:** dinero apartado en una cuenta (un pago futuro o un colchón): sale del disponible libre; los pagos que cubre y los ingresos destinados a ella quedan fuera del resultado cotidiano (Inicio, Movimientos, calendario, análisis y presupuestos), que muestran aparte el historial completo; los traslados solo cambian dónde está.
 - **Presupuestos:**
+  - detalle de cada presupuesto (0.33.0, `lib/screens/budget_detail.dart`): al pulsarlo, el mes consultado con límite (y lo arrastrado del mes anterior aparte), consumido y restante o exceso, y los movimientos que lo consumen agrupados por día, con fecha, concepto, cuenta e importe; un pago en parte cubierto por una reserva muestra el total y lo que consume. Usa la misma regla que el cálculo (`FinanceCalculator.countsInBudget` y `budgetContributions`): gastos y comisiones de la categoría con fecha en ese mes, de todas las cuentas, sin transferencias; la suma coincide siempre con el gasto del presupuesto. Cada movimiento abre su detalle y una edición actualiza detalle y resumen a la vez; «Editar presupuesto» en la barra superior;
   - límite solo de este mes o de todos los meses (guardar o arrastrar lo que sobra);
   - gasto sin presupuesto;
   - objetivos de ahorro, a mano o siguiendo el saldo de una cuenta.
+- **Previsión** (rediseñada en 0.34.0, `lib/forecast.dart`, `lib/forecast_store.dart`, `lib/screens/forecast_screen.dart`; se abre con «Ver previsión» en el resumen del mes de Inicio y desde los avisos de Don Bigotes):
+  - al entrar, la previsión base: Don Bigotes resume en una o dos frases lo que sale del cálculo y señala fechas (ingreso esperado, mínimo de disponible, posible descubierto, colchón) que se abren con su explicación;
+  - «¿Cuánto tendré el…?»: dinero libre (saldo menos reservas) y saldo total en una fecha (fin de mes por defecto, o la que se toque en la gráfica o se elija), con lo que lo explica desde hoy: ingresos, pagos previstos y gasto variable estimado, y qué parte es segura (apuntado o periódico) y cuál estimada;
+  - gráfica con el dinero libre real de los últimos 30 días (reconstruido desde el saldo de hoy con los movimientos reales), la línea prevista discontinua, «Hoy» marcado, los ingresos como puntos verdes y el saldo total como línea fina; 30, 60 o 90 días y por cuenta;
+  - ingresos: las recurrencias confirmadas; lo que se repite cada mes en el historial (agrupado sin números, meses ni palabras de relleno del concepto) se propone para revisar («¿Cuento con él?») y nunca duplica un pago periódico; los ingresos sin día o importe fijos no se cuentan y se indican; si no hay ingresos previstos, se avisa de que la previsión no es fiable y se puede añadir un ingreso previsto solo para la previsión (no crea movimientos);
+  - sin dobles cuentas: el movimiento real (también uno apuntado con fecha futura) sustituye a su previsión aunque llegue unos días antes o después; un presupuesto solo añade lo que deja libre; lo repetido no se estima si ya hay un pago periódico parecido;
+  - «Lo que viene», datos de partida (saldo del banco, indicado a mano o calculado, con su fecha y límites) y supuestos editables (botón de ajustes);
+  - simulaciones, aparte al final («Simular una decisión»): compra puntual (también con una reserva), gasto mensual, cambio o retraso de un ingreso y aportación a una reserva, comparadas con la base sin mezclarse;
+  - todo se calcula con reglas fijas en el dispositivo, sin aprendizaje automático ni servicios externos; supuestos, ingresos previstos y simulaciones se guardan solo en el dispositivo (`forecast-<usuario>.json`), no crean movimientos ni enseñan a la IA, y se borran al cerrar sesión. Aún no se comparten entre dispositivos.
 - **Ajustes:**
   - Mis bancos: conectar, actualizar, revisar coincidencias con lo apuntado y desconectar;
   - categorías, reglas de categorización, cargos y aportaciones periódicas (se apuntan solos al abrir), y bancos y entidades;
   - apariencia, ocultar importes, Don Bigotes y bloqueo;
   - importar CSV, exportar CSV y copia de seguridad (guardar y restaurar).
-- **Don Bigotes:** en la barra superior. Dormido si no hay nada y con un número si hay avisos: revisión, posibles traspasos, cargos próximos, cuentas sin actualizar y pagos que no llegan del banco. Señala, nunca aconseja.
+- **Don Bigotes:** en la barra superior. Dormido si no hay nada y con un número si hay avisos: revisión, posibles traspasos, cargos próximos, cuentas sin actualizar, pagos que no llegan del banco y, desde la 0.32.0, una cuenta que podría quedarse sin saldo para un cargo previsto o el disponible por debajo del colchón en los próximos 30 días (abre la previsión en ese día y cuenta). Señala, nunca aconseja ni mueve dinero.
 - **Sin conexión:** copia local y cola de cambios; se suben sobre la copia más reciente de la nube.
 - **Inteligencia artificial** (`lib/learning.dart`, los mismos tres modelos y umbrales que el iPhone):
   - propone la categoría a partir del concepto, en el formulario, en «Por revisar» y al importar un CSV;
@@ -101,3 +120,12 @@ flutter run
 ## Datos de terceros
 
 - **Name Suggestion Index** de OpenStreetMap (marcas y su tipo de comercio): © name-suggestion-index contributors, licencia BSD 3-Clause. Texto en `third_party/name-suggestion-index/LICENSE.md`.
+
+## Privacidad del repositorio
+
+El repositorio es público para usar las comprobaciones y compilaciones de GitHub Actions. Por eso:
+
+- el código y las pruebas usan solo datos ficticios; las pruebas no acceden a finanzas reales;
+- los datos personales (exportaciones, copias de la app, hojas de cálculo, extractos, claves y configuración personal del servidor bancario) quedan fuera del repositorio y del seguimiento de Git (`.gitignore`);
+- `Tools/privacy_check.py` revisa en cada PR y en `main` (workflow «Comprobar privacidad») que los archivos versionados no contengan claves privadas, tokens que no sean públicos, correos de proveedores personales, IBAN fuera de los datos de prueba ni archivos de datos personales. Solo indica la ubicación y el tipo, nunca el valor; `--self-test` comprueba que lo detecta;
+- los secretos de CI se usan solo como secretos de GitHub, sin imprimirlos ni incluirlos en artefactos. Los instalables no llevan datos personales: solo la dirección pública del servidor bancario y la configuración pública de la nube.

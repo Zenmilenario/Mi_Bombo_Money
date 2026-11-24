@@ -556,10 +556,10 @@ index ab5fb4d..7e78ab8 100644
 -
 -La primera ejecución crea:
 -
--- Bankinter — Nómina: 850,00 € después de la transferencia.
--- Trade Republic — Ahorro: 650,00 € después de la transferencia.
--- BBVA — Cuenta joven: 540,66 €.
--- Patrimonio: 2.040,66 €.
+-- Banco A — Nómina: 1.200,00 € después de la transferencia.
+-- Banco B — Ahorro: 900,00 € después de la transferencia.
+-- Banco C — Cuenta joven: 900,00 €.
+-- Patrimonio: 3.000,00 €.
 -- Presupuesto de julio de 2026: 900,00 €.
 +## Inicialización local
  

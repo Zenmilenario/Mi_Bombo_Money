@@ -798,7 +798,7 @@ struct FinancialLogicCheck {
         precondition(minimal.drafts[1].type == .income && minimal.drafts[1].amountMinor == 12_500)
         let full = try CSVImportService.parse(url: URL(fileURLWithPath: "Samples/ejemplo_importacion.csv"))
         precondition(full.drafts.count == 4 && full.warnings.isEmpty)
-        precondition(full.drafts[0].type == .transfer && full.drafts[0].destinationAccountName == "Bankinter - Nómina")
+        precondition(full.drafts[0].type == .transfer && full.drafts[0].destinationAccountName == "Banco A - Nómina")
         precondition(full.drafts[2].type == .expense && full.drafts[2].amountMinor == 4_280)
 
         let mixed = try CSVImportService.parse(text: "Fecha;Concepto;Importe\n16/07/2026;Importe mal escrito;12,34,56\n17/07/2026;Compra válida;-12,50\n")

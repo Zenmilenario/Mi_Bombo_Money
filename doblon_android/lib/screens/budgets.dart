@@ -8,9 +8,11 @@ import '../finance.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
+import 'budget_detail.dart';
 import 'forms.dart';
 import 'chrome.dart' show tabListPadding;
 import 'widgets.dart';
+import 'navigation.dart';
 
 /// A month as the cloud stores it: the first day at noon UTC.
 num monthSeconds(DateTime month) => referenceSeconds(DateTime.utc(month.year, month.month, 1, 12));
@@ -22,6 +24,10 @@ class BudgetsScreen extends StatelessWidget {
   final DateTime month;
   final ValueChanged<DateTime> onMonth;
   final FinanceRepository repository;
+
+  /// A budget opens its detail for the month being looked at; from there it can be edited.
+  void _detail(BuildContext context, Category category) => Navigator.of(context)
+      .push(MaterialPageRoute(builder: (_) => BudgetDetailScreen(repository: repository, categoryId: category.id, month: month)));
 
   void _edit(BuildContext context, Category category) =>
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => BudgetEditorScreen(repository: repository, category: category, month: month)));
@@ -95,11 +101,11 @@ class BudgetsScreen extends StatelessWidget {
         ],
         if (attention.isNotEmpty) ...[
           const SectionTitle('Necesitan atención'),
-          Card(child: Column(children: [for (final i in attention) _BudgetRow(item: i, onTap: () => _edit(context, i.category))])),
+          Card(child: Column(children: [for (final i in attention) _BudgetRow(item: i, onTap: () => _detail(context, i.category))])),
         ],
         if (healthy.isNotEmpty) ...[
           const SectionTitle('Dentro del presupuesto'),
-          Card(child: Column(children: [for (final i in healthy) _BudgetRow(item: i, onTap: () => _edit(context, i.category))])),
+          Card(child: Column(children: [for (final i in healthy) _BudgetRow(item: i, onTap: () => _detail(context, i.category))])),
         ],
         if (unbudgeted.isNotEmpty || withoutAny.isNotEmpty) ...[
           const SizedBox(height: 14),
@@ -231,7 +237,9 @@ class BudgetOverview extends StatelessWidget {
             Row(children: [
               Icon(Icons.error_outline, size: 15, color: pulso.warning),
               const SizedBox(width: 5),
-              Text('Gasto sin presupuesto: ${money(unbudgetedSpentMinor)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: pulso.warning)),
+              Expanded(
+                  child: Text('Gasto sin presupuesto: ${money(unbudgetedSpentMinor)}',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: pulso.warning))),
             ]),
           ],
         ]),
@@ -404,7 +412,7 @@ class _AddToBudgetCard extends StatelessWidget {
             Row(children: [
               Icon(Icons.circle, size: 8, color: pulso.warning),
               const SizedBox(width: 6),
-              Text('El punto naranja indica gasto sin presupuesto.', style: TextStyle(fontSize: 12, color: pulso.warning)),
+              Expanded(child: Text('El punto naranja indica gasto sin presupuesto.', style: TextStyle(fontSize: 12, color: pulso.warning))),
             ]),
           ],
         ]),
@@ -485,7 +493,7 @@ class _BudgetEditorScreenState extends State<BudgetEditorScreen> {
               create: true));
     }
     await widget.repository.apply(batchOperation(ops));
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) closeOwnScreen(context);
   }
 
   Future<void> _remove() async {
@@ -499,7 +507,7 @@ class _BudgetEditorScreenState extends State<BudgetEditorScreen> {
           : upsertOperation('recurringBudgets', {'id': current.id, 'endMonth': monthSeconds(widget.month), 'updatedAt': now}, create: false));
     }
     if (ops.isNotEmpty) await widget.repository.apply(batchOperation(ops));
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) closeOwnScreen(context);
   }
 
   @override
@@ -641,7 +649,7 @@ class _GoalFormScreenState extends State<GoalFormScreen> {
             onPressed: () async {
               if (!await confirm(context, 'Borrar objetivo', 'Se borrará de todos tus dispositivos.', action: 'Borrar')) return;
               await widget.repository.apply(removeOperation('goals', editing.id));
-              if (context.mounted) Navigator.of(context).pop();
+              if (context.mounted) closeOwnScreen(context);
             },
           ),
       ],

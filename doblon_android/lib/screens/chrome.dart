@@ -5,8 +5,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../automation.dart' show CompanionNote;
+import '../data.dart' show CompanionMood;
 import '../theme.dart';
 import 'widgets.dart' show LabelValues;
+import 'bank_refresh.dart' show ThinkingDots;
 import 'shell.dart' show DonBigotesMark;
 
 /// «Buenos días», «Buenas tardes» or «Buenas noches», as on the iPhone.
@@ -93,8 +95,11 @@ class ShellHeader extends StatelessWidget {
 /// notices (tapping him shows what they say), «+ Añadir» at the right. No band behind them. Every list keeps
 /// [dockReserve] free under its last item, so whatever is under them can always be scrolled into the clear.
 class FloatingActions extends StatelessWidget {
-  const FloatingActions({super.key, this.onAdd, required this.notes, this.onCompanion, this.companion = true});
+  const FloatingActions({super.key, this.onAdd, required this.notes, this.onCompanion, this.companion = true, this.mood = CompanionMood.idle});
   final VoidCallback? onAdd;
+
+  /// What Don Bigotes is doing now (asking the banks, saving…): he shows it on his button.
+  final CompanionMood mood;
   final List<CompanionNote> notes;
   final VoidCallback? onCompanion;
 
@@ -108,7 +113,7 @@ class FloatingActions extends StatelessWidget {
       maxScaleFactor: 1.2,
       child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
         if (companion)
-          CompanionButton(notes: notes, onTap: onCompanion ?? () {}, size: 44)
+          CompanionButton(notes: notes, onTap: onCompanion ?? () {}, size: 44, mood: mood)
         else if (notes.isNotEmpty)
           _NoticesButton(notes: notes, onTap: onCompanion),
         const Spacer(),
@@ -169,19 +174,28 @@ class _NoticesButton extends StatelessWidget {
 /// Don Bigotes, as on the iPhone: awake with a small badge counting his notes, asleep (faded and tilted) when
 /// everything is in order. The touch area is never smaller than 48 points.
 class CompanionButton extends StatelessWidget {
-  const CompanionButton({super.key, required this.notes, required this.onTap, this.size = 56});
+  const CompanionButton({super.key, required this.notes, required this.onTap, this.size = 56, this.mood = CompanionMood.idle});
   final List<CompanionNote> notes;
   final VoidCallback onTap;
   final double size;
+  final CompanionMood mood;
 
   @override
   Widget build(BuildContext context) {
     final pulso = Pulso.of(context);
     final awake = notes.isNotEmpty;
+    final thinking = mood == CompanionMood.thinking, active = mood != CompanionMood.idle;
     final touch = math.max(48.0, size);
     return Semantics(
       button: true,
-      label: awake ? 'Don Bigotes: ${notes.length == 1 ? 'tiene un aviso' : 'tiene ${notes.length} avisos'}' : 'Don Bigotes, sin novedades',
+      label: switch (mood) {
+        CompanionMood.thinking => 'Don Bigotes está consultando tus bancos',
+        CompanionMood.saving => 'Don Bigotes está guardando en tu nube',
+        CompanionMood.reading => 'Don Bigotes está leyendo tu nube',
+        CompanionMood.happy => 'Don Bigotes: bancos al día',
+        CompanionMood.worried => 'Don Bigotes: algún banco no se ha podido actualizar',
+        CompanionMood.idle => awake ? 'Don Bigotes: ${notes.length == 1 ? 'tiene un aviso' : 'tiene ${notes.length} avisos'}' : 'Don Bigotes, sin novedades',
+      },
       excludeSemantics: true,
       child: GestureDetector(
         onTap: onTap,
@@ -195,9 +209,9 @@ class CompanionButton extends StatelessWidget {
               height: size,
               child: Stack(clipBehavior: Clip.none, children: [
                 Opacity(
-                  opacity: awake ? 1 : 0.75,
+                  opacity: awake || active ? 1 : 0.75,
                   child: Transform.rotate(
-                    angle: awake ? 0 : -0.21,
+                    angle: awake || active ? 0 : -0.21,
                     child: Container(
                       width: size,
                       height: size,
@@ -208,11 +222,21 @@ class CompanionButton extends StatelessWidget {
                         border: Border.all(color: pulso.outline),
                         boxShadow: const [BoxShadow(color: Color(0x29000000), blurRadius: 8, offset: Offset(0, 3))],
                       ),
-                      child: DonBigotesMark(awake: awake, size: size * (awake ? 0.74 : 0.64)),
+                      child: DonBigotesMark(awake: awake, mood: mood, size: size * (awake || active ? 0.74 : 0.64)),
                     ),
                   ),
                 ),
-                if (awake)
+                if (thinking)
+                  Positioned(
+                    right: -8,
+                    top: -10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                      decoration: BoxDecoration(color: pulso.card, borderRadius: BorderRadius.circular(10), border: Border.all(color: pulso.outline)),
+                      child: const ThinkingDots(size: 4),
+                    ),
+                  )
+                else if (awake)
                   Positioned(
                     right: -4,
                     top: -4,

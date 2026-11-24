@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../bank_activity.dart';
+import 'invested_breakdown.dart';
 import '../banking.dart' show referenceSeconds, stableUuid;
 import '../data.dart';
 import '../edits.dart';
 import '../finance.dart';
+import '../investments.dart';
 import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
@@ -14,6 +16,7 @@ import 'manage.dart' show RecurringScreen;
 import 'transaction_detail.dart';
 import 'chrome.dart' show tabListPadding;
 import 'widgets.dart';
+import 'navigation.dart';
 
 /// Cuentas, as on the iPhone (`AccountsView`): net worth, available, reserved and invested; the accounts not updated
 /// for 30 days; quick actions; the accounts grouped by kind and the cards.
@@ -79,14 +82,19 @@ class _AccountsScreenState extends State<AccountsScreen> {
       ('Deudas y crédito', (a) => a.type.isLiability),
       ('Otras cuentas', (a) => a.type == AccountType.other),
     ];
-    Widget tile(String label, int value, IconData icon, Color color) => Container(
+    // «Disponible» as on Inicio: the available money minus what the bank holds, once.
+    final held = spendableHolds(data, widget.repository.bankActivity);
+    Widget tile(String label, int value, IconData icon, Color color, {String? note, VoidCallback? onTap}) => InkWell(
+        borderRadius: BorderRadius.circular(Pulso.cardRadius),
+        onTap: onTap,
+        child: Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(Pulso.cardRadius)),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
               Icon(icon, size: 15, color: color),
               const SizedBox(width: 5),
-              Text(label, style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
+              Expanded(child: Text(label, style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor))),
             ]),
             const SizedBox(height: 4),
             FittedBox(
@@ -94,8 +102,10 @@ class _AccountsScreenState extends State<AccountsScreen> {
               alignment: Alignment.centerLeft,
               child: Text(money(value), style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: color)),
             ),
+            if (note != null) Text(note, style: TextStyle(fontSize: 11, color: Theme.of(context).hintColor)),
           ]),
-        );
+        ),
+      );
     Widget chip(String label, IconData icon, VoidCallback? onTap) => Padding(
           padding: const EdgeInsets.only(right: 8),
           child: ActionChip(avatar: Icon(icon, size: 17, color: pulso.accent), label: Text(label), onPressed: onTap),
@@ -109,9 +119,11 @@ class _AccountsScreenState extends State<AccountsScreen> {
           return Wrap(spacing: 10, runSpacing: 10, children: [
             for (final t in [
               tile('Patrimonio', calc.netWorth(), Icons.functions, Theme.of(context).colorScheme.onSurface),
-              tile('Disponible', calc.spendableCash(), Icons.account_balance_wallet_outlined, pulso.accent),
+              tile('Disponible', calc.spendableCash() + held, Icons.account_balance_wallet_outlined, pulso.accent,
+                  note: held == 0 ? null : 'Descuenta ${money(-held)} retenidos'),
               tile('Reservado', calc.reservedTotal(), Icons.lock_outline, pulso.savings),
-              tile('Invertido', calc.invested(), Icons.trending_up, pulso.investment),
+              tile('Invertido', investedInSummary(data, calc.balance, now), Icons.trending_up, pulso.investment,
+                  note: 'Ver carteras', onTap: () => showInvestedBreakdown(context, widget.repository)),
             ])
               SizedBox(width: width, child: t),
           ]);
@@ -150,6 +162,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
         for (final (title, test) in groups)
           if (shown.where(test).toList() case final items when items.isNotEmpty) ...[
             SectionTitle(title),
+            if (title == 'Inversiones') ...[_InvestmentMonth(calc: calc, repository: widget.repository, now: now), const SizedBox(height: 10)],
             for (final account in items) ...[
               _AccountCard(account: account, calc: calc, repository: widget.repository, now: now),
               const SizedBox(height: 10),
@@ -180,6 +193,53 @@ class _AccountsScreenState extends State<AccountsScreen> {
             children: [for (final a in archived) _AccountCard(account: a, calc: calc, repository: widget.repository, now: now)],
           ),
       ]),
+    );
+  }
+}
+
+/// This month's investing and the value of the portfolios, each figure apart: money contributed or withdrawn is not a
+/// return, and a fee is a cost. The value is the one recorded (the last valuation and the movements after it).
+class _InvestmentMonth extends StatelessWidget {
+  const _InvestmentMonth({required this.calc, required this.repository, required this.now});
+  final FinanceCalculator calc;
+  final FinanceRepository repository;
+  final DateTime now;
+
+  @override
+  Widget build(BuildContext context) {
+    final pulso = Pulso.of(context);
+    final hint = Theme.of(context).hintColor;
+    final shown = {for (final a in summaryPortfolios(calc.data)) a.id};
+    final flows = investmentFlows(calc.data, DateTime(now.year, now.month), now: now, accounts: shown);
+    final value = investedInSummary(calc.data, calc.balance, now);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('Este mes', style: TextStyle(fontSize: 12, color: hint)),
+          const SizedBox(height: 4),
+          LabelValues(
+            labelStyle: TextStyle(fontSize: 12, color: hint),
+            valueStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            items: [
+              ('Aportado', money(flows.contributedMinor), pulso.investment),
+              ('Retirado', money(flows.withdrawnMinor), null),
+              ('Comisiones', money(flows.feesMinor), flows.feesMinor > 0 ? pulso.expense : null),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text('Valor registrado de ${shown.length == 1 ? '1 cartera' : '${shown.length} carteras'} del resumen: ${money(value)}',
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+                style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                onPressed: () => showInvestedBreakdown(context, repository),
+                child: const Text('Ver y elegir carteras')),
+          ),
+          Text('Aportar o retirar no es rentabilidad. La comisión sale del efectivo y no se invierte.', style: TextStyle(fontSize: 12, color: hint)),
+        ]),
+      ),
     );
   }
 }
@@ -576,7 +636,7 @@ class _AccountFormScreenState extends State<AccountFormScreen> {
           },
           create: true));
     }
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) closeOwnScreen(context);
   }
 
   @override
@@ -707,7 +767,7 @@ class _CardFormScreenState extends State<CardFormScreen> {
             onPressed: () async {
               await widget.repository
                   .apply(upsertOperation('cards', {'id': editing.id, 'isArchived': true, 'updatedAt': referenceSeconds(DateTime.now())}, create: false));
-              if (context.mounted) Navigator.of(context).pop();
+              if (context.mounted) closeOwnScreen(context);
             },
           ),
       ],
@@ -794,7 +854,7 @@ class _ReserveFormScreenState extends State<ReserveFormScreen> {
             onPressed: () async {
               if (!await confirm(context, 'Borrar reserva', 'El dinero vuelve a estar libre en la cuenta.', action: 'Borrar')) return;
               await widget.repository.apply(removeOperation('reservedFunds', editing.id));
-              if (context.mounted) Navigator.of(context).pop();
+              if (context.mounted) closeOwnScreen(context);
             },
           ),
       ],

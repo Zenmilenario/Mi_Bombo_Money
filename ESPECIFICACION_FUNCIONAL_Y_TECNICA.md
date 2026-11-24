@@ -33,18 +33,18 @@ La fecha seleccionada en el cuadro de mando es **julio de 2026**.
 
 ## 0.2 Posición financiera inicial
 
-El patrimonio mostrado por el Excel es **2.040,66 €**, repartido de esta manera:
+El patrimonio mostrado por el Excel es **3.000,00 €**, repartido de esta manera:
 
 | Entidad y cuenta | Tipo interpretado | Saldo | TAE | Objetivo | Desviación |
 |---|---|---:|---:|---:|---:|
-| Bankinter — Nómina | Cuenta corriente | 850,00 € | 2,50 % | 2.500,00 € | −1.650,00 € |
-| Trade Republic — Ahorro | Cuenta de ahorro | 650,00 € | 3,00 % | 1.000,00 € | −350,00 € |
-| BBVA — Cuenta joven | Cuenta corriente | 540,66 € | 0,00 % | 500,00 € | +40,66 € |
+| Banco A — Nómina | Cuenta corriente | 1.200,00 € | 2,50 % | 2.000,00 € | −800,00 € |
+| Banco B — Ahorro | Cuenta de ahorro | 900,00 € | 3,00 % | 1.500,00 € | −600,00 € |
+| Banco C — Cuenta joven | Cuenta corriente | 900,00 € | 0,00 % | 500,00 € | +400,00 € |
 
-El saldo inicial de BBVA es 2.040,66 €. El 15 de julio de 2026 se registran dos transferencias internas:
+El saldo inicial de Banco C es 3.000,00 €. El 15 de julio de 2026 se registran dos transferencias internas:
 
-- 850,00 € de BBVA a Bankinter.
-- 650,00 € de BBVA a Trade Republic.
+- 1.200,00 € de Banco C a Banco A.
+- 900,00 € de Banco C a Banco B.
 
 El resultado es correcto: las transferencias reducen una cuenta y aumentan otra, pero **no modifican el patrimonio ni aparecen como ingreso o gasto**.
 
@@ -54,12 +54,12 @@ El presupuesto total de julio asciende a **900,00 €**:
 
 | Categoría | Presupuesto |
 |---|---:|
-| Restaurantes | 200,00 € |
-| Combustible | 150,00 € |
-| Ocio | 300,00 € |
-| Gimnasio y salud | 50,00 € |
-| Ropa y compras | 100,00 € |
-| Otros | 100,00 € |
+| Restaurantes | 150,00 € |
+| Combustible | 100,00 € |
+| Ocio | 200,00 € |
+| Gimnasio y salud | 40,00 € |
+| Ropa y compras | 80,00 € |
+| Otros | 80,00 € |
 
 No existen todavía gastos reales en el mes seleccionado, por lo que los ingresos, gastos y ahorro neto de julio figuran a cero. La estimación anual simple de intereses es **40,75 €**: 21,25 € en Bankinter y 19,50 € en Trade Republic.
 
@@ -149,7 +149,7 @@ La app se vuelve a bloquear al pasar a segundo plano. Si el usuario desactiva es
 ```text
 ┌ Inicio                         👁 ┐
 │ Patrimonio total                  │
-│ 2.040,66 €                        │
+│ 3.000,00 €                        │
 │ Interés neto anual estimado       │
 ├───────────────────────────────────┤
 │ ‹          julio 2026          ›  │
@@ -301,7 +301,7 @@ Todas las pantallas deben contemplar cuatro estados: vacío, contenido, error y 
 
 ## 2.1 Convenciones
 
-1. Los importes monetarios se almacenan como `Int64` en unidades menores: 850,00 € se guarda como `85_000`.
+1. Los importes monetarios se almacenan como `Int64` en unidades menores: 1.200,00 € se guarda como `120_000`.
 2. El importe de un movimiento se guarda como magnitud positiva. El campo `type` determina el signo económico.
 3. El saldo actual es derivado; no se duplica como una cifra editable que pueda quedar desincronizada.
 4. Las fechas mensuales se normalizan al primer día del mes.
@@ -797,7 +797,7 @@ Incluye:
 
 ## Fase 2 — Importación bancaria robusta, 2–4 semanas
 
-- Adaptadores específicos para CSV de Bankinter, Trade Republic y BBVA.
+- Adaptadores específicos para CSV de bancos españoles.
 - Mapeo visual de columnas para formatos desconocidos.
 - Importación `.xlsx` mediante un parser local evaluado y mantenido.
 - Reglas de normalización de comercios y categorías.
@@ -894,7 +894,7 @@ En el primer arranque se cargan las tres entidades, las tres cuentas, las dos tr
 
 El MVP se considera operativo cuando se verifica en Xcode que:
 
-1. el seed reproduce un patrimonio de 2.040,66 €;
+1. el seed reproduce un patrimonio de 3.000,00 €;
 2. las dos transferencias no alteran ingresos, gastos ni patrimonio;
 3. añadir un gasto reduce la cuenta y aumenta el gasto mensual y presupuestario;
 4. añadir un ingreso incrementa saldo, ingreso y ahorro;

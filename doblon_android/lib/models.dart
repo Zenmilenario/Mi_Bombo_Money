@@ -10,6 +10,9 @@ DateTime monthStart(DateTime date) => DateTime(date.year, date.month);
 
 enum TransactionType { income, expense, interest, fee, transfer }
 
+/// The `externalID` of an investment order's fee: this marker and the id of the order.
+const investmentFeeMarker = 'investment-fee:';
+
 extension TransactionTypeRules on TransactionType {
   bool get countsAsIncome => this == TransactionType.income || this == TransactionType.interest;
   bool get countsAsExpense => this == TransactionType.expense || this == TransactionType.fee;
@@ -67,7 +70,13 @@ class Account {
     this.bankIdentityKey,
     DateTime? lastUpdatedAt,
     this.notes = '',
+    this.inInvestmentSummary,
   }) : lastUpdatedAt = lastUpdatedAt ?? openingDate;
+
+  /// Whether an investment account is part of the investment summary (Inicio and Cuentas), chosen apart from net
+  /// worth. Unset (an account from before, or a document of an earlier version) means it is.
+  final bool? inInvestmentSummary;
+  bool get inSummary => inInvestmentSummary != false;
   final String id;
   final String name;
   final AccountType type;
@@ -98,6 +107,7 @@ class Account {
         bankIdentityKey: _stringOrNull(json['bankIdentityKey']),
         lastUpdatedAt: json['lastUpdatedAt'] is num ? referenceDate(json['lastUpdatedAt'] as num) : null,
         notes: _string(json['notes']),
+        inInvestmentSummary: json['inInvestmentSummary'] is bool ? json['inInvestmentSummary'] as bool : null,
       );
 }
 
@@ -183,6 +193,11 @@ class Transaction {
 
   /// Recorded with Apple Pay on the iPhone and still waiting for the bank posting.
   bool get awaitsBank => bankEntryKey == null && (externalId?.startsWith('applepay:') ?? false);
+
+  /// The fee of an investment order, linked to the order (a transfer to an investment account): a cost of investing,
+  /// apart from everyday spending and budgets (`lib/investments.dart`).
+  bool get isInvestmentFee => type == TransactionType.fee && (externalId?.startsWith(investmentFeeMarker) ?? false);
+  String? get investmentOperationId => isInvestmentFee ? externalId!.substring(investmentFeeMarker.length) : null;
 
   factory Transaction.fromJson(Map<String, dynamic> json) => Transaction(
         id: _string(json['id']),

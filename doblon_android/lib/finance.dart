@@ -175,12 +175,15 @@ class MonthPace {
 /// A month's income and expenses. The «everyday» figures leave out the money of reserves: income set aside for a
 /// reserve and the part of a payment it covered. The full history keeps everything.
 class MonthlySummary {
-  MonthlySummary(this.incomeMinor, this.expenseMinor, this.reservedExpenseMinor, [this.reservedIncomeMinor = 0]);
+  MonthlySummary(this.incomeMinor, this.expenseMinor, this.reservedExpenseMinor, [this.reservedIncomeMinor = 0, this.investmentFeeMinor = 0]);
+
+  /// Fees of investment orders: in the full history, not in the everyday figures.
+  final int investmentFeeMinor;
   final int incomeMinor;
   final int expenseMinor;
   final int reservedExpenseMinor;
   final int reservedIncomeMinor;
-  int get budgetExpenseMinor => expenseMinor - reservedExpenseMinor;
+  int get budgetExpenseMinor => expenseMinor - reservedExpenseMinor - investmentFeeMinor;
   int get netSavingsMinor => incomeMinor - expenseMinor;
   int get dailyIncomeMinor => incomeMinor - reservedIncomeMinor;
   int get dailyExpenseMinor => budgetExpenseMinor;
@@ -195,6 +198,16 @@ class BudgetLimit {
   final int limitMinor;
   final int carriedInMinor;
   final bool isRecurring;
+}
+
+/// A movement as a budget counts it: its whole amount, the part a reserve paid and the part that consumes the budget.
+class BudgetContribution {
+  BudgetContribution(this.transaction, this.totalMinor, this.reservedMinor);
+  final Transaction transaction;
+  final int totalMinor;
+  final int reservedMinor;
+  int get countedMinor => totalMinor - reservedMinor;
+  bool get isPartial => reservedMinor > 0;
 }
 
 class BudgetProgress {
@@ -228,7 +241,9 @@ class FinanceCalculator {
     return reserved < 0 ? 0 : (reserved < t.amountMinor ? reserved : t.amountMinor);
   }
 
-  static int budgetExpenseAmount(Transaction t) => t.type.countsAsExpense ? t.amountMinor.abs() - reservedExpenseAmount(t) : 0;
+  /// Everyday spending: without what a reserve paid, and without the fees of investment orders (a cost of investing,
+  /// shown with the investments).
+  static int budgetExpenseAmount(Transaction t) => t.type.countsAsExpense && !t.isInvestmentFee ? t.amountMinor.abs() - reservedExpenseAmount(t) : 0;
 
   /// The part of an income set aside for a reserve: the amount chosen, or all of it. It is not everyday income.
   static int reservedIncomeAmount(Transaction t) {
@@ -302,15 +317,16 @@ class FinanceCalculator {
 
   MonthlySummary monthlySummary(DateTime month) {
     final key = monthKey(month);
-    var income = 0, expense = 0, reserved = 0, reservedIncome = 0;
+    var income = 0, expense = 0, reserved = 0, reservedIncome = 0, investmentFees = 0;
     for (final t in data.transactions) {
       if (monthKey(t.date) != key) continue;
       if (t.type.countsAsIncome) income += t.amountMinor.abs();
       if (t.type.countsAsExpense) expense += t.amountMinor.abs();
       reserved += reservedExpenseAmount(t);
       reservedIncome += reservedIncomeAmount(t);
+      if (t.isInvestmentFee) investmentFees += t.amountMinor.abs();
     }
-    return MonthlySummary(income, expense, reserved, reservedIncome);
+    return MonthlySummary(income, expense, reserved, reservedIncome, investmentFees);
   }
 
   static RecurringBudget? activeRecurringBudget(Category category, int month, List<RecurringBudget> plans) {
@@ -357,13 +373,27 @@ class FinanceCalculator {
     return BudgetLimit(0, 0, false);
   }
 
+  /// Whether a movement counts in its category's budget: spending and fees with a category, never transfers or
+  /// income. The budget and its detail use this same rule.
+  static bool countsInBudget(Transaction t) => t.type.countsAsExpense && t.categoryId != null;
+
+  /// The movements behind a category's spending in a month, newest first. Their counted amounts add up to that
+  /// budget's spending (`budgetProgress(...).spentMinor`).
+  List<BudgetContribution> budgetContributions(String categoryId, DateTime month) {
+    final target = monthKey(month);
+    return [
+      for (final t in data.transactions)
+        if (countsInBudget(t) && t.categoryId == categoryId && monthKey(t.date) == target) BudgetContribution(t, t.amountMinor.abs(), reservedExpenseAmount(t))
+    ];
+  }
+
   /// Budgets of a month for every expense category, most used first (Swift: `budgetProgress`).
   List<BudgetProgress> budgetProgress(DateTime month, {DateTime? asOf}) {
     final target = monthKey(month);
     final spentByCategory = <String, Map<int, int>>{};
     final spentThisMonth = <String, int>{};
     for (final t in data.transactions) {
-      if (!t.type.countsAsExpense || t.categoryId == null) continue;
+      if (!countsInBudget(t)) continue;
       final key = monthKey(t.date);
       if (key > target) continue;
       final amount = budgetExpenseAmount(t);

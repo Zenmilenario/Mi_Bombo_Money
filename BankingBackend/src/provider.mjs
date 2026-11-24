@@ -94,8 +94,16 @@ function invalidFeed(operation, field) {
   fault.feedValidation = { operation, field };
   return fault;
 }
+// A passed configuration check is trusted for five minutes per transport (the global fetch in production): each
+// page of each account checked it again, one more call to the provider every time. A failed check is never kept.
+const verifiedApplications = new WeakMap();
+const VERIFIED_FOR_MS = 300_000;
+
 export async function verifySandbox(env, transport = fetch) {
   if (mode(env) === 'demo') return;
+  const key = `${mode(env)}|${env.ENABLE_APP_ID}|${env.GUEST_APPLICATION ? 'guest' : 'personal'}|${origin(env)}`;
+  const known = verifiedApplications.get(transport);
+  if (known && known.key === key && Date.now() < known.until) return;
   const app = await api('/application', env, {}, transport);
   const production = mode(env) === 'production';
   // The pilot application is inactive until its first accounts are linked in the control panel:
@@ -108,6 +116,7 @@ export async function verifySandbox(env, transport = fetch) {
       || !app.services?.includes('AIS') || !app.redirect_urls?.includes(`${origin(env)}/v1/callback`)) {
     throw new Fault(503, production ? 'production_configuration_required' : 'sandbox_configuration_required');
   }
+  verifiedApplications.set(transport, { key, until: Date.now() + VERIFIED_FOR_MS });
 }
 export async function banks(env, transport = fetch) {
   if (mode(env) === 'demo') return demoBanks();
@@ -264,6 +273,9 @@ export async function accountData(conn, account, from, to, continuation, env, tr
   if (!includePending) query.set('transaction_status', 'BOOK');
   if (continuation) query.set('continuation_key', continuation);
   try {
+    // The balances (first page only) are asked at the same time as the movements: they do not depend on each other.
+    const balanceRequest = continuation ? null : api(`${path}/balances`, env, { headers: psu }, transport);
+    balanceRequest?.catch(() => {});
     const transactionResponse = await api(`${path}/transactions?${query}`, env, { headers: psu }, transport);
     if (!Array.isArray(transactionResponse?.transactions)) throw invalidFeed('transactions', 'list');
     const transactions = (await Promise.all(transactionResponse.transactions.map(t => normalizeTransaction(t, account, env)))).filter(Boolean);
@@ -279,7 +291,7 @@ export async function accountData(conn, account, from, to, continuation, env, tr
     if (ignoredStatuses && Object.keys(ignoredStatuses).length) {
       console.log(JSON.stringify({ event: 'banking_ignored_statuses', statuses: ignoredStatuses }));
     }
-    const balanceResponse = continuation ? { balances: [] } : await api(`${path}/balances`, env, { headers: psu }, transport);
+    const balanceResponse = continuation ? { balances: [] } : await balanceRequest;
     if (!Array.isArray(balanceResponse?.balances)) throw invalidFeed('balances', 'list');
     const balances = balanceResponse.balances.filter(b => b?.balance_amount?.currency === account.currency).map(b => {
       const amount = amountMinor(b.balance_amount.amount, 'balances');

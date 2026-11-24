@@ -57,3 +57,16 @@ BankingBackend/.personal/
 
 # Carpeta creada por una herramienta local; no forma parte del proyecto
 undefined/
+
+# Datos financieros personales: nunca en este repositorio público (copias privadas fuera de la carpeta).
+# Las pruebas usan datos ficticios; tools/privacy_check.py lo comprueba en CI.
+Privado/
+exportaciones/
+doblon-copia-*.json
+*.xlsx
+*.xls
+*.numbers
+*.ods
+*.ofx
+*.qif
+*.qfx

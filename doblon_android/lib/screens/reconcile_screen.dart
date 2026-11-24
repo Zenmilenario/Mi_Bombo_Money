@@ -11,6 +11,7 @@ import '../presentation.dart';
 import '../reconcile.dart';
 import '../theme.dart';
 import 'transaction_detail.dart';
+import 'navigation.dart';
 
 String _accounts(Transaction t, Finances data) {
   final from = data.account(t.sourceAccountId)?.name ?? 'Cuenta borrada';
@@ -285,7 +286,7 @@ class _MergePreviewScreenState extends State<MergePreviewScreen> {
                     setState(() => busy = true);
                     await ReconcileStore.instance.remember(planned.trace);
                     await widget.repository.apply(planned.op);
-                    if (context.mounted) Navigator.of(context).pop(true);
+                    if (context.mounted) closeOwnScreen(context, true);
                   },
             style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(50)),
             child: Text(verdict.kind == MatchKind.transfer ? 'Vincular como traspaso' : 'Unir'),

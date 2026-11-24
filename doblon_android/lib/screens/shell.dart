@@ -1,10 +1,11 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../automation.dart';
-import '../bank_activity.dart' show bankHolds;
+import '../bank_activity.dart' show bankHolds, spendableHolds;
 import '../banking.dart' show BankingError, permissionDaysLeft, permissionExpiresSoon;
 import '../card_payments.dart';
 import '../data.dart';
@@ -15,6 +16,7 @@ import 'accounts.dart';
 import 'banks.dart';
 import 'budgets.dart';
 import 'card_payments.dart';
+import 'bank_refresh.dart';
 import 'chrome.dart';
 import 'home.dart';
 import 'info.dart';
@@ -24,6 +26,8 @@ import 'tools.dart';
 import 'transaction_form.dart';
 import '../reconcile.dart' show ReconcileStore;
 import 'reconcile_screen.dart';
+import 'forecast_screen.dart';
+import '../forecast.dart' show buildForecast, forecastDay, forecastNotes, simulateForecast;
 import 'transaction_detail.dart';
 import 'transactions.dart';
 import 'widgets.dart' show RowGlyph;
@@ -32,8 +36,11 @@ export 'chrome.dart' show CompanionButton;
 
 /// The same five tabs as the iPhone app, with Don Bigotes floating at the bottom right.
 class Shell extends StatefulWidget {
-  const Shell({super.key, required this.preferences});
+  const Shell({super.key, required this.preferences, this.repository});
   final AppPreferences preferences;
+
+  /// The tests give a repository with a fictitious cloud (an administrator or an encrypted guest); the app makes its own.
+  final FinanceRepository? repository;
   @override
   State<Shell> createState() => _ShellState();
 }
@@ -42,7 +49,7 @@ class Shell extends StatefulWidget {
 const foregroundRefresh = Duration(minutes: 5);
 
 class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTickerProviderStateMixin {
-  final repository = FinanceRepository();
+  late final repository = widget.repository ?? FinanceRepository();
   int tab = 0;
 
   /// 1 while the header is shown, 0 once it has slid away; follows the finger and settles when the scroll stops.
@@ -100,7 +107,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
     repository.removeListener(_changed);
     _refreshTimer?.cancel();
     header.dispose();
-    repository.dispose();
+    if (widget.repository == null) repository.dispose();
     widget.preferences.removeListener(_changed);
     super.dispose();
   }
@@ -167,7 +174,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
 
   // Don Bigotes' notes walk the whole history: kept until the finances, the bank reports or the day change, so a
   // notice about something else does not compute them again.
-  Object? _notesFrom, _notesActivity, _notesConnections, _notesKept;
+  Object? _notesFrom, _notesActivity, _notesConnections, _notesKept, _notesForecast;
   String? _notesDay;
   List<CompanionNote> _notes = const [];
 
@@ -178,6 +185,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
         identical(repository.bankActivity, _notesActivity) &&
         identical(repository.bankConnections, _notesConnections) &&
         identical(ReconcileStore.instance.keptApart, _notesKept) &&
+        identical(repository.forecast?.settings, _notesForecast) &&
         day == _notesDay) {
       return _notes;
     }
@@ -185,25 +193,39 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
     _notesActivity = repository.bankActivity;
     _notesConnections = repository.bankConnections;
     _notesKept = ReconcileStore.instance.keptApart;
+    _notesForecast = repository.forecast?.settings;
     _notesDay = day;
     final thisMonth = DateTime(now.year, now.month);
     final over = calc.budgetProgress(thisMonth).where((b) => b.limitMinor > 0 && b.spentMinor > b.limitMinor).length;
-    return _notes = companionNotes(data, now,
-        holds: bankHolds(data, repository.bankActivity),
+    final holds = bankHolds(data, repository.bankActivity);
+    // The forecast's notices: an account short for a charge, the free money below the cushion.
+    final settings = repository.forecast?.settings;
+    final forecast = settings == null
+        ? const <CompanionNote>[]
+        : forecastNotes(simulateForecast(buildForecast(calc, now, settings, holds: [
+            for (final h in holds)
+              if (h.movement.signedAmountMinor < 0) (h.account.id, h.movement.signedAmountMinor)
+          ])));
+    return _notes = [
+      ...companionNotes(data, now,
+        holds: holds,
         overBudget: over,
         budgetMonth: '${now.year}-${now.month}',
         keptApart: ReconcileStore.instance.keptApart,
         renewals: [
           for (final connection in repository.bankConnections)
             if (permissionExpiresSoon(connection, now)) (bank: connection.bank, days: permissionDaysLeft(connection, now)!),
-        ]);
+        ]),
+      ...forecast,
+    ];
   }
+
+  void _openForecast({DateTime? day, String? accountId}) => Navigator.of(context)
+      .push(MaterialPageRoute(builder: (_) => ForecastScreen(repository: repository, focusDay: day, focusAccountId: accountId)));
 
   /// Don Bigotes' notes, as on the iPhone (`CompanionNotesSheet`): his face, a button to update the banks and each
   /// note with its icon, «Ahora no» and «Ver».
   void _showCompanion(List<CompanionNote> notes, [List<CompanionNote> reviewed = const []]) {
-    var refreshing = false;
-    String? refreshed;
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -216,7 +238,9 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
             constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.8),
             child: ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(20, 0, 20, 20), children: [
               Row(children: [
-                DonBigotesMark(awake: notes.isNotEmpty || refreshing, size: 52),
+                ValueListenableBuilder(
+                    valueListenable: repository.companionMood,
+                    builder: (context, mood, _) => DonBigotesMark(awake: notes.isNotEmpty, mood: mood, size: 52)),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -227,38 +251,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
                 ),
               ]),
               const SizedBox(height: 16),
-              if (repository.bankConnections.isNotEmpty) ...[
-                FilledButton.icon(
-                  onPressed: refreshing
-                      ? null
-                      : () async {
-                          setSheet(() {
-                            refreshing = true;
-                            refreshed = null;
-                          });
-                          final result = await repository.synchronizeBanks(manual: true);
-                          if (context.mounted) {
-                            setSheet(() {
-                              refreshing = false;
-                              refreshed = result?.summary;
-                            });
-                          }
-                        },
-                  style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(46)),
-                  icon: refreshing
-                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                      : const Icon(Icons.refresh),
-                  label: Text(refreshing ? 'Consultando tus bancos…' : 'Actualizar mis bancos'),
-                ),
-                if (refreshed case final text? when text.isNotEmpty)
-                  Container(
-                    margin: const EdgeInsets.only(top: 8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(color: pulso.tertiary, borderRadius: BorderRadius.circular(Pulso.compactRadius)),
-                    child: Text(text, style: const TextStyle(fontSize: 13)),
-                  ),
-                const SizedBox(height: 12),
-              ],
+              if (repository.bankConnections.isNotEmpty) BankRefreshPanel(repository: repository),
               for (final note in notes)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
@@ -341,6 +334,11 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
       case 'budgets':
         setState(() => month = DateTime(DateTime.now().year, DateTime.now().month));
         _select(3);
+      case 'forecast':
+        // forecast:account:<account>:<day> or forecast:cushion:<day>: the day and the account it is about.
+        final parts = note.id.split(':');
+        final day = DateTime.tryParse(parts.last);
+        _openForecast(day: day == null ? null : forecastDay(day), accountId: parts[1] == 'account' && parts.length == 4 ? parts[2] : null);
       default:
         _select(note.tab);
     }
@@ -355,6 +353,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
         'recurring' => Icons.event,
         'stale' => Icons.schedule,
         'awaiting' => Icons.credit_card,
+        'forecast' => Icons.insights,
         _ => Icons.lightbulb_outline,
       };
 
@@ -392,12 +391,11 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
               onMonth: setMonth,
               onAdd: () => _select(2),
               onOpenTab: _select,
+              onForecast: _openForecast,
               onOpenTransaction: (t) =>
                   Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionDetailScreen(repository: repository, transactionId: t.id))),
               // Charges the bank holds and has not booked yet, as on the iPhone's «Disponible tras retenciones».
-              heldMinor: bankHolds(calc.data, repository.bankActivity)
-                  .where((h) => h.movement.signedAmountMinor < 0)
-                  .fold(0, (sum, h) => sum + h.movement.signedAmountMinor)),
+              heldMinor: spendableHolds(calc.data, repository.bankActivity)),
           1 => TransactionsScreen(calc: calc, repository: repository),
           2 => AccountsScreen(calc: calc, repository: repository),
           3 => BudgetsScreen(calc: calc, month: month, onMonth: setMonth, repository: repository),
@@ -475,11 +473,16 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
               left: 8,
               right: 12,
               bottom: media.padding.bottom + 6,
-              child: FloatingActions(
-                onAdd: canAdd ? _add : null,
-                notes: notes,
-                companion: widget.preferences.companionEnabled,
-                onCompanion: () => _showCompanion(notes, reviewed),
+              // Don Bigotes shows on his button what he is doing (banks, saving…), also with his panel closed.
+              child: ValueListenableBuilder(
+                valueListenable: repository.companionMood,
+                builder: (context, mood, _) => FloatingActions(
+                  onAdd: canAdd ? _add : null,
+                  notes: notes,
+                  mood: mood,
+                  companion: widget.preferences.companionEnabled,
+                  onCompanion: () => _showCompanion(notes, reviewed),
+                ),
               ),
             ),
         ]);
@@ -685,63 +688,158 @@ class _SettingsPage extends StatelessWidget {
 }
 
 /// Don Bigotes' face, drawn as on the iPhone app (Swift `DonBigotesMark`): open eyes when he has something to point
-/// out, closed when everything is in order, and the bow tie in the accent colour.
-class DonBigotesMark extends StatelessWidget {
-  const DonBigotesMark({super.key, this.awake = true, this.size = 44});
+/// out, closed when everything is in order, and the bow tie in the accent colour. Each real task has its gesture
+/// (`CompanionMood`): it moves only while the task lasts, and with fewer animations it keeps the pose without moving.
+class DonBigotesMark extends StatefulWidget {
+  const DonBigotesMark({super.key, this.awake = true, this.size = 44, this.mood = CompanionMood.idle});
   final bool awake;
   final double size;
+  final CompanionMood mood;
 
   @override
-  Widget build(BuildContext context) =>
-      ExcludeSemantics(child: CustomPaint(size: Size.square(size), painter: _DonBigotesPainter(awake, Pulso.of(context).accent)));
+  State<DonBigotesMark> createState() => _DonBigotesMarkState();
+}
+
+class _DonBigotesMarkState extends State<DonBigotesMark> with SingleTickerProviderStateMixin {
+  late final _motion = AnimationController(vsync: this);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _drive();
+  }
+
+  @override
+  void didUpdateWidget(DonBigotesMark old) {
+    super.didUpdateWidget(old);
+    if (old.mood != widget.mood) _drive();
+  }
+
+  /// Working moods loop while the work lasts; the pleased one plays once; the others are still poses.
+  void _drive() {
+    final still = MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+    _motion.stop();
+    if (still) {
+      _motion.value = 0;
+      return;
+    }
+    switch (widget.mood) {
+      case CompanionMood.thinking || CompanionMood.saving || CompanionMood.reading:
+        _motion.repeat(period: const Duration(milliseconds: 1600));
+      case CompanionMood.happy:
+        _motion.duration = const Duration(milliseconds: 900);
+        _motion.forward(from: 0);
+      case CompanionMood.idle || CompanionMood.worried:
+        _motion.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _motion.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => ExcludeSemantics(
+      child: RepaintBoundary(
+          child: CustomPaint(
+              size: Size.square(widget.size),
+              painter: _DonBigotesPainter(widget.awake || widget.mood != CompanionMood.idle, Pulso.of(context).accent, widget.mood, _motion))));
 }
 
 class _DonBigotesPainter extends CustomPainter {
-  _DonBigotesPainter(this.awake, this.accent);
+  _DonBigotesPainter(this.awake, this.accent, this.mood, this.motion) : super(repaint: motion);
   final bool awake;
   final Color accent;
+  final CompanionMood mood;
+  final Animation<double> motion;
 
   @override
   void paint(Canvas canvas, Size size) {
     final s = size.shortestSide / 48;
+    final t = motion.value, wave = math.sin(2 * math.pi * t);
     Offset p(double x, double y) => Offset(x * s, y * s);
     Paint fill(Color color) => Paint()..color = color;
     const ink = Color(0xFF14202C);
+    final stroke = Paint()
+      ..color = ink
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6 * s
+      ..strokeCap = StrokeCap.round;
+    // Pleased: a small hop, once.
+    if (mood == CompanionMood.happy) canvas.translate(0, -2.5 * s * math.sin(math.pi * t));
+    // Ear tips: up and twitching while saving, flat and to the sides when worried.
+    var (leftTip, rightTip) = (p(13, 6), p(35, 6));
+    if (mood == CompanionMood.saving) {
+      leftTip = p(13 - 0.6, 6 - 1.8 * wave.abs());
+      rightTip = p(35 + 0.6, 6 - 1.8 * (1 - wave.abs()));
+    } else if (mood == CompanionMood.worried) {
+      (leftTip, rightTip) = (p(6.5, 11.5), p(41.5, 11.5));
+    }
     canvas.drawPath(
         Path()
           ..moveTo(10 * s, 20 * s)
-          ..lineTo(13 * s, 6 * s)
+          ..lineTo(leftTip.dx, leftTip.dy)
           ..lineTo(21 * s, 14 * s)
           ..close()
           ..moveTo(38 * s, 20 * s)
-          ..lineTo(35 * s, 6 * s)
+          ..lineTo(rightTip.dx, rightTip.dy)
           ..lineTo(27 * s, 14 * s)
           ..close(),
         fill(const Color(0xFFE9E1D6)));
     canvas.drawOval(Rect.fromLTWH(9 * s, 10.5 * s, 30 * s, 27 * s), fill(const Color(0xFFF3EEE6)));
-    if (awake) {
-      canvas.drawOval(Rect.fromLTWH(16 * s, 20 * s, 6 * s, 6 * s), fill(ink));
-      canvas.drawOval(Rect.fromLTWH(26 * s, 20 * s, 6 * s, 6 * s), fill(ink));
-      canvas.drawOval(Rect.fromLTWH(19.5 * s, 20.6 * s, 1.8 * s, 1.8 * s), fill(Colors.white));
-      canvas.drawOval(Rect.fromLTWH(29.5 * s, 20.6 * s, 1.8 * s, 1.8 * s), fill(Colors.white));
-    } else {
-      final lid = Paint()
-        ..color = ink
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.6 * s
-        ..strokeCap = StrokeCap.round;
-      canvas.drawPath(
-          Path()
-            ..moveTo(16 * s, 24 * s)
-            ..quadraticBezierTo(19 * s, 26.5 * s, 22 * s, 24 * s)
-            ..moveTo(26 * s, 24 * s)
-            ..quadraticBezierTo(29 * s, 26.5 * s, 32 * s, 24 * s),
-          lid);
+    void lookingEyes(double dx, double dy) {
+      canvas.drawOval(Rect.fromLTWH(16 * s, 19 * s, 6 * s, 6 * s), fill(Colors.white));
+      canvas.drawOval(Rect.fromLTWH(26 * s, 19 * s, 6 * s, 6 * s), fill(Colors.white));
+      canvas.drawOval(Rect.fromLTWH((17.3 + dx) * s, (20.3 + dy) * s, 3.4 * s, 3.4 * s), fill(ink));
+      canvas.drawOval(Rect.fromLTWH((27.3 + dx) * s, (20.3 + dy) * s, 3.4 * s, 3.4 * s), fill(ink));
+    }
+
+    switch (mood) {
+      case CompanionMood.thinking:
+        // Looking up, drifting from one side to the other as he thinks.
+        lookingEyes(0.9 + 0.4 * wave, -1.1);
+      case CompanionMood.reading:
+        // Reading: the eyes go along the lines; still, they rest on one side.
+        lookingEyes(motion.isAnimating ? 1.2 * wave : 1.2, 0.4);
+      case CompanionMood.worried:
+        lookingEyes(0, 1.1);
+        canvas.drawPath(
+            Path()
+              ..moveTo(16 * s, 17.5 * s)
+              ..lineTo(21 * s, 16.5 * s)
+              ..moveTo(32 * s, 17.5 * s)
+              ..lineTo(27 * s, 16.5 * s),
+            stroke);
+      case CompanionMood.happy:
+        canvas.drawPath(
+            Path()
+              ..moveTo(16 * s, 24 * s)
+              ..quadraticBezierTo(19 * s, 20.5 * s, 22 * s, 24 * s)
+              ..moveTo(26 * s, 24 * s)
+              ..quadraticBezierTo(29 * s, 20.5 * s, 32 * s, 24 * s),
+            stroke);
+      case CompanionMood.idle || CompanionMood.saving:
+        if (awake) {
+          canvas.drawOval(Rect.fromLTWH(16 * s, 20 * s, 6 * s, 6 * s), fill(ink));
+          canvas.drawOval(Rect.fromLTWH(26 * s, 20 * s, 6 * s, 6 * s), fill(ink));
+          canvas.drawOval(Rect.fromLTWH(19.5 * s, 20.6 * s, 1.8 * s, 1.8 * s), fill(Colors.white));
+          canvas.drawOval(Rect.fromLTWH(29.5 * s, 20.6 * s, 1.8 * s, 1.8 * s), fill(Colors.white));
+        } else {
+          canvas.drawPath(
+              Path()
+                ..moveTo(16 * s, 24 * s)
+                ..quadraticBezierTo(19 * s, 26.5 * s, 22 * s, 24 * s)
+                ..moveTo(26 * s, 24 * s)
+                ..quadraticBezierTo(29 * s, 26.5 * s, 32 * s, 24 * s),
+              stroke);
+        }
     }
     canvas.drawPath(Path()..addPolygon([p(22.5, 29), p(25.5, 29), p(24, 31)], true), fill(const Color(0xFFC98C85)));
     canvas.drawPath(Path()..addPolygon([p(24, 37), p(21, 44), p(24, 47), p(27, 44)], true), fill(accent));
   }
 
   @override
-  bool shouldRepaint(_DonBigotesPainter old) => old.awake != awake || old.accent != accent;
+  bool shouldRepaint(_DonBigotesPainter old) => old.awake != awake || old.accent != accent || old.mood != mood;
 }

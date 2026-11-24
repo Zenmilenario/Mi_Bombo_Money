@@ -11,6 +11,7 @@ import '../presentation.dart';
 import '../theme.dart';
 import 'forms.dart';
 import 'widgets.dart' show RowGlyph, SectionTitle;
+import 'navigation.dart';
 
 /// A management list that follows the repository: rebuilds when data changes.
 class _Managed extends StatelessWidget {
@@ -102,7 +103,7 @@ class _CategoryFormScreenState extends State<CategoryFormScreen> {
               await widget.repository.apply(upsertOperation(
                   'categories', {'id': editing.id, 'isArchived': !editing.isArchived, 'updatedAt': referenceSeconds(DateTime.now())},
                   create: false));
-              if (context.mounted) Navigator.of(context).pop();
+              if (context.mounted) closeOwnScreen(context);
             },
           ),
       ],
@@ -234,7 +235,7 @@ class _RuleFormScreenState extends State<RuleFormScreen> {
             icon: const Icon(Icons.delete_outline),
             onPressed: () async {
               await widget.repository.apply(removeOperation('categoryRules', editing.id));
-              if (context.mounted) Navigator.of(context).pop();
+              if (context.mounted) closeOwnScreen(context);
             },
           ),
       ],
@@ -388,7 +389,7 @@ class _RecurringFormScreenState extends State<RecurringFormScreen> {
             onPressed: () async {
               if (!await confirm(context, 'Borrar periódico', 'Los movimientos ya apuntados se conservan.', action: 'Borrar')) return;
               await widget.repository.apply(removeOperation('recurringMovements', e!.id));
-              if (context.mounted) Navigator.of(context).pop();
+              if (context.mounted) closeOwnScreen(context);
             },
           ),
       ],

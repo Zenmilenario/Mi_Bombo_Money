@@ -8,6 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import 'bank_activity.dart';
+import 'models.dart' show investmentFeeMarker;
 
 /// The personal bank server. Its address is part of every account and movement key: it must not change.
 const bankingServer = 'https://mi-bombo-banking-personal.albertor7722.workers.dev';
@@ -385,6 +386,11 @@ int? bookedBalance(List<BankBalance> balances) {
   return amounts.length == 1 ? amounts.first : null;
 }
 
+/// The fee written for an order recorded by hand (0 without one).
+int _orderFee(List<Map<String, dynamic>> transactions, Map<String, dynamic> order) => transactions
+    .where((t) => t['externalID'] == '$investmentFeeMarker${order['id']}' && t['bankEntryKey'] == null)
+    .fold(0, (sum, t) => sum + ((t['amountMinor'] as num?)?.toInt() ?? 0));
+
 /// Adds the downloaded movements and balances to the cloud document (the raw `finance_snapshot` document,
 /// so every field the iPhone stores is kept as it is). Pure: returns a new document.
 ///
@@ -510,11 +516,25 @@ int? bookedBalance(List<BankBalance> balances) {
       // payment from the iPhone may arrive up to 7 days later): the same movement recorded by hand.
       final kind = row.signedAmountMinor < 0 ? 'expense' : 'income';
       bool sameKind(Object? raw) => kind == 'expense' ? (raw == 'expense' || raw == 'fee') : (raw == 'income' || raw == 'interest');
+      bool sameAccount(Object? raw) => '${raw ?? ''}'.toLowerCase() == localId.toLowerCase();
       final candidates = transactions.where((t) {
-        if (t['bankEntryKey'] != null || '${t['sourceAccountID']}'.toLowerCase() != localId.toLowerCase()) return false;
-        if (t['destinationAccountID'] != null || !sameKind(t['typeRaw']) || (t['amountMinor'] as num?)?.toInt() != row.signedAmountMinor.abs()) return false;
+        if (t['bankEntryKey'] != null) return false;
         final seconds = (t['date'] as num?) ?? 0;
         final delay = referenceSeconds(booking) - seconds;
+        final amount = (t['amountMinor'] as num?)?.toInt();
+        // A transfer recorded by hand (an order to a portfolio, or money back from it): the bank charges or credits
+        // this account. A charge may be the order and its fee together (`lib/investments.dart`).
+        if (t['typeRaw'] == 'transfer' && t['destinationAccountID'] != null) {
+          if (delay.abs() > 3 * 86400) return false;
+          if (kind == 'expense' && sameAccount(t['sourceAccountID'])) {
+            return amount == row.signedAmountMinor.abs() || (amount ?? 0) + _orderFee(transactions, t) == row.signedAmountMinor.abs();
+          }
+          return kind == 'income' && sameAccount(t['destinationAccountID']) && amount == row.signedAmountMinor.abs();
+        }
+        if (!sameAccount(t['sourceAccountID'])) return false;
+        if (t['destinationAccountID'] != null || !sameKind(t['typeRaw']) || amount != row.signedAmountMinor.abs()) return false;
+        // The fee of an order already reconciled inside the order's charge is not waiting for another one.
+        if ('${t['externalID'] ?? ''}'.startsWith(investmentFeeMarker) && t['isReconciled'] == true) return false;
         final awaiting = '${t['externalID'] ?? ''}'.startsWith('applepay:');
         return awaiting ? delay >= -86400 && delay <= 7 * 86400 : delay.abs() <= 3 * 86400;
       }).toList();
@@ -546,6 +566,13 @@ int? bookedBalance(List<BankBalance> balances) {
         record['isReconciled'] = true;
         record['updatedAt'] = now;
         if ('${record['externalID'] ?? ''}'.startsWith('applepay:')) record['externalID'] = null;
+        // The bank charged the order and its fee together: the fee is reconciled with the same charge, not twice.
+        if (record['typeRaw'] == 'transfer' && (record['amountMinor'] as num?)?.toInt() != row.signedAmountMinor.abs()) {
+          for (final fee in transactions.where((t) => t['externalID'] == '$investmentFeeMarker${record['id']}')) {
+            fee['isReconciled'] = true;
+            fee['updatedAt'] = now;
+          }
+        }
         result.matched++;
         continue;
       }
