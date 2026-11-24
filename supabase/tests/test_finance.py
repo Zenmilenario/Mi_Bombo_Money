@@ -121,6 +121,19 @@ class CloudStorageTests(unittest.TestCase):
         self.expect_sqlstate('23505', lambda: self.insert('transactions', dict(self.record('transactions', new=True), bank_entry_key='enable-entry:fixture')))
         self.expect_sqlstate('23514', lambda: self.db.execute('UPDATE public.finance_accounts SET bank_identity_key=%s WHERE id=%s', ('raw-iban-not-allowed', self.ids[A]['accounts'])))
 
+    def test_investment_summary_choice_survives_snapshot_roundtrip_and_old_documents(self):
+        document = self.db.execute('SELECT public.finance_snapshot(%s)', (WA,)).fetchone()[0]
+        self.assertIsNone(document['document']['accounts'][0]['inInvestmentSummary'], 'Unset means it is in the summary')
+        document['document']['accounts'][0]['inInvestmentSummary'] = False
+        saved = self.db.execute('SELECT public.finance_save_snapshot(%s,%s,%s)', (WA, document['revision'], Jsonb(document['document']))).fetchone()[0]
+        self.assertIs(saved['document']['accounts'][0]['inInvestmentSummary'], False)
+        again = self.db.execute('SELECT public.finance_snapshot(%s)', (WA,)).fetchone()[0]
+        self.assertIs(again['document']['accounts'][0]['inInvestmentSummary'], False)
+        # A document of an earlier app version, without the field, still saves.
+        del again['document']['accounts'][0]['inInvestmentSummary']
+        older = self.db.execute('SELECT public.finance_save_snapshot(%s,%s,%s)', (WA, again['revision'], Jsonb(again['document']))).fetchone()[0]
+        self.assertIsNone(older['document']['accounts'][0]['inInvestmentSummary'])
+
     def guest(self):
         self.as_user(None, 'postgres')
         self.db.execute('DELETE FROM finance_private.developer_plaintext_users WHERE owner_id=%s', (B,))

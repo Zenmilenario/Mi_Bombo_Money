@@ -10,8 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 final now = DateTime(2026, 11, 24, 18);
 
-Account account(String id, AccountType type, {bool counted = true, String? bank}) =>
-    Account(id: id, name: 'Cuenta $id', type: type, openingDate: DateTime(2026, 1, 1), includeInNetWorth: counted, bankIdentityKey: bank);
+Account account(String id, AccountType type, {bool counted = true, String? bank, bool? summary}) =>
+    Account(id: id, name: 'Cuenta $id', type: type, openingDate: DateTime(2026, 1, 1), includeInNetWorth: counted, bankIdentityKey: bank, inInvestmentSummary: summary);
 
 BankActivity holding(List<int> holds) => BankActivity(observedAt: now, currency: 'EUR', pendingMovements: [
       for (final (i, h) in holds.indexed) PendingMovement(id: 'h$i', date: '2026-11-24', signedAmountMinor: h, currency: 'EUR', description: 'Retención ficticia', status: 'HOLD'),
@@ -67,9 +67,16 @@ void main() {
     final calc = FinanceCalculator(data);
     expect(calc.invested(), 1924, reason: 'Net worth keeps the choice of the person');
     // The investment summary is another choice: by default every portfolio, also one out of net worth.
-    expect(investedInSummary(data, calc.balance, {}, now), 30000 + 3 * 3999 + 1924);
-    expect(investedInSummary(data, calc.balance, {'saveback'}, now), 30000 + 3 * 3999, reason: 'Only the chosen portfolio');
-    expect(summaryPortfolios(data, {'saveback'}).map((a) => a.id), ['valores']);
+    expect(investedInSummary(data, calc.balance, now), 30000 + 3 * 3999 + 1924);
+    // The person takes the small portfolio out of the summary: only the chosen one, net worth as it was.
+    final chosenData = Finances(
+        accounts: [for (final a in data.accounts) a.id == 'saveback' ? account('saveback', AccountType.investment, bank: 'k', summary: false) : a],
+        snapshots: data.snapshots,
+        transactions: data.transactions);
+    final chosenCalc = FinanceCalculator(chosenData);
+    expect(investedInSummary(chosenData, chosenCalc.balance, now), 30000 + 3 * 3999, reason: 'Only the chosen portfolio');
+    expect(summaryPortfolios(chosenData).map((a) => a.id), ['valores']);
+    expect(chosenCalc.invested(), 1924, reason: 'Net worth does not depend on the summary');
     final chosen = investmentFlows(data, DateTime(2026, 11), now: now, accounts: {'valores'});
     expect((chosen.contributedMinor, chosen.feesMinor), (3 * 3999, 150), reason: 'The order and its fee belong to the chosen portfolio');
     expect(investmentFlows(data, DateTime(2026, 11), now: now, accounts: {'saveback'}).isEmpty, isTrue);

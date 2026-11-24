@@ -37,7 +37,8 @@
       "createdAt": "created_at",
       "updatedAt": "updated_at",
       "institutionID": "institution_id",
-      "bankIdentityKey": "bank_identity_key"
+      "bankIdentityKey": "bank_identity_key",
+      "inInvestmentSummary": "in_investment_summary"
     },
     "dates": [
       "openingDate",

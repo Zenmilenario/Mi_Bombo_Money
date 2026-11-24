@@ -157,11 +157,10 @@ List<PortfolioValue> portfolioValues(Finances data, int Function(Account, DateTi
 }
 
 /// The portfolios of the investment summary (Inicio and Cuentas): every active investment account except those the
-/// person took out of it. Independent of net worth: a portfolio left out of net worth is still shown here unless it
-/// is taken out of the summary too.
-List<Account> summaryPortfolios(Finances data, Set<String> hidden) =>
-    [for (final a in data.accounts) if (!a.isArchived && a.type == AccountType.investment && !hidden.contains(a.id)) a];
+/// person took out of it (`Account.inInvestmentSummary`, saved with the account in the cloud). Independent of net
+/// worth: a portfolio left out of net worth is still shown here unless it is taken out of the summary too.
+List<Account> summaryPortfolios(Finances data) => [for (final a in data.accounts) if (!a.isArchived && a.type == AccountType.investment && a.inSummary) a];
 
 /// What the investment summary shows: the recorded value of its portfolios ([balanceAt] is `FinanceCalculator.balance`).
-int investedInSummary(Finances data, int Function(Account, DateTime) balanceAt, Set<String> hidden, DateTime now) =>
-    summaryPortfolios(data, hidden).fold(0, (sum, a) => sum + balanceAt(a, now));
+int investedInSummary(Finances data, int Function(Account, DateTime) balanceAt, DateTime now) =>
+    summaryPortfolios(data).fold(0, (sum, a) => sum + balanceAt(a, now));

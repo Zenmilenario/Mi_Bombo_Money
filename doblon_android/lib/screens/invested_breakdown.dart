@@ -8,7 +8,8 @@ import '../presentation.dart';
 import '../theme.dart';
 
 /// The investment summary and its portfolios. Two separate choices: which portfolios make up the summary (chosen
-/// here, kept for this person on this device) and which count in net worth (set in each account, unchanged here).
+/// here, saved with each account in the cloud for every device) and which count in net worth (set in each account,
+/// unchanged here).
 /// Each portfolio shows its value and where it comes from: a valuation and its date (written by the person or
 /// reported by a bank) plus what was recorded after it, never a market price.
 Future<void> showInvestedBreakdown(BuildContext context, FinanceRepository repository) => showModalBottomSheet<void>(
@@ -22,9 +23,8 @@ Future<void> showInvestedBreakdown(BuildContext context, FinanceRepository repos
           if (data == null) return const SizedBox.shrink();
           final calc = FinanceCalculator(data);
           final now = DateTime.now();
-          final hidden = repository.hiddenPortfolios;
           final values = portfolioValues(data, calc.balance, now);
-          final shownIds = {for (final a in summaryPortfolios(data, hidden)) a.id};
+          final shownIds = {for (final a in summaryPortfolios(data)) a.id};
           final inSummary = values.where((v) => shownIds.contains(v.account.id)).fold(0, (sum, v) => sum + v.valueMinor);
           final flows = investmentFlows(data, DateTime(now.year, now.month), now: now, accounts: shownIds);
           final day = DateFormat("d 'de' MMMM", 'es');

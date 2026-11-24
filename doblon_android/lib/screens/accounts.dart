@@ -122,7 +122,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
               tile('Disponible', calc.spendableCash() + held, Icons.account_balance_wallet_outlined, pulso.accent,
                   note: held == 0 ? null : 'Descuenta ${money(-held)} retenidos'),
               tile('Reservado', calc.reservedTotal(), Icons.lock_outline, pulso.savings),
-              tile('Invertido', investedInSummary(data, calc.balance, widget.repository.hiddenPortfolios, now), Icons.trending_up, pulso.investment,
+              tile('Invertido', investedInSummary(data, calc.balance, now), Icons.trending_up, pulso.investment,
                   note: 'Ver carteras', onTap: () => showInvestedBreakdown(context, widget.repository)),
             ])
               SizedBox(width: width, child: t),
@@ -209,9 +209,9 @@ class _InvestmentMonth extends StatelessWidget {
   Widget build(BuildContext context) {
     final pulso = Pulso.of(context);
     final hint = Theme.of(context).hintColor;
-    final shown = {for (final a in summaryPortfolios(calc.data, repository.hiddenPortfolios)) a.id};
+    final shown = {for (final a in summaryPortfolios(calc.data)) a.id};
     final flows = investmentFlows(calc.data, DateTime(now.year, now.month), now: now, accounts: shown);
-    final value = investedInSummary(calc.data, calc.balance, repository.hiddenPortfolios, now);
+    final value = investedInSummary(calc.data, calc.balance, now);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(14),

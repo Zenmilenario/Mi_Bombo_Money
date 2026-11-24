@@ -70,7 +70,13 @@ class Account {
     this.bankIdentityKey,
     DateTime? lastUpdatedAt,
     this.notes = '',
+    this.inInvestmentSummary,
   }) : lastUpdatedAt = lastUpdatedAt ?? openingDate;
+
+  /// Whether an investment account is part of the investment summary (Inicio and Cuentas), chosen apart from net
+  /// worth. Unset (an account from before, or a document of an earlier version) means it is.
+  final bool? inInvestmentSummary;
+  bool get inSummary => inInvestmentSummary != false;
   final String id;
   final String name;
   final AccountType type;
@@ -101,6 +107,7 @@ class Account {
         bankIdentityKey: _stringOrNull(json['bankIdentityKey']),
         lastUpdatedAt: json['lastUpdatedAt'] is num ? referenceDate(json['lastUpdatedAt'] as num) : null,
         notes: _string(json['notes']),
+        inInvestmentSummary: json['inInvestmentSummary'] is bool ? json['inInvestmentSummary'] as bool : null,
       );
 }
 

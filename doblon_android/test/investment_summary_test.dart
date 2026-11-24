@@ -1,7 +1,8 @@
 // Fictitious data only. The investment summary (24 November 2026): which portfolios make it up is chosen apart from
-// net worth; by default every portfolio (also one left out of net worth) is in it; the choice is kept per person on
-// the device after restarting and after a sync, never touches the finances, and Inicio and Cuentas show the same.
-// For the developer's session and for an encrypted guest.
+// net worth and saved with each account in the cloud. By default every portfolio (also one left out of net worth)
+// is in it; a change reaches another device of the same person after a sync, is kept after restarting, and a choice
+// kept on the device by the earlier version is moved there once. Inicio and Cuentas show the same. For the
+// developer's session and for an encrypted guest.
 import 'dart:convert';
 import 'dart:io';
 
@@ -59,15 +60,22 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
+  Future<void> settle(WidgetTester tester, [int rounds = 20]) async {
+    for (var i = 0; i < rounds; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
   for (final encrypted in [false, true]) {
-    testWidgets('${encrypted ? 'guest' : 'developer'}: the summary choice is kept after restarting and syncing, and Inicio and Cuentas agree', (tester) async {
+    final who = encrypted ? 'guest' : 'developer';
+
+    testWidgets('$who: the choice is saved in the cloud, reaches another device, is kept after restarting, and Inicio and Cuentas agree', (tester) async {
       tester.view.physicalSize = const Size(400, 1600);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.reset);
       final cloud = profiles.Cloud(encrypted ? 'fictitious-guest' : 'fictitious-admin', encrypted: encrypted, document: document());
-      late Directory directory;
-      late FinanceRepository repo;
-      Future<FinanceRepository> open() async {
+      Future<FinanceRepository> device(Directory directory) async {
         final client = await cloud.client();
         addTearDown(client.dispose);
         final repository = FinanceRepository(store: LocalStore(directory), cloudClient: client);
@@ -76,25 +84,27 @@ void main() {
         return repository;
       }
 
+      late Directory phone, tablet;
+      late FinanceRepository repo;
       await tester.runAsync(() async {
         await cloud.prepare();
         FlutterSecureStorage.setMockInitialValues(cloud.secureStorage);
-        directory = await Directory.systemTemp.createTemp('doblon-summary');
-        addTearDown(() async {
-          try {
-            await directory.delete(recursive: true);
-          } on FileSystemException catch (_) {}
-        });
-        repo = await open();
+        phone = await Directory.systemTemp.createTemp('doblon-summary-phone');
+        tablet = await Directory.systemTemp.createTemp('doblon-summary-tablet');
+        for (final d in [phone, tablet]) {
+          addTearDown(() async {
+            try {
+              await d.delete(recursive: true);
+            } on FileSystemException catch (_) {}
+          });
+        }
+        repo = await device(phone);
       });
       expect(repo.isAdministrator, !encrypted);
-      final before = jsonEncode(repo.document);
-      final calc = FinanceCalculator(repo.finances!);
-      expect(calc.invested(), 1500, reason: 'Net worth: only the counted portfolio');
+      expect(FinanceCalculator(repo.finances!).invested(), 1500, reason: 'Net worth: only the counted portfolio');
 
-      // By default every portfolio is in the summary, also the one out of net worth.
-      Future<void> showBoth() async {
-        final data = repo.finances!;
+      Future<void> showBoth(FinanceRepository r) async {
+        final data = r.finances!;
         await tester.pumpWidget(MaterialApp(
           theme: doblonTheme(Brightness.light),
           locale: const Locale('es', 'ES'),
@@ -102,49 +112,79 @@ void main() {
           localizationsDelegates: GlobalMaterialLocalizations.delegates,
           home: Scaffold(
             body: Column(children: [
-              Expanded(child: HomeScreen(calc: FinanceCalculator(data), month: DateTime(2026, 11), onMonth: (_) {}, hiddenPortfolios: repo.hiddenPortfolios)),
-              Expanded(child: AccountsScreen(calc: FinanceCalculator(data), repository: repo)),
+              Expanded(child: HomeScreen(calc: FinanceCalculator(data), month: DateTime(2026, 11), onMonth: (_) {})),
+              Expanded(child: AccountsScreen(calc: FinanceCalculator(data), repository: r)),
             ]),
           ),
         ));
         await tester.pump();
       }
 
-      await showBoth();
+      // By default every portfolio is in the summary, also the one out of net worth.
+      await showBoth(repo);
       expect(find.text(money(30000 + 3999 + 1500)), findsNWidgets(2), reason: 'Inicio and Cuentas, the same figure');
 
-      // The person keeps only the broker's portfolio in the summary.
-      await tester.runAsync(() => repo.setPortfolioInSummary('pequena', false));
-      await showBoth();
+      // On the phone, the person keeps only the broker's portfolio: saved once in the cloud with that account.
+      final saves = cloud.financeSaves;
+      final updated = repo.setPortfolioInSummary('pequena', false);
+      await settle(tester);
+      await updated;
+      expect(cloud.financeSaves, saves + 1);
+      await showBoth(repo);
       expect(find.text(money(30000 + 3999)), findsNWidgets(2));
       expect(find.textContaining('aportado ${money(3999)}'), findsOneWidget, reason: 'The month\'s line of Inicio, from the same portfolios');
 
-      // Restarted (a new repository on the same device) and synced again: the choice is kept.
-      await tester.runAsync(() async {
-        repo = await open();
-        await repo.refresh();
-      });
-      expect(repo.hiddenPortfolios, {'pequena'});
-      await showBoth();
+      // Another device of the same person (its own storage, the same cloud) sees it after syncing.
+      await tester.runAsync(() async => repo = await device(tablet));
+      expect(repo.finances!.accounts.firstWhere((a) => a.id == 'pequena').inInvestmentSummary, isFalse);
+      await showBoth(repo);
       expect(find.text(money(30000 + 3999)), findsNWidgets(2));
 
-      // Nothing of this is in the finances: net worth and the cloud document are as they were.
-      expect(jsonEncode(repo.document), before);
-      expect(cloud.financeSaves, 0);
+      // Restarted on the phone: the same.
+      await tester.runAsync(() async => repo = await device(phone));
+      await showBoth(repo);
+      expect(find.text(money(30000 + 3999)), findsNWidgets(2));
+
+      // Net worth is decided apart and did not change.
       expect(repo.finances!.accounts.firstWhere((a) => a.id == 'valores').includeInNetWorth, isFalse);
-      if (encrypted) expect(cloud.plaintextCalls, isEmpty);
+      expect(repo.finances!.accounts.firstWhere((a) => a.id == 'pequena').includeInNetWorth, isTrue);
+      if (encrypted) {
+        expect(cloud.plaintextCalls, isEmpty);
+        expect(cloud.requests.any((r) => r.contains('inInvestmentSummary')), isFalse, reason: 'Inside the sealed envelope');
+      } else {
+        expect(jsonEncode(cloud.document), contains('"inInvestmentSummary":false'));
+      }
       expect(tester.takeException(), isNull);
     });
-  }
 
-  test('each person has their own choice, and signing out forgets it', () async {
-    final directory = await Directory.systemTemp.createTemp('doblon-summary-people');
-    addTearDown(() => directory.delete(recursive: true));
-    final store = LocalStore(directory);
-    await store.saveHiddenPortfolios('persona-a', {'x'});
-    expect(await store.loadHiddenPortfolios('persona-a'), {'x'});
-    expect(await store.loadHiddenPortfolios('persona-b'), isEmpty);
-    await store.clear('persona-a');
-    expect(await store.loadHiddenPortfolios('persona-a'), isEmpty);
-  });
+    testWidgets('$who: a choice kept on the device by 0.35.2 is moved to the cloud once', (tester) async {
+      final cloud = profiles.Cloud(encrypted ? 'fictitious-guest' : 'fictitious-admin', encrypted: encrypted, document: document());
+      late FinanceRepository repo;
+      late Directory directory;
+      await tester.runAsync(() async {
+        await cloud.prepare();
+        FlutterSecureStorage.setMockInitialValues(cloud.secureStorage);
+        directory = await Directory.systemTemp.createTemp('doblon-summary-move');
+        addTearDown(() async {
+          try {
+            await directory.delete(recursive: true);
+          } on FileSystemException catch (_) {}
+        });
+        await LocalStore(directory).saveHiddenPortfolios(cloud.user, {'pequena'});
+        final client = await cloud.client();
+        addTearDown(client.dispose);
+        repo = FinanceRepository(store: LocalStore(directory), cloudClient: client);
+        await repo.refresh();
+      });
+      addTearDown(repo.dispose);
+      await settle(tester);
+      expect(repo.finances!.accounts.firstWhere((a) => a.id == 'pequena').inInvestmentSummary, isFalse);
+      expect(cloud.financeSaves, 1);
+      expect(await tester.runAsync(() => LocalStore(directory).loadHiddenPortfolios(cloud.user)), isEmpty, reason: 'The local copy is forgotten');
+      // Opening again does not save anything else.
+      await tester.runAsync(repo.refresh);
+      await settle(tester, 5);
+      expect(cloud.financeSaves, 1);
+    });
+  }
 }

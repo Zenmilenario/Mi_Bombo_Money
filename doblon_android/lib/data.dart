@@ -87,7 +87,8 @@ class LocalStore {
 
   Future<void> saveBankState(String user, Map<String, dynamic> value) => _write(_file(user, 'bank-sync'), value);
 
-  /// The portfolios the person took out of the investment summary (a choice of this device and profile).
+  /// The portfolios taken out of the investment summary on this device by version 0.35.2, before the choice was saved
+  /// in the cloud with each account. Only read to move it there once.
   Future<Set<String>> loadHiddenPortfolios(String user) async {
     try {
       return {for (final id in jsonDecode(await _file(user, 'portfolios').readAsString()) as List) '$id'};
@@ -219,7 +220,7 @@ class FinanceRepository extends ChangeNotifier {
           // What is taught here reaches the person's other devices a moment later.
           ..onChange = _scheduleLearningSync;
         bankActivity = await BankActivityStore(store.directory).load(user);
-        hiddenPortfolios = await store.loadHiddenPortfolios(user);
+        _hiddenOnDevice = await store.loadHiddenPortfolios(user);
         forecast = await ForecastStore.open(store.directory, user)
           ..addListener(notifyListeners);
         final bankState = await store.loadBankState(user);
@@ -241,6 +242,7 @@ class FinanceRepository extends ChangeNotifier {
         await _adopt(fetched);
       }
       unawaited(syncLearning());
+      unawaited(_moveDeviceChoiceToCloud());
     } on AuthException {
       error = 'Tu sesión ha caducado. Vuelve a entrar.';
     } catch (_) {
@@ -366,16 +368,28 @@ class FinanceRepository extends ChangeNotifier {
   /// Forecast assumptions and simulations, kept on this device apart from the finances (null until the first load).
   ForecastStore? forecast;
 
-  /// Portfolios taken out of the investment summary. Net worth is decided apart, in each account.
-  Set<String> hiddenPortfolios = {};
+  /// A choice made on this device by version 0.35.2, waiting to be moved to the cloud.
+  Set<String> _hiddenOnDevice = {};
 
-  /// Shows a portfolio in the investment summary or takes it out; kept on this device for this person.
-  Future<void> setPortfolioInSummary(String accountId, bool shown) async {
-    final user = _user;
-    if (user == null) return;
-    hiddenPortfolios = shown ? ({...hiddenPortfolios}..remove(accountId)) : {...hiddenPortfolios, accountId};
-    notifyListeners();
-    await (await _local()).saveHiddenPortfolios(user, hiddenPortfolios);
+  /// Shows a portfolio in the investment summary or takes it out. Saved with the account in the cloud, so every
+  /// device of the person shows the same summary; net worth is decided apart and does not change.
+  Future<void> setPortfolioInSummary(String accountId, bool shown) =>
+      apply(upsertOperation('accounts', {'id': accountId, 'inInvestmentSummary': shown, 'updatedAt': referenceSeconds(DateTime.now())}, create: false));
+
+  /// Moves once the choice kept on this device by 0.35.2 to the accounts in the cloud, for the portfolios that do not
+  /// have one there yet, and then forgets the local copy.
+  Future<void> _moveDeviceChoiceToCloud() async {
+    final user = _user, data = finances;
+    if (_hiddenOnDevice.isEmpty || user == null || data == null) return;
+    final now = referenceSeconds(DateTime.now());
+    final ops = [
+      for (final a in data.accounts)
+        if (_hiddenOnDevice.contains(a.id) && a.type == AccountType.investment && a.inInvestmentSummary == null)
+          upsertOperation('accounts', {'id': a.id, 'inInvestmentSummary': false, 'updatedAt': now}, create: false)
+    ];
+    _hiddenOnDevice = {};
+    await (await _local()).saveHiddenPortfolios(user, {});
+    if (ops.isNotEmpty) await apply(ops.length == 1 ? ops.single : batchOperation(ops));
   }
 
   /// The last bank report of each linked account (holds, balances, what it sent), by bank identity.
@@ -795,7 +809,7 @@ class FinanceRepository extends ChangeNotifier {
     _learningTimer?.cancel();
     learning = null;
     forecast = null;
-    hiddenPortfolios = {};
+    _hiddenOnDevice = {};
     finances = null;
     copy = null;
     document = null;

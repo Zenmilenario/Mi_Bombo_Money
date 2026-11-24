@@ -24,8 +24,7 @@ class HomeScreen extends StatefulWidget {
       this.heldMinor = 0,
       this.onOpenTab,
       this.onOpenTransaction,
-      this.onForecast,
-      this.hiddenPortfolios = const {}});
+      this.onForecast});
   final FinanceCalculator calc;
   final DateTime month;
   final ValueChanged<DateTime> onMonth;
@@ -36,8 +35,6 @@ class HomeScreen extends StatefulWidget {
   /// Opens «Previsión y simulaciones».
   final VoidCallback? onForecast;
 
-  /// Portfolios taken out of the investment summary (the same choice as in Cuentas).
-  final Set<String> hiddenPortfolios;
 
   /// Charges the bank holds and has not booked yet (negative), already taken from what is available.
   final int heldMinor;
@@ -97,7 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
       onOpenTransaction: widget.onOpenTransaction,
       onAll: widget.onOpenTab == null ? null : () => widget.onOpenTab!(1),
       onForecast: widget.onForecast,
-      portfolios: {for (final a in summaryPortfolios(calc.data, widget.hiddenPortfolios)) a.id},
+      portfolios: {for (final a in summaryPortfolios(calc.data)) a.id},
     );
     final side = <Widget>[
       _NetWorthPanel(calc: calc),
@@ -116,7 +113,7 @@ class _HomeScreenState extends State<HomeScreen> {
         spaced(_AvailableCard(
             calc: calc,
             heldMinor: widget.heldMinor,
-            investedMinor: investedInSummary(calc.data, calc.balance, widget.hiddenPortfolios, DateTime.now()),
+            investedMinor: investedInSummary(calc.data, calc.balance, DateTime.now()),
             onOpen: widget.onOpenTab == null ? null : () => widget.onOpenTab!(2))),
         if (wide)
           // iPad: the month on the left, net worth, budgets and goal on the right.
