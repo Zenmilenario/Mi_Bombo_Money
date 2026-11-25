@@ -126,8 +126,10 @@ void main() {
       await tester.pump();
       expect(find.textContaining('0/12 cuotas pagadas'), findsOneWidget);
       await tester.tap(find.textContaining('1. 5 nov 2026'));
+      await settle(tester, 5);
       await waitFor(tester, find.text('Registrar el pago'));
       await tester.tap(find.text('Registrar el pago'));
+      await settle(tester, 5);
       await waitFor(tester, find.text('Guardar'));
       await tester.tap(find.text('Guardar'));
       await settle(tester);
@@ -147,6 +149,7 @@ void main() {
       await tester.pumpWidget(app(InstallmentDetailScreen(repository: repo, planId: 'plan-ficticio')));
       await tester.pump();
       await tester.tap(find.textContaining('1. 5 nov 2026'));
+      await settle(tester, 5);
       await waitFor(tester, find.text('Deshacer el pago'));
       await tester.tap(find.text('Deshacer el pago'));
       await settle(tester);
