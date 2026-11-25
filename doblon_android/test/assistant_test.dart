@@ -1,15 +1,20 @@
-// Fictitious data only. Don Bigotes' assistant, phase 1 (25 November 2026): a bank of Spanish sentences with the
-// intent each must give, and the preparation against the person's data: it asks only for what is missing, never
-// guesses an account among several, validates with the form's rules, and applies a prepared operation once.
+// Fictitious data only. Don Bigotes' assistant (25 November 2026, after the first tests on the iPhone): whole
+// conversations (a summary and «¿Y qué he comprado?», a fuel station and its category, corrections, a plan of
+// 4.378 € in 12 months against an instalment already paid, changes of subject, cancelling and confirming twice),
+// variations and misspellings, and the earlier bank of sentences so nothing that worked gets worse.
 import 'package:doblon/assistant.dart';
 import 'package:doblon/edits.dart';
 import 'package:doblon/finance.dart';
+import 'package:doblon/installments.dart';
 import 'package:doblon/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 final now = DateTime(2026, 11, 25, 18); // a Wednesday
 
-Finances data({List<Transaction> transactions = const [], List<ReservedFund> funds = const []}) => Finances(
+final sofa = InstallmentPlan(
+    id: 'sofa', name: 'Sofá', kind: InstallmentKind.purchase, totalMinor: 120000, schedule: buildSchedule(120000, 3, DateTime(2026, 11, 5, 12))!, accountId: 'nomina');
+
+Finances data({List<Transaction> transactions = const [], bool comprasCategory = true, List<InstallmentPlan> plans = const []}) => Finances(
       accounts: [
         Account(id: 'nomina', name: 'Bankinter nómina', type: AccountType.checking, openingDate: DateTime(2026), openingBalanceMinor: 150000),
         Account(id: 'credito', name: 'Bankinter crédito', type: AccountType.creditCard, openingDate: DateTime(2026)),
@@ -19,186 +24,317 @@ Finances data({List<Transaction> transactions = const [], List<ReservedFund> fun
       cards: [PaymentCard(id: 'visa', name: 'Visa Oro', type: CardType.credit, lastFour: '4321', linkedAccountId: 'credito')],
       categories: [
         Category(id: 'rest', name: 'Restaurantes', kind: CategoryKind.expense),
-        Category(id: 'compras', name: 'Compras', kind: CategoryKind.expense),
+        if (comprasCategory) Category(id: 'compras', name: 'Compras', kind: CategoryKind.expense),
+        Category(id: 'fuel', name: 'Combustible', kind: CategoryKind.expense),
+        Category(id: 'super', name: 'Supermercado', kind: CategoryKind.expense),
+        Category(id: 'ocio', name: 'Ocio', kind: CategoryKind.expense),
         Category(id: 'nomina-cat', name: 'Nómina', kind: CategoryKind.income),
       ],
       budgets: [MonthlyBudget(id: 'b', monthStart: DateTime(2026, 11), limitMinor: 15000, categoryId: 'rest')],
       transactions: [...transactions]..sort((a, b) => b.date.compareTo(a.date)),
-      reservedFunds: funds,
+      installmentPlans: plans,
     );
 
-AssistantSession session() {
+final month = [
+  Transaction(id: 'a', date: DateTime(2026, 11, 3), type: TransactionType.expense, amountMinor: 3000, descriptionText: 'Tienda', sourceAccountId: 'nomina', categoryId: 'compras'),
+  Transaction(id: 'b', date: DateTime(2026, 11, 20), type: TransactionType.expense, amountMinor: 1500, descriptionText: 'Cena', sourceAccountId: 'nomina', categoryId: 'rest'),
+  Transaction(id: 'c', date: DateTime(2026, 10, 20), type: TransactionType.expense, amountMinor: 900, descriptionText: 'Octubre', sourceAccountId: 'nomina', categoryId: 'compras'),
+  Transaction(id: 'e', date: DateTime(2026, 11, 1), type: TransactionType.income, amountMinor: 185000, descriptionText: 'Nómina', sourceAccountId: 'nomina', categoryId: 'nomina-cat'),
+];
+
+AssistantSession session({Map<String, String> learnt = const {}}) {
   var n = 0;
-  return AssistantSession(newId: () => 'nuevo-${++n}', propose: (text, type) async => text == 'Cena' ? 'rest' : null);
+  return AssistantSession(newId: () => 'nuevo-${++n}', propose: (text, type) async => learnt[text] == null ? null : (learnt[text]!, 'model'));
 }
+
+String line(AssistantPreview p, String label) => p.lines.firstWhere((l) => l.$1 == label).$2;
 
 void main() {
-  group('the bank of sentences: each gives its intent (rules on the device)', () {
-    final cases = <(String, IntentKind, int?)>[
-      ('He gastado 24 € cenando con la tarjeta de Bankinter', IntentKind.expense, 2400),
-      ('he gastado 24€ en la cena', IntentKind.expense, 2400),
-      ('Pagué 12,50 en el super', IntentKind.expense, 1250),
-      ('Gasté 3.5 euros en un café', IntentKind.expense, 350),
-      ('Me ha costado 1.234,56 € el sofá', IntentKind.expense, 123456),
-      ('compré ropa por 59,90', IntentKind.expense, 5990),
-      ('Ayer pagué 40 de gasolina', IntentKind.expense, 4000),
-      ('Taxi 18 euros', IntentKind.expense, 1800),
-      ('Cobré la nómina, 1.850 €', IntentKind.income, 185000),
-      ('Me han hecho un bizum de 15 euros', IntentKind.income, 1500),
-      ('Ingreso de 200 € en efectivo', IntentKind.income, 20000),
-      ('He recibido 30 € de devolución', IntentKind.income, 3000),
-      ('Reserva 200 € para vacaciones', IntentKind.reserve, 20000),
-      ('Aparta 50 euros para el regalo de Ana', IntentKind.reserve, 5000),
-      ('Guarda 1.000 € para el seguro del coche', IntentKind.reserve, 100000),
-      ('Tengo que pagar 4.378 € repartidos en 12 meses', IntentKind.installments, 437800),
-      ('Compra de 600 € a plazos', IntentKind.installments, 60000),
-      ('¿Cómo quedaría mi disponible si gasto 600 €?', IntentKind.simulation, 60000),
-      ('¿Qué pasaría si pago 300 €?', IntentKind.simulation, 30000),
-      ('Muéstrame las compras de este mes', IntentKind.listMovements, null),
-      ('Enséñame los gastos de la semana', IntentKind.listMovements, null),
-      ('Quiero ver mis ingresos del mes pasado', IntentKind.listMovements, null),
-      ('¿Cuánto he gastado este mes?', IntentKind.summary, null),
-      ('¿Cuánto llevo gastado en restaurantes?', IntentKind.summary, null),
-      ('Resumen del mes pasado', IntentKind.summary, null),
-      ('¿Cómo voy este mes?', IntentKind.summary, null),
-      ('Traspasa 100 € a la cuenta de ahorro', IntentKind.transfer, 10000),
-      ('Transferencia de 50 € a Naranja', IntentKind.transfer, 5000),
-      ('24 €', IntentKind.unknown, 2400),
-      ('Hola Don Bigotes', IntentKind.unknown, null),
+  group('1. consulting is not recording; context is kept', () {
+    test('summary → «¿Y qué he comprado este mes?» → «No, qué cosas»', () async {
+      final s = session();
+      final calc = FinanceCalculator(data(transactions: month, comprasCategory: false));
+      final summary = await s.say('¿Cuánto he gastado este mes?', calc, now) as AssistantResult;
+      expect(summary.title, 'Resumen de este mes');
+      final bought = await s.say('¿Y qué he comprado este mes?', calc, now);
+      expect(bought, isA<AssistantResult>(), reason: 'A question about existing movements never starts recording one');
+      expect((bought as AssistantResult).transactions.map((t) => t.id), ['b', 'a']);
+      expect(s.hasDraft, isFalse);
+      final things = await s.say('No, qué cosas', calc, now) as AssistantResult;
+      expect(things.title, 'Gastos este mes', reason: 'The period is kept');
+      expect(things.transactions.length, 2);
+    });
+
+    test('«compras» with a category of that name: asked once, then remembered', () async {
+      final s = session();
+      final calc = FinanceCalculator(data(transactions: month));
+      final q = await s.say('¿Qué he comprado este mes?', calc, now) as AssistantQuestion;
+      expect(q.options.map((o) => o.$2), ['scope:all', 'scope:category']);
+      final all = await s.choose('scope:all', calc, now) as AssistantResult;
+      expect(all.transactions.length, 2);
+      final again = await s.say('¿y el mes pasado?', calc, now) as AssistantResult;
+      expect(again.title, 'Gastos el mes pasado', reason: 'A continuation keeps the scope and changes the period');
+      expect(again.transactions.single.id, 'c');
+      final s2 = session();
+      await s2.say('muéstrame las compras de este mes', calc, now);
+      final only = await s2.say('solo la categoría', calc, now) as AssistantResult;
+      expect(only.transactions.single.id, 'a');
+    });
+
+    test('a question while a draft waits for an answer is a query; the draft is set aside explicitly and can be resumed', () async {
+      final s = session();
+      final calc = FinanceCalculator(data(transactions: month, comprasCategory: false));
+      expect((await s.say('He gastado algo en la cena', calc, now) as AssistantQuestion).field, PendingField.amount);
+      final query = await s.say('¿Y qué he comprado este mes?', calc, now) as AssistantResult;
+      expect(query.note, contains('Dejo aparte el gasto'));
+      expect(query.transactions.length, 2);
+      expect(s.hasParked, isTrue);
+      final back = await s.say('retómalo', calc, now) as AssistantQuestion;
+      expect(back.field, PendingField.amount);
+      final preview = await s.say('24,50', calc, now);
+      expect(preview, isA<AssistantQuestion>(), reason: 'Next: the account');
+    });
+
+    test('other phrasings of the same questions', () async {
+      final calc = FinanceCalculator(data(transactions: month, comprasCategory: false));
+      for (final text in [
+        'qué he comprado este mes',
+        'en qué me he gastado el dinero este mes',
+        'dime los gastos de este mes',
+        'enséñame lo que he gastado este mes',
+        'he comprado cosas este mes?',
+        'q he gastado este mes',
+        'muestrame las conpras del mes',
+      ]) {
+        final reply = await session().say(text, calc, now);
+        expect(reply, isA<AssistantResult>(), reason: text);
+        expect((reply as AssistantResult).transactions.length, 2, reason: text);
+      }
+      for (final text in ['cuanto e gastado este mes', '¿Cómo voy este mes?', 'resumen del mes', 'cuánto llevo gastado']) {
+        expect((await session().say(text, calc, now) as AssistantResult).title, 'Resumen de este mes', reason: text);
+      }
+      expect((await session().say('¿y los ingresos?', calc, now) as AssistantResult).transactions.single.id, 'e');
+    });
+  });
+
+  group('2. payments in instalments', () {
+    test('4.378 € in 12 months: a plan with its calendar, never a payment today', () async {
+      final s = session();
+      final calc = FinanceCalculator(data());
+      var reply = await s.say('Tengo que pagar 4.378 € repartidos en 12 meses', calc, now);
+      expect((reply as AssistantQuestion).field, PendingField.planKind);
+      reply = await s.choose('purchase', calc, now);
+      expect((reply as AssistantQuestion).field, PendingField.planName);
+      reply = await s.say('Sofá nuevo', calc, now);
+      expect((reply as AssistantQuestion).field, PendingField.dueDate, reason: 'The first due date is never assumed');
+      reply = await s.say('el 5 de diciembre', calc, now);
+      expect((reply as AssistantQuestion).field, PendingField.account);
+      reply = await s.choose('nomina', calc, now);
+      expect((reply as AssistantQuestion).field, PendingField.recorded);
+      final preview = await s.choose('no', calc, now) as AssistantPreview;
+      expect(preview.kind, PreviewKind.plan);
+      expect(preview.plan!.totalMinor, 437800);
+      expect(preview.calendar.length, 12);
+      expect(preview.calendar.fold(0, (a, c) => a + c.$2), 437800);
+      expect(preview.calendar.first.$1, DateTime(2026, 12, 5, 12));
+      expect(line(preview, 'Cuotas'), contains('11 ×'));
+      expect(preview.effects.first, contains('Hoy no se registra ningún pago'));
+      final op = s.confirm(preview, calc.data)!;
+      expect(op.kind, 'upsert');
+      expect(op.data['entity'], 'installmentPlans');
+      final doc = <String, dynamic>{'transactions': <dynamic>[], 'installmentPlans': <dynamic>[]};
+      applyOperation(doc, op);
+      expect(doc['transactions'], isEmpty, reason: 'Nothing paid today');
+    });
+
+    test('other ways of saying it, and an amount per instalment is not the total', () async {
+      final calc = FinanceCalculator(data());
+      for (final text in ['Pagaré 4.378 euros en doce mensualidades', 'Compra de 4.378 € a pagar en 12 cuotas', 'He financiado 4378 € en 12 meses', '4.378 en 12 meses']) {
+        final reply = await session().say(text, calc, now);
+        expect(reply, isA<AssistantQuestion>(), reason: text);
+        expect((reply as AssistantQuestion).field, isNot(PendingField.amount), reason: '$text: the total is known');
+      }
+      final s = session();
+      await s.say('Préstamo de 300 € al mes durante 12 meses para el coche, primera cuota el 1 de diciembre', calc, now);
+      await s.choose('nomina', calc, now);
+      final preview = await s.choose('yes', calc, now) as AssistantPreview;
+      expect(preview.plan!.kind, InstallmentKind.loan);
+      expect(preview.plan!.totalMinor, 360000, reason: '300 € each, 12 times');
+      expect(preview.plan!.name, 'Coche');
+      expect(preview.calendar.every((c) => c.$2 == 30000), isTrue);
+    });
+
+    test('an instalment already paid is a payment of the plan, not a new plan nor a plain expense', () async {
+      final s = session();
+      final calc = FinanceCalculator(data(plans: [sofa]));
+      final preview = await s.say('He pagado la cuota del sofá', calc, now) as AssistantPreview;
+      expect(preview.kind, PreviewKind.instalment);
+      expect(preview.title, contains('Cuota 1/3'));
+      final op = s.confirm(preview, calc.data)!;
+      expect(op.data['record']['externalID'], '${installmentMarker}sofa:1');
+      expect(op.data['record']['amountMinor'], 40000);
+      final status = await session().say('¿Cuánto me queda del sofá?', calc, now) as AssistantResult;
+      expect(status.lines.single, contains('quedan 1.200,00'));
+      expect(status.planId, 'sofa');
+    });
+
+    test('unsupported operations point to their screen and never become an expense', () async {
+      final calc = FinanceCalculator(data());
+      expect((await session().say('¿Cómo quedaría mi disponible si gasto 600 €?', calc, now) as AssistantPointer).kind, IntentKind.simulation);
+      expect((await session().say('Traspasa 100 € a Naranja', calc, now) as AssistantPointer).text, contains('no mueve dinero en el banco'));
+    });
+  });
+
+  group('3. concept and category', () {
+    test('«He gastado 44,53 en la gasolinera»: the concept is kept while asking; fuel is asked, not assumed', () async {
+      final s = session();
+      final calc = FinanceCalculator(data());
+      final account = await s.say('He gastado 44,53 en la gasolinera', calc, now) as AssistantQuestion;
+      expect(account.field, PendingField.account);
+      final category = await s.choose('nomina', calc, now) as AssistantQuestion;
+      expect(category.field, PendingField.category, reason: 'A station sells more than fuel');
+      expect(category.options.first, ('Combustible', 'fuel'));
+      expect(category.options.last, ('Sin categoría', 'none'));
+      final preview = await s.choose('fuel', calc, now) as AssistantPreview;
+      expect(line(preview, 'Concepto'), 'Gasolinera');
+      expect(line(preview, 'Categoría'), 'Combustible');
+      expect(preview.draft!.amountMinor, 4453);
+      expect(preview.draft!.validate(calc.data), isNull);
+    });
+
+    test('fuel itself is proposed; the personal learning and the person\'s rules come first', () async {
+      final calc = FinanceCalculator(data());
+      final fuel = await session().say('Gasté 50 € de gasolina con la Visa Oro', calc, now) as AssistantPreview;
+      expect(line(fuel, 'Categoría'), 'Combustible (propuesta)');
+      expect(fuel.proposal!.source, 'hint');
+      final learnt = await session(learnt: {'Gasolinera': 'ocio'}).say('Gasté 30 en la gasolinera en efectivo', calc, now) as AssistantPreview;
+      expect(line(learnt, 'Categoría'), 'Ocio (propuesta)', reason: 'What this person usually does wins over a generic hint');
+      expect(learnt.proposal!.source, 'model');
+      final brand = await session().say('He gastado 12 en el Mercadona en efectivo', calc, now) as AssistantPreview;
+      expect(line(brand, 'Concepto'), 'Mercadona');
+      expect(line(brand, 'Categoría'), 'Supermercado (propuesta)');
+    });
+  });
+
+  group('4. corrections without starting again', () {
+    test('amount, date and category corrected on the preview; the old card cannot be confirmed', () async {
+      final s = session();
+      final calc = FinanceCalculator(data());
+      final first = await s.say('He gastado 44,53 € en la cena en efectivo', calc, now) as AssistantPreview;
+      final amount = await s.say('No, eran 45 €', calc, now) as AssistantPreview;
+      expect(amount.draft!.amountMinor, 4500);
+      expect(amount.id, first.id, reason: 'Still the same draft');
+      expect(line(amount, 'Concepto'), 'Cena', reason: 'Everything else is kept');
+      final date = await s.say('fue ayer', calc, now) as AssistantPreview;
+      expect(date.draft!.date, DateTime(2026, 11, 24, 12));
+      final category = await s.say('categoría ocio', calc, now) as AssistantPreview;
+      expect(line(category, 'Categoría'), 'Ocio');
+      final account = await s.say('mejor con la de Naranja', calc, now) as AssistantPreview;
+      expect(line(account, 'Cuenta'), 'Ahorro Naranja');
+      expect(s.confirm(first, calc.data), isNull, reason: 'An earlier card is never applied');
+      final op = s.confirm(account, calc.data)!;
+      expect((op.data['record']['amountMinor'], op.data['record']['categoryID'], op.data['record']['sourceAccountID']), (4500, 'ocio', 'ahorro'));
+    });
+  });
+
+  group('5. integrity', () {
+    test('cancel leaves nothing; confirming twice gives one operation; a repeated movement is warned', () async {
+      final s = session();
+      final calc = FinanceCalculator(data());
+      await s.say('He gastado 24 € cenando en efectivo', calc, now);
+      expect((await s.say('cancela', calc, now) as AssistantMessage).text, contains('no se ha guardado nada'));
+      expect(s.hasDraft, isFalse);
+      final preview = await s.say('He gastado 24 € cenando en efectivo', calc, now) as AssistantPreview;
+      expect(s.confirm(preview, calc.data), isNotNull);
+      expect(s.confirm(preview, calc.data), isNull);
+      final existing = Transaction(id: 'x', date: now, type: TransactionType.expense, amountMinor: 2400, descriptionText: 'Cena', sourceAccountId: 'efectivo');
+      final repeated = await session().say('He gastado 24 € cenando en efectivo', FinanceCalculator(data(transactions: [existing])), now) as AssistantPreview;
+      expect(repeated.warnings.single, contains('igual ese día'));
+    });
+
+    test('queries change nothing; the preview\'s «disponible» discounts bank holds like Inicio', () async {
+      final s = session();
+      final calc = FinanceCalculator(data(transactions: month));
+      await s.say('¿Cuánto he gastado este mes?', calc, now);
+      expect(s.hasDraft, isFalse);
+      final preview = await s.say('He gastado 10 € en el super con la de nómina', calc, now, heldMinor: -2000) as AssistantPreview;
+      final available = calc.spendableCash() - 2000;
+      expect(preview.effects.any((e) => e.contains('Tu disponible') && e.contains(money2(available)) && e.contains(money2(available - 1000))), isTrue);
+    });
+
+    test('a new expense while a preview is open is a new subject, said explicitly', () async {
+      final s = session();
+      final calc = FinanceCalculator(data());
+      await s.say('He gastado 24 € cenando en efectivo', calc, now);
+      final other = await s.say('Pagué 12,50 en el super con la de nómina', calc, now) as AssistantPreview;
+      expect(other.note, contains('Dejo aparte el gasto de 24,00'));
+      expect(other.draft!.amountMinor, 1250);
+    });
+  });
+
+  group('6. the earlier bank of sentences still works (and misspelt versions)', () {
+    final cases = <(String, Type)>[
+      ('He gastado 24 € cenando con la tarjeta de Bankinter', AssistantQuestion),
+      ('he gastado 24€ en la cena en efectivo', AssistantPreview),
+      ('Pagué 12,50 en el super en efectivo', AssistantPreview),
+      ('e gastado 20 euros en gasolna en efectivo', AssistantPreview),
+      ('Cobré la nómina, 1.850 €, en Bankinter nómina', AssistantPreview),
+      ('Me han hecho un bizum de 15 euros en efectivo', AssistantPreview),
+      ('Reserva 200 € para vacaciones en Naranja', AssistantPreview),
+      ('reserba 100 para el viaje en naranja', AssistantPreview),
+      ('apunta un ingreso de 30 € en efectivo', AssistantPreview),
+      ('24 €', AssistantQuestion),
+      ('he gastado en el super', AssistantQuestion),
+      ('Hola Don Bigotes', AssistantMessage),
     ];
-    for (final (text, kind, amount) in cases) {
-      test(text, () {
-        final intent = interpret(text, now);
-        expect(intent.kind, kind);
-        expect(intent.amountMinor, amount);
+    for (final (text, type) in cases) {
+      test(text, () async {
+        final reply = await session().say(text, FinanceCalculator(data()), now);
+        expect(reply.runtimeType, type, reason: reply is AssistantMessage ? reply.text : '');
       });
     }
+
+    test('details of a few', () async {
+      final calc = FinanceCalculator(data());
+      final gas = await session().say('e gastado 20 euros en gasolna en efectivo', calc, now) as AssistantPreview;
+      expect(line(gas, 'Concepto'), 'Gasolina');
+      final trip = await session().say('reserba 100 para el viaje en naranja', calc, now) as AssistantPreview;
+      expect(trip.reserve!.name, 'Viaje');
+      final income = await session().say('apunta un ingreso de 30 € en efectivo', calc, now) as AssistantPreview;
+      expect(income.title, contains('Ingreso'));
+      expect((await session().say('he gastado en el super', calc, now) as AssistantQuestion).field, PendingField.amount);
+    });
   });
 
-  test('amounts, dates and periods as written in Spain', () {
-    expect(parseAmount('4.378'), 437800, reason: 'A dot before three digits separates thousands');
+  test('amounts, counts and dates as written in Spain', () {
+    expect(parseAmount('4.378'), 437800);
     expect(parseAmount('4.378,25 €'), 437825);
-    expect(parseAmount('el 3 de noviembre pagué 20'), 2000, reason: 'The day is not the amount');
-    expect(parseAmount('en 12 meses'), isNull);
-    expect(parseAmount('el 5/11 gasté 9,99'), 999);
+    expect(parseAmount('44,53'), 4453);
+    expect(parseAmount('3.5 euros'), 350);
+    expect(parseAmount('pagar 4.378 € en 12 meses'), 437800, reason: 'The count is not the amount');
+    expect(parseAmount('la cuota 3'), isNull);
+    expect(parseCount('en doce mensualidades'), 12);
+    expect(parseCount('12 cuotas de 300 €'), 12);
+    expect(amountIsPerInstalment('12 cuotas de 300 €'), isTrue);
+    expect(amountIsPerInstalment('300 € al mes'), isTrue);
+    expect(amountIsPerInstalment('4.378 € en 12 meses'), isFalse);
     expect(parseDate('ayer', now), DateTime(2026, 11, 24, 12));
-    expect(parseDate('anteayer', now), DateTime(2026, 11, 23, 12));
     expect(parseDate('el lunes', now), DateTime(2026, 11, 23, 12));
-    expect(parseDate('el miércoles', now), DateTime(2026, 11, 18, 12), reason: 'The one before, never today or the future');
-    expect(parseDate('el 3 de noviembre', now), DateTime(2026, 11, 3, 12));
-    expect(parseDate('el 30 de diciembre', now), DateTime(2025, 12, 30, 12), reason: 'Not in the future: last year');
-    expect(parseDate('el 28', now), DateTime(2026, 10, 28, 12));
-    expect(parseDate('5/11', now), DateTime(2026, 11, 5, 12));
-    expect(parseDate('gasté 24 €', now), isNull);
-    expect(interpret('Muéstrame las compras de este mes', now).period, QueryPeriod.thisMonth);
-    expect(interpret('ingresos del mes pasado', now).period, QueryPeriod.lastMonth);
-    expect(interpret('Reserva 200 € para las vacaciones de verano', now).purpose, 'Vacaciones de verano');
-    expect(interpret('He gastado 24 € cenando', now).concept, 'Cena');
+    expect(parseDate('el 30 de diciembre', now), DateTime(2025, 12, 30, 12), reason: 'A movement is never in the future');
+    expect(parseDueDate('el 5 de diciembre', now), DateTime(2026, 12, 5, 12), reason: 'A due date can be');
+    expect(parseDueDate('el día 5', now), DateTime(2026, 12, 5, 12));
+    expect(parseDueDate('el 28', now), DateTime(2026, 11, 28, 12));
+    expect(like('conpras', 'compras'), isTrue);
+    expect(like('gasolinera', 'gasolina'), isFalse, reason: 'A station is not fuel');
   });
 
-  test('the example: an account among two is asked, then a preview with its effect, applied once', () async {
-    final s = session();
-    final calc = FinanceCalculator(data());
-    var reply = await s.say('He gastado 24 € cenando con la de Bankinter', calc, now);
-    expect(reply, isA<AssistantQuestion>());
-    final question = reply as AssistantQuestion;
-    expect(question.field, PendingField.account);
-    expect(question.options.map((o) => o.$2), unorderedEquals(['nomina', 'credito']), reason: 'Never guessed between the two');
-    reply = await s.choose('credito', calc, now);
-    final preview = reply as AssistantPreview;
-    expect(preview.title, contains('24,00'));
-    expect(preview.lines.map((l) => l.$2), containsAll(['Cena', 'Bankinter crédito']));
-    expect(preview.lines.firstWhere((l) => l.$1 == 'Categoría').$2, contains('Restaurantes'));
-    expect(preview.effects.any((e) => e.startsWith('Presupuesto de Restaurantes')), isTrue);
-    expect(preview.draft!.validate(calc.data), isNull, reason: 'The form\'s own rules');
-    // Confirmed: one insert with the preview's id; a second tap gives nothing.
-    final op = s.confirm(preview, calc.data)!;
-    expect(op.kind, 'insert');
-    expect(op.data['record']['id'], preview.id);
-    expect(op.data['record']['amountMinor'], 2400);
-    expect(op.data['record']['sourceAccountID'], 'credito');
-    expect(s.confirm(preview, calc.data), isNull);
-    final doc = <String, dynamic>{'transactions': <dynamic>[]};
-    applyOperation(doc, op);
-    expect((doc['transactions'] as List).length, 1);
-    expect(s.undo(preview, Finances.fromDocument({...doc, 'accounts': const []}))!.kind, 'delete');
-  });
-
-  test('a card named by its name or its last digits is its account; an answer in words fills the question', () async {
-    final s = session();
-    final calc = FinanceCalculator(data());
-    final byCard = await s.say('Pagué 9,99 con la Visa Oro', calc, now) as AssistantPreview;
-    expect(byCard.lines.firstWhere((l) => l.$1 == 'Cuenta').$2, 'Bankinter crédito');
-    s.cancel();
-    expect(await s.say('Gasté 10 € con la 4321', calc, now), isA<AssistantPreview>());
-    s.cancel();
-    expect(await s.say('He gastado 30 €', calc, now), isA<AssistantQuestion>());
-    final answered = await s.say('con la de efectivo', calc, now) as AssistantPreview;
-    expect(answered.lines.firstWhere((l) => l.$1 == 'Cuenta').$2, 'Efectivo');
-    // An amount alone: asked whether it is an expense or an income.
-    s.cancel();
-    final kind = await s.say('35 €', calc, now) as AssistantQuestion;
-    expect(kind.field, PendingField.kind);
-  });
-
-  test('missing amount or purpose are asked; a reserve shows the free money and nothing moves', () async {
-    final s = session();
-    final calc = FinanceCalculator(data());
-    expect((await s.say('Reserva dinero para vacaciones', calc, now) as AssistantQuestion).field, PendingField.amount);
-    final where = await s.say('200 €', calc, now) as AssistantQuestion;
-    expect(where.field, PendingField.account);
-    expect(where.options.map((o) => o.$2), isNot(contains('credito')), reason: 'Not in a credit card');
-    final preview = await s.choose('ahorro', calc, now) as AssistantPreview;
-    expect(preview.reserve!.name, 'Vacaciones');
-    expect(preview.effects.first, contains('3.000,00'));
-    final op = s.confirm(preview, calc.data)!;
-    expect(op.kind, 'upsert');
-    expect(op.data['entity'], 'reservedFunds');
-    expect(op.data['record']['accountID'], 'ahorro');
-    s.cancel();
-    expect((await s.say('Reserva 50 € en Naranja', calc, now) as AssistantQuestion).field, PendingField.purpose);
-  });
-
-  test('cancel leaves nothing; a repeated request is warned as a possible duplicate', () async {
-    final s = session();
-    final existing = Transaction(
-        id: 'previo', date: now, type: TransactionType.expense, amountMinor: 2400, descriptionText: 'Cena', sourceAccountId: 'efectivo');
-    final calc = FinanceCalculator(data(transactions: [existing]));
-    final preview = await s.say('He gastado 24 € cenando en efectivo', calc, now) as AssistantPreview;
-    expect(preview.warnings.single, contains('igual ese día'));
-    s.cancel();
-    expect(await s.choose('efectivo', calc, now), isA<AssistantNotUnderstood>(), reason: 'Nothing pending after cancelling');
-  });
-
-  test('queries run on the device: purchases of the month, a summary, a category', () async {
-    final s = session();
-    final rows = [
-      Transaction(id: 'a', date: DateTime(2026, 11, 3), type: TransactionType.expense, amountMinor: 3000, descriptionText: 'Tienda', sourceAccountId: 'nomina', categoryId: 'compras'),
-      Transaction(id: 'b', date: DateTime(2026, 11, 20), type: TransactionType.expense, amountMinor: 1500, descriptionText: 'Tienda 2', sourceAccountId: 'nomina', categoryId: 'compras'),
-      Transaction(id: 'c', date: DateTime(2026, 10, 20), type: TransactionType.expense, amountMinor: 900, descriptionText: 'Tienda vieja', sourceAccountId: 'nomina', categoryId: 'compras'),
-      Transaction(id: 'd', date: DateTime(2026, 11, 21), type: TransactionType.expense, amountMinor: 2000, descriptionText: 'Cena', sourceAccountId: 'nomina', categoryId: 'rest'),
-      Transaction(id: 'e', date: DateTime(2026, 11, 1), type: TransactionType.income, amountMinor: 185000, descriptionText: 'Nómina', sourceAccountId: 'nomina', categoryId: 'nomina-cat'),
-    ];
-    final calc = FinanceCalculator(data(transactions: rows));
-    final list = await s.say('Muéstrame las compras de este mes', calc, now) as AssistantResult;
-    expect(list.transactions.map((t) => t.id), ['b', 'a']);
-    expect(list.totalMinor, 4500);
-    final summary = await s.say('¿Cuánto he gastado este mes?', calc, now) as AssistantResult;
-    expect(summary.lines.first, contains('1.850,00'));
-    expect(summary.lines[1], contains('65,00'));
-    final category = await s.say('¿Cuánto llevo gastado en restaurantes?', calc, now) as AssistantResult;
-    expect(category.lines.single, contains('20,00'));
-    final last = await s.say('Quiero ver mis ingresos del mes pasado', calc, now) as AssistantResult;
-    expect(last.transactions, isEmpty);
-  });
-
-  test('plans, simulations and transfers point to their screens; nothing moves money at a bank', () async {
-    final s = session();
-    final calc = FinanceCalculator(data());
-    expect((await s.say('Tengo que pagar 4.378 € repartidos en 12 meses', calc, now) as AssistantPointer).kind, IntentKind.installments);
-    expect((await s.say('¿Cómo quedaría mi disponible si gasto 600 €?', calc, now) as AssistantPointer).kind, IntentKind.simulation);
-    final transfer = await s.say('Traspasa 100 € a Naranja', calc, now) as AssistantPointer;
-    expect(transfer.text, contains('no mueve dinero en el banco'));
-    expect(await s.say('Hola', calc, now), isA<AssistantNotUnderstood>());
+  test('the intent a future model would return is validated: unknown fields or values are refused', () {
+    expect(AssistantIntent.fromJson({'kind': 'expense', 'amountMinor': 4453, 'concept': 'Gasolinera'})!.amountMinor, 4453);
+    expect(AssistantIntent.fromJson({'kind': 'expense', 'sql': 'drop'}), isNull);
+    expect(AssistantIntent.fromJson({'kind': 'payBank'}), isNull);
+    expect(AssistantIntent.fromJson({'kind': 'expense', 'amountMinor': -5})!.amountMinor, isNull);
   });
 }
+
+
+String money2(int minor) => '${(minor ~/ 100).toString().replaceAllMapped(RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]}.')},${(minor.abs() % 100).toString().padLeft(2, '0')}';

@@ -41,21 +41,6 @@ InstallmentPlan _copy(InstallmentPlan p, {List<Installment>? schedule, bool? isA
       notes: p.notes,
     );
 
-/// What a plan counts as, in words: separate the calendar from its effect on spending and budgets.
-String installmentEffect(InstallmentPlan p) {
-  final what = switch (p.kind) {
-    InstallmentKind.purchase => 'la compra',
-    InstallmentKind.loan => 'el dinero del préstamo',
-    InstallmentKind.other => 'el gasto',
-  };
-  final spending = p.alreadyRecorded
-      ? (p.costsMinor > 0
-          ? 'Ya tenías apuntado $what: las cuotas lo devuelven y solo cuentan como gasto los intereses y comisiones (${money(p.costsMinor)} repartidos entre las cuotas).'
-          : 'Ya tenías apuntado $what: las cuotas lo devuelven y no cuentan otra vez como gasto ni en presupuestos.')
-      : 'Cada cuota cuenta como gasto del mes en que la pagas.';
-  return '$spending Las cuotas futuras solo aparecen en la previsión: no mueven el saldo hasta pagarlas. No se crea ningún presupuesto.';
-}
-
 class InstallmentsScreen extends StatelessWidget {
   const InstallmentsScreen({super.key, required this.repository});
   final FinanceRepository repository;
@@ -114,27 +99,31 @@ class InstallmentsScreen extends StatelessWidget {
 // ---------------------------------------------------------------- sign-up and edit
 
 class InstallmentFormScreen extends StatefulWidget {
-  const InstallmentFormScreen({super.key, required this.repository, this.editing});
+  const InstallmentFormScreen({super.key, required this.repository, this.editing, this.prefill});
   final FinanceRepository repository;
   final InstallmentPlan? editing;
+
+  /// A new plan already filled in (Don Bigotes' «Corregir»): saved as new, every field editable.
+  final InstallmentPlan? prefill;
   @override
   State<InstallmentFormScreen> createState() => _InstallmentFormScreenState();
 }
 
 class _InstallmentFormScreenState extends State<InstallmentFormScreen> {
   late final InstallmentPlan? e = widget.editing;
-  late InstallmentKind? _kind = e?.kind;
-  late final _name = TextEditingController(text: e?.name ?? '');
-  late final _total = TextEditingController(text: e == null ? '' : amountText(e!.totalMinor));
-  late final _count = TextEditingController(text: e == null ? '' : '${e!.count}');
-  late final _agreed = TextEditingController(text: e?.agreedInstallmentMinor == null ? '' : amountText(e!.agreedInstallmentMinor!));
-  late final _costs = TextEditingController(text: (e?.costsMinor ?? 0) == 0 ? '' : amountText(e!.costsMinor));
-  late final _paidBefore = TextEditingController(text: (e?.paidBeforeCount ?? 0) == 0 ? '' : '${e!.paidBeforeCount}');
-  late DateTime? _first = e?.schedule.firstOrNull?.dueDate;
-  late String? _account = e?.accountId;
-  late bool _hasCosts = (e?.costsMinor ?? 0) > 0;
-  late bool? _recorded = e?.alreadyRecorded;
-  late bool _startedBefore = (e?.paidBeforeCount ?? 0) > 0;
+  late final InstallmentPlan? _seed = widget.editing ?? widget.prefill;
+  late InstallmentKind? _kind = _seed?.kind;
+  late final _name = TextEditingController(text: _seed?.name ?? '');
+  late final _total = TextEditingController(text: _seed == null ? '' : amountText(_seed.totalMinor));
+  late final _count = TextEditingController(text: _seed == null ? '' : '${_seed.count}');
+  late final _agreed = TextEditingController(text: _seed?.agreedInstallmentMinor == null ? '' : amountText(_seed!.agreedInstallmentMinor!));
+  late final _costs = TextEditingController(text: (_seed?.costsMinor ?? 0) == 0 ? '' : amountText(_seed!.costsMinor));
+  late final _paidBefore = TextEditingController(text: (_seed?.paidBeforeCount ?? 0) == 0 ? '' : '${_seed!.paidBeforeCount}');
+  late DateTime? _first = _seed?.schedule.firstOrNull?.dueDate;
+  late String? _account = _seed?.accountId;
+  late bool _hasCosts = (_seed?.costsMinor ?? 0) > 0;
+  late bool? _recorded = _seed?.alreadyRecorded;
+  late bool _startedBefore = (_seed?.paidBeforeCount ?? 0) > 0;
   final _pause = <String>{};
   String? _message;
   bool _saving = false;

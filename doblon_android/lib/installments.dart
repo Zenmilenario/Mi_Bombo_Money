@@ -297,3 +297,18 @@ List<CompanionNote> installmentNotes(Finances data, DateTime now) {
   }
   return notes;
 }
+
+/// What a plan counts as, in words: separate the calendar from its effect on spending and budgets.
+String installmentEffect(InstallmentPlan p) {
+  final what = switch (p.kind) {
+    InstallmentKind.purchase => 'la compra',
+    InstallmentKind.loan => 'el dinero del préstamo',
+    InstallmentKind.other => 'el gasto',
+  };
+  final spending = p.alreadyRecorded
+      ? (p.costsMinor > 0
+          ? 'Ya tenías apuntado $what: las cuotas lo devuelven y solo cuentan como gasto los intereses y comisiones (${money(p.costsMinor)} repartidos entre las cuotas).'
+          : 'Ya tenías apuntado $what: las cuotas lo devuelven y no cuentan otra vez como gasto ni en presupuestos.')
+      : 'Cada cuota cuenta como gasto del mes en que la pagas.';
+  return '$spending Las cuotas futuras solo aparecen en la previsión: no mueven el saldo hasta pagarlas. No se crea ningún presupuesto.';
+}

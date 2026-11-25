@@ -194,4 +194,61 @@ void main() {
     expect(repo.finances!.transactions, isEmpty);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('the keyboard hides on an empty part or when scrolling, keeps the text, and a large text size does not overflow', (tester) async {
+    tester.view.physicalSize = const Size(360, 740);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final cloud = profiles.Cloud('fictitious-admin', encrypted: false, document: document());
+    late FinanceRepository repo;
+    await tester.runAsync(() async {
+      await cloud.prepare();
+      FlutterSecureStorage.setMockInitialValues(cloud.secureStorage);
+      final dir = await Directory.systemTemp.createTemp('doblon-assistant-keyboard');
+      addTearDown(() async {
+        try {
+          await dir.delete(recursive: true);
+        } on FileSystemException catch (_) {}
+      });
+      final client = await cloud.client();
+      addTearDown(client.dispose);
+      repo = FinanceRepository(store: LocalStore(dir), cloudClient: client);
+      addTearDown(repo.dispose);
+      await repo.refresh();
+    });
+    await tester.pumpWidget(MediaQuery(
+      data: const MediaQueryData(size: Size(360, 740), textScaler: TextScaler.linear(2)),
+      child: app(AssistantScreen(repository: repo, clock: () => DateTime(2026, 11, 25, 18))),
+    ));
+    await tester.enterText(find.byType(TextField), 'He gastado 44,53 en la gasolinera con Bankinter nómina');
+    await tester.testTextInput.receiveAction(TextInputAction.send);
+    await settle(tester, 5);
+    expect(find.textContaining('Gasto · 44,53'), findsOneWidget);
+    expect(tester.takeException(), isNull, reason: 'No overflow with text at 200 %');
+    // Typing again, then tapping an empty part of the conversation: the keyboard hides and the text stays.
+    await tester.tap(find.byType(TextField));
+    await tester.enterText(find.byType(TextField), 'eran 45');
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isTrue);
+    await tester.tapAt(const Offset(350, 120));
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isFalse);
+    expect(find.widgetWithText(TextField, 'eran 45'), findsOneWidget);
+    // Back to the field: it opens again; scrolling the conversation hides it.
+    await tester.tap(find.byType(TextField));
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isTrue);
+    await tester.drag(find.byType(ListView), const Offset(0, 200));
+    await tester.pump();
+    expect(tester.testTextInput.isVisible, isFalse);
+    // The buttons still answer: Confirmar records it.
+    await tester.tapAt(const Offset(350, 120)); // closes the text menu the second tap on the field opened
+    await tester.pump(const Duration(milliseconds: 600)); // the scroll to the last card after focusing ends
+    await tester.drag(find.byType(ListView), const Offset(0, -800)); // back down to the card
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.widgetWithText(FilledButton, 'Confirmar'));
+    await settle(tester);
+    expect(repo.finances!.transactions.single.descriptionText, 'Gasolinera');
+    expect(tester.takeException(), isNull);
+  });
 }
