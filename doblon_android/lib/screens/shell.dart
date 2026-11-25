@@ -259,7 +259,10 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
               FilledButton.tonalIcon(
                 onPressed: () {
                   Navigator.pop(context);
-                  Navigator.of(this.context).push(MaterialPageRoute(builder: (_) => AssistantScreen(repository: repository)));
+                  Navigator.of(this.context).push(MaterialPageRoute(
+                      builder: (_) => AssistantScreen(
+                          repository: repository,
+                          remote: widget.preferences.assistantModelFor(repository.userId) ? repository.interpretRemotely : null)));
                 },
                 icon: const Icon(Icons.chat_bubble_outline),
                 label: const Text('Pídeme algo'),
@@ -627,6 +630,36 @@ class _SettingsPage extends StatelessWidget {
           subtitle: const Text('Señala lo que merece tu atención, sin decirte qué hacer'),
           value: preferences.companionEnabled,
           onChanged: preferences.setCompanionEnabled,
+        ),
+        SwitchListTile(
+          secondary: Icon(Icons.chat_bubble_outline, color: pulso.accent),
+          title: const Text('Frases libres con Don Bigotes'),
+          subtitle: const Text('Interpreta lo que escribes con un modelo de Cloudflare. Gratis, 40 frases al día. Apagado: solo reglas en el móvil'),
+          value: preferences.assistantModelFor(repository.userId),
+          onChanged: repository.userId == null
+              ? null
+              : (v) async {
+                  if (v &&
+                      await showDialog<bool>(
+                            context: context,
+                            builder: (context) => AlertDialog(
+                              title: const Text('¿Activar las frases libres?'),
+                              content: const Text(
+                                  'Cada frase que escribas a Don Bigotes se enviará a nuestro servidor y a Cloudflare Workers AI para entenderla, junto con '
+                                  'la fecha de hoy y los nombres de tus cuentas, tarjetas, categorías y pagos a plazos. Nunca se envían saldos, movimientos, '
+                                  'IBAN ni conceptos del banco. Cloudflare no guarda la frase ni la usa para entrenar modelos. Nada se guarda en Doblón sin '
+                                  'que lo confirmes. Puedes apagarlo cuando quieras.'),
+                              actions: [
+                                TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Ahora no')),
+                                FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Activar')),
+                              ],
+                            ),
+                          ) !=
+                          true) {
+                    return;
+                  }
+                  await preferences.setAssistantModel(repository.userId!, v);
+                },
         ),
         if (preferences.dismissedNotes.isNotEmpty)
           ListTile(

@@ -28,7 +28,7 @@ import 'installments.dart';
 import 'models.dart';
 import 'presentation.dart' show money;
 
-enum IntentKind { expense, income, reserve, listMovements, summary, createPlan, payInstalment, planStatus, simulation, transfer, unknown }
+enum IntentKind { expense, income, reserve, listMovements, summary, createPlan, payInstalment, planStatus, simulation, transfer, correction, unknown }
 
 enum QueryPeriod { today, yesterday, thisWeek, thisMonth, lastMonth, thisYear }
 
@@ -433,17 +433,37 @@ String? extractConcept(String text, Finances data) {
   return (const [], false);
 }
 
-// ---------------------------------------------------------------- the intent (shared with a future model)
+// ---------------------------------------------------------------- the intent (shared with the model)
 
-/// What a sentence asks for, closed. A model in phase 2 would return exactly this, validated by `fromJson` against
-/// `assistantIntentSchema`: it never sees the database and never writes.
+/// What a sentence asks for, closed. The interpreter on the server (phase 2, `BankingBackend/src/assistant.mjs`)
+/// returns exactly this and it is validated again here: unknown fields or values are refused. It never sees the
+/// database and never writes; the session resolves it with the app's rules and asks for confirmation.
 class AssistantIntent {
-  AssistantIntent({required this.kind, this.amountMinor, this.count, this.date, this.period, this.concept, this.purpose, this.accountText, this.categoryText});
+  AssistantIntent({
+    required this.kind,
+    this.amountMinor,
+    this.count,
+    this.instalmentNumber,
+    this.perInstalment,
+    this.date,
+    this.dueDate,
+    this.period,
+    this.scope,
+    this.planKind,
+    this.concept,
+    this.purpose,
+    this.accountText,
+    this.categoryText,
+    this.planText,
+  });
   final IntentKind kind;
-  final int? amountMinor, count;
-  final DateTime? date;
+  final int? amountMinor, count, instalmentNumber;
+  final bool? perInstalment;
+  final DateTime? date, dueDate;
   final QueryPeriod? period;
-  final String? concept, purpose, accountText, categoryText;
+  final QueryScope? scope;
+  final InstallmentKind? planKind;
+  final String? concept, purpose, accountText, categoryText, planText;
 
   static AssistantIntent? fromJson(Object? json) {
     if (json is! Map) return null;
@@ -452,23 +472,36 @@ class AssistantIntent {
     final kind = IntentKind.values.where((k) => k.name == json['kind']).firstOrNull;
     if (kind == null) return null;
     int? cents(Object? v) => v is int && v > 0 && v < 100000000000 ? v : null;
+    int? small(Object? v) => v is int && v >= 1 && v <= 600 ? v : null;
     String? text(Object? v) => v is String && v.trim().isNotEmpty && v.length <= 120 ? v.trim() : null;
-    final count = json['count'];
+    DateTime? day(Object? v) {
+      final m = v is String ? RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(v) : null;
+      if (m == null) return null;
+      final d = DateTime(int.parse(m.group(1)!), int.parse(m.group(2)!), int.parse(m.group(3)!), 12);
+      return d.month == int.parse(m.group(2)!) ? d : null;
+    }
+
     return AssistantIntent(
       kind: kind,
       amountMinor: cents(json['amountMinor']),
-      count: count is int && count >= 1 && count <= 600 ? count : null,
-      date: json['date'] is String ? DateTime.tryParse(json['date'] as String) : null,
+      count: small(json['count']),
+      instalmentNumber: small(json['instalmentNumber']),
+      perInstalment: json['perInstalment'] is bool ? json['perInstalment'] as bool : null,
+      date: day(json['date']),
+      dueDate: day(json['dueDate']),
       period: QueryPeriod.values.where((p) => p.name == json['period']).firstOrNull,
+      scope: const {'expenses': QueryScope.expenses, 'income': QueryScope.income, 'all': QueryScope.all}[json['scope']],
+      planKind: InstallmentKind.values.where((k) => k.name == json['planKind']).firstOrNull,
       concept: text(json['concept']),
       purpose: text(json['purpose']),
       accountText: text(json['accountText']),
       categoryText: text(json['categoryText']),
+      planText: text(json['planText']),
     );
   }
 }
 
-/// The JSON schema a model must fill (phase 2): only these fields, only these values.
+/// The JSON schema the model must fill: only these fields, only these values (the same as the server's).
 const assistantIntentSchema = <String, Object>{
   'type': 'object',
   'additionalProperties': false,
@@ -476,21 +509,36 @@ const assistantIntentSchema = <String, Object>{
   'properties': {
     'kind': {
       'type': 'string',
-      'enum': ['expense', 'income', 'reserve', 'listMovements', 'summary', 'createPlan', 'payInstalment', 'planStatus', 'simulation', 'transfer', 'unknown']
+      'enum': ['expense', 'income', 'reserve', 'listMovements', 'summary', 'createPlan', 'payInstalment', 'planStatus', 'simulation', 'transfer', 'correction', 'unknown']
     },
     'amountMinor': {'type': 'integer', 'minimum': 1},
+    'perInstalment': {'type': 'boolean'},
     'count': {'type': 'integer', 'minimum': 1, 'maximum': 600},
+    'instalmentNumber': {'type': 'integer', 'minimum': 1, 'maximum': 600},
     'date': {'type': 'string', 'description': 'YYYY-MM-DD'},
+    'dueDate': {'type': 'string', 'description': 'YYYY-MM-DD'},
     'period': {
       'type': 'string',
       'enum': ['today', 'yesterday', 'thisWeek', 'thisMonth', 'lastMonth', 'thisYear']
     },
-    'concept': {'type': 'string', 'maxLength': 120},
-    'purpose': {'type': 'string', 'maxLength': 120},
-    'accountText': {'type': 'string', 'maxLength': 120},
-    'categoryText': {'type': 'string', 'maxLength': 120},
+    'scope': {
+      'type': 'string',
+      'enum': ['expenses', 'income', 'all']
+    },
+    'planKind': {
+      'type': 'string',
+      'enum': ['purchase', 'loan', 'other']
+    },
+    'concept': {'type': 'string', 'maxLength': 80},
+    'purpose': {'type': 'string', 'maxLength': 80},
+    'accountText': {'type': 'string', 'maxLength': 80},
+    'categoryText': {'type': 'string', 'maxLength': 80},
+    'planText': {'type': 'string', 'maxLength': 80},
   },
 };
+
+/// What the model answered, or why it could not (the session then goes on with its own rules).
+typedef RemoteInterpretation = ({AssistantIntent? intent, String? error});
 
 // ---------------------------------------------------------------- replies
 
@@ -603,8 +651,12 @@ typedef _LastQuery = ({IntentKind kind, QueryPeriod period, QueryScope scope, St
 /// One conversation: the draft being prepared, a draft set aside, the last query (for continuations) and the ids
 /// already applied (a preview is applied once).
 class AssistantSession {
-  AssistantSession({required this.newId, this.propose});
+  AssistantSession({required this.newId, this.propose, this.remote});
   final String Function() newId;
+
+  /// The interpreter on the server (phase 2), only when the person turned it on in Ajustes. It receives
+  /// `contextFor`'s minimal context and returns an intent or why it could not; null means rules only.
+  final Future<RemoteInterpretation> Function(Map<String, Object?> context)? remote;
 
   /// The category the personal learning proposes for a concept (`Learning.categoryProposal`): (id, source).
   final Future<(String, String)?> Function(String text, TransactionType type)? propose;
@@ -637,7 +689,8 @@ class AssistantSession {
       final asking = s.question || s.consult || s.summary || s.listNoun || s.simulate || s.transfer || s.reserve != (draft.kind == IntentKind.reserve) && s.reserve ||
           (s.plan && draft.kind != IntentKind.createPlan && draft.kind != IntentKind.payInstalment);
       if (draft.pending != null && !asking && _fill(draft, draft.pending!, s, data, now)) return _next(calc, now, heldMinor);
-      if (!newSubject && _correct(draft, s, data, now)) return _next(calc, now, heldMinor);
+      // With the model on, it reads corrections in natural language; the rules correct only when it is off or fails.
+      if (remote == null && !newSubject && _correct(draft, s, data, now)) return _next(calc, now, heldMinor);
     }
     if (_scopeWaiting != null) {
       final choice = _any(s.words, ['categoria', 'solo']) ? true : (_any(s.words, ['todos', 'todo', 'todas']) ? false : null);
@@ -650,6 +703,27 @@ class AssistantSession {
       _parked = null;
       return _next(calc, now, heldMinor);
     }
+    // The model, when the person turned it on: natural language, with the rules as the fallback.
+    String? fallbackNote;
+    if (remote != null && text.trim().length <= 300) {
+      final answer = await remote!(contextFor(text, data, now));
+      final intent = answer.intent;
+      if (intent != null) {
+        final reply = await _fromIntent(intent, s, calc, now, heldMinor);
+        if (reply != null) return reply;
+      } else {
+        fallbackNote = switch (answer.error) {
+          'assistant_quota' => 'Hoy ya has usado tus 40 frases libres: sigo con mis reglas hasta mañana.',
+          'assistant_quota_server' => 'Hoy se ha agotado el cupo gratuito del intérprete: sigo con mis reglas hasta mañana.',
+          'network' => 'Sin conexión: lo interpreto con mis reglas.',
+          _ => 'El intérprete no ha respondido: lo interpreto con mis reglas.',
+        };
+      }
+    }
+    if (draft != null && !(s.mainIntent && !s.correction) && _correct(draft, s, data, now)) {
+      final reply = await _next(calc, now, heldMinor);
+      return reply..note ??= fallbackNote;
+    }
     final kind = _decide(s, data);
     String? note;
     if (draft != null) {
@@ -658,6 +732,167 @@ class AssistantSession {
       note = 'Dejo aparte ${draft.describe()} sin guardar. Escribe «retómalo» para seguir con él.';
     }
     final reply = await _start(kind, s, calc, now, heldMinor);
+    reply.note ??= note ?? fallbackNote;
+    return reply;
+  }
+
+  String? _lastTitle;
+
+  /// The minimal context the model receives: the sentence, today, the names of the person's accounts, cards,
+  /// categories and plans, the last query and the draft in words. Never balances, movements, IBANs or bank concepts.
+  Map<String, Object?> contextFor(String sentence, Finances data, DateTime now) {
+    List<String> names(Iterable<String> all) => [for (final n in all.where((n) => n.trim().isNotEmpty).take(40)) n.length > 60 ? n.substring(0, 60) : n];
+    final draft = _draft;
+    String? describeDraft() {
+      if (draft == null) return null;
+      final what = <String>[
+        draft.describe(),
+        if (draft.concept != null) '(${draft.concept})',
+        if (draft.accountId != null) 'en ${data.account(draft.accountId)?.name ?? ''}',
+        if (draft.categoryId != null) 'categoría ${data.category(draft.categoryId)?.name ?? ''}',
+        if (draft.count != null) '${draft.count} cuotas',
+        if (draft.pending != null) '; falta: ${draft.pending!.name}',
+        if (draft.preview != null) '; enseñado para confirmar',
+      ].join(' ');
+      return what.length > 200 ? what.substring(0, 200) : what;
+    }
+
+    return {
+      'sentence': sentence.trim(),
+      'today': '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}',
+      'accounts': names([
+        for (final a in data.accounts.where((a) => !a.isArchived)) a.name,
+        for (final c in data.cards.where((c) => !c.isArchived)) c.name,
+      ]),
+      'categories': names(data.categories.where((c) => !c.isArchived).map((c) => c.name)),
+      'plans': names(data.installmentPlans.where((p) => !p.isArchived).map((p) => p.name)),
+      if (_lastTitle != null) 'lastQuery': _lastTitle,
+      if (describeDraft() != null) 'draft': describeDraft(),
+    };
+  }
+
+  /// Resolves a model's intent with the same rules as a sentence understood here. Null when it says nothing useful
+  /// (the rules then try).
+  Future<AssistantReply?> _fromIntent(AssistantIntent i, Signals s, FinanceCalculator calc, DateTime now, int heldMinor) async {
+    final data = calc.data;
+    final draft = _draft;
+    if (i.kind == IntentKind.unknown) return null;
+    if (i.kind == IntentKind.correction) {
+      if (draft == null) return null;
+      var changed = false;
+      if (i.amountMinor != null) {
+        draft.amountMinor = i.amountMinor;
+        if (i.perInstalment != null) draft.perInstalment = i.perInstalment!;
+        changed = true;
+      }
+      if (i.date != null && !i.date!.isAfter(now)) {
+        draft.date = i.date;
+        changed = true;
+      }
+      if (i.dueDate != null && draft.kind == IntentKind.createPlan) {
+        draft.dueDate = i.dueDate;
+        changed = true;
+      }
+      if (i.count != null) {
+        draft.count = i.count;
+        changed = true;
+      }
+      if (i.planKind != null) {
+        draft.planKind = i.planKind;
+        changed = true;
+      }
+      if (i.concept != null && (draft.kind == IntentKind.expense || draft.kind == IntentKind.income)) {
+        draft.concept = i.concept;
+        changed = true;
+      }
+      if (i.purpose != null) {
+        if (draft.kind == IntentKind.reserve) draft.purpose = i.purpose;
+        if (draft.kind == IntentKind.createPlan) draft.planName = i.purpose;
+        changed = true;
+      }
+      if (i.accountText != null) {
+        final named = namedAccounts(i.accountText!, data, allowed: draft.kind == IntentKind.reserve ? _reservable : null);
+        if (named.length == 1) draft.accountId = named.single.account.id;
+        if (named.length > 1) {
+          draft.accountId = null;
+          draft.accountOptions = named;
+        }
+        changed = changed || named.isNotEmpty;
+      }
+      if (i.categoryText != null) {
+        final type = draft.kind == IntentKind.income ? TransactionType.income : TransactionType.expense;
+        final c = namedCategory(i.categoryText!, data, (c) => categorySupports(c, type));
+        if (c != null) {
+          draft.categoryId = c.id;
+          draft.categoryDecided = true;
+          draft.proposal = null;
+          changed = true;
+        }
+      }
+      if (!changed) return null;
+      draft.pending = null;
+      return _next(calc, now, heldMinor);
+    }
+    // Anything else is a new request: an open draft is set aside, said explicitly.
+    String? note;
+    if (draft != null) {
+      _parked = draft;
+      _draft = null;
+      note = 'Dejo aparte ${draft.describe()} sin guardar. Escribe «retómalo» para seguir con él.';
+    }
+    AssistantReply reply;
+    switch (i.kind) {
+      case IntentKind.simulation || IntentKind.transfer:
+        reply = await _start(i.kind, s, calc, now, heldMinor);
+      case IntentKind.planStatus:
+        reply = _planStatus(Signals(i.planText ?? '', now), data, now);
+      case IntentKind.summary:
+        final period = i.period ?? _last?.period ?? QueryPeriod.thisMonth;
+        reply = _summary(calc, now, Signals(i.categoryText ?? '', now), period);
+      case IntentKind.listMovements:
+        final period = i.period ?? _last?.period ?? QueryPeriod.thisMonth;
+        final income = i.scope == QueryScope.income;
+        final accounts = i.accountText == null ? const <AccountChoice>[] : namedAccounts(i.accountText!, data);
+        final category = i.categoryText == null ? null : namedCategory(i.categoryText!, data, (_) => true);
+        reply = _list(calc, now,
+            period: period,
+            income: income,
+            accountId: accounts.length == 1 ? accounts.single.account.id : null,
+            categoryId: category?.id,
+            all: i.scope == QueryScope.all);
+      default:
+        final d = _draft = _Draft(i.kind)
+          ..amountMinor = i.amountMinor
+          ..date = i.date != null && !i.date!.isAfter(now) ? i.date : null
+          ..concept = i.concept;
+        if (i.kind == IntentKind.reserve) d.purpose = i.purpose;
+        if (i.kind == IntentKind.createPlan) {
+          d.count = i.count;
+          d.perInstalment = i.perInstalment ?? false;
+          d.dueDate = i.dueDate;
+          d.planKind = i.planKind;
+          d.planName = i.purpose;
+          d.date = null;
+        }
+        if (i.kind == IntentKind.payInstalment) {
+          d.instalmentNumber = i.instalmentNumber;
+          d.planId = i.planText == null ? null : _namedPlan(i.planText!, data)?.id;
+        }
+        if (i.accountText != null) {
+          final named = namedAccounts(i.accountText!, data, allowed: i.kind == IntentKind.reserve ? _reservable : null);
+          if (named.length == 1) d.accountId = named.single.account.id;
+          if (named.length > 1) d.accountOptions = named;
+        }
+        if ((i.kind == IntentKind.expense || i.kind == IntentKind.income) && i.categoryText != null) {
+          final type = i.kind == IntentKind.income ? TransactionType.income : TransactionType.expense;
+          final c = namedCategory(i.categoryText!, data, (c) => categorySupports(c, type));
+          if (c != null) {
+            d.categoryId = c.id;
+            d.categoryDecided = true;
+          }
+        }
+        reply = await _next(calc, now, heldMinor);
+    }
     reply.note ??= note;
     return reply;
   }
@@ -732,6 +967,8 @@ class AssistantSession {
         return AssistantMessage('No lo he entendido. Puedo apuntar gastos e ingresos («He gastado 24 € en la gasolinera»), reservar dinero '
             '(«Reserva 200 € para vacaciones»), preparar un pago a plazos («4.378 € en 12 meses»), apuntar una cuota pagada o enseñarte '
             'movimientos y resúmenes («¿Qué he comprado este mes?»).');
+      case IntentKind.correction:
+        return AssistantMessage('No hay nada abierto que corregir. ¿Qué quieres apuntar o consultar?');
       case IntentKind.simulation:
         return AssistantPointer('Las simulaciones aún no se hacen desde el chat. En la previsión puedes simular un gasto sin apuntarlo.', kind);
       case IntentKind.transfer:
@@ -1296,8 +1533,9 @@ class AssistantSession {
     );
     final what = category?.name ?? (all ? 'Movimientos' : (income ? 'Ingresos' : 'Gastos'));
     final account = data.account(accountId);
+    _lastTitle = '$what ${period.title}${account == null ? '' : ' en ${account.name}'}';
     return AssistantResult(
-      '$what ${period.title}${account == null ? '' : ' en ${account.name}'}',
+      _lastTitle!,
       [rows.isEmpty ? 'No hay ninguno.' : '${rows.length} ${rows.length == 1 ? 'movimiento' : 'movimientos'}${total == null ? '' : ' · ${money(total)} en total'}. Tócalos para abrirlos.'],
       transactions: rows.take(30).toList(),
       totalMinor: total,
@@ -1309,6 +1547,7 @@ class AssistantSession {
     final month = usable == QueryPeriod.lastMonth ? DateTime(now.year, now.month - 1) : DateTime(now.year, now.month);
     final category = namedCategory(s.raw, calc.data, (c) => categorySupports(c, TransactionType.expense));
     _last = (kind: IntentKind.summary, period: usable, scope: QueryScope.expenses, categoryId: category?.id, accountId: null);
+    _lastTitle = 'Resumen de ${usable.title}${category == null ? '' : ' en ${category.name}'}';
     if (category != null) {
       final (from, to) = usable.range(now);
       final spent = calc.data.transactions

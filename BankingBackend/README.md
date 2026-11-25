@@ -120,6 +120,17 @@ Después de validar la demostración:
 4. Cambia solo `PROVIDER_MODE` a `sandbox`, vuelve a desplegar y actualiza las conexiones en la app. Se consulta el catálogo sandbox para ES y particulares y se muestran BBVA, Banco de Sabadell y Mock ASPSP únicamente cuando estén disponibles en ese entorno. Si el catálogo de pruebas no los ofrece, se mostrará vacío: no se inventa cobertura. El despliegue personal de este repositorio ya está configurado; no repitas la generación de claves.
 5. Usa exclusivamente las identidades de prueba que facilite el sandbox. Una conexión sandbox no comprueba que funcione tu cuenta real. Las conexiones demo no aparecen en sandbox y sus datos no pueden descifrarse cambiando de modo; se eliminan al caducar.
 
+## Intérprete de Don Bigotes (fase 2, 25/11/2026)
+
+`POST /v1/assistant/interpret` (`src/assistant.mjs`) convierte una frase en una intención cerrada con Cloudflare Workers AI (binding `AI`, modelo `@cf/meta/llama-3.3-70b-instruct-fp8-fast`, plan gratuito):
+- **Acceso:** exige la misma sesión de Supabase que el resto de rutas (propietario o invitados).
+- **Límites:** 40 peticiones al día por persona y 110 para todo el servidor, por debajo de las 10.000 neuronas gratuitas diarias; la respuesta se valida contra un esquema cerrado.
+- **Qué recibe:** la frase y un contexto mínimo (nombres de cuentas, categorías y pagos a plazos, la última consulta y el borrador en palabras).
+- **Qué no hace:** no lee ni escribe finanzas, no llama a ningún banco, no guarda ni registra la frase y no usa AI Gateway.
+- **Configuración:** el binding se declara en la configuración personal (`tools/setup-personal.mjs`).
+- **Respaldo:** sin el binding, la ruta responde `assistant_disabled` y la app sigue con sus reglas.
+- **Pruebas:** `test/assistant.test.mjs`, con un modelo falso.
+
 ## Seguridad y límites
 
 - **Un propietario.** La clave personal de 256 bits da acceso a todas las conexiones de este despliegue. No sirve como arquitectura para varios usuarios; no la compartas. Una filtración exige rotarla.

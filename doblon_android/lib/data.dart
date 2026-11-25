@@ -13,6 +13,7 @@ import 'bank_sync.dart';
 import 'forecast_store.dart';
 import 'edits.dart';
 import 'contributions.dart';
+import 'assistant.dart' show AssistantIntent, RemoteInterpretation;
 import 'learning.dart';
 import 'models.dart';
 import 'cloud_privacy.dart';
@@ -178,6 +179,28 @@ class FinanceRepository extends ChangeNotifier {
   }
 
   String? get _user => _client.auth.currentUser?.id;
+
+  /// The signed-in person (for choices kept per person on this device, such as the assistant's interpreter).
+  String? get userId => _user;
+
+  /// Don Bigotes' interpreter on the server, with this person's session. Never throws: an error is returned so the
+  /// conversation goes on with its own rules.
+  Future<RemoteInterpretation> interpretRemotely(Map<String, Object?> context, {BankingClient? client}) async {
+    final token = client == null ? _client.auth.currentSession?.accessToken : null;
+    if (client == null && token == null) return (intent: null, error: 'unauthorized');
+    final api = client ?? BankingClient(token!);
+    try {
+      final answer = await api.interpret(context);
+      final intent = AssistantIntent.fromJson(answer['intent']);
+      return (intent: intent, error: intent == null ? 'assistant_invalid' : null);
+    } on BankingError catch (error) {
+      return (intent: null, error: error.code);
+    } catch (_) {
+      return (intent: null, error: 'assistant_unavailable');
+    } finally {
+      if (client == null) api.close();
+    }
+  }
 
   Future<LocalStore> _local() async => _store ??= LocalStore(await getApplicationSupportDirectory());
 

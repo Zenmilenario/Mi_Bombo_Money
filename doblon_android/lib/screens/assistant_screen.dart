@@ -32,8 +32,11 @@ class _Entry {
 }
 
 class AssistantScreen extends StatefulWidget {
-  const AssistantScreen({super.key, required this.repository, this.clock});
+  const AssistantScreen({super.key, required this.repository, this.clock, this.remote});
   final FinanceRepository repository;
+
+  /// Don Bigotes' interpreter on the server, when the person turned it on in Ajustes (null: rules on this device).
+  final Future<RemoteInterpretation> Function(Map<String, Object?> context)? remote;
 
   /// For tests: the moment taken as «now».
   final DateTime Function()? clock;
@@ -48,6 +51,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
       final p = await proposeCategory(widget.repository, text, type);
       return p == null ? null : (p.category.id, p.source);
     },
+    remote: widget.remote,
   );
   final _input = TextEditingController();
   final _focus = FocusNode();
@@ -370,7 +374,11 @@ class _AssistantScreenState extends State<AssistantScreen> {
                           '«He gastado 44,53 en la gasolinera» · «Reserva 200 € para vacaciones» · «4.378 € en 12 meses» · «¿Qué he comprado este mes?» · «¿Cuánto me queda del préstamo?»',
                           style: TextStyle(fontSize: 12, color: hint)),
                       const SizedBox(height: 6),
-                      Text('Lo entiendo en este dispositivo: lo que escribes no sale de él.', style: TextStyle(fontSize: 12, color: hint)),
+                      Text(
+                          widget.remote == null
+                              ? 'Lo entiendo en este dispositivo: lo que escribes no sale de él. Para frases más libres, activa el intérprete en Ajustes.'
+                              : 'Con el intérprete activado, la frase y los nombres de tus cuentas, categorías y pagos a plazos se envían a Cloudflare para entenderla; nunca saldos ni movimientos. Nada se guarda sin tu confirmación.',
+                          style: TextStyle(fontSize: 12, color: hint)),
                     ])),
                 for (final e in _entries)
                   if (e.text != null) _bubble(context, Text(e.text!), mine: true) else _reply(context, e),

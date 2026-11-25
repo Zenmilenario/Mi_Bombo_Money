@@ -13,6 +13,10 @@ class AppPreferences extends ChangeNotifier {
   bool companionEnabled = true;
   Set<String> dismissedNotes = {};
 
+  /// People on this device who turned on Don Bigotes' interpreter on the server (off by default, each person).
+  Set<String> assistantModelUsers = {};
+  bool assistantModelFor(String? user) => user != null && assistantModelUsers.contains(user);
+
   Future<void> load() async {
     final prefs = _prefs = await SharedPreferences.getInstance();
     themeMode = ThemeMode.values.elementAtOrNull(prefs.getInt('themeMode') ?? 0) ?? ThemeMode.system;
@@ -20,6 +24,7 @@ class AppPreferences extends ChangeNotifier {
     lockEnabled = prefs.getBool('lockEnabled') ?? false;
     companionEnabled = prefs.getBool('companionEnabled') ?? true;
     dismissedNotes = (prefs.getStringList('dismissedNotes') ?? const []).toSet();
+    assistantModelUsers = (prefs.getStringList('assistantModelUsers') ?? const []).toSet();
     amountsHidden = hideAmounts;
     notifyListeners();
   }
@@ -48,6 +53,12 @@ class AppPreferences extends ChangeNotifier {
   Future<void> setCompanionEnabled(bool value) async {
     companionEnabled = value;
     await _prefs?.setBool('companionEnabled', value);
+    notifyListeners();
+  }
+
+  Future<void> setAssistantModel(String user, bool value) async {
+    assistantModelUsers = value ? {...assistantModelUsers, user} : ({...assistantModelUsers}..remove(user));
+    await _prefs?.setStringList('assistantModelUsers', assistantModelUsers.toList());
     notifyListeners();
   }
 

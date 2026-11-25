@@ -26,7 +26,9 @@ export function personalConfiguration({ appID, ownerID, databaseID, pem, publish
         SUPABASE_URL: 'https://coeicjffmpclqowsqeys.supabase.co', SUPABASE_PUBLISHABLE_KEY: publishableKey, SUPABASE_OWNER_ID: ownerID,
         // Invited people: Supabase user IDs separated by commas. Empty means only the owner.
         SUPABASE_GUEST_IDS: '' },
-      d1_databases: [{ binding: 'DB', database_name: 'mi-bombo-banking-personal', database_id: databaseID, migrations_dir: '../migrations' }]
+      d1_databases: [{ binding: 'DB', database_name: 'mi-bombo-banking-personal', database_id: databaseID, migrations_dir: '../migrations' }],
+      // Don Bigotes' interpreter (src/assistant.mjs): Workers AI within the free daily allocation, no AI Gateway logs.
+      ai: { binding: 'AI' }
     },
     secrets: { ENABLE_APP_ID: appID, ENABLE_PRIVATE_KEY: key.export({ type: 'pkcs8', format: 'pem' }),
       DATA_ENCRYPTION_KEY: randomBytes(32).toString('base64'), ACCOUNT_IDENTITY_KEY: randomBytes(32).toString('base64') }

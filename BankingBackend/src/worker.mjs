@@ -1,6 +1,7 @@
 import { Fault, authenticate, origin, mode, readJSON, limitedBytes, UUID, isState, json, securityHeaders, psuHeaders, allowedUsers, providerEnvironment, withStoredGuests } from './security.mjs';
 import { rateLimit, newAuthorization, claimAuthorization, assertPendingAuthorization, saveConnection, connection, listConnections, ownerTag, removeExpired } from './store.mjs';
 import { acceptsBankName, banks, startAuthorization, exchange, demoConnection, accountData, revoke } from './provider.mjs';
+import { interpret } from './assistant.mjs';
 
 function appRedirect(id, result) {
   // No bank code, state, token or session identifier enters the app URL.
@@ -123,6 +124,8 @@ export async function handle(request, env) {
   if (request.method === 'GET' && url.pathname === '/v1/status') return json({ mode: mode(env),
     liveBankingEnabled: mode(env) === 'production', accountingImportEnabled: mode(env) === 'production' });
   if (request.method === 'GET' && url.pathname === '/v1/banks') return json({ banks: await banks(provider()) });
+  // Don Bigotes' interpreter: one sentence to a closed intent. Reads and writes no finances and moves no money.
+  if (request.method === 'POST' && url.pathname === '/v1/assistant/interpret') return interpret(request, env, user ?? 'owner');
   if (request.method === 'POST' && url.pathname === '/v1/authorizations') {
     await rateLimit(env, mode(env) === 'production' ? `authorizations:${(await ownerTag(user)).slice(0, 32)}` : 'authorizations', 5);
     const { bank } = await readJSON(request, ['bank']);
@@ -156,7 +159,7 @@ export async function handle(request, env) {
       return json(await accountData(conn, account, from, to, next, provider(), fetch, psuHeaders(request), includePending));
     }
   }
-  // No proxy endpoint, arbitrary provider URL, payment or transaction-write routes exist.
+  // No proxy endpoint, arbitrary provider URL, payment or transaction-write routes exist (the interpreter only reads a sentence).
   throw new Fault(404, 'not_found');
 }
 export default {

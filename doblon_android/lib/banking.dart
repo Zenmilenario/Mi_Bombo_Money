@@ -183,7 +183,7 @@ class BankingClient {
   final http.Client _http;
   void close() => _http.close();
 
-  Future<dynamic> _send(String method, String path, {Map<String, String>? query, Object? body, bool userInitiated = false}) async {
+  Future<dynamic> _send(String method, String path, {Map<String, String>? query, Object? body, bool userInitiated = false, Duration timeout = const Duration(seconds: 45)}) async {
     final uri = Uri.parse(server).replace(path: path, queryParameters: query);
     final request = http.Request(method, uri)..headers['Authorization'] = 'Bearer $accessToken';
     if (userInitiated) {
@@ -197,11 +197,11 @@ class BankingClient {
     }
     final http.StreamedResponse streamed;
     try {
-      streamed = await _http.send(request).timeout(const Duration(seconds: 45));
+      streamed = await _http.send(request).timeout(timeout);
     } catch (_) {
       throw BankingError('network');
     }
-    final response = await http.Response.fromStream(streamed).timeout(const Duration(seconds: 45), onTimeout: () => throw BankingError('network'));
+    final response = await http.Response.fromStream(streamed).timeout(timeout, onTimeout: () => throw BankingError('network'));
     if (response.statusCode == 204) return null;
     dynamic decoded;
     try {
@@ -225,6 +225,11 @@ class BankingClient {
     }
     return decoded;
   }
+
+  /// Don Bigotes' interpreter (phase 2): the sentence and its minimal context, answered with a closed intent. Reads
+  /// and writes no finances; the answer is validated again by `AssistantIntent.fromJson`.
+  Future<Map<String, dynamic>> interpret(Map<String, Object?> context) async =>
+      Map<String, dynamic>.from(await _send('POST', '/v1/assistant/interpret', body: context, timeout: const Duration(seconds: 15)) as Map);
 
   Future<List<String>> banks() async {
     final data = await _send('GET', '/v1/banks') as Map;
