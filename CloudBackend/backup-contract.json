@@ -303,5 +303,34 @@
       "updatedAt"
     ],
     "months": []
+  },
+  {
+    "key": "installmentPlans",
+    "table": "finance_installment_plans",
+    "fields": {
+      "id": "id",
+      "name": "name",
+      "kindRaw": "kind",
+      "totalMinor": "total_minor",
+      "installmentCount": "installment_count",
+      "firstDueDate": "first_due_date",
+      "agreedInstallmentMinor": "agreed_installment_minor",
+      "costsMinor": "costs_minor",
+      "alreadyRecorded": "already_recorded",
+      "paidBeforeCount": "paid_before_count",
+      "paidBeforeMinor": "paid_before_minor",
+      "schedule": "schedule",
+      "notes": "notes",
+      "isArchived": "is_archived",
+      "createdAt": "created_at",
+      "updatedAt": "updated_at",
+      "accountID": "account_id"
+    },
+    "dates": [
+      "firstDueDate",
+      "createdAt",
+      "updatedAt"
+    ],
+    "months": []
   }
 ]

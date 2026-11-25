@@ -8,7 +8,7 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import 'bank_activity.dart';
-import 'models.dart' show investmentFeeMarker;
+import 'models.dart' show installmentMarker, investmentFeeMarker;
 
 /// The personal bank server. Its address is part of every account and movement key: it must not change.
 const bankingServer = 'https://mi-bombo-banking-personal.albertor7722.workers.dev';
@@ -536,6 +536,8 @@ int _orderFee(List<Map<String, dynamic>> transactions, Map<String, dynamic> orde
         // The fee of an order already reconciled inside the order's charge is not waiting for another one.
         if ('${t['externalID'] ?? ''}'.startsWith(investmentFeeMarker) && t['isReconciled'] == true) return false;
         final awaiting = '${t['externalID'] ?? ''}'.startsWith('applepay:');
+        // An instalment paid by hand: the bank's charge may come some days later (proposed, never joined alone).
+        if ('${t['externalID'] ?? ''}'.startsWith(installmentMarker)) return delay >= -3 * 86400 && delay <= 7 * 86400;
         return awaiting ? delay >= -86400 && delay <= 7 * 86400 : delay.abs() <= 3 * 86400;
       }).toList();
       final decision = decisions[key];

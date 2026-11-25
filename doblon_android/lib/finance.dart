@@ -175,7 +175,11 @@ class MonthPace {
 /// A month's income and expenses. The «everyday» figures leave out the money of reserves: income set aside for a
 /// reserve and the part of a payment it covered. The full history keeps everything.
 class MonthlySummary {
-  MonthlySummary(this.incomeMinor, this.expenseMinor, this.reservedExpenseMinor, [this.reservedIncomeMinor = 0, this.investmentFeeMinor = 0]);
+  MonthlySummary(this.incomeMinor, this.expenseMinor, this.reservedExpenseMinor,
+      [this.reservedIncomeMinor = 0, this.investmentFeeMinor = 0, this.repaidMinor = 0]);
+
+  /// Instalments repaying a purchase or a loan already recorded: in the full history, not spending again.
+  final int repaidMinor;
 
   /// Fees of investment orders: in the full history, not in the everyday figures.
   final int investmentFeeMinor;
@@ -183,7 +187,7 @@ class MonthlySummary {
   final int expenseMinor;
   final int reservedExpenseMinor;
   final int reservedIncomeMinor;
-  int get budgetExpenseMinor => expenseMinor - reservedExpenseMinor - investmentFeeMinor;
+  int get budgetExpenseMinor => expenseMinor - reservedExpenseMinor - investmentFeeMinor - repaidMinor;
   int get netSavingsMinor => incomeMinor - expenseMinor;
   int get dailyIncomeMinor => incomeMinor - reservedIncomeMinor;
   int get dailyExpenseMinor => budgetExpenseMinor;
@@ -202,12 +206,18 @@ class BudgetLimit {
 
 /// A movement as a budget counts it: its whole amount, the part a reserve paid and the part that consumes the budget.
 class BudgetContribution {
-  BudgetContribution(this.transaction, this.totalMinor, this.reservedMinor);
+  BudgetContribution(this.transaction, this.totalMinor, this.reservedMinor, [int? countedMinor]) : countedMinor = countedMinor ?? totalMinor - reservedMinor;
   final Transaction transaction;
   final int totalMinor;
   final int reservedMinor;
-  int get countedMinor => totalMinor - reservedMinor;
+
+  /// What consumes the budget (`FinanceCalculator.budgetExpenseAmount`): without what a reserve paid and without
+  /// the repayment of a purchase or a loan already recorded.
+  final int countedMinor;
   bool get isPartial => reservedMinor > 0;
+
+  /// The part repaying something recorded before (an instalment of a purchase already recorded).
+  int get repaidMinor => totalMinor - reservedMinor - countedMinor;
 }
 
 class BudgetProgress {
@@ -243,7 +253,12 @@ class FinanceCalculator {
 
   /// Everyday spending: without what a reserve paid, and without the fees of investment orders (a cost of investing,
   /// shown with the investments).
-  static int budgetExpenseAmount(Transaction t) => t.type.countsAsExpense && !t.isInvestmentFee ? t.amountMinor.abs() - reservedExpenseAmount(t) : 0;
+  static int budgetExpenseAmount(Transaction t) {
+    if (!t.type.countsAsExpense || t.isInvestmentFee) return 0;
+    // An instalment repaying a purchase or a loan already recorded is not spending again, except its costs.
+    final spending = t.installmentSpendingMinor;
+    return (spending ?? t.amountMinor.abs()) - reservedExpenseAmount(t).clamp(0, spending ?? t.amountMinor.abs());
+  }
 
   /// The part of an income set aside for a reserve: the amount chosen, or all of it. It is not everyday income.
   static int reservedIncomeAmount(Transaction t) {
@@ -317,7 +332,7 @@ class FinanceCalculator {
 
   MonthlySummary monthlySummary(DateTime month) {
     final key = monthKey(month);
-    var income = 0, expense = 0, reserved = 0, reservedIncome = 0, investmentFees = 0;
+    var income = 0, expense = 0, reserved = 0, reservedIncome = 0, investmentFees = 0, repaid = 0;
     for (final t in data.transactions) {
       if (monthKey(t.date) != key) continue;
       if (t.type.countsAsIncome) income += t.amountMinor.abs();
@@ -325,8 +340,9 @@ class FinanceCalculator {
       reserved += reservedExpenseAmount(t);
       reservedIncome += reservedIncomeAmount(t);
       if (t.isInvestmentFee) investmentFees += t.amountMinor.abs();
+      if (t.type.countsAsExpense && t.installmentSpendingMinor != null) repaid += t.amountMinor.abs() - t.installmentSpendingMinor!;
     }
-    return MonthlySummary(income, expense, reserved, reservedIncome, investmentFees);
+    return MonthlySummary(income, expense, reserved, reservedIncome, investmentFees, repaid);
   }
 
   static RecurringBudget? activeRecurringBudget(Category category, int month, List<RecurringBudget> plans) {
@@ -383,7 +399,7 @@ class FinanceCalculator {
     final target = monthKey(month);
     return [
       for (final t in data.transactions)
-        if (countsInBudget(t) && t.categoryId == categoryId && monthKey(t.date) == target) BudgetContribution(t, t.amountMinor.abs(), reservedExpenseAmount(t))
+        if (countsInBudget(t) && t.categoryId == categoryId && monthKey(t.date) == target) BudgetContribution(t, t.amountMinor.abs(), reservedExpenseAmount(t), budgetExpenseAmount(t))
     ];
   }
 

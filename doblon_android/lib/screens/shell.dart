@@ -26,6 +26,8 @@ import 'tools.dart';
 import 'transaction_form.dart';
 import '../reconcile.dart' show ReconcileStore;
 import 'reconcile_screen.dart';
+import '../installments.dart' show installmentNotes;
+import 'installments_screen.dart' show InstallmentDetailScreen;
 import 'forecast_screen.dart';
 import '../forecast.dart' show buildForecast, forecastDay, forecastNotes, simulateForecast;
 import 'transaction_detail.dart';
@@ -216,6 +218,7 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
           for (final connection in repository.bankConnections)
             if (permissionExpiresSoon(connection, now)) (bank: connection.bank, days: permissionDaysLeft(connection, now)!),
         ]),
+      ...installmentNotes(data, now),
       ...forecast,
     ];
   }
@@ -323,6 +326,11 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
   /// over its limit; the rest, the tab where it is solved.
   void _openNote(CompanionNote note) {
     switch (note.id.split(':').first) {
+      case 'installment':
+        // installment:<plan>:<number>:… or installment:<plan>:schedule:…: the plan, and the instalment if there is one.
+        final parts = note.id.split(':');
+        Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => InstallmentDetailScreen(repository: repository, planId: parts[1], number: int.tryParse(parts.length > 2 ? parts[2] : ''))));
       case 'pairs':
       case 'review':
       case 'reservePay':

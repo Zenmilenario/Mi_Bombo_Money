@@ -13,6 +13,10 @@ enum TransactionType { income, expense, interest, fee, transfer }
 /// The `externalID` of an investment order's fee: this marker and the id of the order.
 const investmentFeeMarker = 'investment-fee:';
 
+/// The `externalID` of the payment of an instalment: this marker, the plan's id and the instalment's number, and,
+/// when only part of it is spending (the purchase or the loan was already recorded), that part in cents.
+const installmentMarker = 'installment:';
+
 extension TransactionTypeRules on TransactionType {
   bool get countsAsIncome => this == TransactionType.income || this == TransactionType.interest;
   bool get countsAsExpense => this == TransactionType.expense || this == TransactionType.fee;
@@ -199,6 +203,20 @@ class Transaction {
   bool get isInvestmentFee => type == TransactionType.fee && (externalId?.startsWith(investmentFeeMarker) ?? false);
   String? get investmentOperationId => isInvestmentFee ? externalId!.substring(investmentFeeMarker.length) : null;
 
+  List<String>? get _installment => (externalId?.startsWith(installmentMarker) ?? false) ? externalId!.substring(installmentMarker.length).split(':') : null;
+
+  /// The instalment plan and number this movement pays (`lib/installments.dart`).
+  String? get installmentPlanId => _installment?.firstOrNull;
+  int? get installmentNumber => _installment == null || _installment!.length < 2 ? null : int.tryParse(_installment![1]);
+
+  /// The part of an instalment payment that is spending: all of it, or only what was not recorded before (the costs
+  /// of a purchase or a loan already recorded). Null when it is not an instalment payment.
+  int? get installmentSpendingMinor {
+    final parts = _installment;
+    if (parts == null) return null;
+    return parts.length >= 3 ? (int.tryParse(parts[2]) ?? amountMinor).clamp(0, amountMinor) : amountMinor;
+  }
+
   factory Transaction.fromJson(Map<String, dynamic> json) => Transaction(
         id: _string(json['id']),
         date: _date(json['date']),
@@ -296,6 +314,86 @@ class RecurringBudget {
       );
 }
 
+enum InstallmentKind { purchase, loan, other }
+
+extension InstallmentKindTitle on InstallmentKind {
+  String get title => switch (this) {
+        InstallmentKind.purchase => 'Compra a plazos',
+        InstallmentKind.loan => 'Préstamo',
+        InstallmentKind.other => 'Otro pago fraccionado',
+      };
+}
+
+/// One instalment of a plan: when it is due and how much.
+class Installment {
+  const Installment(this.dueDate, this.amountMinor);
+  final DateTime dueDate;
+  final int amountMinor;
+}
+
+/// A commitment paid in instalments (a purchase, a loan or another split payment), followed on its own: not a
+/// recurring movement without end, not a budget.
+class InstallmentPlan {
+  InstallmentPlan({
+    required this.id,
+    required this.name,
+    required this.kind,
+    required this.totalMinor,
+    required this.schedule,
+    required this.accountId,
+    this.agreedInstallmentMinor,
+    this.costsMinor = 0,
+    this.alreadyRecorded = false,
+    this.paidBeforeCount = 0,
+    this.paidBeforeMinor = 0,
+    this.isArchived = false,
+    this.notes = '',
+  });
+  final String id;
+  final String name;
+  final InstallmentKind kind;
+
+  /// What will be paid in total, as the person wrote it (with interest and fees if there are any).
+  final int totalMinor;
+  final List<Installment> schedule;
+  final String? accountId;
+  final int? agreedInstallmentMinor;
+
+  /// Interest and fees included in [totalMinor], when the person says so (never assumed).
+  final int costsMinor;
+
+  /// The purchase (or the money of the loan) is already recorded in Doblón: then the instalments repay it and only
+  /// their share of [costsMinor] is new spending.
+  final bool alreadyRecorded;
+
+  /// Instalments paid before using the app (the first ones), without inventing their movements.
+  final int paidBeforeCount;
+  final int paidBeforeMinor;
+  final bool isArchived;
+  final String notes;
+
+  int get count => schedule.length;
+
+  factory InstallmentPlan.fromJson(Map<String, dynamic> json) => InstallmentPlan(
+        id: _string(json['id']),
+        name: _string(json['name']),
+        kind: _enumValue(InstallmentKind.values, json['kindRaw'], InstallmentKind.other),
+        totalMinor: _int(json['totalMinor']),
+        schedule: [
+          for (final row in (json['schedule'] as List?) ?? const [])
+            if (row is Map && row['dueDate'] is num && row['amountMinor'] is num) Installment(referenceDate(row['dueDate'] as num), _int(row['amountMinor']))
+        ]..sort((a, b) => a.dueDate.compareTo(b.dueDate)),
+        accountId: _stringOrNull(json['accountID']),
+        agreedInstallmentMinor: _intOrNull(json['agreedInstallmentMinor']),
+        costsMinor: _int(json['costsMinor']),
+        alreadyRecorded: json['alreadyRecorded'] == true,
+        paidBeforeCount: _int(json['paidBeforeCount']),
+        paidBeforeMinor: _int(json['paidBeforeMinor']),
+        isArchived: json['isArchived'] == true,
+        notes: _string(json['notes']),
+      );
+}
+
 /// Everything one person has in the cloud, already parsed.
 class Finances {
   Finances({
@@ -311,7 +409,9 @@ class Finances {
     this.goals = const [],
     this.recurringMovements = const [],
     this.categoryRules = const [],
+    this.installmentPlans = const [],
   });
+  final List<InstallmentPlan> installmentPlans;
   final List<PaymentCard> cards;
   final List<SavingsGoal> goals;
   final List<RecurringMovement> recurringMovements;
@@ -346,6 +446,7 @@ class Finances {
       goals: _list(document, 'goals', SavingsGoal.fromJson),
       recurringMovements: _list(document, 'recurringMovements', RecurringMovement.fromJson)..sort((a, b) => a.nextDueDate.compareTo(b.nextDueDate)),
       categoryRules: _list(document, 'categoryRules', CategoryRule.fromJson),
+      installmentPlans: _list(document, 'installmentPlans', InstallmentPlan.fromJson),
     );
   }
 

@@ -79,6 +79,13 @@ void validatePrivateDocument(Map<String, dynamic> doc, String kind) {
       }
     }
   }
+  // Optional entity (documents of earlier versions do not carry it): each plan points to one of the accounts.
+  for (final row in (doc['installmentPlans'] as List?) ?? const []) {
+    final account = row is Map ? row['accountID'] : null;
+    if (row is! Map || row['id'] is! String || (account != null && (account is! String || !maps['accounts']!.containsKey(account.toLowerCase())))) {
+      throw const FormatException('Hay relaciones financieras incompletas.');
+    }
+  }
   final entries = <String, List<ReservedEntry>>{};
   final externalIds = <String>{};
   for (final row in maps['transactions']!.values) {

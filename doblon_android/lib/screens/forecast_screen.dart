@@ -990,7 +990,7 @@ class _AssumptionsSheetState extends State<_AssumptionsSheet> {
     final plan = widget.plan;
     final items = <String, ForecastEvent>{};
     for (final e in plan.events) {
-      if (e.source.startsWith('rec:') || e.source.startsWith('pat:') || e.source == 'hold') items.putIfAbsent(e.source, () => e);
+      if (e.source.startsWith('rec:') || e.source.startsWith('pat:') || e.source.startsWith('inst:') || e.source == 'hold') items.putIfAbsent(e.source, () => e);
     }
     // A suggestion from the person's own data: about two weeks of the usual variable spending.
     final suggested = plan.variableMonthlyMinor ~/ 2;
@@ -1106,6 +1106,7 @@ class _EventSheetState extends State<_EventSheet> {
       'pat' => 'Estimado: se ha repetido cada mes en tu historial con un importe y una fecha parecidos. Cuando llega el real, deja de contarse.',
       'var' => 'Estimado: lo que aún permiten tus presupuestos este mes, menos sus pagos ya previstos, y tu gasto habitual en lo que no tiene presupuesto.',
       'tx' => 'Un movimiento real ya apuntado con fecha futura. Se cambia en Movimientos.',
+      'inst' => 'Una cuota de un pago a plazos. Cuando la pagas o confirmas su cargo del banco, deja de preverse. Se cambia en Cuentas › Pagos a plazos.',
       'hold' => 'Un cargo que el banco ha retenido y aún no ha cargado. Ya está descontado de tu disponible.',
       _ => 'Forma parte de una simulación: no existe en tus cuentas.',
     };

@@ -5,6 +5,7 @@ import 'dart:math' as math;
 
 import 'automation.dart' show CompanionNote, nextDueDate, ruleText;
 import 'finance.dart';
+import 'installments.dart';
 import 'models.dart';
 import 'presentation.dart' show bankTitle, money;
 
@@ -537,6 +538,37 @@ ForecastPlan buildForecast(FinanceCalculator calc, DateTime now, ForecastSetting
     if (event != null) events.add(event.copyWith(excluded: false));
   }
 
+  // 1b. Instalments of the plans paid in instalments (`lib/installments.dart`): each open one is a confirmed payment
+  // on its due date; an overdue one counts today, unless a bank charge that may be it already arrived (to confirm).
+  // A periodic payment that is the same payment (`overlappingRecurring`) gives way to it near its dates.
+  final instalmentDays = <String, List<DateTime>>{};
+  for (final plan in data.installmentPlans) {
+    if (plan.isArchived || plan.accountId == null) continue;
+    final progress = installmentProgress(plan, data, now);
+    final arrived = {for (final (s, _) in compatibleCharges(progress, data)) s.number};
+    final overlapping = overlappingRecurring(plan, data);
+    for (final s in progress.states) {
+      if (!s.isOpen || arrived.contains(s.number)) continue;
+      final day = forecastDay(s.installment.dueDate);
+      if (day.isAfter(end)) break;
+      for (final r in overlapping) {
+        (instalmentDays[r.id] ??= []).add(day);
+      }
+      final late = day.isBefore(today);
+      final event = flow(
+          key: 'inst:${plan.id}:${s.number}',
+          source: 'inst:${plan.id}',
+          day: late ? today : day,
+          label: 'Cuota ${s.number}/${plan.count} · ${plan.name}',
+          type: TransactionType.expense,
+          amount: s.installment.amountMinor,
+          from: plan.accountId,
+          certainty: ForecastCertainty.confirmed,
+          detail: late ? 'Vencía el ${shortDay(day)}; aún no está pagada' : 'Pago a plazos');
+      if (event != null) events.add(event);
+    }
+  }
+
   // 2. Periodic payments. An occurrence that already arrived (posted by the app or downloaded from the bank, a few
   // days early or late) is replaced by the real movement; one that is late by up to a week still counts, today.
   const grace = 7;
@@ -566,6 +598,7 @@ ForecastPlan buildForecast(FinanceCalculator calc, DateTime now, ForecastSetting
       next = nextDueDate(next, rule.frequency, rule.interval);
       final late = _between(day, today);
       if (late > grace) continue;
+      if (instalmentDays[rule.id]?.any((d) => _between(d, day).abs() <= window) ?? false) continue;
       final arrived = candidates.where((t) {
         final gap = _between(day, forecastDay(t.date)).abs();
         return !used.contains(t.id) && gap <= (t.recurringMovementId == rule.id ? 2 * window : window);
@@ -598,6 +631,7 @@ ForecastPlan buildForecast(FinanceCalculator calc, DateTime now, ForecastSetting
       tracked.containsKey(t.sourceAccountId) &&
       !t.date.isAfter(now) &&
       t.recurringMovementId == null &&
+      t.installmentPlanId == null &&
       !ruleLike.contains(t.id) &&
       !t.awaitsBank &&
       data.category(t.categoryId)?.kind != CategoryKind.transfer;

@@ -12,6 +12,7 @@ import '../models.dart';
 import '../presentation.dart';
 import '../theme.dart';
 import 'forms.dart';
+import 'installments_screen.dart' show InstallmentsScreen;
 import 'manage.dart' show RecurringScreen;
 import 'transaction_detail.dart';
 import 'chrome.dart' show tabListPadding;
@@ -153,6 +154,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
             chip('Actualizar saldo', Icons.refresh, active.isEmpty ? null : () => _updateBalance(context, active)),
             chip('Cargos periódicos', Icons.event_repeat,
                 () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => RecurringScreen(repository: widget.repository)))),
+            chip('Pagos a plazos', Icons.splitscreen_outlined,
+                () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => InstallmentsScreen(repository: widget.repository)))),
             chip('Añadir tarjeta', Icons.credit_card,
                 () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CardFormScreen(repository: widget.repository)))),
           ]),

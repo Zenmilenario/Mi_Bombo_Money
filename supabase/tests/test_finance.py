@@ -21,7 +21,7 @@ A, B = '00000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000
 WA, WB = '00000000-0000-0000-0000-000000000011', '00000000-0000-0000-0000-000000000012'
 TABLES = ['workspaces', 'institutions', 'accounts', 'categories', 'cards', 'reserved_funds', 'category_rules',
           'monthly_budgets', 'recurring_budgets', 'savings_goals', 'recurring_movements', 'import_batches',
-          'balance_snapshots', 'transactions']
+          'balance_snapshots', 'transactions', 'installment_plans']
 # Thirteen existing SwiftData entities plus a cloud workspace boundary (14 tables).
 DSN = ''
 
@@ -69,6 +69,7 @@ class CloudStorageTests(unittest.TestCase):
             'import_batches': dict(file_name='ficticio.csv', source='csv', imported_at='2026-01-01T12:00:00Z'),
             'balance_snapshots': dict(date='2026-01-01T12:00:00Z', balance_minor=20000, source='manual', account_id=ids['accounts']),
             'transactions': dict(date='2026-01-05T12:00:00Z', type='expense', amount_minor=1000, description_text='Pago de prueba', reserved_fund_id=ids['reserved_funds'], reserved_amount_minor=500, source_account_id=ids['accounts'], category_id=ids['categories']),
+            'installment_plans': dict(name='Compra ficticia a plazos', kind='purchase', total_minor=120000, installment_count=3, first_due_date='2026-02-05T12:00:00Z', account_id=ids['accounts'], schedule=Jsonb([dict(dueDate=823521600, amountMinor=40000), dict(dueDate=825940800, amountMinor=40000), dict(dueDate=828619200, amountMinor=40000)])),
         }
         row.update(fields[name])
         return row
@@ -389,7 +390,7 @@ class CloudStorageTests(unittest.TestCase):
         self.assertEqual(before['document']['transactions'][0]['reservedAmountMinor'],500)
         after=self.save_snapshot(before)
         self.assertGreater(after['revision'],before['revision'])
-        for key in ['institutions','accounts','categories','cards','reservedFunds','categoryRules','budgets','recurringBudgets','goals','recurringMovements','snapshots','importBatches','transactions']:
+        for key in ['institutions','accounts','categories','cards','reservedFunds','categoryRules','budgets','recurringBudgets','goals','recurringMovements','snapshots','importBatches','transactions','installmentPlans']:
             self.assertEqual(len(after['document'][key]),1,key)
             for field,value in before['document'][key][0].items():
                 if field not in ['updatedAt','monthStart','startMonth','endMonth']:
