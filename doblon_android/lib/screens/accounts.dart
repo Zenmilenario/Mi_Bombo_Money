@@ -826,17 +826,22 @@ class _CardFormScreenState extends State<CardFormScreen> {
 
 /// Money set aside in an account for a purpose. Payments made with it do not count against budgets.
 class ReserveFormScreen extends StatefulWidget {
-  const ReserveFormScreen({super.key, required this.repository, this.editing, this.accountId});
+  const ReserveFormScreen({super.key, required this.repository, this.editing, this.accountId, this.name, this.amountMinor});
   final FinanceRepository repository;
   final ReservedFund? editing;
   final String? accountId;
+
+  /// A new reserve already filled in (Don Bigotes' «Corregir»).
+  final String? name;
+  final int? amountMinor;
   @override
   State<ReserveFormScreen> createState() => _ReserveFormScreenState();
 }
 
 class _ReserveFormScreenState extends State<ReserveFormScreen> {
-  late final _name = TextEditingController(text: widget.editing?.name ?? '');
-  late final _amount = TextEditingController(text: widget.editing == null ? '' : amountText(widget.editing!.amountMinor));
+  late final _name = TextEditingController(text: widget.editing?.name ?? widget.name ?? '');
+  late final _amount = TextEditingController(
+      text: widget.editing != null ? amountText(widget.editing!.amountMinor) : (widget.amountMinor == null ? '' : amountText(widget.amountMinor!)));
   late String? _account = widget.editing?.accountId ?? widget.accountId;
   String? _message;
 

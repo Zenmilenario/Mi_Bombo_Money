@@ -33,9 +33,12 @@ int? parseAmount(String text) {
 
 /// New movement or edition of an existing one, with the iPhone's fields and checks.
 class TransactionFormScreen extends StatefulWidget {
-  const TransactionFormScreen({super.key, required this.repository, this.editing});
+  const TransactionFormScreen({super.key, required this.repository, this.editing, this.prefill});
   final FinanceRepository repository;
   final Transaction? editing;
+
+  /// A new movement already filled in (Don Bigotes' «Corregir»): every field stays editable.
+  final TransactionDraft? prefill;
   @override
   State<TransactionFormScreen> createState() => _TransactionFormScreenState();
 }
@@ -53,7 +56,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
   String? _message;
   bool _saving = false;
   // A category the person picked is never replaced by a rule's suggestion.
-  late bool _categoryChosen = widget.editing?.categoryId != null;
+  late bool _categoryChosen = (widget.editing?.categoryId ?? widget.prefill?.categoryId) != null;
   bool _remember = false;
 
   /// The bank facts before editing, so a correction can teach the models (Swift `captureEdit`).
@@ -88,6 +91,12 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
       reservedFundId: t?.reservedFundId,
       reservedAmountMinor: t?.reservedAmountMinor,
     );
+    final p = widget.prefill;
+    if (t == null && p != null) {
+      draft = TransactionDraft(
+          date: p.date, type: p.type, amountMinor: p.amountMinor, description: p.description, sourceAccountId: p.sourceAccountId, categoryId: p.categoryId);
+      _amount.text = (p.amountMinor / 100).toStringAsFixed(2).replaceAll('.', ',');
+    }
     if (t?.reservedAmountMinor != null) _reserved.text = (t!.reservedAmountMinor! / 100).toStringAsFixed(2).replaceAll('.', ',');
     if (t != null) _amount.text = (t.amountMinor / 100).toStringAsFixed(2).replaceAll('.', ',');
     // An order with its fee is edited as one: the total that left the cash, and the fee.

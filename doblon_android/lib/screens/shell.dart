@@ -13,6 +13,7 @@ import '../finance.dart';
 import '../preferences.dart';
 import '../theme.dart';
 import 'accounts.dart';
+import 'assistant_screen.dart';
 import 'banks.dart';
 import 'budgets.dart';
 import 'card_payments.dart';
@@ -253,7 +254,17 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
                   ]),
                 ),
               ]),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+              // Apuntar o consultar con una frase (rules on this device); the forms stay where they were.
+              FilledButton.tonalIcon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.of(this.context).push(MaterialPageRoute(builder: (_) => AssistantScreen(repository: repository)));
+                },
+                icon: const Icon(Icons.chat_bubble_outline),
+                label: const Text('Pídeme algo'),
+              ),
+              const SizedBox(height: 12),
               if (repository.bankConnections.isNotEmpty) BankRefreshPanel(repository: repository),
               for (final note in notes)
                 Padding(
