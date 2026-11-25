@@ -12,7 +12,7 @@ async function boot(overrides = {}, outboundService) {
   token = randomBytes(32).toString('hex');
   mf = new Miniflare(convertV4MiniflareOptions({
     sendMetrics: false,
-    modules: ['worker', 'security', 'store', 'provider', 'sandbox-scenario'].map(name => ({ type: 'ESModule',
+    modules: ['worker', 'security', 'store', 'provider', 'sandbox-scenario', 'assistant'].map(name => ({ type: 'ESModule',
       path: fileURLToPath(new URL(`../../src/${name}.mjs`, import.meta.url)) })),
     compatibilityDate: '2026-10-12', compatibilityFlags: ['nodejs_compat'],
     d1Databases: ['DB'],

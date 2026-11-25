@@ -46,6 +46,14 @@ void main() {
     }
   }
 
+  /// Pumps until [finder] shows (a slower machine, such as CI, needs more rounds), at most [rounds].
+  Future<void> waitFor(WidgetTester tester, Finder finder, [int rounds = 60]) async {
+    for (var i = 0; i < rounds && finder.evaluate().isEmpty; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 20)));
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
   Widget app(Widget home) => MaterialApp(
         theme: doblonTheme(Brightness.light),
         locale: const Locale('es', 'ES'),
@@ -118,11 +126,12 @@ void main() {
       await tester.pump();
       expect(find.textContaining('0/12 cuotas pagadas'), findsOneWidget);
       await tester.tap(find.textContaining('1. 5 nov 2026'));
-      await settle(tester, 5);
+      await waitFor(tester, find.text('Registrar el pago'));
       await tester.tap(find.text('Registrar el pago'));
-      await settle(tester, 5);
+      await waitFor(tester, find.text('Guardar'));
       await tester.tap(find.text('Guardar'));
       await settle(tester);
+      await waitFor(tester, find.textContaining('1/12 cuotas pagadas'));
       final paid = repo.finances!.transactions.where((t) => t.installmentPlanId == 'plan-ficticio').toList();
       expect(paid.single.amountMinor, 36483);
       expect(paid.single.installmentNumber, 1);
@@ -138,7 +147,7 @@ void main() {
       await tester.pumpWidget(app(InstallmentDetailScreen(repository: repo, planId: 'plan-ficticio')));
       await tester.pump();
       await tester.tap(find.textContaining('1. 5 nov 2026'));
-      await settle(tester, 5);
+      await waitFor(tester, find.text('Deshacer el pago'));
       await tester.tap(find.text('Deshacer el pago'));
       await settle(tester);
       await tester.runAsync(() async => repo = await device(phone));
