@@ -110,4 +110,6 @@ test('validateIntent keeps only known values', () => {
   assert.deepEqual(validateIntent({ kind: 'createPlan', amountMinor: 437800, count: 12, perInstalment: false, dueDate: '2026-12-05', planKind: 'purchase', purpose: 'Sofá' }),
     { kind: 'createPlan', amountMinor: 437800, count: 12, perInstalment: false, dueDate: '2026-12-05', planKind: 'purchase', purpose: 'Sofá' });
   assert.deepEqual(validateIntent({ kind: 'listMovements', period: 'someday', scope: 'expenses', amountMinor: -3 }), { kind: 'listMovements', scope: 'expenses' });
+  assert.deepEqual(validateIntent({ kind: 'correction', dueDay: 5 }), { kind: 'correction', dueDay: 5 });
+  assert.deepEqual(validateIntent({ kind: 'correction', dueDay: 40 }), { kind: 'correction' });
 });

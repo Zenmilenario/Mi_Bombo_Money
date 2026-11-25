@@ -1,7 +1,7 @@
 name: doblon
 description: Doblón. Tus finanzas con la misma cuenta en el iPhone y en Android.
 publish_to: none
-version: 0.40.0+53
+version: 0.41.0+54
 
 environment:
   sdk: ">=3.5.0 <4.0.0"

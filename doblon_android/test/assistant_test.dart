@@ -322,8 +322,10 @@ void main() {
     expect(parseDate('el lunes', now), DateTime(2026, 11, 23, 12));
     expect(parseDate('el 30 de diciembre', now), DateTime(2025, 12, 30, 12), reason: 'A movement is never in the future');
     expect(parseDueDate('el 5 de diciembre', now), DateTime(2026, 12, 5, 12), reason: 'A due date can be');
-    expect(parseDueDate('el día 5', now), DateTime(2026, 12, 5, 12));
-    expect(parseDueDate('el 28', now), DateTime(2026, 11, 28, 12));
+    expect(parseDueDate('el día 5', now), isNull, reason: 'A day alone: the month is asked, never invented');
+    expect(dueDay('el día 5'), 5);
+    expect(parseDueDate('el 5 del mes que viene', now), DateTime(2026, 12, 5, 12));
+    expect(parseDueDate('el 12 de enero', now), DateTime(2027, 1, 12, 12));
     expect(like('conpras', 'compras'), isTrue);
     expect(like('gasolinera', 'gasolina'), isFalse, reason: 'A station is not fuel');
   });

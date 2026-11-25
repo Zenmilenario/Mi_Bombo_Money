@@ -223,21 +223,60 @@ DateTime? parseDueDate(String text, DateTime now) {
   final named = RegExp(r'\b(?:el )?(\d{1,2}) de (' '${_months.keys.join('|')}' r')(?: de (\d{4}))?\b').firstMatch(f);
   if (named != null) {
     final day = int.parse(named.group(1)!), month = _months[named.group(2)]!;
-    final year = named.group(3) == null ? now.year : int.parse(named.group(3)!);
+    var year = named.group(3) == null ? now.year : int.parse(named.group(3)!);
+    // Without a year, a month already well past is the next one («el 12 de enero» said in November).
+    if (named.group(3) == null && DateTime(year, month, day).isBefore(DateTime(now.year, now.month - 1, now.day))) year++;
     final d = DateTime(year, month, day, 12);
     return d.month == month ? d : null;
   }
-  final dayOnly = RegExp(r'\b(?:el|dia|los dias|cada) (\d{1,2})\b').firstMatch(f);
-  if (dayOnly != null) {
-    final day = int.parse(dayOnly.group(1)!);
-    if (day < 1 || day > 31) return null;
-    final nextMonth = f.contains(' mes que viene ') || f.contains(' proximo mes ') || f.contains(' siguiente mes ');
-    var d = DateTime(now.year, now.month + (nextMonth ? 1 : 0), day, 12);
-    if (!nextMonth && d.isBefore(today)) d = DateTime(now.year, now.month + 1, day, 12);
+  // A day with «este mes» or «el mes que viene»; a day alone is not a date (the month is asked, never invented).
+  final day = dueDay(text);
+  final offset = _monthOffset(f);
+  if (day != null && offset != null) {
+    final d = DateTime(now.year, now.month + offset, day, 12);
     return d.day == day ? d : null;
   }
   return null;
 }
+
+int? _monthOffset(String padded) {
+  if (RegExp(r' (mes que viene|del que viene|proximo mes|siguiente mes|mes siguiente|el otro mes) ').hasMatch(padded)) return 1;
+  if (padded.contains(' este mes ') || padded.contains(' de este mes ')) return 0;
+  return null;
+}
+
+/// The day of the month in an answer about a due date: «5 de cada mes», «los días 5», «pon el 5», even with a slip of
+/// the autocorrector around it. A number followed by money or by a count of instalments is not a day.
+int? dueDay(String text) {
+  final t = plainText(text);
+  for (final m in RegExp(r'(?<![\d.,])(\d{1,2})(?![\d.,])').allMatches(t)) {
+    final after = t.substring(m.end).trimLeft();
+    if (RegExp(r'^(€|eur\b|euros?\b)').hasMatch(after) || RegExp('^$_countUnits\\b').hasMatch(after) && !RegExp(r'^mes\b').hasMatch(after)) continue;
+    if (t.substring(0, m.start).trimRight().endsWith('€')) continue;
+    final day = int.parse(m.group(1)!);
+    if (day >= 1 && day <= 31) return day;
+  }
+  if (RegExp(r'\b(dia uno|el uno|primero de (cada )?mes|dia primero)\b').hasMatch(t)) return 1;
+  return null;
+}
+
+/// A due date said only roughly («a primeros de mes», «a mediados», «el día que quieras»): a day is proposed, never
+/// set without confirmation. Null when the sentence is not about the time of the month.
+int? roughDueDay(String text) {
+  final t = ' ${plainText(text).replaceAll(RegExp(r'[^a-z ]+'), ' ')} ';
+  if (RegExp(r' (primeros|principios|principio|inicio|inicios|comienzo|comienzos) ').hasMatch(t)) return 1;
+  if (RegExp(r' (mediados|mitad) ').hasMatch(t)) return 15;
+  if (RegExp(r' (finales|final) ').hasMatch(t)) return 28;
+  if (RegExp(r' (quieras|prefieras|te de|da igual|cualquier dia|cualquiera) ').hasMatch(t)) return 1;
+  return null;
+}
+
+const _monthNames = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+String _longDate(DateTime d) => '${d.day} de ${_monthNames[d.month - 1]} de ${d.year}';
+
+/// Speaks of money: only then may an open draft's amount change (or when the amount is what was asked).
+bool moneyCue(Signals s) =>
+    RegExp(r'(€|\beur\b|\beuros?\b|\bimporte\b|\btotal\b|\bcantidad\b|\bprecio\b|\bcuesta\b|\bpavos\b|\bpelas\b)').hasMatch(s.plain);
 
 QueryPeriod? parsePeriod(String text) {
   final f = ' ${plainText(text).replaceAll(RegExp(r'[^a-z0-9]+'), ' ')} ';
@@ -256,7 +295,7 @@ QueryPeriod? parsePeriod(String text) {
 const _spend = ['gast*', 'pag*', 'compr*', 'cost*', 'cena*', 'cene', 'comid*', 'comiendo', 'desayun*', 'repost*', 'cargo', 'cargaron'];
 const _earn = ['cobr*', 'ingres*', 'recib*', 'nomina', 'sueldo', 'salario', 'devolv*', 'devolucion', 'reembols*', 'bizum'];
 const _reserveWords = ['reserv*', 'apart*', 'guard*', 'separ*'];
-const _transferWords = ['traspas*', 'transfer*'];
+const _transferWords = ['traspas*', 'transfer*', 'transfie*', 'transfir*'];
 const _planWords = ['plazo*', 'cuota*', 'mensualidad*', 'fraccion*', 'financ*', 'aplaz*', 'repart*', 'prestamo*'];
 const _consultVerbs = ['muestra*', 'ensena*', 'dime', 'lista*', 'listado', 'busca*', 'mira*', 'saca*', 'ver', 'revisa*', 'consulta*', 'enumera*'];
 const _registerVerbs = ['apunta*', 'anota*', 'registra*', 'anade*', 'mete*', 'introduce*'];
@@ -294,7 +333,8 @@ class Signals {
     paidPast = _phrase(plain, ['he pagado', 'pague', 'pagada', 'pagado', 'he abonado', 'abone', 'ya pague', 'ya he pagado']);
     simulate = _phrase(plain, ['si gasto', 'si me gasto', 'si pago', 'si compro', 'si me compro', 'como quedaria', 'que pasaria', 'puedo permitirme', 'me puedo permitir']);
     continuation = _continuations.contains(first) || plain.trimLeft().startsWith('¿y');
-    correction = _phrase(plain, ['no eran', 'no era', 'no es', 'eran', 'era', 'en realidad', 'me he equivocado', 'perdona', 'mejor', 'fue', 'la fecha', 'el importe', 'la cuenta']) ||
+    correction = _phrase(plain, ['no eran', 'no era', 'no es', 'eran', 'era', 'fue', 'fueron', 'que fueron', 'en realidad', 'me he equivocado', 'perdona', 'mejor', 'la fecha',
+          'el importe', 'la cuenta', 'te he dicho', 'ya te he dicho', 'te dije', 'he dicho', 'no te he dicho', 'que no', 'digo']) ||
         _any(words, ['cambia*', 'corrige*', 'categoria', 'concepto', 'llamalo', 'ponlo', 'ponla']);
     cancel = _any(words, _cancelWords) || plain.trim() == 'no' || plain.trim() == 'nada';
     resume = _any(words, _resumeWords);
@@ -444,6 +484,7 @@ class AssistantIntent {
     this.amountMinor,
     this.count,
     this.instalmentNumber,
+    this.dueDay,
     this.perInstalment,
     this.date,
     this.dueDate,
@@ -457,7 +498,7 @@ class AssistantIntent {
     this.planText,
   });
   final IntentKind kind;
-  final int? amountMinor, count, instalmentNumber;
+  final int? amountMinor, count, instalmentNumber, dueDay;
   final bool? perInstalment;
   final DateTime? date, dueDate;
   final QueryPeriod? period;
@@ -486,6 +527,7 @@ class AssistantIntent {
       amountMinor: cents(json['amountMinor']),
       count: small(json['count']),
       instalmentNumber: small(json['instalmentNumber']),
+      dueDay: json['dueDay'] is int && (json['dueDay'] as int) >= 1 && (json['dueDay'] as int) <= 31 ? json['dueDay'] as int : null,
       perInstalment: json['perInstalment'] is bool ? json['perInstalment'] as bool : null,
       date: day(json['date']),
       dueDate: day(json['dueDate']),
@@ -515,6 +557,7 @@ const assistantIntentSchema = <String, Object>{
     'perInstalment': {'type': 'boolean'},
     'count': {'type': 'integer', 'minimum': 1, 'maximum': 600},
     'instalmentNumber': {'type': 'integer', 'minimum': 1, 'maximum': 600},
+    'dueDay': {'type': 'integer', 'minimum': 1, 'maximum': 31},
     'date': {'type': 'string', 'description': 'YYYY-MM-DD'},
     'dueDate': {'type': 'string', 'description': 'YYYY-MM-DD'},
     'period': {
@@ -542,11 +585,14 @@ typedef RemoteInterpretation = ({AssistantIntent? intent, String? error});
 
 // ---------------------------------------------------------------- replies
 
-enum PendingField { kind, amount, account, purpose, category, count, planKind, planName, dueDate, recorded, plan }
+enum PendingField { kind, amount, account, purpose, category, count, planKind, planName, dueDate, dueMonth, recorded, plan }
 
 sealed class AssistantReply {
   /// Said before the reply: a draft set aside, so nothing is lost or answered silently.
   String? note;
+
+  /// A draft was set aside with this reply: the card offers to go back to it (no exact words needed).
+  bool canResume = false;
 }
 
 class AssistantQuestion extends AssistantReply {
@@ -634,6 +680,14 @@ class _Draft {
   ({String categoryName, String source})? proposal;
   List<AccountChoice>? accountOptions;
   PendingField? pending;
+
+  /// The question asked for [pending], for the model's context and to ask it again.
+  String? question;
+  List<(String, String)> questionOptions = const [];
+  int? dueDay;
+
+  /// The day was only said roughly («a primeros»): it is proposed, not assumed.
+  bool roughDay = false;
   String? previewId;
   AssistantPreview? preview;
 
@@ -673,7 +727,9 @@ class AssistantSession {
 
   void cancel() => _draft = null;
 
-  /// What the person wrote: an answer, a correction, a continuation or a new request.
+  /// What the person wrote: an answer to the question asked, a change to the open draft, a new request, or something
+  /// not understood. With a draft open, the sentence updates it unless it clearly opens another subject; what is not
+  /// understood never resets or sets aside the draft: the missing data is asked again.
   Future<AssistantReply> say(String text, FinanceCalculator calc, DateTime now, {int heldMinor = 0}) async {
     final s = Signals(text, now);
     final data = calc.data;
@@ -682,36 +738,28 @@ class AssistantSession {
       _draft = null;
       return AssistantMessage('Cancelado: no se ha guardado nada.');
     }
-    // The answer to the question asked, or a correction of the draft; a new subject is never taken as either.
-    if (draft != null) {
-      final newSubject = s.mainIntent && !s.correction;
-      // A question or a request to see is never the answer to «¿Con qué cuenta?».
-      final asking = s.question || s.consult || s.summary || s.listNoun || s.simulate || s.transfer || s.reserve != (draft.kind == IntentKind.reserve) && s.reserve ||
-          (s.plan && draft.kind != IntentKind.createPlan && draft.kind != IntentKind.payInstalment);
-      if (draft.pending != null && !asking && _fill(draft, draft.pending!, s, data, now)) return _next(calc, now, heldMinor);
-      // With the model on, it reads corrections in natural language; the rules correct only when it is off or fails.
-      if (remote == null && !newSubject && _correct(draft, s, data, now)) return _next(calc, now, heldMinor);
+    // 1. The answer to the question asked, read in its context (a date question reads «5» as the day).
+    if (draft != null &&
+        draft.pending != null &&
+        !_asksElsewhere(s, draft) &&
+        !_correctsInstead(s, draft) &&
+        // Another operation with its own amount is not the answer («he gastado 20 € …» is not a name).
+        !(s.amountMinor != null && draft.pending != PendingField.amount && _otherSubject(s, null, draft, data)) &&
+        _fill(draft, draft.pending!, s, data, now)) {
+      return _next(calc, now, heldMinor);
     }
     if (_scopeWaiting != null) {
       final choice = _any(s.words, ['categoria', 'solo']) ? true : (_any(s.words, ['todos', 'todo', 'todas']) ? false : null);
       if (choice != null) return _scopeChosen(choice, calc, now);
     }
-    if (s.resume && _parked != null && !s.mainIntent) {
-      _draft = _parked
-        ?..pending = null
-        ..preview = null;
-      _parked = null;
-      return _next(calc, now, heldMinor);
-    }
-    // The model, when the person turned it on: natural language, with the rules as the fallback.
+    if (draft == null && s.resume && _parked != null && !s.mainIntent) return resume(calc, now, heldMinor: heldMinor);
+    // 2. The model, when the person turned it on; its answer is merged with the same guards as the rules'.
     String? fallbackNote;
+    AssistantIntent? intent;
     if (remote != null && text.trim().length <= 300) {
       final answer = await remote!(contextFor(text, data, now));
-      final intent = answer.intent;
-      if (intent != null) {
-        final reply = await _fromIntent(intent, s, calc, now, heldMinor);
-        if (reply != null) return reply;
-      } else {
+      intent = answer.intent;
+      if (intent == null) {
         fallbackNote = switch (answer.error) {
           'assistant_quota' => 'Hoy ya has usado tus 40 frases libres: sigo con mis reglas hasta mañana.',
           'assistant_quota_server' => 'Hoy se ha agotado el cupo gratuito del intérprete: sigo con mis reglas hasta mañana.',
@@ -720,20 +768,82 @@ class AssistantSession {
         };
       }
     }
-    if (draft != null && !(s.mainIntent && !s.correction) && _correct(draft, s, data, now)) {
-      final reply = await _next(calc, now, heldMinor);
+    // 3. With a draft open: an update of it, or a short question about what is still missing.
+    if (draft != null && !_otherSubject(s, intent, draft, data)) {
+      final reply = _update(draft, s, intent, data, now) ? await _next(calc, now, heldMinor) : _clarify(draft);
       return reply..note ??= fallbackNote;
     }
-    final kind = _decide(s, data);
-    String? note;
-    if (draft != null) {
-      _parked = draft;
-      _draft = null;
-      note = 'Dejo aparte ${draft.describe()} sin guardar. Escribe «retómalo» para seguir con él.';
+    // 4. A new subject (or nothing open): the model's reading, or the rules'.
+    if (intent != null && intent.kind != IntentKind.unknown && intent.kind != IntentKind.correction) {
+      final reply = await _fromIntent(intent, s, calc, now, heldMinor);
+      if (reply != null) return reply;
     }
-    final reply = await _start(kind, s, calc, now, heldMinor);
-    reply.note ??= note ?? fallbackNote;
+    final kind = _decide(s, data);
+    final reply = await _start(kind, s, calc, now, heldMinor, park: draft != null);
+    reply.note ??= fallbackNote;
     return reply;
+  }
+
+  /// Goes back to the draft set aside, with everything it had.
+  Future<AssistantReply> resume(FinanceCalculator calc, DateTime now, {int heldMinor = 0}) async {
+    if (_parked == null) return AssistantMessage('No hay nada apartado. ¿Qué quieres apuntar o consultar?');
+    _draft = _parked
+      ?..pending = null
+      ..preview = null;
+    _parked = null;
+    return _next(calc, now, heldMinor);
+  }
+
+  /// Sets the open draft aside before a new subject, said explicitly; returns the note.
+  String? _park() {
+    final draft = _draft;
+    if (draft == null) return null;
+    _parked = draft;
+    _draft = null;
+    return 'Dejo aparte ${draft.describe()} sin guardar; puedes seguir con él cuando quieras.';
+  }
+
+  /// A question or a request to see is never the answer to «¿Con qué cuenta?».
+  bool _asksElsewhere(Signals s, _Draft d) =>
+      s.question && d.pending != PendingField.dueDate && d.pending != PendingField.dueMonth ||
+      s.consult ||
+      s.summary && s.amountMinor == null ||
+      s.listNoun ||
+      s.simulate ||
+      s.transfer ||
+      s.reserve && d.kind != IntentKind.reserve ||
+      s.plan && d.kind != IntentKind.createPlan && d.kind != IntentKind.payInstalment;
+
+  /// «Te he dicho que un préstamo» while a name is asked: a correction, not the name.
+  bool _correctsInstead(Signals s, _Draft d) =>
+      (d.pending == PendingField.planName || d.pending == PendingField.purpose) && (s.correction || _planKind(s) != null && d.planKind != _planKind(s));
+
+  /// Whether a sentence opens another subject instead of continuing the open draft: a question or a request to see,
+  /// another operation with its own amount, or the model reading another kind that the sentence itself supports.
+  bool _otherSubject(Signals s, AssistantIntent? intent, _Draft d, Finances data) {
+    // A summary never carries an amount: «el total son 4.500 €» speaks of the draft's money, not of a query.
+    if ((s.question || s.consult || s.summary && s.amountMinor == null || s.listNoun || s.simulate || s.transfer) && !s.correction) return true;
+    final stated = s.spend || s.earn || s.reserve || s.plan ? _decide(s, data) : null;
+    // In a plan the amount must be said as money (it has other numbers); in a movement a verb and an amount suffice.
+    if (stated != null && s.amountMinor != null && (moneyCue(s) || d.kind != IntentKind.createPlan) && !s.correction) {
+      if (stated != d.kind) return true;
+      // The same kind again with another amount, while nothing about the amount was asked: a new one.
+      if (d.amountMinor != null && s.amountMinor != d.amountMinor && d.pending != PendingField.amount && d.preview != null) return true;
+    }
+    final read = intent?.kind;
+    // The model reads another operation and the sentence supports it (its own intent words or its own amount).
+    return read != null && read != IntentKind.unknown && read != IntentKind.correction && read != d.kind && (s.mainIntent || s.amountMinor != null) && !s.correction;
+  }
+
+  /// Asks again only for what is missing, keeping everything else.
+  AssistantReply _clarify(_Draft d) {
+    if (d.pending != null && d.question != null) {
+      return AssistantQuestion('No te he entendido. ${d.question!}', d.pending, d.questionOptions);
+    }
+    if (d.preview != null) {
+      return AssistantMessage('No te he entendido. Puedes confirmar ${d.describe()}, cancelarlo o decirme qué cambio (por ejemplo, «el importe son 45 €» o «fue ayer»).');
+    }
+    return AssistantMessage('No te he entendido. Sigo con ${d.describe()}: dime el dato que falta o «cancela».');
   }
 
   String? _lastTitle;
@@ -746,12 +856,14 @@ class AssistantSession {
     String? describeDraft() {
       if (draft == null) return null;
       final what = <String>[
-        draft.describe(),
+        draft.planKind?.title ?? draft.describe(),
+        if (draft.planKind != null && draft.amountMinor != null) 'de ${money(draft.amountMinor!)}${draft.perInstalment ? ' cada cuota' : ' en total'}',
         if (draft.concept != null) '(${draft.concept})',
         if (draft.accountId != null) 'en ${data.account(draft.accountId)?.name ?? ''}',
         if (draft.categoryId != null) 'categoría ${data.category(draft.categoryId)?.name ?? ''}',
-        if (draft.count != null) '${draft.count} cuotas',
-        if (draft.pending != null) '; falta: ${draft.pending!.name}',
+        if (draft.count != null) 'en ${draft.count} cuotas',
+        if (draft.dueDay != null) 'día ${draft.dueDay}',
+        if (draft.pending != null && draft.question != null) '; pregunta pendiente: ${draft.question}',
         if (draft.preview != null) '; enseñado para confirmar',
       ].join(' ');
       return what.length > 200 ? what.substring(0, 200) : what;
@@ -777,69 +889,9 @@ class AssistantSession {
     final data = calc.data;
     final draft = _draft;
     if (i.kind == IntentKind.unknown) return null;
-    if (i.kind == IntentKind.correction) {
-      if (draft == null) return null;
-      var changed = false;
-      if (i.amountMinor != null) {
-        draft.amountMinor = i.amountMinor;
-        if (i.perInstalment != null) draft.perInstalment = i.perInstalment!;
-        changed = true;
-      }
-      if (i.date != null && !i.date!.isAfter(now)) {
-        draft.date = i.date;
-        changed = true;
-      }
-      if (i.dueDate != null && draft.kind == IntentKind.createPlan) {
-        draft.dueDate = i.dueDate;
-        changed = true;
-      }
-      if (i.count != null) {
-        draft.count = i.count;
-        changed = true;
-      }
-      if (i.planKind != null) {
-        draft.planKind = i.planKind;
-        changed = true;
-      }
-      if (i.concept != null && (draft.kind == IntentKind.expense || draft.kind == IntentKind.income)) {
-        draft.concept = i.concept;
-        changed = true;
-      }
-      if (i.purpose != null) {
-        if (draft.kind == IntentKind.reserve) draft.purpose = i.purpose;
-        if (draft.kind == IntentKind.createPlan) draft.planName = i.purpose;
-        changed = true;
-      }
-      if (i.accountText != null) {
-        final named = namedAccounts(i.accountText!, data, allowed: draft.kind == IntentKind.reserve ? _reservable : null);
-        if (named.length == 1) draft.accountId = named.single.account.id;
-        if (named.length > 1) {
-          draft.accountId = null;
-          draft.accountOptions = named;
-        }
-        changed = changed || named.isNotEmpty;
-      }
-      if (i.categoryText != null) {
-        final type = draft.kind == IntentKind.income ? TransactionType.income : TransactionType.expense;
-        final c = namedCategory(i.categoryText!, data, (c) => categorySupports(c, type));
-        if (c != null) {
-          draft.categoryId = c.id;
-          draft.categoryDecided = true;
-          draft.proposal = null;
-          changed = true;
-        }
-      }
-      if (!changed) return null;
-      draft.pending = null;
-      return _next(calc, now, heldMinor);
-    }
-    // Anything else is a new request: an open draft is set aside, said explicitly.
-    String? note;
-    if (draft != null) {
-      _parked = draft;
-      _draft = null;
-      note = 'Dejo aparte ${draft.describe()} sin guardar. Escribe «retómalo» para seguir con él.';
-    }
+    if (i.kind == IntentKind.correction) return null;
+    // A new request: an open draft is set aside, said explicitly.
+    final note = draft == null ? null : _park();
     AssistantReply reply;
     switch (i.kind) {
       case IntentKind.simulation || IntentKind.transfer:
@@ -869,7 +921,9 @@ class AssistantSession {
         if (i.kind == IntentKind.createPlan) {
           d.count = i.count;
           d.perInstalment = i.perInstalment ?? false;
-          d.dueDate = i.dueDate;
+          // The model's due date only when the sentence says the month; a day alone asks for it.
+          d.dueDate = i.dueDate != null && _saysMonth(s) ? i.dueDate : null;
+          d.dueDay = d.dueDate == null ? (i.dueDay ?? i.dueDate?.day) : null;
           d.planKind = i.planKind;
           d.planName = i.purpose;
           d.date = null;
@@ -894,14 +948,27 @@ class AssistantSession {
         reply = await _next(calc, now, heldMinor);
     }
     reply.note ??= note;
+    reply.canResume = note != null;
     return reply;
   }
+
+  bool _saysMonth(Signals s) => RegExp('(${_months.keys.join('|')}|\\d/\\d|mes que viene|proximo mes|siguiente mes|este mes)').hasMatch(s.plain);
 
   /// A tapped option of the last question.
   Future<AssistantReply> choose(String value, FinanceCalculator calc, DateTime now, {int heldMinor = 0}) async {
     if (_scopeWaiting != null && value.startsWith('scope:')) return _scopeChosen(value == 'scope:category', calc, now);
     final draft = _draft;
     if (draft == null || draft.pending == null) return AssistantMessage('Eso ya no está pendiente. ¿Qué quieres apuntar o consultar?');
+    if (value.startsWith('due:')) {
+      final d = DateTime.tryParse(value.substring(4));
+      if (d == null) return _clarify(draft);
+      draft
+        ..dueDate = DateTime(d.year, d.month, d.day, 12)
+        ..dueDay = null
+        ..pending = null;
+      return _next(calc, now, heldMinor);
+    }
+    if (value == 'due:other') return _ask(draft, PendingField.dueDate, '¿Qué día vence la primera cuota? (por ejemplo, «el 5 de diciembre»)');
     switch (draft.pending!) {
       case PendingField.kind:
         draft.kind = IntentKind.values.byName(value);
@@ -917,7 +984,7 @@ class AssistantSession {
         draft.recorded = value == 'yes';
       case PendingField.plan:
         draft.planId = value;
-      case PendingField.amount || PendingField.purpose || PendingField.count || PendingField.planName || PendingField.dueDate:
+      case PendingField.amount || PendingField.purpose || PendingField.count || PendingField.planName || PendingField.dueDate || PendingField.dueMonth:
         break;
     }
     draft.pending = null;
@@ -953,7 +1020,17 @@ class AssistantSession {
     return IntentKind.unknown;
   }
 
-  Future<AssistantReply> _start(IntentKind kind, Signals s, FinanceCalculator calc, DateTime now, int heldMinor) async {
+  Future<AssistantReply> _start(IntentKind kind, Signals s, FinanceCalculator calc, DateTime now, int heldMinor, {bool park = false}) async {
+    final note = park ? _park() : null;
+    final reply = await _begin(kind, s, calc, now, heldMinor);
+    if (note != null) {
+      reply.note ??= note;
+      reply.canResume = true;
+    }
+    return reply;
+  }
+
+  Future<AssistantReply> _begin(IntentKind kind, Signals s, FinanceCalculator calc, DateTime now, int heldMinor) async {
     final data = calc.data;
     switch (kind) {
       case IntentKind.unknown:
@@ -992,6 +1069,7 @@ class AssistantSession {
           d.count = s.count;
           d.perInstalment = amountIsPerInstalment(s.raw);
           d.dueDate = _planDueDate(s);
+          if (d.dueDate == null && RegExp(r'(primera|vence|cada mes|de cada|el dia|los dias)').hasMatch(s.plain)) d.dueDay = dueDay(s.raw);
           d.planKind = _planKind(s);
           d.planName = _purpose(s.raw);
           d.date = null;
@@ -1065,10 +1143,36 @@ class AssistantSession {
         d.purpose = _purpose(s.raw) ?? _capital(s.raw.trim());
       case PendingField.planName:
         if (s.words.isEmpty || s.question) return false;
-        d.planName = _capital(s.raw.trim());
+        d.planName = _capital(s.raw.trim().replaceAll(RegExp(r'^(se llama|llamalo|llámalo|ponle)\s+', caseSensitive: false), ''));
       case PendingField.dueDate:
-        if (s.dueDate == null) return false;
-        d.dueDate = s.dueDate;
+        if (s.dueDate != null) {
+          d.dueDate = s.dueDate;
+          d.dueDay = null;
+        } else if (dueDay(s.raw) != null && !moneyCue(s)) {
+          d.dueDay = dueDay(s.raw); // the month is asked next
+        } else if (roughDueDay(s.raw) != null) {
+          d.dueDay = roughDueDay(s.raw);
+          d.roughDay = true;
+        } else {
+          return false;
+        }
+      case PendingField.dueMonth:
+        final day = d.dueDay ?? dueDay(s.raw);
+        final padded = ' ${s.plain.replaceAll(RegExp(r'[^a-z0-9/]+'), ' ')} ';
+        final named = _months.entries.where((e) => padded.contains(' ${e.key} ')).firstOrNull?.value;
+        final offset = _monthOffset(padded);
+        if (s.dueDate != null) {
+          d.dueDate = s.dueDate;
+        } else if (day != null && (named != null || offset != null)) {
+          final month = named ?? now.month + offset!;
+          var date = DateTime(now.year, month, day, 12);
+          if (named != null && date.isBefore(DateTime(now.year, now.month - 6))) date = DateTime(now.year + 1, month, day, 12);
+          if (date.day != day) return false;
+          d.dueDate = date;
+        } else {
+          return false;
+        }
+        d.dueDay = null;
       case PendingField.kind:
         if (s.spend) {
           d.kind = IntentKind.expense;
@@ -1124,33 +1228,58 @@ class AssistantSession {
     return true;
   }
 
-  /// A change to a draft already shown or being prepared: amount, date, account, category, concept, count.
-  bool _correct(_Draft d, Signals s, Finances data, DateTime now) {
+  /// Applies to the open draft what the sentence changes, from the rules' reading and the model's ([i]), with the
+  /// same guards: the amount only when the sentence speaks of money (a number in a date is never the debt), the
+  /// count only when it speaks of instalments, a due date's month only when said. True when something changed.
+  bool _update(_Draft d, Signals s, AssistantIntent? i, Finances data, DateTime now) {
     var changed = false;
-    if (s.amountMinor != null && s.amountMinor != d.amountMinor) {
-      d.amountMinor = s.amountMinor;
-      if (d.kind == IntentKind.createPlan) d.perInstalment = amountIsPerInstalment(s.raw);
+    final plan = d.kind == IntentKind.createPlan;
+    // A plain amount correction («no, eran 45», «fueron cuarenta y cinco») is the amount where there is no other number.
+    final aboutMoney = moneyCue(s) || d.pending == PendingField.amount || (!plan && s.correction && s.date == null);
+    final amount = s.amountMinor ?? i?.amountMinor;
+    if (amount != null && aboutMoney && amount != d.amountMinor) {
+      d.amountMinor = amount;
+      if (plan) d.perInstalment = amountIsPerInstalment(s.raw) || (i?.perInstalment ?? false);
       changed = true;
     }
-    if (d.kind == IntentKind.createPlan) {
-      if (s.count != null && s.count != d.count) {
-        d.count = s.count;
+    if (plan) {
+      final count = s.count ?? (i?.count != null && _any(s.words, ['cuota*', 'mes*', 'plazo*', 'mensualidad*', 'pagos']) ? i!.count : null);
+      if (count != null && count != d.count) {
+        d.count = count;
         changed = true;
       }
-      if (s.dueDate != null && s.dueDate != d.dueDate) {
-        d.dueDate = s.dueDate;
+      final due = s.dueDate ?? (i?.dueDate != null && _saysMonth(s) ? i!.dueDate : null);
+      if (due != null && due != d.dueDate) {
+        d.dueDate = due;
+        d.dueDay = null;
         changed = true;
+      } else if (d.dueDate == null && !aboutMoney) {
+        final day = (d.pending == PendingField.dueDate || d.pending == PendingField.dueMonth ? dueDay(s.raw) : null) ?? i?.dueDay;
+        if (day != null && day != d.dueDay) {
+          d.dueDay = day;
+          d.roughDay = false;
+          changed = true;
+        }
       }
-      final kind = _planKind(s);
+      final kind = _planKind(s) ?? (_any(s.words, ['prestamo*', 'compra*', 'credito', 'otro', 'otra']) ? i?.planKind : null);
       if (kind != null && kind != d.planKind) {
         d.planKind = kind;
         changed = true;
       }
-    } else if (s.date != null && s.date != d.date) {
-      d.date = s.date;
-      changed = true;
+      final name = RegExp(r'(?:llamalo|ponle de nombre|se llama|el nombre es)\s*:?\s*(.+)$').firstMatch(s.plain);
+      if (name != null) {
+        d.planName = _capital(s.raw.substring(s.raw.length - name.group(1)!.length).trim());
+        changed = true;
+      }
+    } else {
+      final date = s.date ?? (i?.date != null && !i!.date!.isAfter(now) ? i.date : null);
+      if (date != null && date != d.date) {
+        d.date = date;
+        changed = true;
+      }
     }
-    final named = namedAccounts(s.raw, data, allowed: d.kind == IntentKind.reserve ? _reservable : null);
+    final accountText = namedAccounts(s.raw, data).isNotEmpty ? s.raw : i?.accountText;
+    final named = accountText == null ? const <AccountChoice>[] : namedAccounts(accountText, data, allowed: d.kind == IntentKind.reserve ? _reservable : null);
     if (named.length == 1 && named.single.account.id != d.accountId) {
       d.accountId = named.single.account.id;
       changed = true;
@@ -1167,7 +1296,8 @@ class AssistantSession {
         d.proposal = null;
         changed = true;
       } else {
-        final c = namedCategory(s.raw, data, (c) => categorySupports(c, type));
+        final c = namedCategory(s.raw, data, (c) => categorySupports(c, type)) ??
+            (i?.categoryText == null ? null : namedCategory(i!.categoryText!, data, (c) => categorySupports(c, type)));
         if (c != null && c.id != d.categoryId) {
           d.categoryId = c.id;
           d.categoryDecided = true;
@@ -1181,12 +1311,19 @@ class AssistantSession {
         changed = true;
       }
     }
+    if (d.kind == IntentKind.reserve && i?.purpose != null && s.correction && i!.purpose != d.purpose) {
+      d.purpose = i.purpose;
+      changed = true;
+    }
     if (changed) d.pending = null;
     return changed;
   }
 
   AssistantQuestion _ask(_Draft d, PendingField field, String text, [List<(String, String)> options = const []]) {
-    d.pending = field;
+    d
+      ..pending = field
+      ..question = text
+      ..questionOptions = options;
     return AssistantQuestion(text, field, options);
   }
 
@@ -1358,7 +1495,23 @@ class AssistantSession {
     if (d.count == null) return _ask(d, PendingField.count, '¿En cuántas cuotas mensuales?');
     if (d.planKind == null) return _ask(d, PendingField.planKind, '¿Qué es?', [for (final k in InstallmentKind.values) (k.title, k.name)]);
     if (d.planName == null || d.planName!.isEmpty) return _ask(d, PendingField.planName, '¿Cómo lo llamo? (por ejemplo, «Sofá» o «Préstamo del coche»)');
-    if (d.dueDate == null) return _ask(d, PendingField.dueDate, '¿Cuándo vence la primera cuota? (por ejemplo, «el 5 de diciembre»)');
+    if (d.dueDate == null && d.dueDay != null) {
+      final day = d.dueDay!;
+      final options = <(String, String)>[];
+      for (var m = 0; options.length < (d.roughDay ? 2 : 3) && m < 4; m++) {
+        final date = DateTime(now.year, now.month + m, day, 12);
+        if (date.day != day || date.isBefore(DateTime(now.year, now.month, now.day))) continue;
+        options.add((_longDate(date), 'due:${date.toIso8601String().substring(0, 10)}'));
+      }
+      return _ask(
+          d,
+          d.roughDay ? PendingField.dueDate : PendingField.dueMonth,
+          d.roughDay
+              ? '¿Te vale que la primera cuota sea el ${options.first.$1}? Si el contrato dice otro día, escríbelo.'
+              : 'Entonces, el día $day de cada mes. ¿En qué mes es la primera cuota?',
+          [...options, if (d.roughDay) ('Otro día', 'due:other')]);
+    }
+    if (d.dueDate == null) return _ask(d, PendingField.dueDate, '¿Cuándo vence la primera cuota? (por ejemplo, «el 5 de diciembre» o «el día 5 de cada mes»)');
     final account = _account(d, data, (a) => true, '¿Desde qué cuenta se pagan las cuotas?');
     if (account is AssistantReply) return account;
     if (d.recorded == null) {

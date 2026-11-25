@@ -31,6 +31,7 @@ export const INTENT_SCHEMA = {
     perInstalment: { type: 'boolean', description: 'el importe es cada cuota, no el total' },
     count: { type: 'integer', minimum: 1, maximum: 600, description: 'número de cuotas' },
     instalmentNumber: { type: 'integer', minimum: 1, maximum: 600 },
+    dueDay: { type: 'integer', minimum: 1, maximum: 31, description: 'día del mes de las cuotas cuando no se dice el mes' },
     date: { type: 'string', description: 'fecha del movimiento AAAA-MM-DD' },
     dueDate: { type: 'string', description: 'primer vencimiento AAAA-MM-DD' },
     period: { type: 'string', enum: PERIODS },
@@ -54,7 +55,8 @@ Tipos (kind):
 - createPlan: un compromiso pagado a plazos («4.378 € en 12 meses», «préstamo de 300 € al mes durante 12 meses»). Nunca es un gasto de hoy.
 - payInstalment: una cuota de un pago a plazos ya pagada. planStatus: cuánto queda de un pago a plazos.
 - simulation: «¿y si gasto…?». transfer: traspaso entre cuentas propias (solo se apunta; nunca mueve dinero en el banco).
-- correction: cambia datos del borrador abierto del contexto («no, eran 45», «fue ayer», «ponlo en ocio»). Devuelve solo los campos que cambian.
+- correction: responde a la pregunta pendiente del borrador del contexto o cambia alguno de sus datos («no, eran 45», «fue ayer», «ponlo en ocio», «te he dicho que un préstamo», «el 5 de cada mes»). Devuelve solo los campos que la frase da.
+- Si hay un borrador abierto, la frase casi siempre es correction: solo es otro tipo si pide claramente otra cosa (una consulta u otra operación con su propio importe). Nunca devuelvas el tipo del borrador para responderle.
 - unknown: si no está claro. No inventes datos.
 
 Reglas:
@@ -63,6 +65,9 @@ Reglas:
 - amountMinor en céntimos: «44,53» → 4453; «4.378» → 437800 (punto de miles). Si no hay importe, omítelo.
 - En createPlan, amountMinor es el total salvo que la frase diga cuota/al mes (entonces perInstalment true). count es el número de cuotas.
 - Fechas relativas a "today" del contexto, en formato AAAA-MM-DD. Si no se dice fecha, omítela.
+- Al responder a una pregunta de fecha, un número suelto es el día del mes, nunca un importe ni un número de cuotas. Si dicen el día pero no el mes del primer vencimiento, devuelve solo dueDay; no inventes dueDate.
+- No pongas amountMinor ni count salvo que la frase hable de dinero (€, euros, importe, total) o de cuotas.
+- La frase puede tener erratas del autocorrector, faltas, abreviaturas o tono coloquial: interprétala por el contexto, sin inventar datos.
 - accountText, categoryText y planText: copia el nombre de la lista del contexto que se mencione; si no se menciona, omítelo.
 - concept: lo que se compró o pagó, corto («Gasolinera», «Cena»). purpose: para qué es una reserva o el nombre de un pago a plazos.
 - period por defecto en consultas: thisMonth. scope: expenses, income o all.`;
@@ -84,6 +89,7 @@ export function validateIntent(value) {
   set('amountMinor', int(value.amountMinor, 1, 99_999_999_999));
   set('count', int(value.count, 1, 600));
   set('instalmentNumber', int(value.instalmentNumber, 1, 600));
+  set('dueDay', int(value.dueDay, 1, 31));
   if (typeof value.perInstalment === 'boolean') out.perInstalment = value.perInstalment;
   if (isDate(value.date)) out.date = value.date;
   if (isDate(value.dueDate)) out.dueDate = value.dueDate;

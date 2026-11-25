@@ -213,7 +213,19 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final hint = Theme.of(context).hintColor;
     final pulso = Pulso.of(context);
     final latest = identical(entry, _entries.last);
-    final note = <Widget>[if (reply.note != null) Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(reply.note!, style: TextStyle(fontSize: 12, color: hint)))];
+    final note = <Widget>[
+      if (reply.note != null) Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(reply.note!, style: TextStyle(fontSize: 12, color: hint))),
+      // What was set aside comes back with a tap (or by saying so), with everything it had.
+      if (reply.canResume && latest && session.hasParked)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: _thinking ? null : () => _run('Seguir con lo apartado', () => session.resume(_calc, _now, heldMinor: _held)),
+            icon: const Icon(Icons.undo, size: 18),
+            label: const Text('Seguir con lo apartado'),
+          ),
+        ),
+    ];
     switch (reply) {
       case AssistantQuestion():
         return _bubble(
