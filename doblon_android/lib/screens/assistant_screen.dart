@@ -10,6 +10,8 @@ import '../auto_category.dart' show AutoCategoryStore;
 import '../automation.dart' show matchRule;
 import '../bank_activity.dart' show spendableHolds;
 import '../data.dart';
+import '../edits.dart' show categorySupports;
+import '../models.dart';
 import '../finance.dart';
 import '../presentation.dart';
 import '../theme.dart';
@@ -137,12 +139,23 @@ class _AssistantScreenState extends State<AssistantScreen> {
     try {
       await widget.repository.apply(op);
       if (mounted) setState(() => entry.confirmed = true);
-      // Confirmed proposals count as the person's choices (metrics and learning), as choosing them one by one would.
-      for (final (id, categoryId, source) in preview.assignments) {
-        final name = data.category(categoryId)?.name;
-        if (name == null) continue;
-        await widget.repository.learning?.recordCategoryOutcome(proposedName: name, source: source, chosenName: name);
-        await learnFromEdit(widget.repository, null, id, categoryConfirmed: true);
+      if (preview.kind == PreviewKind.categories) {
+        // What really happened to the movements shown: saved now or on their own, and still pending.
+        final saved = (op.data['ops'] as List).length + preview.automatic.length;
+        final pending = preview.items.length - saved;
+        if (mounted) {
+          setState(() => _entries.add(_Entry.reply(AssistantMessage(
+              'Clasificados: $saved de ${preview.items.length}.${pending > 0 ? ' Siguen pendientes $pending de esta selección.' : ''}'))));
+        }
+      }
+      // Confirmed categories count as the person's choices (metrics and learning), as choosing them one by one would.
+      final confirmed = {for (final (id, _, _) in preview.assignments) id};
+      for (final item in preview.items.where((i) => confirmed.contains(i.transaction.id))) {
+        final chosen = data.category(item.categoryId)?.name;
+        if (chosen == null) continue;
+        await widget.repository.learning
+            ?.recordCategoryOutcome(proposedName: data.category(item.proposedId)?.name, source: item.proposedSource, chosenName: chosen);
+        await learnFromEdit(widget.repository, null, item.transaction.id, categoryConfirmed: true);
       }
       // Only what was confirmed teaches the personal learning (never a draft or a cancelled card), as the form does.
       final draft = preview.draft;
@@ -172,8 +185,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
 
   /// Takes back the categories assigned from the person's evidence: those movements stay without one and are not
   /// assigned again (as «Quitar» in their detail).
-  Future<void> _undoAutomatic(_Entry entry, AssistantResult result) async {
-    for (final id in result.automatic) {
+  Future<void> _undoAutomatic(_Entry entry, List<String> ids) async {
+    for (final id in ids) {
       final t = widget.repository.finances?.transactions.where((t) => t.id == id).firstOrNull;
       if (t != null && AutoCategoryStore.instance.current(t) != null) await widget.repository.rejectAutoCategory(t);
     }
@@ -272,6 +285,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   ),
               ]),
             ]));
+      case AssistantPreview() when reply.kind == PreviewKind.categories:
+        return _categoriesCard(context, entry, reply, note);
       case AssistantPreview():
         final done = entry.confirmed;
         final format = DateFormat('d MMM yyyy', 'es');
@@ -364,7 +379,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                   alignment: Alignment.centerLeft,
                   child: entry.undone
                       ? Text('Categorías automáticas deshechas.', style: TextStyle(fontSize: 12, color: hint))
-                      : TextButton(onPressed: () => _undoAutomatic(entry, reply), child: Text('Deshacer las ${reply.automatic.length} automáticas')),
+                      : TextButton(onPressed: () => _undoAutomatic(entry, reply.automatic), child: Text('Deshacer las ${reply.automatic.length} automáticas')),
                 ),
               if (reply.planId != null)
                 Align(
@@ -395,6 +410,124 @@ class _AssistantScreenState extends State<AssistantScreen> {
       case AssistantMessage():
         return _bubble(context, Column(crossAxisAlignment: CrossAxisAlignment.start, children: [...note, Text(reply.text)]));
     }
+  }
+
+  /// A categorisation: a short line and one compact card per selected movement (concept, date and account, signed
+  /// amount, its category, editable, and its state). The bank's full text stays in the movement's detail.
+  Widget _categoriesCard(BuildContext context, _Entry entry, AssistantPreview reply, List<Widget> note) {
+    final hint = Theme.of(context).hintColor;
+    final pulso = Pulso.of(context);
+    final data = widget.repository.finances!;
+    final format = DateFormat('d MMM', 'es');
+    final open = !entry.confirmed && entry.retired == null && session.isCurrent(reply);
+    final toSave = reply.assignments.length;
+    String state(CategoryItem i) => switch (i.source) {
+          'rule' => 'Puesta con tu regla',
+          'history' => 'Puesta como la sueles poner',
+          'model' || 'brand' => 'Propuesta',
+          'person' => 'Elegida por ti',
+          _ => 'Dime qué es',
+        };
+    Widget card(CategoryItem item) {
+      final t = item.transaction;
+      final income = t.type.countsAsIncome;
+      final category = data.category(item.categoryId);
+      final editable = open && !item.applied;
+      return Container(
+        margin: const EdgeInsets.only(top: 8),
+        decoration: BoxDecoration(
+          color: pulso.tertiary,
+          borderRadius: BorderRadius.circular(Pulso.compactRadius),
+          border: Border.all(color: pulso.outline),
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(Pulso.compactRadius),
+            onTap: () => Navigator.of(context)
+                .push(MaterialPageRoute(builder: (_) => TransactionDetailScreen(repository: widget.repository, transactionId: t.id))),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(
+                    child: Text(shortConcept(t), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  ),
+                  const SizedBox(width: 8),
+                  Text('${income ? '+' : '−'}${money(t.amountMinor)}',
+                      style: TextStyle(fontWeight: FontWeight.w600, color: income ? pulso.income : null)),
+                ]),
+                Text([format.format(t.date), data.account(t.sourceAccountId)?.name ?? ''].where((p) => p.isNotEmpty).join(' · '),
+                    style: TextStyle(fontSize: 12, color: hint)),
+                const SizedBox(height: 4),
+                Wrap(spacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                  ActionChip(
+                    avatar: Icon(category == null ? Icons.add : Icons.sell_outlined, size: 16),
+                    label: Text(category?.name ?? 'Elegir categoría'),
+                    onPressed: editable ? () => _pickCategory(reply, item) : null,
+                  ),
+                  Text(state(item), style: TextStyle(fontSize: 12, color: item.categoryId == null ? pulso.warning : hint)),
+                ]),
+              ]),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return _bubble(
+        context,
+        Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          ...note,
+          Text(reply.title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          for (final e in reply.effects) Text(e, style: TextStyle(fontSize: 12, color: hint)),
+          for (final item in reply.items) card(item),
+          const SizedBox(height: 10),
+          if (entry.retired != null && !entry.confirmed)
+            Text(entry.retired!, style: TextStyle(color: hint, fontSize: 12))
+          else if (!entry.confirmed)
+            Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
+              FilledButton(
+                onPressed: entry.busy || toSave == 0 ? null : () => _confirm(entry, reply),
+                child: Text(toSave == 0 ? 'Nada que guardar' : 'Guardar $toSave'),
+              ),
+              TextButton(onPressed: entry.busy ? null : () => _cancel(entry, reply), child: const Text('Cancelar')),
+              if (reply.automatic.isNotEmpty && !entry.undone)
+                TextButton(onPressed: () => _undoAutomatic(entry, reply.automatic), child: Text('Deshacer ${reply.automatic.length} automática${reply.automatic.length == 1 ? '' : 's'}')),
+            ])
+          else if (!entry.undone)
+            Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: () => _undo(entry, reply), child: const Text('Deshacer'))),
+        ]));
+  }
+
+  /// The person's categories that fit the movement, to choose one on its card.
+  Future<void> _pickCategory(AssistantPreview preview, CategoryItem item) async {
+    final data = widget.repository.finances!;
+    final options = data.categories.where((c) => !c.isArchived && categorySupports(c, item.transaction.type)).toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final chosen = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.7),
+          child: ListView(shrinkWrap: true, children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text('Categoría de «${shortConcept(item.transaction)}»', style: const TextStyle(fontWeight: FontWeight.w700)),
+            ),
+            for (final c in options)
+              ListTile(
+                title: Text(c.name),
+                trailing: c.id == item.categoryId ? const Icon(Icons.check) : null,
+                onTap: () => Navigator.of(context).pop(c.id),
+              ),
+          ]),
+        ),
+      ),
+    );
+    if (chosen != null && mounted) setState(() => session.chooseCategory(preview, item.transaction.id, chosen));
   }
 
   @override

@@ -119,6 +119,11 @@ test('validateIntent keeps only known values', () => {
   assert.deepEqual(validateIntent({ kind: 'categorize', uncategorized: true, scope: 'all', refine: 'yes' }), { kind: 'categorize', scope: 'all', uncategorized: true });
   assert.deepEqual(validateIntent({ kind: 'listMovements', from: '2026-11-01', to: '2026-11-31', refine: true }), { kind: 'listMovements', from: '2026-11-01', refine: true });
   assert.deepEqual(validateIntent({ kind: 'unsupported', purpose: 'borrar movimientos' }), { kind: 'unsupported', purpose: 'borrar movimientos' });
+  // How many movements: kept within 1..100, never as an amount.
+  assert.deepEqual(validateIntent({ kind: 'categorize', uncategorized: true, limit: 4 }), { kind: 'categorize', uncategorized: true, limit: 4 });
+  assert.deepEqual(validateIntent({ kind: 'categorize', limit: 0 }), { kind: 'categorize' });
+  assert.deepEqual(validateIntent({ kind: 'categorize', limit: 4.5 }), { kind: 'categorize' });
+  assert.deepEqual(validateIntent({ kind: 'listMovements', refine: true, limit: 2 }), { kind: 'listMovements', refine: true, limit: 2 });
   assert.deepEqual(
     validateIntent({ kind: 'listMovements', uncategorized: true, also: [{ kind: 'categorize', uncategorized: true, also: [{ kind: 'summary' }] }, { kind: 'hack' }, { kind: 'summary' }] }),
     { kind: 'listMovements', uncategorized: true });

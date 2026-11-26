@@ -777,7 +777,7 @@ class FinanceRepository extends ChangeNotifier {
   /// Assigns the categories the person's own evidence gives (`lib/auto_category.dart`: their rules, then their own
   /// history), remembering where each one came from so it can be explained and taken back.
   /// [only] limits it to those movements (Don Bigotes' «ponles categoría»). Returns the movements that got one.
-  Future<List<String>> applyAutoCategories({Set<String>? only}) async {
+  Future<List<AutoCategory>> applyAutoCategories({Set<String>? only}) async {
     final data = finances;
     if (data == null || _user == null || pending.isNotEmpty) return const [];
     final store = AutoCategoryStore.instance;
@@ -797,7 +797,7 @@ class FinanceRepository extends ChangeNotifier {
           }),
       ]));
       await store.remember(found, now);
-      return [for (final a in found) a.transactionId];
+      return found;
     } catch (_) {
       return const [];
     }

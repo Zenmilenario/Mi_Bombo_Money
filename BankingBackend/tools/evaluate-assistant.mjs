@@ -1,6 +1,6 @@
 // Evaluates Don Bigotes' interpreter with fictitious conversations (26 November 2026): the repository's prompt,
 // schema and validation, run on Workers AI. It checks the capability chosen and its arguments, not how it sounds.
-// Uses the free daily allocation (about 80 neurons a request, 20 requests). Nothing is stored.
+// Uses the free daily allocation (about 80 neurons a request, 24 requests). Nothing is stored.
 //
 //   $env:CLOUDFLARE_ACCOUNT_ID = '...'; $env:CLOUDFLARE_API_TOKEN = '...'   # a token with Workers AI read/run
 //   node tools/evaluate-assistant.mjs [model]
@@ -52,6 +52,10 @@ const cases = [
   ['categoriza los de inversión ficticia', {}, { kind: 'categorize', accountText: 'Inversión ficticia' }],
   ['ponles categoría a los gastos de octubre', {}, { kind: 'categorize', scope: 'expenses', from: '2026-10-01', to: '2026-10-31' }],
   ['organiza un poco lo que me falta por clasificar', {}, { kind: 'categorize', uncategorized: true }],
+  ['clasifícame los 5 más nuevos que siguen sin categoría', {}, { kind: 'categorize', uncategorized: true, limit: 5 }],
+  ['no, solo dos', { lastQuery: 'poner categoría: Movimientos sin categoría de cualquier fecha (los 5 más recientes)' }, { kind: 'categorize', refine: true, limit: 2 }],
+  ['enséñame el último gasto sin categoría', {}, { kind: 'listMovements', scope: 'expenses', uncategorized: true, limit: 1 }],
+  ['categoriza los de nómina ficticia anteriores a octubre', {}, { kind: 'categorize', accountText: 'Nómina ficticia', to: '2026-09-30' }],
 ];
 
 function check(got, want) {

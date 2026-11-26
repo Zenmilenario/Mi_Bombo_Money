@@ -37,6 +37,7 @@ const STEP_PROPERTIES = {
   scope: { type: 'string', enum: SCOPES },
   uncategorized: { type: 'boolean', description: 'true: solo movimientos sin categoría' },
   refine: { type: 'boolean', description: 'corrige o acota la última petición: solo cambia lo que dice la frase' },
+  limit: { type: 'integer', minimum: 1, maximum: 100, description: 'cuántos movimientos, los más recientes primero' },
   planKind: { type: 'string', enum: PLAN_KINDS },
   role: { type: 'string', enum: ROLES, description: 'qué es un movimiento que ya existe' },
   concept: { type: 'string', maxLength: 80 },
@@ -75,6 +76,7 @@ Qué movimientos (para listMovements, summary y categorize):
 - scope: expenses (gastos, compras, pagos), income (ingresos, cobros) o all (movimientos en general). Si no se dice, omítelo.
 - uncategorized true: «sin categoría», «que no tienen categoría», «sin clasificar», «pendientes de categorizar». Omítelo si no se dice.
 - period o from/to solo si la frase indica un periodo. No pongas un periodo por defecto.
+- limit: cuántos movimientos, contando siempre desde el más reciente («los últimos 4», «los tres más recientes», «el último», «solo estos dos», «no, solo cuatro»). Un número de movimientos nunca es amountMinor. «Los anteriores a octubre» es to (el último día de septiembre), no limit.
 - categoryText y accountText: copia el nombre de la lista del contexto que se mencione.
 
 Conversación:
@@ -119,6 +121,7 @@ export function validateIntent(value, nested = false) {
   if (isDate(value.to)) out.to = value.to;
   if (typeof value.uncategorized === 'boolean') out.uncategorized = value.uncategorized;
   if (typeof value.refine === 'boolean') out.refine = value.refine;
+  set('limit', int(value.limit, 1, 100));
   if (PERIODS.includes(value.period)) out.period = value.period;
   if (SCOPES.includes(value.scope)) out.scope = value.scope;
   if (PLAN_KINDS.includes(value.planKind)) out.planKind = value.planKind;

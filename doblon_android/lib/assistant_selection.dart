@@ -2,11 +2,16 @@
 // (expenses, income or all) and one category, and a follow-up rebuilt them from the words of the new sentence: «los
 // que no tienen categoría» could not be said at all and a correction lost what it did not repeat (all movements
 // became expenses). A selection is a set of explicit conditions; a correction changes only the ones it states.
+// It is always ordered from the most recent, with a stable order for the same day, and may keep only the first
+// [limit] («los últimos 4», «los tres más recientes», «no, solo dos»): the limit applies after the conditions.
 import 'assistant.dart' show QueryPeriod, QueryPeriodTitle, QueryScope;
 import 'models.dart';
 
 class MovementSelection {
-  const MovementSelection({this.period, this.from, this.to, this.scope, this.uncategorized, this.categoryId, this.accountId});
+  const MovementSelection({this.period, this.from, this.to, this.scope, this.uncategorized, this.categoryId, this.accountId, this.limit});
+
+  /// How many, the most recent first; null: all that meet the conditions.
+  final int? limit;
 
   /// A period said in words, or an explicit range [from, to) (day precision). Neither: no period was said.
   final QueryPeriod? period;
@@ -30,10 +35,14 @@ class MovementSelection {
         uncategorized: change.uncategorized ?? (change.categoryId != null ? null : uncategorized),
         categoryId: change.categoryId ?? (change.uncategorized == true ? null : categoryId),
         accountId: change.accountId ?? accountId,
+        limit: change.limit ?? limit,
       );
 
+  MovementSelection withoutLimit() =>
+      MovementSelection(period: period, from: from, to: to, scope: scope, uncategorized: uncategorized, categoryId: categoryId, accountId: accountId);
+
   MovementSelection withoutCategory() =>
-      MovementSelection(period: period, from: from, to: to, scope: scope, uncategorized: uncategorized, accountId: accountId);
+      MovementSelection(period: period, from: from, to: to, scope: scope, uncategorized: uncategorized, accountId: accountId, limit: limit);
 
   MovementSelection withDefaultPeriod(QueryPeriod fallback) => hasPeriod ? this : refinedBy(MovementSelection(period: fallback));
 
@@ -62,7 +71,18 @@ class MovementSelection {
     return true;
   }
 
-  List<Transaction> select(Finances data, DateTime now) => [for (final t in data.transactions) if (matches(t, now)) t]..sort((a, b) => b.date.compareTo(a.date));
+  /// The movements, most recent first (same day: the one recorded later first, then by id), up to [limit].
+  List<Transaction> select(Finances data, DateTime now) {
+    final all = [for (final t in data.transactions) if (matches(t, now)) t]..sort(newestFirst);
+    return limit == null ? all : all.take(limit!).toList();
+  }
+
+  static int newestFirst(Transaction a, Transaction b) {
+    final byDate = b.date.compareTo(a.date);
+    if (byDate != 0) return byDate;
+    final byCreation = b.createdAt.compareTo(a.createdAt);
+    return byCreation != 0 ? byCreation : b.id.compareTo(a.id);
+  }
 
   String periodTitle() {
     if (period != null) return period!.title;
@@ -89,6 +109,7 @@ class MovementSelection {
       if (category != null) 'de la categoría ${category.name}',
       periodTitle(),
       if (account != null) 'en ${account.name}',
+      if (limit != null) '(${limit == 1 ? 'el más reciente' : 'los $limit más recientes'})',
     ].join(' ');
   }
 }

@@ -28,7 +28,7 @@
 import 'dart:math' as math;
 
 import 'assistant_selection.dart';
-import 'auto_category.dart' show usefulConcept;
+import 'auto_category.dart' show AutoCategory, usefulConcept;
 import 'automation.dart' show matchRule;
 import 'banking.dart' show referenceSeconds;
 import 'edits.dart';
@@ -150,6 +150,40 @@ int? parseAmount(String text) {
     }
   }
   return best;
+}
+
+const _quantityWords = {
+  'un': 1, 'uno': 1, 'una': 1, 'dos': 2, 'tres': 3, 'cuatro': 4, 'cinco': 5, 'seis': 6, 'siete': 7, 'ocho': 8, 'nueve': 9, 'diez': 10, //
+  'once': 11, 'doce': 12, 'quince': 15, 'veinte': 20,
+};
+
+/// How many movements a request is about: «los últimos 4», «los tres más recientes», «solo estos dos», «no, solo
+/// cuatro», «el último». A number with money («4 €») or with instalments («4 cuotas») is not it.
+int? selectionLimit(String text) {
+  final t = ' ${plainText(text).replaceAll(RegExp(r'[^a-z0-9]+'), ' ').trim()} ';
+  if (RegExp(r' (el|la) (ultimo|ultima|mas reciente) ').hasMatch(t) && !RegExp(r' (ultimos|ultimas) ').hasMatch(t)) return 1;
+  const number = r'(\d{1,3}|un|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce|quince|veinte)';
+  const things = r'(movimientos?|gastos?|ingresos?|cargos?|cobros?|compras?|operaciones?|ultimos|ultimas|mas recientes|recientes)';
+  final patterns = [
+    RegExp(' (ultimos|ultimas|recientes|solo|estos|estas|esos|esas|primeros|primeras) $number (?!(eur|euros|cuotas?|meses|mes|plazos)\\b)'),
+    RegExp(' $number $things '),
+  ];
+  for (final p in patterns) {
+    final m = p.firstMatch(t);
+    if (m == null) continue;
+    final word = m.groups([1, 2]).firstWhere((g) => g != null && RegExp('^$number\$').hasMatch(g), orElse: () => null);
+    if (word == null) continue;
+    final n = int.tryParse(word) ?? _quantityWords[word];
+    if (n != null && n >= 1 && n <= 100) return n;
+  }
+  return null;
+}
+
+/// The amount, unless the only number is a quantity of movements («los últimos 4 movimientos» is not 4 €).
+int? _amountOutsideQuantity(String text) {
+  final amount = parseAmount(text);
+  if (amount == null || selectionLimit(text) == null) return amount;
+  return RegExp(r'(€|\beur\b|\beuros?\b)').hasMatch(plainText(text)) ? amount : null;
 }
 
 /// How many instalments: «12 meses», «doce cuotas», «en 24 mensualidades».
@@ -331,7 +365,8 @@ class Signals {
   Signals(this.raw, DateTime now)
       : plain = plainText(raw),
         words = wordsOf(raw),
-        amountMinor = parseAmount(raw),
+        amountMinor = _amountOutsideQuantity(raw),
+        limit = selectionLimit(raw),
         count = parseCount(raw),
         instalmentNumber = parseInstalmentNumber(raw),
         date = parseDate(raw, now),
@@ -384,6 +419,9 @@ class Signals {
   final String raw, plain;
   final List<String> words;
   final int? amountMinor, count, instalmentNumber;
+
+  /// How many movements («los últimos 4»), not an amount.
+  final int? limit;
   final DateTime? date, dueDate;
   final QueryPeriod? period;
   late final bool question, consult, register, summary, listNoun, spend, earn, reserve, transfer, plan, pending, paidPast, simulate, continuation, correction, cancel, resume, existing, courtesy, uncategorized, categorize, unsupported;
@@ -541,8 +579,12 @@ class AssistantIntent {
     this.from,
     this.to,
     this.refine,
+    this.limit,
     this.also = const [],
   });
+
+  /// How many movements, the most recent first («los últimos 4»).
+  final int? limit;
   final IntentKind kind;
 
   /// The selection of existing movements: only those without category, an explicit range.
@@ -603,6 +645,7 @@ class AssistantIntent {
       from: day(json['from']),
       to: day(json['to']),
       refine: json['refine'] is bool ? json['refine'] as bool : null,
+      limit: json['limit'] is int && (json['limit'] as int) >= 1 && (json['limit'] as int) <= 100 ? json['limit'] as int : null,
       also: nested || json['also'] is! List
           ? const []
           : (json['also'] as List).take(2).map((step) => AssistantIntent.fromJson(step, nested: true)).whereType<AssistantIntent>().toList(),
@@ -624,6 +667,7 @@ const assistantIntentSchema = <String, Object>{
     'from': {'type': 'string', 'description': 'YYYY-MM-DD'},
     'to': {'type': 'string', 'description': 'YYYY-MM-DD'},
     'refine': {'type': 'boolean'},
+    'limit': {'type': 'integer', 'minimum': 1, 'maximum': 100},
     'also': {
       'type': 'array',
       'maxItems': 2,
@@ -689,6 +733,26 @@ class AssistantQuestion extends AssistantReply {
 
 enum PreviewKind { movement, reserve, plan, instalment, existing, categories }
 
+/// One movement of a categorisation: its category and where it comes from. `rule` and `history` were applied on
+/// their own (the person's evidence); `model` and `brand` are proposed; `person` was chosen here; no category: it
+/// needs the person to say what it is.
+class CategoryItem {
+  CategoryItem(this.transaction, {this.categoryId, this.source}) : proposedId = categoryId, proposedSource = source;
+  final Transaction transaction;
+  String? categoryId, source;
+
+  /// What was proposed first (to count whether the proposal was accepted).
+  final String? proposedId, proposedSource;
+  bool get applied => source == 'rule' || source == 'history';
+}
+
+/// The concept as a person reads it, short: the first part of a bank text, at most 42 characters.
+String shortConcept(Transaction t) {
+  final title = listTitle(t.descriptionText, isBanking: t.isBanking).split('//').first.trim();
+  final text = title.isEmpty ? 'Movimiento' : title;
+  return text.length > 42 ? '${text.substring(0, 41).trimRight()}…' : text;
+}
+
 class AssistantPreview extends AssistantReply {
   AssistantPreview({
     required this.id,
@@ -705,12 +769,20 @@ class AssistantPreview extends AssistantReply {
     this.proposal,
     this.targetId,
     this.undoOperation,
-    this.assignments = const [],
+    this.items = const [],
   });
 
-  /// Categories proposed for existing movements (movement id, category id, why): applied only to those still
-  /// without one when confirmed.
-  final List<(String, String, String)> assignments;
+  /// The movements of a categorisation, exactly those selected (never others), each with its category.
+  final List<CategoryItem> items;
+
+  /// What confirming applies (movement id, category id, why): only to those still without one when confirmed.
+  List<(String, String, String)> get assignments => [
+        for (final i in items)
+          if (!i.applied && i.categoryId != null) (i.transaction.id, i.categoryId!, i.source ?? 'person')
+      ];
+
+  /// Applied on their own from the person's evidence: undoable from the card.
+  List<String> get automatic => [for (final i in items) if (i.applied) i.transaction.id];
 
   /// The existing movement a preview changes (never a new one), and how to put it back.
   final String? targetId;
@@ -818,8 +890,8 @@ class AssistantSession {
   AssistantSession({required this.newId, this.propose, this.remote, this.applyEvidence});
 
   /// Assigns, among [ids], the categories the person's own evidence gives (rules, history) with their provenance
-  /// (`FinanceRepository.applyAutoCategories`); returns the ids that got one.
-  final Future<List<String>> Function(Set<String> ids)? applyEvidence;
+  /// (`FinanceRepository.applyAutoCategories`); returns what each one got.
+  final Future<List<AutoCategory>> Function(Set<String> ids)? applyEvidence;
 
   /// The card of category proposals that can still be confirmed.
   AssistantPreview? _proposals;
@@ -871,6 +943,27 @@ class AssistantSession {
       return AssistantMessage(open.preview != null
           ? 'De nada. ${_capital(open.describe())} sigue esperando: confírmalo, cancélalo o dime qué cambio.'
           : 'De nada. Seguimos cuando quieras: ${open.question ?? 'dime el dato que falta'}');
+    }
+    final proposal = _proposals;
+    if (proposal != null && s.amountMinor != null && !s.register && !s.spend && !s.earn && !s.reserve && !s.plan) {
+      final same = proposal.items.where((i) => !i.applied && i.transaction.amountMinor == s.amountMinor).toList();
+      if (same.length == 1) {
+        final item = same.single;
+        bool fits(Category c) => categorySupports(c, item.transaction.type);
+        // The category named, or the one a concept clearly suggests among theirs («gasolina» → Combustible).
+        var c = namedCategory(s.raw, data, fits);
+        final concept = c == null ? extractConcept(s.raw, data) : null;
+        if (concept != null) {
+          final (found, _) = hintedCategories(concept, data, fits);
+          if (found.length == 1) c = found.single;
+        }
+        if (c != null) {
+          item
+            ..categoryId = c.id
+            ..source = 'person';
+          return AssistantMessage('Hecho: «${shortConcept(item.transaction)}» irá a ${c.name}. Confírmalo en la tarjeta.');
+        }
+      }
     }
     if (_scopeWaiting != null) {
       final choice = _any(s.words, ['categoria', 'solo']) ? true : (_any(s.words, ['todos', 'todo', 'todas']) ? false : null);
@@ -1025,7 +1118,18 @@ class AssistantSession {
     // An action on existing movements is never answered with a list: an interpreter without this capability (or
     // one that misreads it) reads «ponles categoría» as a query. A correction of a categorisation stays one.
     var kind = i.kind;
-    if (s.categorize && (kind == IntentKind.listMovements || kind == IntentKind.summary) && !i.also.any((step) => step.kind == IntentKind.categorize)) kind = IntentKind.categorize;
+    var steps = i.also;
+    var main = i;
+    // «Enséñame los sin categoría y pónselas»: categorising shows the same movements as cards; the list would repeat them.
+    final categorizeStep = steps.where((step) => step.kind == IntentKind.categorize).firstOrNull;
+    if (kind == IntentKind.listMovements && categorizeStep != null) {
+      kind = IntentKind.categorize;
+      main = categorizeStep;
+    }
+    if (kind == IntentKind.categorize || categorizeStep != null) {
+      steps = [for (final step in steps) if (step.kind != IntentKind.listMovements && step.kind != IntentKind.categorize) step];
+    }
+    if (s.categorize && (kind == IntentKind.listMovements || kind == IntentKind.summary) && categorizeStep == null) kind = IntentKind.categorize;
     if (i.refine == true && _last?.kind == IntentKind.categorize && kind == IntentKind.listMovements && !s.consult) kind = IntentKind.categorize;
     switch (kind) {
       case IntentKind.simulation || IntentKind.transfer:
@@ -1038,18 +1142,11 @@ class AssistantSession {
         final period = i.period ?? (i.refine == true ? _last?.selection.period : null) ?? QueryPeriod.thisMonth;
         reply = _summary(calc, now, Signals(i.categoryText ?? '', now), period);
       case IntentKind.listMovements || IntentKind.categorize:
-        final accounts = i.accountText == null ? const <AccountChoice>[] : namedAccounts(i.accountText!, data);
-        final category = i.categoryText == null ? null : namedCategory(i.categoryText!, data, (_) => true);
-        final change = MovementSelection(
-          period: i.period,
-          from: i.from,
-          to: i.to,
-          scope: i.scope,
-          uncategorized: i.uncategorized,
-          categoryId: category?.id,
-          accountId: accounts.length == 1 ? accounts.single.account.id : null,
-        );
-        final selection = i.refine == true && _last != null ? _last!.selection.refinedBy(change) : change;
+        var change = _selectionOf(i, data);
+        if (!identical(main, i)) change = change.refinedBy(_selectionOf(main, data));
+        // A number the person said as a quantity is kept even if the model dropped it.
+        if (change.limit == null && s.limit != null) change = change.refinedBy(MovementSelection(limit: s.limit));
+        final selection = (i.refine == true || main.refine == true) && _last != null ? _last!.selection.refinedBy(change) : change;
         reply = kind == IntentKind.categorize ? await _categorize(selection, calc, now) : _list(calc, now, selection);
       default:
         final d = _draft = _Draft(i.kind)
@@ -1096,7 +1193,7 @@ class AssistantSession {
     // The other steps of a combined request, in order (at most two). A step that prepares something to confirm waits
     // while another one is open, said; a step that fails is said and does not undo the others.
     if (!nested) {
-      for (final step in i.also) {
+      for (final step in steps) {
         if (_preparesDraft(step.kind) && _draft != null) {
           reply.followUps.add(AssistantMessage('${_capital(_stepTitle(step.kind))} que también pediste lo preparo cuando termines con esto: dímelo entonces.'));
           break;
@@ -1110,6 +1207,21 @@ class AssistantSession {
       }
     }
     return reply;
+  }
+
+  MovementSelection _selectionOf(AssistantIntent i, Finances data) {
+    final accounts = i.accountText == null ? const <AccountChoice>[] : namedAccounts(i.accountText!, data);
+    final category = i.categoryText == null ? null : namedCategory(i.categoryText!, data, (_) => true);
+    return MovementSelection(
+      period: i.period,
+      from: i.from,
+      to: i.to,
+      scope: i.scope,
+      uncategorized: i.uncategorized,
+      categoryId: category?.id,
+      accountId: accounts.length == 1 ? accounts.single.account.id : null,
+      limit: i.limit,
+    );
   }
 
   static bool _preparesDraft(IntentKind k) => const {
@@ -1233,7 +1345,7 @@ class AssistantSession {
     if (s.spend) return IntentKind.expense;
     if (s.earn) return IntentKind.income;
     if (s.listNoun && _last != null) return IntentKind.listMovements;
-    if (_last != null && (s.continuation || s.uncategorized || s.period != null || namedCategory(s.raw, data, (_) => true) != null)) return _last!.kind;
+    if (_last != null && (s.continuation || s.uncategorized || s.limit != null || s.period != null || namedCategory(s.raw, data, (_) => true) != null)) return _last!.kind;
     return IntentKind.unknown;
   }
 
@@ -2227,6 +2339,7 @@ class AssistantSession {
       uncategorized: s.uncategorized ? true : null,
       categoryId: named?.id,
       accountId: accountId,
+      limit: s.limit,
     );
     var selection = follows ? last.selection.refinedBy(change) : change;
     // Another type of movement: a category of the previous type no longer applies.
@@ -2263,77 +2376,88 @@ class AssistantSession {
     );
   }
 
-  /// Puts categories on the existing movements of [asked] that have none («ponles categoría»):
+  /// Without a number said, a categorisation works on this many (the most recent), and says so.
+  static const categorizeBatch = 10;
+
+  /// Puts categories on the existing movements of [asked] that have none («ponles categoría», «a los últimos 4»).
+  /// The movements are chosen first (conditions, most recent first, then the number) and only those are worked on:
   ///  1. the person's own evidence (their rules, their history) is applied now, with its provenance and undo;
-  ///  2. the learning's proposals are shown together, to confirm with one tap;
-  ///  3. what has no evidence (only amount and date, a generic bank text) is asked, never guessed.
-  /// A category already chosen is never changed. Repeating the request finds only what is still missing.
+  ///  2. the learning's proposals are shown on each card, editable, to confirm together;
+  ///  3. one without evidence stays in the selection, asking what it is: never replaced by an older one.
+  /// A category already chosen is never changed. Confirming applies only to these movements.
   Future<AssistantReply> _categorize(MovementSelection asked, FinanceCalculator calc, DateTime now) async {
     final data = calc.data;
     final selection = asked.refinedBy(const MovementSelection(uncategorized: true));
     _last = (kind: IntentKind.categorize, selection: selection);
-    final title = 'Poner categoría · ${selection.describe(data)}';
+    _proposals = null;
     final keepsChosen = asked.uncategorized == false || asked.categoryId != null;
-    final candidates = selection.select(data, now);
-    if (candidates.isEmpty) {
-      return AssistantResult(title, [
+    final all = selection.withoutLimit().select(data, now);
+    if (all.isEmpty) {
+      return AssistantResult('Poner categoría', [
         'No hay ninguno sin categoría${selection.hasPeriod ? ' ${selection.periodTitle()}' : ''}.',
         if (keepsChosen) 'Los que ya tienen categoría no los cambio.',
       ]);
     }
-    var automatic = const <String>[];
+    final chosen = all.take(selection.limit ?? categorizeBatch).toList();
+    var automatic = const <AutoCategory>[];
     try {
-      automatic = await applyEvidence?.call({for (final t in candidates) t.id}) ?? const [];
+      automatic = await applyEvidence?.call({for (final t in chosen) t.id}) ?? const [];
     } catch (_) {}
-    final proposals = <(Transaction, Category, String)>[];
-    final unclear = <Transaction>[];
-    for (final t in candidates.where((t) => !automatic.contains(t.id))) {
+    final items = <CategoryItem>[];
+    for (final t in chosen) {
+      final evidence = automatic.where((a) => a.transactionId == t.id).firstOrNull;
+      if (evidence != null) {
+        items.add(CategoryItem(t, categoryId: evidence.categoryId, source: evidence.source));
+        continue;
+      }
       (String, String)? p;
-      if (usefulConcept(t) && propose != null && proposals.length < 60) {
+      if (usefulConcept(t) && propose != null) {
         try {
           p = await propose!(listTitle(t.descriptionText, isBanking: t.isBanking), t.type);
         } catch (_) {}
       }
       final c = data.category(p?.$1);
-      if (c == null || c.isArchived || !categorySupports(c, t.type)) {
-        unclear.add(t);
-      } else {
-        proposals.add((t, c, p!.$2));
-      }
+      final fits = c != null && !c.isArchived && categorySupports(c, t.type);
+      items.add(CategoryItem(t, categoryId: fits ? c.id : null, source: fits ? p!.$2 : null));
     }
-    final result = AssistantResult(
-      title,
-      [
-        '${candidates.length} sin categoría.',
-        if (automatic.isNotEmpty) 'He puesto categoría a ${automatic.length} con tus reglas o como ya los habías categorizado tú. Puedes deshacerlo.',
-        if (proposals.isNotEmpty) 'Para ${proposals.length} te propongo una por lo que has categorizado antes: confírmalas abajo.',
-        if (unclear.isNotEmpty)
-          '${unclear.length} no tienen datos para saber qué son (a veces el banco solo envía importe y fecha): tócalos para elegir, '
-              'o dime qué es cada uno, como «el de 44,53 € es gasolina».',
+    final applied = items.where((i) => i.applied).length;
+    final proposed = items.where((i) => !i.applied && i.categoryId != null).length;
+    final unknown = items.length - applied - proposed;
+    final limit = selection.limit;
+    return _proposals = AssistantPreview(
+      id: newId(),
+      kind: PreviewKind.categories,
+      title: limit == null
+          ? (all.length > chosen.length ? 'Los ${chosen.length} más recientes sin categoría' : '${_count(chosen.length)} sin categoría')
+          : (chosen.length == 1 ? 'El último sin categoría' : 'Los ${chosen.length} últimos sin categoría'),
+      lines: const [],
+      effects: [
+        [
+          if (applied > 0) '$applied con tus reglas o tu historial',
+          if (proposed > 0) '$proposed ${proposed == 1 ? 'propuesta' : 'propuestas'}',
+          if (unknown > 0) '$unknown sin datos para saber qué ${unknown == 1 ? 'es' : 'son'}',
+        ].join(' · '),
+        if (limit != null && chosen.length < limit) 'Solo hay ${chosen.length} sin categoría${selection.hasPeriod ? ' ${selection.periodTitle()}' : ''}.',
+        if (limit == null && all.length > chosen.length) 'Hay ${all.length} sin categoría; empiezo por estos. Después, pídemelo otra vez.',
+        if (unknown > 0) 'Toca la categoría para elegirla, o dímelo («el de ${money(items.firstWhere((i) => !i.applied && i.categoryId == null).transaction.amountMinor)} es …»).',
         if (keepsChosen) 'Los que ya tienen categoría no los cambio.',
       ],
-      transactions: unclear.take(30).toList(),
-      automatic: automatic,
+      operation: batchOperation(const []),
+      items: items,
     );
-    if (proposals.isNotEmpty) {
-      final shown = proposals.take(25).toList();
-      result.followUps.add(_proposals = AssistantPreview(
-        id: newId(),
-        kind: PreviewKind.categories,
-        title: 'Categorías propuestas (${proposals.length})',
-        lines: [
-          for (final (t, c, _) in shown) ('${listTitle(t.descriptionText, isBanking: t.isBanking)} · ${money(t.amountMinor)}', c.name),
-          if (proposals.length > shown.length) ('Y', '${proposals.length - shown.length} más'),
-        ],
-        effects: [
-          'Solo se aplican a los que sigan sin categoría al confirmar.',
-          'Después puedes deshacerlo o cambiar cualquiera desde su detalle.',
-        ],
-        operation: batchOperation(const []),
-        assignments: [for (final (t, c, source) in proposals) (t.id, c.id, source)],
-      ));
-    }
-    return result;
+  }
+
+  static String _count(int n) => n == 1 ? '1 movimiento' : '$n movimientos';
+
+  /// A category chosen on a card (only one of the movements shown, only while it can be confirmed).
+  bool chooseCategory(AssistantPreview preview, String transactionId, String categoryId) {
+    if (!identical(_proposals, preview)) return false;
+    final item = preview.items.where((i) => i.transaction.id == transactionId && !i.applied).firstOrNull;
+    if (item == null) return false;
+    item
+      ..categoryId = categoryId
+      ..source = 'person';
+    return true;
   }
 
   AssistantReply _summary(FinanceCalculator calc, DateTime now, Signals s, QueryPeriod period) {
