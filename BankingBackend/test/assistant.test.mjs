@@ -181,6 +181,7 @@ test('validateIntent keeps only known values: markers, numbers of movements, cap
   assert.deepEqual(validateIntent({ kind: 'transfer', amount: 'N1', account: 'CUENTA_1', toAccount: 'CUENTA_2' }), { kind: 'transfer', amount: 'N1', account: 'CUENTA_1', toAccount: 'CUENTA_2' });
   assert.deepEqual(validateIntent({ kind: 'addToGoal', goal: 'OBJETIVO_1', amount: 'N1' }), { kind: 'addToGoal', amount: 'N1', goal: 'OBJETIVO_1' });
   assert.deepEqual(validateIntent({ kind: 'unsupported', purpose: 'enviar dinero' }), { kind: 'unsupported', purpose: 'enviar dinero' });
+  assert.deepEqual(validateIntent({ kind: 'listMovements', refine: true, clearCategory: true, clearAccount: true }), { kind: 'listMovements', refine: true, clearCategory: true, clearAccount: true });
   // A story: up to two more steps, never nested; invalid steps are dropped.
   assert.deepEqual(
     validateIntent({ kind: 'expense', amount: 'N1', also: [{ kind: 'income', amount: 'N2' }, { kind: 'hack' }, { kind: 'summary' }] }),

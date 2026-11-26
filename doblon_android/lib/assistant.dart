@@ -25,6 +25,7 @@
 // `MovementSelection` (period or range, type, without category, category, account) that the session keeps: a
 // follow-up («no, los que no tienen categoría», `refine`) changes only what it states. No period said means none is
 // imposed (a list of the month says so). An action the app lacks is `unsupported` and said, never replaced by another.
+import 'dart:convert' show jsonEncode;
 import 'dart:math' as math;
 
 import 'assistant_privacy.dart';
@@ -619,7 +620,7 @@ class AssistantIntent {
   /// An existing movement to find by its amount and day (when it is not on screen).
   int? findAmountMinor;
   DateTime? findDate;
-  bool? recurring, recorded, clearCategory;
+  bool? recurring, recorded, clearCategory, clearAccount;
 
   // The markers as the interpreter wrote them, until resolved.
   Object? _amountRef, _countRef, _limitRef, _instalmentRef, _findAmountRef;
@@ -705,6 +706,7 @@ class AssistantIntent {
       ..recurring = flag(json['recurring'])
       ..recorded = flag(json['recorded'])
       ..clearCategory = flag(json['clearCategory'])
+      ..clearAccount = flag(json['clearAccount'])
       .._amountRef = json['amount']
       .._findAmountRef = json['findAmount']
       .._countRef = json['count'] is String ? json['count'] : null
@@ -732,7 +734,7 @@ final assistantIntentSchema = <String, Object>{
     'kind': {'type': 'string', 'enum': assistantKinds},
     for (final k in ['amount', 'findAmount', 'account', 'toAccount', 'plan', 'goal', 'target', 'category', 'concept', 'purpose']) k: {'type': 'string'},
     for (final k in ['date', 'dueDate', 'from', 'to', 'findDate']) k: {'type': 'string', 'description': 'YYYY-MM-DD'},
-    for (final k in ['perInstalment', 'uncategorized', 'refine', 'recurring', 'recorded', 'clearCategory']) k: {'type': 'boolean'},
+    for (final k in ['perInstalment', 'uncategorized', 'refine', 'recurring', 'recorded', 'clearCategory', 'clearAccount']) k: {'type': 'boolean'},
     'count': {},
     'limit': {},
     'instalmentNumber': {},
@@ -980,6 +982,10 @@ class AssistantSession {
   /// never turns a day or a count into money).
   Set<int>? _amountsSaid;
 
+  /// The accounts and categories the sentence names: a condition on which movements («de la cuenta X», «de ocio»)
+  /// must come from what the person said, never be added by the interpreter.
+  Set<String>? _namedSaid;
+
   /// The last turns, for the interpreter (masked when sent), and the movements on screen («el segundo», «ese»).
   final _turns = <String>[];
   var _shownMovements = <Transaction>[];
@@ -1034,6 +1040,7 @@ class AssistantSession {
       if (intent != null) {
         intent.resolve(masker);
         _amountsSaid = masker.amountsIn(text);
+        _namedSaid = masker.idsIn(text);
         final reply = await _understood(intent, Signals(text, now), calc, now, heldMinor);
         if (reply != null) return reply;
       } else {
@@ -1193,6 +1200,12 @@ class AssistantSession {
   /// a bank text.
   Map<String, Object?> contextFor(String sentence, Finances data, DateTime now, {AssistantMasker? masker}) {
     final m = masker ?? AssistantMasker(data);
+    final context = _context(sentence, data, now, m);
+    m.markSent(jsonEncode(context));
+    return context;
+  }
+
+  Map<String, Object?> _context(String sentence, Finances data, DateTime now, AssistantMasker m) {
     String clip(String text, int max) => text.length > max ? text.substring(0, max) : text;
     final draft = _draft;
     String? describeDraft() {
@@ -1455,6 +1468,8 @@ class AssistantSession {
     if (kind == IntentKind.categorize || categorizeStep != null) {
       steps = [for (final step in steps) if (step.kind != IntentKind.listMovements && step.kind != IntentKind.categorize) step];
     }
+    // The same query asked twice in one answer is answered once.
+    if (kind == IntentKind.listMovements || kind == IntentKind.summary) steps = [for (final step in steps) if (step.kind != kind) step];
     switch (kind) {
       case IntentKind.simulation:
         reply = await _start(i.kind, s, calc, now, heldMinor);
@@ -1470,7 +1485,10 @@ class AssistantSession {
       case IntentKind.listMovements || IntentKind.categorize:
         var change = _selectionOf(i, data);
         if (!identical(main, i)) change = change.refinedBy(_selectionOf(main, data));
-        final selection = (i.refine == true || main.refine == true) && _last != null ? _last!.selection.refinedBy(change) : change;
+        var selection = (i.refine == true || main.refine == true) && _last != null ? _last!.selection.refinedBy(change) : change;
+        // «No te he dicho vivienda»: a condition taken away.
+        if (i.clearCategory == true || main.clearCategory == true) selection = selection.withoutCategory();
+        if (i.clearAccount == true || main.clearAccount == true) selection = selection.withoutAccount();
         reply = kind == IntentKind.categorize ? await _categorize(selection, calc, now) : _list(calc, now, selection);
       default:
         final d = _draft = _Draft(i.kind)
@@ -1556,8 +1574,13 @@ class AssistantSession {
   }
 
   MovementSelection _selectionOf(AssistantIntent i, Finances data) {
-    final accounts = i.accountText == null ? const <AccountChoice>[] : namedAccounts(i.accountText!, data);
-    final category = i.categoryText == null ? null : namedCategory(i.categoryText!, data, (_) => true);
+    final said = _namedSaid;
+    final accounts = i.accountId != null
+        ? [if (data.account(i.accountId) != null) AccountChoice(data.account(i.accountId)!)]
+        : (i.accountText == null ? const <AccountChoice>[] : namedAccounts(i.accountText!, data));
+    var category = data.category(i.categoryId) ?? (i.categoryText == null ? null : namedCategory(i.categoryText!, data, (_) => true));
+    if (said != null && category != null && !said.contains(category.id)) category = null;
+    final account = accounts.length == 1 && (said == null || said.contains(accounts.single.account.id)) ? accounts.single.account.id : null;
     return MovementSelection(
       period: i.period,
       from: i.from,
@@ -1565,7 +1588,7 @@ class AssistantSession {
       scope: i.scope,
       uncategorized: i.uncategorized,
       categoryId: category?.id,
-      accountId: accounts.length == 1 ? accounts.single.account.id : null,
+      accountId: account,
       limit: i.limit,
     );
   }

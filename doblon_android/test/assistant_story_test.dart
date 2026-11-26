@@ -240,6 +240,65 @@ void main() {
     });
   });
 
+  group('the screenshots of 26/11 (14:50): «categorízame los últimos 5 movimientos, solo los últimos 5»', () {
+    Finances home() => Finances(
+          accounts: [Account(id: 'nomina', name: 'Nómina + uso corriente', type: AccountType.checking, openingDate: DateTime(2026), openingBalanceMinor: 100000)],
+          categories: [
+            Category(id: 'ocio', name: 'Ocio', kind: CategoryKind.expense),
+            Category(id: 'vivienda', name: 'Vivienda', kind: CategoryKind.expense),
+          ],
+          transactions: [
+            for (var i = 1; i <= 8; i++) tx('sin-$i', 'COMERCIO $i', 100 * i, date: DateTime(2026, 11, i)),
+            tx('con', 'ALQUILER', 50000, category: 'vivienda', date: DateTime(2026, 11, 9)),
+          ],
+        );
+    const sentence = 'Puedes categorizarme los últimos 5 movimientos, solo los últimos 5';
+
+    test('the wrong reading seen on the iPhone is no longer applied: no invented category, no unsaid account, one answer', () async {
+      final model = Script([
+        (c) => {
+              'kind': 'listMovements',
+              'uncategorized': true,
+              'category': 'CATEGORIA_2', // a marker it never received (Vivienda)
+              'account': 'CUENTA_1', // an account the sentence does not name
+              'also': [
+                {'kind': 'listMovements', 'uncategorized': true}
+              ],
+            },
+      ]);
+      final d = home();
+      final reply = await session(model, d).say(sentence, FinanceCalculator(d), now) as AssistantResult;
+      expect(model.received.single['sentence'], 'Puedes categorizarme los últimos [N1] movimientos, solo los últimos [N1]');
+      expect(jsonEncode(model.received.single).contains('Vivienda'), isFalse);
+      expect(reply.title, 'Movimientos sin categoría de cualquier fecha', reason: 'Without the conditions the person did not say');
+      expect(reply.transactions, hasLength(8));
+      expect(reply.followUps, isEmpty, reason: 'The same query is answered once');
+    });
+
+    test('the right reading: exactly the five most recent without category, as cards', () async {
+      final model = Script([
+        (c) => {'kind': 'categorize', 'uncategorized': true, 'limit': markers(c).first},
+      ]);
+      final d = home();
+      final reply = await session(model, d).say(sentence, FinanceCalculator(d), now) as AssistantPreview;
+      expect([for (final i in reply.items) i.transaction.id], ['sin-8', 'sin-7', 'sin-6', 'sin-5', 'sin-4']);
+    });
+
+    test('«No te he dicho vivienda» takes the condition away and keeps the rest', () async {
+      final model = Script([
+        (c) => {'kind': 'listMovements', 'category': markers(c).first, 'period': 'thisMonth'},
+        (c) => {'kind': 'listMovements', 'refine': true, 'clearCategory': true},
+      ]);
+      final d = home();
+      final s = session(model, d);
+      final first = await s.say('enséñame lo de Vivienda de este mes', FinanceCalculator(d), now) as AssistantResult;
+      expect(first.transactions.map((t) => t.id), ['con']);
+      final again = await s.say('No te he dicho vivienda', FinanceCalculator(d), now) as AssistantResult;
+      expect(again.title, 'Movimientos este mes');
+      expect(again.transactions, hasLength(9));
+    });
+  });
+
   test('nothing sensitive left the device in any of these conversations', () async {
     final model = Script([
       (c) => {'kind': 'listMovements', 'scope': 'expenses', 'limit': 2},

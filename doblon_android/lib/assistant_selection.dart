@@ -38,6 +38,9 @@ class MovementSelection {
         limit: change.limit ?? limit,
       );
 
+  MovementSelection withoutAccount() =>
+      MovementSelection(period: period, from: from, to: to, scope: scope, uncategorized: uncategorized, categoryId: categoryId, limit: limit);
+
   MovementSelection withoutLimit() =>
       MovementSelection(period: period, from: from, to: to, scope: scope, uncategorized: uncategorized, categoryId: categoryId, accountId: accountId);
 

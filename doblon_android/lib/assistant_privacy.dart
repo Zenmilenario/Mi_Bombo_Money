@@ -281,7 +281,7 @@ class AssistantMasker {
   /// An amount in cents from a marker («N1»), or a plain number the interpreter could see (a day, a count).
   int? amountOf(Object? value) {
     final ref = _ref(value);
-    if (ref != null) return _numberValue[ref];
+    if (ref != null && _known(ref)) return _numberValue[ref];
     return null;
   }
 
@@ -292,9 +292,30 @@ class AssistantMasker {
     return cents != null && cents % 100 == 0 ? cents ~/ 100 : null;
   }
 
+  /// The markers that were really sent (`markSent`): only these are resolved. A marker the interpreter invents (a
+  /// category it never received) resolves to nothing.
+  Set<String>? _sent;
+
+  /// The markers in what is about to be sent; after this, others are not resolved.
+  void markSent(String text) => _sent = {for (final m in RegExp(r'\b([A-Z]+_\d+|N\d+)\b').allMatches(text)) m.group(1)!};
+
+  bool _known(String ref) => _sent == null || _sent!.contains(ref);
+
+  /// The person's records named in [text] (by their markers): what a sentence may use as a condition.
+  Set<String> idsIn(String text) {
+    final ids = <String>{};
+    for (final m in RegExp(r'\b([A-Z]+_\d+)\b').allMatches(mask(text))) {
+      final found = _entities[m.group(1)!];
+      if (found is Account) ids.add(found.id);
+      if (found is PaymentCard) ids.add(found.linkedAccountId ?? found.id);
+      if (found is Category) ids.add(found.id);
+    }
+    return ids;
+  }
+
   T? _as<T>(Object? value) {
     final ref = _ref(value);
-    final found = ref == null ? null : _entities[ref];
+    final found = ref == null || !_known(ref) ? null : _entities[ref];
     return found is T ? found : null;
   }
 

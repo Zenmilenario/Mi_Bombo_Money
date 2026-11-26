@@ -46,7 +46,8 @@ const STEP_PROPERTIES = {
   refine: { type: 'boolean' },
   recurring: { type: 'boolean', description: 'presupuesto para todos los meses' },
   recorded: { type: 'boolean', description: 'el dinero del préstamo ya está apuntado' },
-  clearCategory: { type: 'boolean' },
+  clearCategory: { type: 'boolean', description: 'quita la condición de categoría o la categoría del borrador' },
+  clearAccount: { type: 'boolean', description: 'quita la condición de cuenta' },
   planKind: { type: 'string', enum: PLAN_KINDS },
   role: { type: 'string', enum: ROLES },
   account: { type: 'string', pattern: MARKER, description: 'CUENTA_n o TARJETA_n' },
@@ -106,10 +107,21 @@ Conversación:
 - Si cuenta varias cosas que apuntar («pagué la cena y me devolvieron lo del cine»), la primera en el objeto principal y las demás en also (máximo dos), cada una con su amount.
 
 Reglas:
+- Lo primero es la acción que pide: «categorizar», «clasificar», «ponles categoría» es categorize; «ver», «enséñame», «qué he gastado» es listMovements.
+- No añadas condiciones que la frase no dice: account, category, period, scope o limit solo si aparecen en la frase (o, con refine, en lastQuery). Si dice que no pidió una condición («no te he dicho vivienda»), refine true con clearCategory o clearAccount.
+- «Los últimos [N1]», «los [N1] más recientes», «solo [N1]» es limit con ese marcador.
 - Elige el amount correcto por el sentido: en «éramos [N1] y pagué [N2]», el importe es N2.
 - Un número de movimientos es limit, nunca amount. Un número de cuotas es count.
 - Fechas relativas a "today" del contexto, en AAAA-MM-DD. Si solo dicen el día de las cuotas, dueDay.
-- Erratas, abreviaturas y tono coloquial: interprétalos por el contexto, sin inventar datos.`;
+- Erratas, abreviaturas y tono coloquial: interprétalos por el contexto, sin inventar datos.
+
+Ejemplos (otras frases, la misma forma de responder):
+«me pones categoría a los [N1] más nuevos que no tienen» → {"kind":"categorize","uncategorized":true,"limit":"N1"}
+«qué gasté ayer con la [TARJETA_1]» → {"kind":"listMovements","scope":"expenses","period":"yesterday","account":"TARJETA_1"}
+«no, quita lo de la categoría» (lastQuery con categoría) → {"kind":"listMovements","refine":true,"clearCategory":true}
+«comí fuera, [N1], y después un taxi de [N2]» → {"kind":"expense","amount":"N1","concept":"Comida","also":[{"kind":"expense","amount":"N2","concept":"Taxi"}]}
+«el segundo es de [CATEGORIA_3]» (con shown) → {"kind":"editMovement","target":"MOV_2","category":"CATEGORIA_3"}
+«vale gracias» → {"kind":"courtesy"}`;
 
 function text(value, max) {
   return typeof value === 'string' && value.trim() && value.length <= max ? value.trim() : undefined;
@@ -141,7 +153,7 @@ export function validateIntent(value, nested = false) {
   }
   if (Number.isInteger(value.dueDay) && value.dueDay >= 1 && value.dueDay <= 31) out.dueDay = value.dueDay;
   for (const key of ['date', 'dueDate', 'from', 'to', 'findDate']) if (isDate(value[key])) out[key] = value[key];
-  for (const key of ['perInstalment', 'uncategorized', 'refine', 'recurring', 'recorded', 'clearCategory']) if (typeof value[key] === 'boolean') out[key] = value[key];
+  for (const key of ['perInstalment', 'uncategorized', 'refine', 'recurring', 'recorded', 'clearCategory', 'clearAccount']) if (typeof value[key] === 'boolean') out[key] = value[key];
   if (PERIODS.includes(value.period)) out.period = value.period;
   if (SCOPES.includes(value.scope)) out.scope = value.scope;
   if (PLAN_KINDS.includes(value.planKind)) out.planKind = value.planKind;
