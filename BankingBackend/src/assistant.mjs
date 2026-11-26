@@ -15,7 +15,8 @@ export const MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
 export const PERSON_DAILY = 40;
 export const SERVER_DAILY = 110;
 
-const KINDS = ['expense', 'income', 'reserve', 'listMovements', 'summary', 'createPlan', 'payInstalment', 'planStatus', 'simulation', 'transfer', 'correction', 'unknown'];
+const KINDS = ['expense', 'income', 'reserve', 'listMovements', 'summary', 'createPlan', 'payInstalment', 'planStatus', 'describeExisting', 'simulation', 'transfer', 'correction', 'unknown'];
+const ROLES = ['loanReceived', 'loanUse', 'instalment', 'category'];
 const PERIODS = ['today', 'yesterday', 'thisWeek', 'thisMonth', 'lastMonth', 'thisYear'];
 const SCOPES = ['expenses', 'income', 'all'];
 const PLAN_KINDS = ['purchase', 'loan', 'other'];
@@ -37,6 +38,7 @@ export const INTENT_SCHEMA = {
     period: { type: 'string', enum: PERIODS },
     scope: { type: 'string', enum: SCOPES },
     planKind: { type: 'string', enum: PLAN_KINDS },
+    role: { type: 'string', enum: ROLES, description: 'qué es un movimiento que ya existe' },
     concept: { type: 'string', maxLength: 80 },
     purpose: { type: 'string', maxLength: 80, description: 'para qué es una reserva o nombre de un pago a plazos' },
     accountText: { type: 'string', maxLength: 80 },
@@ -54,6 +56,7 @@ Tipos (kind):
 - listMovements: ver movimientos existentes («¿qué he comprado este mes?», «enséñame los gastos»). summary: totales («¿cuánto he gastado?», «¿cómo voy?»).
 - createPlan: un compromiso pagado a plazos («4.378 € en 12 meses», «préstamo de 300 € al mes durante 12 meses»). Nunca es un gasto de hoy.
 - payInstalment: una cuota de un pago a plazos ya pagada. planStatus: cuánto queda de un pago a plazos.
+- describeExisting: la persona dice qué es un movimiento que YA existe («el ingreso de 4.378 € es el dinero del préstamo», «el cargo de 44,53 € fue gasolina», «ese cargo es la primera cuota»). Devuelve amountMinor, scope (income si es un ingreso, expenses si es un cargo), accountText y date si se dicen, y role: loanReceived (dinero de un préstamo recibido), loanUse (algo pagado con ese dinero), instalment (una cuota) o category (otra clasificación, con categoryText o concept). Nunca devuelvas expense ni income para esto: no se crea nada nuevo.
 - simulation: «¿y si gasto…?». transfer: traspaso entre cuentas propias (solo se apunta; nunca mueve dinero en el banco).
 - correction: responde a la pregunta pendiente del borrador del contexto o cambia alguno de sus datos («no, eran 45», «fue ayer», «ponlo en ocio», «te he dicho que un préstamo», «el 5 de cada mes»). Devuelve solo los campos que la frase da.
 - Si hay un borrador abierto, la frase casi siempre es correction: solo es otro tipo si pide claramente otra cosa (una consulta u otra operación con su propio importe). Nunca devuelvas el tipo del borrador para responderle.
@@ -96,6 +99,7 @@ export function validateIntent(value) {
   if (PERIODS.includes(value.period)) out.period = value.period;
   if (SCOPES.includes(value.scope)) out.scope = value.scope;
   if (PLAN_KINDS.includes(value.planKind)) out.planKind = value.planKind;
+  if (ROLES.includes(value.role)) out.role = value.role;
   for (const key of ['concept', 'purpose', 'accountText', 'categoryText', 'planText']) set(key, text(value[key], 80));
   return out;
 }

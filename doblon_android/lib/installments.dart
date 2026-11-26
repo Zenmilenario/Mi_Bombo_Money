@@ -234,11 +234,17 @@ Operation savePlanOperation({required InstallmentPlan plan, required bool create
   return relinks.isEmpty ? upsert : batchOperation([upsert, ...relinks]);
 }
 
-/// Removes a plan. Its payments stay as ordinary movements (they were real), only unlinked.
+/// Links an existing income as the money of a loan received for [plan]: the same movement, now borrowed money.
+Operation loanReceivedOperation(InstallmentPlan plan, Transaction income, DateTime now) => Operation('patch', {
+      'id': income.id,
+      'fields': {'externalID': '$loanReceivedMarker${plan.id}', 'updatedAt': referenceSeconds(now)}
+    });
+
+/// Removes a plan. Its payments and the loan's money stay as ordinary movements (they were real), only unlinked.
 Operation removePlanOperation(InstallmentPlan plan, Finances data, DateTime now) => batchOperation([
       removeOperation('installmentPlans', plan.id),
       for (final t in data.transactions)
-        if (t.installmentPlanId?.toLowerCase() == plan.id.toLowerCase())
+        if (t.installmentPlanId?.toLowerCase() == plan.id.toLowerCase() || t.loanPlanId?.toLowerCase() == plan.id.toLowerCase())
           Operation('patch', {
             'id': t.id,
             'fields': {'externalID': null, 'updatedAt': referenceSeconds(now)}

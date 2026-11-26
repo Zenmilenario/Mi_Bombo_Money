@@ -176,7 +176,10 @@ class MonthPace {
 /// reserve and the part of a payment it covered. The full history keeps everything.
 class MonthlySummary {
   MonthlySummary(this.incomeMinor, this.expenseMinor, this.reservedExpenseMinor,
-      [this.reservedIncomeMinor = 0, this.investmentFeeMinor = 0, this.repaidMinor = 0]);
+      [this.reservedIncomeMinor = 0, this.investmentFeeMinor = 0, this.repaidMinor = 0, this.loanMinor = 0]);
+
+  /// Money of loans received (linked to their plan): in the full history, not everyday income.
+  final int loanMinor;
 
   /// Instalments repaying a purchase or a loan already recorded: in the full history, not spending again.
   final int repaidMinor;
@@ -189,7 +192,7 @@ class MonthlySummary {
   final int reservedIncomeMinor;
   int get budgetExpenseMinor => expenseMinor - reservedExpenseMinor - investmentFeeMinor - repaidMinor;
   int get netSavingsMinor => incomeMinor - expenseMinor;
-  int get dailyIncomeMinor => incomeMinor - reservedIncomeMinor;
+  int get dailyIncomeMinor => incomeMinor - reservedIncomeMinor - loanMinor;
   int get dailyExpenseMinor => budgetExpenseMinor;
   int get dailyNetMinor => dailyIncomeMinor - dailyExpenseMinor;
 
@@ -268,7 +271,7 @@ class FinanceCalculator {
   }
 
   /// Income for everyday use: without what went to a reserve.
-  static int dailyIncomeAmount(Transaction t) => t.type.countsAsIncome ? t.amountMinor.abs() - reservedIncomeAmount(t) : 0;
+  static int dailyIncomeAmount(Transaction t) => t.type.countsAsIncome && !t.isLoanDisbursement ? t.amountMinor.abs() - reservedIncomeAmount(t) : 0;
 
   List<ReservedEntry> reserveEntries(ReservedFund fund) => fundEntries(fund, data.transactions);
 
@@ -332,7 +335,7 @@ class FinanceCalculator {
 
   MonthlySummary monthlySummary(DateTime month) {
     final key = monthKey(month);
-    var income = 0, expense = 0, reserved = 0, reservedIncome = 0, investmentFees = 0, repaid = 0;
+    var income = 0, expense = 0, reserved = 0, reservedIncome = 0, investmentFees = 0, repaid = 0, loans = 0;
     for (final t in data.transactions) {
       if (monthKey(t.date) != key) continue;
       if (t.type.countsAsIncome) income += t.amountMinor.abs();
@@ -341,8 +344,9 @@ class FinanceCalculator {
       reservedIncome += reservedIncomeAmount(t);
       if (t.isInvestmentFee) investmentFees += t.amountMinor.abs();
       if (t.type.countsAsExpense && t.installmentSpendingMinor != null) repaid += t.amountMinor.abs() - t.installmentSpendingMinor!;
+      if (t.type.countsAsIncome && t.isLoanDisbursement) loans += t.amountMinor.abs() - reservedIncomeAmount(t);
     }
-    return MonthlySummary(income, expense, reserved, reservedIncome, investmentFees, repaid);
+    return MonthlySummary(income, expense, reserved, reservedIncome, investmentFees, repaid, loans);
   }
 
   static RecurringBudget? activeRecurringBudget(Category category, int month, List<RecurringBudget> plans) {

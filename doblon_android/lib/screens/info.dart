@@ -6,7 +6,7 @@ import 'shell.dart' show DonBigotesMark;
 import 'widgets.dart';
 
 /// The version shown in «Acerca de Doblón»; test/info_test.dart checks it against pubspec.yaml.
-const appVersion = '0.41.0';
+const appVersion = '0.42.0';
 
 /// Ajustes → Cómo usar la app, as on the iPhone (`AppHelpView`): first steps and important concepts.
 class HelpScreen extends StatelessWidget {

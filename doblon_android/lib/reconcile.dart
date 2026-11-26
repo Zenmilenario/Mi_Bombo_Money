@@ -44,6 +44,42 @@ class MatchCase {
   String get id => 'keep:${([first.id, second.id]..sort()).join('|')}';
 }
 
+/// The same bank entry downloaded twice with two references (the bank re-identified it between downloads,
+/// 26/11/2026): same account, day, type, amount and concept, arrived in different downloads (at least 30 minutes
+/// apart) and with no reference in common. Only proposed, never joined alone: two equal payments on one day exist.
+bool rereported(Transaction a, Transaction b) {
+  if (a.id == b.id || !a.isBanking || !b.isBanking) return false;
+  if (a.sourceAccountId != b.sourceAccountId || a.destinationAccountId != b.destinationAccountId || a.type != b.type || a.amountMinor != b.amountMinor) return false;
+  final da = a.date.toUtc(), db = b.date.toUtc();
+  if (da.year != db.year || da.month != db.month || da.day != db.day) return false;
+  if (normalizeText(a.descriptionText) != normalizeText(b.descriptionText)) return false;
+  if (bankKeys(a.bankEntryKey).toSet().intersection(bankKeys(b.bankEntryKey).toSet()).isNotEmpty) return false;
+  return a.createdAt.difference(b.createdAt).inMinutes.abs() >= 30;
+}
+
+/// Bank entries that may have been downloaded twice (`rereported`), for the person to confirm or keep apart.
+List<MatchCase> rereportedCases(Finances data, {Set<String> keptApart = const {}}) {
+  // Only records of the same account, day and amount are compared.
+  final groups = <String, List<Transaction>>{};
+  for (final t in data.transactions.where((t) => t.isBanking)) {
+    final d = t.date.toUtc();
+    (groups['${t.sourceAccountId}|${d.year}-${d.month}-${d.day}|${t.amountMinor}'] ??= []).add(t);
+  }
+  final cases = <MatchCase>[];
+  for (final bank in groups.values.where((g) => g.length > 1)) {
+    for (var i = 0; i < bank.length; i++) {
+      for (var j = i + 1; j < bank.length; j++) {
+        if (!rereported(bank[i], bank[j])) continue;
+        // The older record stays (it may have the person's edits); the later download is the one joined into it.
+        final (first, second) = bank[i].createdAt.isBefore(bank[j].createdAt) ? (bank[i], bank[j]) : (bank[j], bank[i]);
+        final c = MatchCase(MatchKind.duplicate, first, second);
+        if (!keptApart.contains(c.id)) cases.add(c);
+      }
+    }
+  }
+  return cases;
+}
+
 /// Why two records cannot be joined, or null when they can (with the kind of join).
 ({MatchKind? kind, String? blocked}) classify(Transaction a, Transaction b, Finances data) {
   if (a.id == b.id) return (kind: null, blocked: 'Es el mismo movimiento.');
@@ -57,6 +93,8 @@ class MatchCase {
     return (kind: null, blocked: 'Pertenecen a dos movimientos periódicos distintos.');
   }
   if (a.date.difference(b.date).inDays.abs() > 7) return (kind: null, blocked: 'Hay más de una semana entre ellos.');
+  // The same entry the bank reported again with a new reference: joined only because the person confirms it.
+  if (rereported(a, b)) return (kind: MatchKind.duplicate, blocked: null);
   // Two entries of the same bank account are two operations the bank reported (C), never the same one.
   final sa = bankSides(a, data), sb = bankSides(b, data);
   if (sa.intersection(sb).isNotEmpty) return (kind: null, blocked: 'Los dos vienen del mismo banco y cuenta: son operaciones distintas.');
@@ -128,6 +166,7 @@ List<MatchCase> matchCases(Finances data, {Set<String> keptApart = const {}}) {
     for (final p in ownTransferPairs(data))
       if (MatchCase(MatchKind.transfer, p.debit, p.credit) case final c when !keptApart.contains(c.id)) c,
     ...sameTransferCases(data, keptApart: keptApart),
+    ...rereportedCases(data, keptApart: keptApart),
   ];
   final fingerprints = {for (final t in data.transactions) t.id: t.fingerprint};
   for (final t in data.transactions.where((t) => t.duplicateState == 'possible')) {

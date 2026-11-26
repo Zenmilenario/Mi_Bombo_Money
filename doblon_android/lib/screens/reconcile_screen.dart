@@ -172,6 +172,13 @@ class _CaseCard extends StatelessWidget {
             RecordRow(transaction: match.first, data: data, onEdit: () => onEdit(match.first)),
             const Divider(height: 8),
             RecordRow(transaction: match.second, data: data, onEdit: () => onEdit(match.second)),
+            if (rereported(match.first, match.second))
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                    'El banco lo envió en dos descargas con referencias distintas. Únelos solo si es el mismo pago: dos compras iguales el mismo día son posibles.',
+                    style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
+              ),
             Wrap(alignment: WrapAlignment.end, spacing: 8, children: [
               TextButton(
                 onPressed: () async {

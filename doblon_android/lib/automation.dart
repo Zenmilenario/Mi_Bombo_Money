@@ -11,7 +11,7 @@ import 'edits.dart';
 import 'contributions.dart' show contributionPeriod;
 import 'models.dart';
 import 'presentation.dart' show money;
-import 'reconcile.dart' show MatchCase, MatchKind, reservePaymentCases, sameTransferCases;
+import 'reconcile.dart' show MatchCase, MatchKind, reservePaymentCases, rereportedCases, sameTransferCases;
 
 // ---------------------------------------------------------------- periodic movements
 
@@ -372,6 +372,16 @@ List<CompanionNote> companionNotes(Finances data, DateTime now,
           if (!keptApart.contains(MatchCase(MatchKind.transfer, p.debit, p.credit).id)) p,
       ].length +
       sameTransferCases(data, keptApart: keptApart).length;
+  // The same bank entry downloaded twice with two references: proposed, never joined alone.
+  final again = rereportedCases(data, keptApart: keptApart).length;
+  if (again > 0) {
+    notes.add(CompanionNote(
+        id: 'pairs:again:$again',
+        title: again == 1 ? '1 movimiento puede estar repetido' : '$again movimientos pueden estar repetidos',
+        detail: 'El banco los envió en dos descargas con referencias distintas',
+        tab: 1,
+        urgent: true));
+  }
   if (pairs > 0) {
     notes.add(CompanionNote(
         id: 'pairs:$pairs',

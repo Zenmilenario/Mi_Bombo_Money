@@ -137,7 +137,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
       final category = data.category(draft?.categoryId);
       if (draft != null && category != null && matchRule(draft.description, draft.type, data) == null) {
         await widget.repository.learning?.recordCategoryOutcome(proposedName: preview.proposal?.categoryName, source: preview.proposal?.source, chosenName: category.name);
-        await learnFromEdit(widget.repository, null, preview.id, categoryConfirmed: true);
+        await learnFromEdit(widget.repository, null, preview.targetId ?? preview.id, categoryConfirmed: true);
       }
     } catch (error) {
       session.applied.remove(preview.id);
@@ -171,6 +171,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
       PreviewKind.plan => InstallmentFormScreen(repository: widget.repository, prefill: preview.plan),
       PreviewKind.movement => TransactionFormScreen(repository: widget.repository, prefill: preview.draft),
       PreviewKind.instalment => InstallmentsScreen(repository: widget.repository),
+      PreviewKind.existing => TransactionDetailScreen(repository: widget.repository, transactionId: preview.targetId!),
     };
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
   }
@@ -288,10 +289,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 ])
               else if (!entry.undone)
                 Wrap(spacing: 8, children: [
-                  if (reply.kind == PreviewKind.movement || reply.kind == PreviewKind.instalment)
+                  if (reply.kind == PreviewKind.movement || reply.kind == PreviewKind.instalment || reply.kind == PreviewKind.existing)
                     OutlinedButton(
-                      onPressed: () =>
-                          Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionDetailScreen(repository: widget.repository, transactionId: reply.id))),
+                      onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => TransactionDetailScreen(repository: widget.repository, transactionId: reply.targetId ?? reply.id))),
                       child: const Text('Ver movimiento'),
                     ),
                   if (reply.kind == PreviewKind.plan)

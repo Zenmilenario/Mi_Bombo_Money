@@ -105,8 +105,28 @@ class BankActivity {
     List<PendingMovement>? held;
     if (pending != null) {
       final seen = movements.map((m) => m.id).whereType<String>().toSet();
+      // A hold already booked under another reference (banks re-identify entries, 26/11/2026): a booked movement of
+      // the same amount and concept, on the hold's day or up to three days later, covers it once. Otherwise the hold
+      // and its final charge would both be taken from «Disponible».
+      final booked = [...movements];
+      String text(String value) => value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9áéíóúüñ]+'), ' ').trim();
+      bool coveredByBooked(PendingMovement row) {
+        final day = row.date == null ? null : DateTime.tryParse(row.date!);
+        final index = booked.indexWhere((m) {
+          if (m.signedAmountMinor != row.signedAmountMinor || text(m.description) != text(row.description)) return false;
+          final booking = DateTime.tryParse(m.bookingDate);
+          if (day == null || booking == null) return false;
+          final gap = booking.difference(day).inDays;
+          return gap >= 0 && gap <= 3;
+        });
+        if (index < 0) return false;
+        booked.removeAt(index);
+        return true;
+      }
+
       held = pending
           .where((row) => row.currency == accountCurrency && (row.status == 'HOLD' || row.status == 'PDNG') && (row.id == null || seen.add(row.id!)))
+          .where((row) => !coveredByBooked(row))
           .toList()
         ..sort((a, b) => (b.date ?? '').compareTo(a.date ?? ''));
     }

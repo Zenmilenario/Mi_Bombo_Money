@@ -8,7 +8,9 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import 'bank_activity.dart';
-import 'models.dart' show installmentMarker, investmentFeeMarker;
+import 'automation.dart' show bankKeys, encodedKeys, matchRule;
+import 'edits.dart' show normalizeText;
+import 'models.dart' show Finances, TransactionType, installmentMarker, investmentFeeMarker;
 
 /// The personal bank server. Its address is part of every account and movement key: it must not change.
 const bankingServer = 'https://mi-bombo-banking-personal.albertor7722.workers.dev';
@@ -316,11 +318,15 @@ class ImportResult {
   int newAccounts;
   int skippedAccounts;
   int matched;
+
+  /// Entries the bank reported again with a new reference, kept as the record they already were.
+  int reidentified = 0;
   final List<BankProposal> proposals = [];
   int unlinkedAccounts = 0;
   String get summary => [
         inserted == 1 ? '1 movimiento nuevo' : '$inserted movimientos nuevos',
         if (matched > 0) matched == 1 ? '1 unido a lo que ya tenías' : '$matched unidos a lo que ya tenías',
+        if (reidentified > 0) reidentified == 1 ? '1 que el banco volvió a enviar con otra referencia' : '$reidentified que el banco volvió a enviar con otra referencia',
         if (proposals.isNotEmpty) proposals.length == 1 ? '1 por revisar' : '${proposals.length} por revisar',
         if (alreadyImported > 0) '$alreadyImported ya estaban',
         if (newAccounts > 0) newAccounts == 1 ? '1 cuenta añadida' : '$newAccounts cuentas añadidas',
@@ -409,6 +415,8 @@ int _orderFee(List<Map<String, dynamic>> transactions, Map<String, dynamic> orde
 (Map<String, dynamic>, ImportResult) importFeeds(Map<String, dynamic> document, List<AccountFeed> feeds, DateTime observedAt,
     {String server = bankingServer, Map<String, String> decisions = const {}, Map<String, String> accountChoices = const {}}) {
   final next = jsonDecode(jsonEncode(document)) as Map<String, dynamic>;
+  // The person's category rules apply to what arrives, as on the iPhone (`PersonalBankingImporter`).
+  final ruleData = Finances.fromDocument(document);
   List<Map<String, dynamic>> rows(String key) => ((next[key] ??= <dynamic>[]) as List).cast<Map<String, dynamic>>();
   final accounts = rows('accounts');
   final transactions = rows('transactions');
@@ -498,6 +506,9 @@ int _orderFee(List<Map<String, dynamic>> transactions, Map<String, dynamic> orde
     final localId = '${account['id']}';
     final prefix = entryPrefix(feed.account.id, server: server);
     final occurrences = <String, int>{};
+    // Every key this download reports, first: an earlier record whose reference the bank still reports is another
+    // operation, never the same one reported again.
+    final keyed = <(Movement, String)>[];
     for (final row in feed.movements) {
       if (row.currency != 'EUR' || row.signedAmountMinor == 0 || row.description.trim().isEmpty) continue;
       final booking = DateTime.tryParse('${row.bookingDate}T00:00:00Z');
@@ -511,10 +522,36 @@ int _orderFee(List<Map<String, dynamic>> transactions, Map<String, dynamic> orde
         occurrences[group] = occurrence;
         reference = 'local-occurrence:$group:$occurrence';
       }
-      final key = prefix + reference;
+      keyed.add((row, prefix + reference));
+    }
+    final reported = {for (final (_, key) in keyed) key};
+    for (final (row, key) in keyed) {
+      final booking = DateTime.parse('${row.bookingDate}T00:00:00Z');
       final id = stableUuid(key);
       if (knownKeys.contains(key) || knownIds.contains(id)) {
         result.alreadyImported++;
+        continue;
+      }
+      // The same booked entry reported again with a new reference (the bank re-identified it between two
+      // downloads, 26/11/2026): a record of this account from an earlier download, same day, amount and concept,
+      // whose own reference this download no longer reports. It keeps both references, so neither creates it again.
+      // Two operations the bank still reports separately are never joined.
+      final again = transactions.where((t) {
+        final keys = bankKeys(t['bankEntryKey'] as String?);
+        if (keys.isEmpty || !keys.every((k) => k.startsWith(prefix)) || keys.any(reported.contains)) return false;
+        final seconds = (t['date'] as num?) ?? 0;
+        final day = DateTime.utc(2001).add(Duration(milliseconds: (seconds * 1000).round()));
+        return day.toIso8601String().substring(0, 10) == row.bookingDate &&
+            (t['amountMinor'] as num?)?.toInt() == row.signedAmountMinor.abs() &&
+            (row.signedAmountMinor < 0 ? const ['expense', 'fee', 'transfer'] : const ['income', 'interest', 'transfer']).contains(t['typeRaw']) &&
+            normalizeText('${t['descriptionText'] ?? ''}') == normalizeText(row.description);
+      }).toList();
+      if (again.length == 1) {
+        final record = again.single;
+        record['bankEntryKey'] = encodedKeys([...bankKeys(record['bankEntryKey'] as String?), key]);
+        record['updatedAt'] = now;
+        knownKeys.add(key);
+        result.reidentified++;
         continue;
       }
       // A record of this account, same kind and amount, without bank key, on nearby days (an Apple Pay
@@ -602,7 +639,7 @@ int _orderFee(List<Map<String, dynamic>> transactions, Map<String, dynamic> orde
         'updatedAt': now,
         'sourceAccountID': localId,
         'destinationAccountID': null,
-        'categoryID': null,
+        'categoryID': matchRule(row.description.trim(), row.signedAmountMinor < 0 ? TransactionType.expense : TransactionType.income, ruleData)?.id,
         'bankEntryKey': key,
       });
       result.inserted++;

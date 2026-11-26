@@ -17,6 +17,10 @@ const investmentFeeMarker = 'investment-fee:';
 /// when only part of it is spending (the purchase or the loan was already recorded), that part in cents.
 const installmentMarker = 'installment:';
 
+/// The `externalID` of the money of a loan received (an existing income linked to its plan): this marker and the
+/// plan's id. It is borrowed money, not everyday income; the plan's instalments repay it.
+const loanReceivedMarker = 'loan-received:';
+
 extension TransactionTypeRules on TransactionType {
   bool get countsAsIncome => this == TransactionType.income || this == TransactionType.interest;
   bool get countsAsExpense => this == TransactionType.expense || this == TransactionType.fee;
@@ -202,6 +206,10 @@ class Transaction {
   /// apart from everyday spending and budgets (`lib/investments.dart`).
   bool get isInvestmentFee => type == TransactionType.fee && (externalId?.startsWith(investmentFeeMarker) ?? false);
   String? get investmentOperationId => isInvestmentFee ? externalId!.substring(investmentFeeMarker.length) : null;
+
+  /// The money of a loan received, linked to its plan (`loanReceivedMarker`).
+  bool get isLoanDisbursement => externalId?.startsWith(loanReceivedMarker) ?? false;
+  String? get loanPlanId => isLoanDisbursement ? externalId!.substring(loanReceivedMarker.length) : null;
 
   List<String>? get _installment => (externalId?.startsWith(installmentMarker) ?? false) ? externalId!.substring(installmentMarker.length).split(':') : null;
 
