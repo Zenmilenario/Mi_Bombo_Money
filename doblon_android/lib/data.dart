@@ -14,6 +14,8 @@ import 'forecast_store.dart';
 import 'edits.dart';
 import 'contributions.dart';
 import 'assistant.dart' show AssistantIntent, RemoteInterpretation;
+import 'auto_category.dart';
+import 'reconcile.dart' show ReconcileStore, joinOperation, unequivocalRepeat;
 import 'learning.dart';
 import 'models.dart';
 import 'cloud_privacy.dart';
@@ -243,6 +245,7 @@ class FinanceRepository extends ChangeNotifier {
           // What is taught here reaches the person's other devices a moment later.
           ..onChange = _scheduleLearningSync;
         bankActivity = await BankActivityStore(store.directory).load(user);
+        await AutoCategoryStore.instance.load(user).catchError((_) {});
         _hiddenOnDevice = await store.loadHiddenPortfolios(user);
         forecast = await ForecastStore.open(store.directory, user)
           ..addListener(notifyListeners);
@@ -266,6 +269,7 @@ class FinanceRepository extends ChangeNotifier {
       }
       unawaited(syncLearning());
       unawaited(_moveDeviceChoiceToCloud());
+      unawaited(applyAutoCategories());
     } on AuthException {
       error = 'Tu sesión ha caducado. Vuelve a entrar.';
     } catch (_) {
@@ -749,6 +753,9 @@ class FinanceRepository extends ChangeNotifier {
       bankProgress.value = const BankSyncProgress('Revisando lo aprendido…');
       final learned = watch.elapsedMilliseconds;
       await applyLearnedCorrections();
+      // An unequivocal repeat is joined on its own; then the categories the person's own evidence gives.
+      await autoJoinRepeats({for (final r in result.imports) ...r.reportedKeys});
+      await applyAutoCategories();
       result.timings['Correcciones aprendidas'] = watch.elapsedMilliseconds - learned;
       result.timings['Total'] = watch.elapsedMilliseconds;
       debugPrint('Doblón · tiempos de la actualización bancaria (ms): ${result.timings}');
@@ -765,6 +772,67 @@ class FinanceRepository extends ChangeNotifier {
       _synchronizingBanks = false;
       if (client == null) api.close();
     }
+  }
+
+  /// Assigns the categories the person's own evidence gives (`lib/auto_category.dart`: their rules, then their own
+  /// history), remembering where each one came from so it can be explained and taken back.
+  Future<int> applyAutoCategories() async {
+    final data = finances;
+    if (data == null || _user == null || pending.isNotEmpty) return 0;
+    final store = AutoCategoryStore.instance;
+    if (!store.loaded) return 0;
+    final found = autoCategories(data, automatic: store.entries.keys.toSet(), rejected: store.rejected);
+    if (found.isEmpty) return 0;
+    final now = DateTime.now();
+    try {
+      await apply(batchOperation([
+        for (final a in found)
+          Operation('patch', {
+            'id': a.transactionId,
+            'fields': {'categoryID': a.categoryId, 'updatedAt': referenceSeconds(now)}
+          }),
+      ]));
+      await store.remember(found, now);
+      return found.length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  /// Takes back an automatic category: the movement is left without one and it is not assigned again.
+  Future<void> rejectAutoCategory(Transaction t) async {
+    await apply(Operation('patch', {
+      'id': t.id,
+      'fields': {'categoryID': null, 'updatedAt': referenceSeconds(DateTime.now())}
+    }));
+    await AutoCategoryStore.instance.reject(t.id);
+  }
+
+  /// Joins on its own only an unequivocal repeat: the same bank entry stored twice with two references
+  /// (`rereported`) when the latest download still reports one and no longer the other. Pairs the person kept
+  /// apart are respected; each join is remembered and can be undone in «Revisar y unir». Ambiguous pairs (both or
+  /// neither still reported) stay as a proposal.
+  Future<int> autoJoinRepeats(Set<String> reported) async {
+    if (reported.isEmpty || pending.isNotEmpty) return 0;
+    final store = ReconcileStore.instance;
+    try {
+      await store.load();
+    } catch (_) {
+      return 0; // without the pairs kept apart, nothing is joined on its own
+    }
+    var joined = 0;
+    for (var round = 0; round < 20; round++) {
+      final data = finances, doc = document;
+      if (data == null || doc == null) break;
+      final match = unequivocalRepeat(data, reported, keptApart: store.keptApart);
+      if (match == null) break;
+      final planned = joinOperation(match, data, doc, DateTime.now());
+      if (planned == null) break;
+      await store.remember(planned.trace);
+      await apply(planned.op);
+      joined++;
+    }
+    return joined;
   }
 
   /// Repeats the corrections the person taught on new bank movements, when the model has proved itself.

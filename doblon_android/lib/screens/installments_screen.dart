@@ -545,6 +545,26 @@ class InstallmentDetailScreen extends StatelessWidget {
                         onTap: () => _adjust(context, progress),
                       ),
                     ),
+                  for (final t in loanIncomeCandidates(plan, data, DateTime.now()))
+                    Card(
+                      color: pulso.accent.withValues(alpha: 0.08),
+                      child: ListTile(
+                        leading: Icon(Icons.link, color: pulso.accent),
+                        title: Text('¿El ingreso de ${money(t.amountMinor)} del ${_day.format(t.date)} es el dinero de este préstamo?'),
+                        subtitle: Text('${data.account(t.sourceAccountId)?.name ?? ''} · ${t.descriptionText}'),
+                        trailing: TextButton(
+                          onPressed: () async {
+                            if (!await confirm(context, 'Vincular el dinero del préstamo',
+                                'El ingreso de ${money(t.amountMinor)} del ${_day.format(t.date)} quedará como el dinero de «${plan.name}» y dejará de contar como ingreso del día a día. No se crea ningún movimiento ni otro préstamo; el saldo no cambia.',
+                                action: 'Vincular')) {
+                              return;
+                            }
+                            await repository.apply(loanReceivedOperation(plan, t, DateTime.now()));
+                          },
+                          child: const Text('Vincular'),
+                        ),
+                      ),
+                    ),
                   for (final (s, t) in charges)
                     Card(
                       color: pulso.accent.withValues(alpha: 0.08),

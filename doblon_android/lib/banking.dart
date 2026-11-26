@@ -8,9 +8,9 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import 'bank_activity.dart';
-import 'automation.dart' show bankKeys, encodedKeys, matchRule;
+import 'automation.dart' show bankKeys, encodedKeys;
 import 'edits.dart' show normalizeText;
-import 'models.dart' show Finances, TransactionType, installmentMarker, investmentFeeMarker;
+import 'models.dart' show installmentMarker, investmentFeeMarker;
 
 /// The personal bank server. Its address is part of every account and movement key: it must not change.
 const bankingServer = 'https://mi-bombo-banking-personal.albertor7722.workers.dev';
@@ -321,6 +321,9 @@ class ImportResult {
 
   /// Entries the bank reported again with a new reference, kept as the record they already were.
   int reidentified = 0;
+
+  /// Every key this download reported (to tell, after it, a repeat that no longer exists at the bank).
+  final Set<String> reportedKeys = {};
   final List<BankProposal> proposals = [];
   int unlinkedAccounts = 0;
   String get summary => [
@@ -415,8 +418,6 @@ int _orderFee(List<Map<String, dynamic>> transactions, Map<String, dynamic> orde
 (Map<String, dynamic>, ImportResult) importFeeds(Map<String, dynamic> document, List<AccountFeed> feeds, DateTime observedAt,
     {String server = bankingServer, Map<String, String> decisions = const {}, Map<String, String> accountChoices = const {}}) {
   final next = jsonDecode(jsonEncode(document)) as Map<String, dynamic>;
-  // The person's category rules apply to what arrives, as on the iPhone (`PersonalBankingImporter`).
-  final ruleData = Finances.fromDocument(document);
   List<Map<String, dynamic>> rows(String key) => ((next[key] ??= <dynamic>[]) as List).cast<Map<String, dynamic>>();
   final accounts = rows('accounts');
   final transactions = rows('transactions');
@@ -525,6 +526,7 @@ int _orderFee(List<Map<String, dynamic>> transactions, Map<String, dynamic> orde
       keyed.add((row, prefix + reference));
     }
     final reported = {for (final (_, key) in keyed) key};
+    result.reportedKeys.addAll(reported);
     for (final (row, key) in keyed) {
       final booking = DateTime.parse('${row.bookingDate}T00:00:00Z');
       final id = stableUuid(key);
@@ -639,7 +641,8 @@ int _orderFee(List<Map<String, dynamic>> transactions, Map<String, dynamic> orde
         'updatedAt': now,
         'sourceAccountID': localId,
         'destinationAccountID': null,
-        'categoryID': matchRule(row.description.trim(), row.signedAmountMinor < 0 ? TransactionType.expense : TransactionType.income, ruleData)?.id,
+        // Categories are assigned after the import, with their provenance (`applyAutoCategories`).
+        'categoryID': null,
         'bankEntryKey': key,
       });
       result.inserted++;

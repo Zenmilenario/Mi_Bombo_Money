@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../auto_category.dart';
 import '../data.dart';
 import '../edits.dart';
 import '../finance.dart';
@@ -219,6 +220,17 @@ class _Detail extends StatelessWidget {
                       await repository.categorize([t], chosen);
                     },
             ),
+            // An automatic category says where it came from, and can be taken back (it is not assigned again).
+            if (AutoCategoryStore.instance.current(t) case final auto?)
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.auto_awesome_outlined, size: 20),
+                title: Text('Asignada automáticamente por ${auto['detail']}'),
+                subtitle: const Text('Si no es correcta, elige otra o quítala.'),
+                trailing: TextButton(onPressed: () => repository.rejectAutoCategory(t), child: const Text('Quitar')),
+              ),
+            if (t.isLoanDisbursement)
+              row(Icons.account_balance_outlined, 'Tratamiento', 'Dinero de un préstamo: no cuenta como ingreso del día a día'),
             if (t.awaitsBank) row(Icons.hourglass_bottom, 'Estado', 'Pendiente del banco'),
             if (t.isInvestmentFee)
               if (data.transactions.where((o) => o.id.toLowerCase() == t.investmentOperationId?.toLowerCase()).firstOrNull case final order?)

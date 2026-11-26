@@ -80,6 +80,18 @@ List<MatchCase> rereportedCases(Finances data, {Set<String> keptApart = const {}
   return cases;
 }
 
+/// The repeats that can be joined without asking: the latest download still reports one of the two records and no
+/// longer the other (the bank replaced its reference). The reported one is kept. Both or neither reported: ambiguous,
+/// left as a proposal. Pairs the person kept apart are never joined.
+MatchCase? unequivocalRepeat(Finances data, Set<String> reported, {Set<String> keptApart = const {}}) {
+  bool reports(Transaction t) => bankKeys(t.bankEntryKey).any(reported.contains);
+  for (final c in rereportedCases(data, keptApart: keptApart)) {
+    if (reports(c.first) == reports(c.second)) continue;
+    return reports(c.first) ? c : MatchCase(MatchKind.duplicate, c.second, c.first);
+  }
+  return null;
+}
+
 /// Why two records cannot be joined, or null when they can (with the kind of join).
 ({MatchKind? kind, String? blocked}) classify(Transaction a, Transaction b, Finances data) {
   if (a.id == b.id) return (kind: null, blocked: 'Es el mismo movimiento.');

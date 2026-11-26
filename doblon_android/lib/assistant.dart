@@ -345,6 +345,10 @@ class Signals {
     final says = _phrase(plain, ['es', 'era', 'fue', 'son', 'eran', 'corresponde', 'corresponden', 'viene de', 'es de', 'era de', 'lo use', 'lo he usado']) ||
         _any(words, ['clasifica*', 'vincula*', 'asocia*', 'etiqueta*']);
     existing = refers && says && amountMinor != null && !register;
+    // «Gracias», «vale, perfecto», «nada más»: a courtesy, not a request.
+    final courtesyWords = {'gracias', 'muchas', 'mil', 'vale', 'ok', 'okay', 'perfecto', 'genial', 'estupendo', 'guay', 'bien', 'muy', 'de', 'acuerdo',
+      'listo', 'nada', 'mas', 'eso', 'es', 'todo', 'hasta', 'luego', 'adios', 'chao', 'buenas', 'noches', 'gracia', 'grasias', 'thanks', 'top', 'crack', 'dale'};
+    courtesy = words.isNotEmpty && words.every(courtesyWords.contains) && amountMinor == null && words.length <= 6;
   }
 
   final String raw, plain;
@@ -352,7 +356,7 @@ class Signals {
   final int? amountMinor, count, instalmentNumber;
   final DateTime? date, dueDate;
   final QueryPeriod? period;
-  late final bool question, consult, register, summary, listNoun, spend, earn, reserve, transfer, plan, pending, paidPast, simulate, continuation, correction, cancel, resume, existing;
+  late final bool question, consult, register, summary, listNoun, spend, earn, reserve, transfer, plan, pending, paidPast, simulate, continuation, correction, cancel, resume, existing, courtesy;
 
   /// Says something to record or to look up (not only a detail).
   bool get mainIntent => spend || earn || reserve || transfer || plan || consult || listNoun || summary || simulate || register || question || existing;
@@ -599,7 +603,7 @@ typedef RemoteInterpretation = ({AssistantIntent? intent, String? error});
 
 // ---------------------------------------------------------------- replies
 
-enum PendingField { kind, amount, account, purpose, category, count, planKind, planName, dueDate, dueMonth, recorded, plan, target, role, loanTotal }
+enum PendingField { kind, amount, account, purpose, category, count, planKind, planName, dueDate, dueMonth, recorded, plan, target, role, loanTotal, loanCategory }
 
 sealed class AssistantReply {
   /// Said before the reply: a draft set aside, so nothing is lost or answered silently.
@@ -703,6 +707,11 @@ class _Draft {
 
   /// The income that is the money of the loan this plan repays (linked when the plan is saved).
   String? linkIncomeId;
+  bool incomeLookedFor = false;
+  String? newCategoryId;
+
+  /// The category for a loan's money: an existing one's id, «new» (create «Préstamo recibido») or «none».
+  String? loanCategory;
   bool categoryDecided = false;
   ({String categoryName, String source})? proposal;
   List<AccountChoice>? accountOptions;
@@ -774,6 +783,13 @@ class AssistantSession {
         !(s.amountMinor != null && draft.pending != PendingField.amount && _otherSubject(s, null, draft, data)) &&
         _fill(draft, draft.pending!, s, data, now)) {
       return _next(calc, now, heldMinor);
+    }
+    if (s.courtesy) {
+      final open = _draft;
+      if (open == null) return AssistantMessage(_any(s.words, ['gracias', 'gracia', 'grasias', 'thanks']) ? '¡De nada! Aquí estoy si necesitas algo más.' : 'Perfecto. Aquí estoy si necesitas algo más.');
+      return AssistantMessage(open.preview != null
+          ? 'De nada. ${_capital(open.describe())} sigue esperando: confírmalo, cancélalo o dime qué cambio.'
+          : 'De nada. Seguimos cuando quieras: ${open.question ?? 'dime el dato que falta'}');
     }
     if (_scopeWaiting != null) {
       final choice = _any(s.words, ['categoria', 'solo']) ? true : (_any(s.words, ['todos', 'todo', 'todas']) ? false : null);
@@ -1012,6 +1028,12 @@ class AssistantSession {
         ..pending = null;
       return _next(calc, now, heldMinor);
     }
+    if (value.startsWith('loancat:')) {
+      draft
+        ..loanCategory = value.substring(8)
+        ..pending = null;
+      return _next(calc, now, heldMinor);
+    }
     if (value == 'total:same') {
       draft
         ..pending = null
@@ -1036,7 +1058,7 @@ class AssistantSession {
         draft.planId = value;
       case PendingField.amount || PendingField.purpose || PendingField.count || PendingField.planName || PendingField.dueDate || PendingField.dueMonth:
         break;
-      case PendingField.target || PendingField.role || PendingField.loanTotal:
+      case PendingField.target || PendingField.role || PendingField.loanTotal || PendingField.loanCategory:
         break;
     }
     draft.pending = null;
@@ -1094,9 +1116,7 @@ class AssistantSession {
             ..concept = extractConcept(s.raw, data);
           return _next(calc, now, heldMinor);
         }
-        return AssistantMessage('No lo he entendido. Puedo apuntar gastos e ingresos («He gastado 24 € en la gasolinera»), reservar dinero '
-            '(«Reserva 200 € para vacaciones»), preparar un pago a plazos («4.378 € en 12 meses»), apuntar una cuota pagada o enseñarte '
-            'movimientos y resúmenes («¿Qué he comprado este mes?»).');
+        return AssistantMessage('No te he entendido. ¿Quieres apuntar algo, consultar tus movimientos o decirme qué es uno que ya tienes?');
       case IntentKind.correction:
         return AssistantMessage('No hay nada abierto que corregir. ¿Qué quieres apuntar o consultar?');
       case IntentKind.simulation:
@@ -1295,6 +1315,16 @@ class AssistantSession {
         d.planId = p.id;
       case PendingField.target:
         return false; // chosen from the list shown
+      case PendingField.loanCategory:
+        if (_any(s.words, ['ninguna', 'sin', 'nada', 'no'])) {
+          d.loanCategory = 'none';
+        } else if (_any(s.words, ['crea*', 'nueva', 'si'])) {
+          d.loanCategory = 'new';
+        } else {
+          final c = namedCategory(s.raw, data, (c) => categorySupports(c, TransactionType.income));
+          if (c == null) return false;
+          d.loanCategory = c.id;
+        }
       case PendingField.role:
         final role = _roleOf(s, d.incoming);
         if (role == null) return false;
@@ -1610,6 +1640,24 @@ class AssistantSession {
       return _ask(d, PendingField.recorded, what, [('Sí, ya está', 'yes'), ('No', 'no')]);
     }
     final total = d.perInstalment ? d.amountMinor! * d.count! : d.amountMinor!;
+    // A loan whose money is «already recorded»: that income is found and linked (it is not created again). One
+    // candidate of exactly that amount is linked; several are asked with their date, account and amount.
+    if (d.planKind == InstallmentKind.loan && d.recorded == true) {
+      if (d.targetId != null) d.linkIncomeId = d.targetId;
+      if (d.linkIncomeId == null && !d.incomeLookedFor) {
+        final candidates = _loanIncomes(data, total, now);
+        if (candidates.length > 1) {
+          return _ask(d, PendingField.target, '¿Cuál de estos ingresos es el dinero del préstamo?', [
+            for (final t in candidates.take(6)) (_label(t, data), 'target:${t.id}'),
+          ]);
+        }
+        d.incomeLookedFor = true;
+        if (candidates.length == 1) d.linkIncomeId = candidates.single.id;
+      }
+      final income = data.transactions.where((t) => t.id == d.linkIncomeId).firstOrNull;
+      final ask = income == null ? null : _askLoanCategory(d, income, data);
+      if (ask != null) return ask;
+    }
     final schedule = buildSchedule(total, d.count!, d.dueDate!, agreedMinor: d.perInstalment ? d.amountMinor : null);
     if (schedule == null) {
       d.amountMinor = null;
@@ -1644,9 +1692,14 @@ class AssistantSession {
         ('Primera', _when(schedule.first.dueDate, now)),
         ('Última', _when(schedule.last.dueDate, now)),
         ('Cuenta', account.name),
+        if (income != null) ('Dinero recibido', _label(income, data)),
+        if (income != null && d.loanCategory != null && d.loanCategory != 'none')
+          ('Categoría del ingreso', d.loanCategory == 'new' ? 'Préstamo recibido (nueva)' : data.category(d.loanCategory)?.name ?? ''),
       ],
       effects: [
         'Hoy no se registra ningún pago: cada cuota se apunta cuando la pagas.',
+        if (income == null && d.planKind == InstallmentKind.loan && d.recorded == true)
+          'No encuentro un ingreso de ${money(total)} para vincular. Cuando quieras, dime cuál es («el ingreso de … € es el préstamo»).',
         if (income != null)
           'El ingreso de ${money(income.amountMinor)} del ${income.date.day}/${income.date.month} queda vinculado como el dinero de este préstamo: '
               'deja de contar como ingreso del día a día. No se crea ningún movimiento nuevo.',
@@ -1655,7 +1708,7 @@ class AssistantSession {
       calendar: [for (final i in schedule) (i.dueDate, i.amountMinor)],
       operation: income == null
           ? savePlanOperation(plan: plan, create: true, data: data, now: now)
-          : batchOperation([savePlanOperation(plan: plan, create: true, data: data, now: now), loanReceivedOperation(plan, income, now)]),
+          : batchOperation([savePlanOperation(plan: plan, create: true, data: data, now: now), loanReceivedOperation(plan, income, now), ..._loanCategoryOps(d, income, data, now)]),
       plan: plan,
     );
   }
@@ -1784,8 +1837,11 @@ class AssistantSession {
         if (unlinked.length > 1 && d.planId == null) return _ask(d, PendingField.plan, '¿De qué préstamo es este dinero?', [for (final p in unlinked) (p.name, p.id)]);
         final plan = unlinked.length == 1 ? unlinked.single : unlinked.where((p) => p.id == d.planId).firstOrNull;
         if (plan != null) {
+          final ask = _askLoanCategory(d, target, data);
+          if (ask != null) return ask;
           final ops = [
             loanReceivedOperation(plan, target, now),
+            ..._loanCategoryOps(d, target, data, now),
             if (!plan.alreadyRecorded) upsertOperation('installmentPlans', {'id': plan.id, 'alreadyRecorded': true, 'updatedAt': stamp}, create: false),
           ];
           return d.preview = AssistantPreview(
@@ -1914,6 +1970,67 @@ class AssistantSession {
           proposal: category == null ? null : (categoryName: category.name, source: 'chat'),
         );
     }
+  }
+
+  /// Existing incomes that may be a loan's money: of exactly [total], not linked to anything, from two months before.
+  List<Transaction> _loanIncomes(Finances data, int total, DateTime now) => [
+        for (final t in data.transactions)
+          if (t.type.countsAsIncome && t.amountMinor == total && t.externalId == null && t.date.isAfter(now.subtract(const Duration(days: 62))) && !t.date.isAfter(now.add(const Duration(days: 1))))
+            t
+      ];
+
+  /// The person's categories that fit borrowed money (never invented: «Préstamo recibido» is only created if chosen).
+  List<Category> _loanCategories(Finances data) => [
+        for (final c in data.categories)
+          if (!c.isArchived && categorySupports(c, TransactionType.income) && RegExp(r'(prest|deud|financ|credit)').hasMatch(plainText(c.name))) c
+      ];
+
+  /// Asks the category of a loan's money once, when the income has none: a compatible one of the person's, creating
+  /// «Préstamo recibido» (confirmed with the rest), or none. The treatment (not everyday income) does not depend on it.
+  AssistantQuestion? _askLoanCategory(_Draft d, Transaction income, Finances data) {
+    if (d.loanCategory != null || income.categoryId != null) return null;
+    final existing = _loanCategories(data);
+    return _ask(d, PendingField.loanCategory, '¿En qué categoría pongo el ingreso de ${money(income.amountMinor)}? (Ya no contará como ingreso del día a día.)', [
+      for (final c in existing.take(4)) (c.name, 'loancat:${c.id}'),
+      if (!existing.any((c) => plainText(c.name).trim() == 'prestamo recibido')) ('Crear «Préstamo recibido»', 'loancat:new'),
+      ('Dejarlo sin categoría', 'loancat:none'),
+    ]);
+  }
+
+  List<Operation> _loanCategoryOps(_Draft d, Transaction income, Finances data, DateTime now) {
+    final stamp = referenceSeconds(now);
+    final choice = d.loanCategory;
+    if (choice == null || choice == 'none' || income.categoryId != null) return const [];
+    if (choice != 'new') {
+      return [
+        Operation('patch', {
+          'id': income.id,
+          'fields': {'categoryID': choice, 'updatedAt': stamp}
+        })
+      ];
+    }
+    final id = d.newCategoryId ??= newId();
+    return [
+      upsertOperation(
+          'categories',
+          {
+            'id': id,
+            'name': 'Préstamo recibido',
+            'kindRaw': CategoryKind.income.name,
+            'colorHex': '#475569',
+            'systemImage': 'banknote.fill',
+            'isArchived': false,
+            'isSystem': false,
+            'sortOrder': data.categories.length,
+            'createdAt': stamp,
+            'updatedAt': stamp,
+          },
+          create: true),
+      Operation('patch', {
+        'id': income.id,
+        'fields': {'categoryID': id, 'updatedAt': stamp}
+      }),
+    ];
   }
 
   String listTitleOf(Transaction t) => t.descriptionText.trim().isEmpty ? 'Movimiento' : t.descriptionText.trim();

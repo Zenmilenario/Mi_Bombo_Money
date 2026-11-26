@@ -4,6 +4,7 @@
 // money, what was paid with it and its instalments are counted once; and Don Bigotes changes existing movements
 // (category, loan) without creating a new income, expense or loan.
 import 'package:doblon/assistant.dart';
+import 'package:doblon/auto_category.dart';
 import 'package:doblon/bank_activity.dart';
 import 'package:doblon/banking.dart';
 import 'package:doblon/edits.dart';
@@ -137,8 +138,11 @@ void main() {
   test('the person\'s category rules apply on import (as on the iPhone); without a rule nothing is invented', () {
     final rule = {'id': 'r', 'phrase': 'dulceria', 'transactionTypeRaw': 'expense', 'isActive': true, 'categoryID': 'dulces', 'createdAt': 0, 'updatedAt': 0};
     final (doc, _) = importFeeds(document(rules: [rule]), [feed([('ref-a', -1005, 'DULCERIA FICTICIA'), (null, -4453, 'Movimiento bancario')])], observed);
-    final byAmount = {for (final r in rows(doc)) r['amountMinor']: r['categoryID']};
-    expect(byAmount[1005], 'dulces');
+    // Imported without a category; then assigned with its provenance (`applyAutoCategories`).
+    expect(rows(doc).every((r) => r['categoryID'] == null), isTrue);
+    final assigned = {for (final a in autoCategories(Finances.fromDocument(doc))) a.transactionId: (a.categoryId, a.source)};
+    final byAmount = {for (final r in rows(doc)) r['amountMinor']: assigned[r['id']]};
+    expect(byAmount[1005], ('dulces', 'rule'));
     expect(byAmount[4453], isNull, reason: 'Only amount and date: no category is invented');
   });
 
@@ -177,7 +181,9 @@ void main() {
       expect((reply as AssistantQuestion).field, PendingField.count);
       reply = await s.say('12', calc, DateTime(2026, 11, 26, 9));
       expect((reply as AssistantQuestion).field, PendingField.dueDate, reason: 'The name comes from the sentence');
-      final plan = await s.say('el 5 de diciembre', calc, DateTime(2026, 11, 26, 9)) as AssistantPreview;
+      final category = await s.say('el 5 de diciembre', calc, DateTime(2026, 11, 26, 9)) as AssistantQuestion;
+      expect(category.field, PendingField.loanCategory);
+      final plan = await s.choose('loancat:none', calc, DateTime(2026, 11, 26, 9)) as AssistantPreview;
       expect(plan.plan!.kind, InstallmentKind.loan);
       expect((plan.plan!.totalMinor, plan.plan!.count, plan.plan!.alreadyRecorded), (437800, 12, true));
       expect(plan.effects.any((e) => e.contains('queda vinculado como el dinero de este préstamo')), isTrue);

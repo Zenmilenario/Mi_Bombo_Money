@@ -234,6 +234,16 @@ Operation savePlanOperation({required InstallmentPlan plan, required bool create
   return relinks.isEmpty ? upsert : batchOperation([upsert, ...relinks]);
 }
 
+/// Incomes that may be the money of [plan] (a loan whose money is «already recorded» and not linked yet): of exactly
+/// its total, not linked to anything, from the last three months. Only proposed: the person confirms.
+List<Transaction> loanIncomeCandidates(InstallmentPlan plan, Finances data, DateTime now) {
+  if (plan.kind != InstallmentKind.loan || !plan.alreadyRecorded || data.transactions.any((t) => t.loanPlanId == plan.id)) return const [];
+  return [
+    for (final t in data.transactions)
+      if (t.type.countsAsIncome && t.amountMinor == plan.totalMinor && t.externalId == null && t.date.isAfter(now.subtract(const Duration(days: 92)))) t
+  ];
+}
+
 /// Links an existing income as the money of a loan received for [plan]: the same movement, now borrowed money.
 Operation loanReceivedOperation(InstallmentPlan plan, Transaction income, DateTime now) => Operation('patch', {
       'id': income.id,
@@ -274,6 +284,14 @@ List<CompanionNote> installmentNotes(Finances data, DateTime now) {
     if (plan.isArchived) continue;
     final progress = installmentProgress(plan, data, now);
     final charges = compatibleCharges(progress, data);
+    final borrowed = loanIncomeCandidates(plan, data, now);
+    if (borrowed.isNotEmpty) {
+      notes.add(CompanionNote(
+          id: 'installment:${plan.id}:money:${borrowed.length}',
+          title: '¿Es este el dinero de «${plan.name}»?',
+          detail: borrowed.length == 1 ? 'Hay un ingreso del mismo importe sin vincular' : 'Hay ${borrowed.length} ingresos del mismo importe sin vincular',
+          tab: 2));
+    }
     for (final (s, t) in charges) {
       notes.add(CompanionNote(
           id: 'installment:${plan.id}:${s.number}:charge:${t.id}',
