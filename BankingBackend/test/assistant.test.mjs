@@ -114,4 +114,15 @@ test('validateIntent keeps only known values', () => {
   assert.deepEqual(validateIntent({ kind: 'correction', dueDay: 40 }), { kind: 'correction' });
   assert.deepEqual(validateIntent({ kind: 'describeExisting', amountMinor: 437800, scope: 'income', role: 'loanReceived' }), { kind: 'describeExisting', amountMinor: 437800, scope: 'income', role: 'loanReceived' });
   assert.deepEqual(validateIntent({ kind: 'describeExisting', role: 'payBank' }), { kind: 'describeExisting' });
+  // Acting on existing movements: the selection (only without category, an explicit range), a correction of the
+  // previous request and the steps of a combined one (at most two, never nested; invalid steps are dropped).
+  assert.deepEqual(validateIntent({ kind: 'categorize', uncategorized: true, scope: 'all', refine: 'yes' }), { kind: 'categorize', scope: 'all', uncategorized: true });
+  assert.deepEqual(validateIntent({ kind: 'listMovements', from: '2026-11-01', to: '2026-11-31', refine: true }), { kind: 'listMovements', from: '2026-11-01', refine: true });
+  assert.deepEqual(validateIntent({ kind: 'unsupported', purpose: 'borrar movimientos' }), { kind: 'unsupported', purpose: 'borrar movimientos' });
+  assert.deepEqual(
+    validateIntent({ kind: 'listMovements', uncategorized: true, also: [{ kind: 'categorize', uncategorized: true, also: [{ kind: 'summary' }] }, { kind: 'hack' }, { kind: 'summary' }] }),
+    { kind: 'listMovements', uncategorized: true });
+  assert.deepEqual(
+    validateIntent({ kind: 'expense', amountMinor: 2000, also: [{ kind: 'summary', period: 'thisMonth' }, { kind: 'categorize' }, { kind: 'summary' }] }),
+    { kind: 'expense', amountMinor: 2000, also: [{ kind: 'summary', period: 'thisMonth' }, { kind: 'categorize' }] });
 });

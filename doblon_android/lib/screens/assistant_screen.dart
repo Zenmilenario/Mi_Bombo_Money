@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../assistant.dart';
+import '../auto_category.dart' show AutoCategoryStore;
 import '../automation.dart' show matchRule;
 import '../bank_activity.dart' show spendableHolds;
 import '../data.dart';
@@ -52,6 +53,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
       return p == null ? null : (p.category.id, p.source);
     },
     remote: widget.remote,
+    applyEvidence: (ids) => widget.repository.applyAutoCategories(only: ids),
   );
   final _input = TextEditingController();
   final _focus = FocusNode();
@@ -108,6 +110,9 @@ class _AssistantScreenState extends State<AssistantScreen> {
     setState(() {
       _retireOld(reply.note != null ? 'Apartado sin guardar.' : (reply is AssistantPreview ? 'Sustituido por la versión corregida.' : 'Ya no está pendiente.'));
       _entries.add(_Entry.reply(reply));
+      for (final more in reply.followUps) {
+        _entries.add(_Entry.reply(more));
+      }
       _thinking = false;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) => _toEnd());
@@ -132,11 +137,19 @@ class _AssistantScreenState extends State<AssistantScreen> {
     try {
       await widget.repository.apply(op);
       if (mounted) setState(() => entry.confirmed = true);
+      // Confirmed proposals count as the person's choices (metrics and learning), as choosing them one by one would.
+      for (final (id, categoryId, source) in preview.assignments) {
+        final name = data.category(categoryId)?.name;
+        if (name == null) continue;
+        await widget.repository.learning?.recordCategoryOutcome(proposedName: name, source: source, chosenName: name);
+        await learnFromEdit(widget.repository, null, id, categoryConfirmed: true);
+      }
       // Only what was confirmed teaches the personal learning (never a draft or a cancelled card), as the form does.
       final draft = preview.draft;
       final category = data.category(draft?.categoryId);
       if (draft != null && category != null && matchRule(draft.description, draft.type, data) == null) {
-        await widget.repository.learning?.recordCategoryOutcome(proposedName: preview.proposal?.categoryName, source: preview.proposal?.source, chosenName: category.name);
+        await widget.repository.learning
+            ?.recordCategoryOutcome(proposedName: preview.proposal?.categoryName, source: preview.proposal?.source, chosenName: category.name);
         await learnFromEdit(widget.repository, null, preview.targetId ?? preview.id, categoryConfirmed: true);
       }
     } catch (error) {
@@ -157,22 +170,38 @@ class _AssistantScreenState extends State<AssistantScreen> {
     if (mounted) setState(() => entry.undone = true);
   }
 
-  void _cancel(_Entry entry) {
-    session.cancel();
+  /// Takes back the categories assigned from the person's evidence: those movements stay without one and are not
+  /// assigned again (as «Quitar» in their detail).
+  Future<void> _undoAutomatic(_Entry entry, AssistantResult result) async {
+    for (final id in result.automatic) {
+      final t = widget.repository.finances?.transactions.where((t) => t.id == id).firstOrNull;
+      if (t != null && AutoCategoryStore.instance.current(t) != null) await widget.repository.rejectAutoCategory(t);
+    }
+    if (mounted) setState(() => entry.undone = true);
+  }
+
+  void _cancel(_Entry entry, AssistantPreview preview) {
+    if (preview.kind == PreviewKind.categories) {
+      session.cancelProposals();
+    } else {
+      session.cancel();
+    }
     setState(() => entry.retired = 'Cancelado: no se ha guardado nada.');
   }
 
   void _correct(_Entry entry, AssistantPreview preview) {
     session.cancel();
     setState(() => entry.retired = 'Abierto en el formulario: guárdalo allí.');
-    final Widget page = switch (preview.kind) {
+    final Widget? page = switch (preview.kind) {
       PreviewKind.reserve => ReserveFormScreen(
           repository: widget.repository, accountId: preview.reserve!.accountId, name: preview.reserve!.name, amountMinor: preview.reserve!.amountMinor),
       PreviewKind.plan => InstallmentFormScreen(repository: widget.repository, prefill: preview.plan),
       PreviewKind.movement => TransactionFormScreen(repository: widget.repository, prefill: preview.draft),
       PreviewKind.instalment => InstallmentsScreen(repository: widget.repository),
       PreviewKind.existing => TransactionDetailScreen(repository: widget.repository, transactionId: preview.targetId!),
+      PreviewKind.categories => null,
     };
+    if (page == null) return;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
   }
 
@@ -193,8 +222,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
         constraints: const BoxConstraints(maxWidth: 560),
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(12),
-        decoration:
-            BoxDecoration(color: mine ? pulso.accent.withValues(alpha: 0.14) : Theme.of(context).cardColor, borderRadius: BorderRadius.circular(Pulso.cardRadius)),
+        decoration: BoxDecoration(
+            color: mine ? pulso.accent.withValues(alpha: 0.14) : Theme.of(context).cardColor, borderRadius: BorderRadius.circular(Pulso.cardRadius)),
         child: child,
       ),
     );
@@ -284,21 +313,22 @@ class _AssistantScreenState extends State<AssistantScreen> {
               else if (!done)
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   FilledButton(onPressed: entry.busy ? null : () => _confirm(entry, reply), child: const Text('Confirmar')),
-                  OutlinedButton(onPressed: entry.busy ? null : () => _correct(entry, reply), child: const Text('Corregir')),
-                  TextButton(onPressed: entry.busy ? null : () => _cancel(entry), child: const Text('Cancelar')),
+                  if (reply.kind != PreviewKind.categories)
+                    OutlinedButton(onPressed: entry.busy ? null : () => _correct(entry, reply), child: const Text('Corregir')),
+                  TextButton(onPressed: entry.busy ? null : () => _cancel(entry, reply), child: const Text('Cancelar')),
                 ])
               else if (!entry.undone)
                 Wrap(spacing: 8, children: [
                   if (reply.kind == PreviewKind.movement || reply.kind == PreviewKind.instalment || reply.kind == PreviewKind.existing)
                     OutlinedButton(
-                      onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => TransactionDetailScreen(repository: widget.repository, transactionId: reply.targetId ?? reply.id))),
+                      onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(builder: (_) => TransactionDetailScreen(repository: widget.repository, transactionId: reply.targetId ?? reply.id))),
                       child: const Text('Ver movimiento'),
                     ),
                   if (reply.kind == PreviewKind.plan)
                     OutlinedButton(
-                      onPressed: () =>
-                          Navigator.of(context).push(MaterialPageRoute(builder: (_) => InstallmentDetailScreen(repository: widget.repository, planId: reply.id))),
+                      onPressed: () => Navigator.of(context)
+                          .push(MaterialPageRoute(builder: (_) => InstallmentDetailScreen(repository: widget.repository, planId: reply.id))),
                       child: const Text('Ver el plan'),
                     ),
                   TextButton(onPressed: () => _undo(entry, reply), child: const Text('Deshacer')),
@@ -313,23 +343,35 @@ class _AssistantScreenState extends State<AssistantScreen> {
               ...note,
               Text(reply.title, style: const TextStyle(fontWeight: FontWeight.w700)),
               for (final l in reply.lines) Text(l),
+              // Its own Material: the tap's ink shows over the card's colour.
               for (final t in reply.transactions)
-                ListTile(
-                  dense: true,
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(listTitle(t.descriptionText, isBanking: t.isBanking), maxLines: 2, overflow: TextOverflow.ellipsis),
-                  subtitle: Text([format.format(t.date), data.account(t.sourceAccountId)?.name ?? '', if (data.category(t.categoryId) case final c?) c.name].join(' · ')),
-                  trailing: Text(money(t.amountMinor)),
-                  onTap: () =>
-                      Navigator.of(context).push(MaterialPageRoute(builder: (_) => TransactionDetailScreen(repository: widget.repository, transactionId: t.id))),
+                Material(
+                  type: MaterialType.transparency,
+                  child: ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(listTitle(t.descriptionText, isBanking: t.isBanking), maxLines: 2, overflow: TextOverflow.ellipsis),
+                    subtitle: Text([format.format(t.date), data.account(t.sourceAccountId)?.name ?? '', if (data.category(t.categoryId) case final c?) c.name]
+                        .join(' · ')),
+                    trailing: Text(money(t.amountMinor)),
+                    onTap: () => Navigator.of(context)
+                        .push(MaterialPageRoute(builder: (_) => TransactionDetailScreen(repository: widget.repository, transactionId: t.id))),
+                  ),
                 ),
               if (reply.transactions.length >= 30) Text('Se muestran los 30 más recientes.', style: TextStyle(fontSize: 12, color: hint)),
+              if (reply.automatic.isNotEmpty)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: entry.undone
+                      ? Text('Categorías automáticas deshechas.', style: TextStyle(fontSize: 12, color: hint))
+                      : TextButton(onPressed: () => _undoAutomatic(entry, reply), child: Text('Deshacer las ${reply.automatic.length} automáticas')),
+                ),
               if (reply.planId != null)
                 Align(
                   alignment: Alignment.centerLeft,
                   child: TextButton(
-                    onPressed: () =>
-                        Navigator.of(context).push(MaterialPageRoute(builder: (_) => InstallmentDetailScreen(repository: widget.repository, planId: reply.planId!))),
+                    onPressed: () => Navigator.of(context)
+                        .push(MaterialPageRoute(builder: (_) => InstallmentDetailScreen(repository: widget.repository, planId: reply.planId!))),
                     child: const Text('Ver el plan'),
                   ),
                 ),
@@ -362,7 +404,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
       resizeToAvoidBottomInset: true,
       appBar: AppBar(
         title: Row(children: [
-          ValueListenableBuilder(valueListenable: widget.repository.companionMood, builder: (context, mood, _) => DonBigotesMark(awake: true, mood: mood, size: 32)),
+          ValueListenableBuilder(
+              valueListenable: widget.repository.companionMood, builder: (context, mood, _) => DonBigotesMark(awake: true, mood: mood, size: 32)),
           const SizedBox(width: 10),
           const Flexible(child: Text('Pídeme algo', style: TextStyle(fontWeight: FontWeight.w700), overflow: TextOverflow.ellipsis)),
         ]),

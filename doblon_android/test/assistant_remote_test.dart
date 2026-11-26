@@ -76,7 +76,7 @@ void main() {
     expect(first.keys.toSet(), {'sentence', 'today', 'accounts', 'categories', 'plans'});
     expect(first['accounts'], ['Bankinter nómina', 'Ahorro Naranja']);
     expect(first['today'], '2026-11-25');
-    expect(second['lastQuery'], 'Gastos este mes', reason: 'The last query, in words, for continuations');
+    expect(second['lastQuery'], 'ver: Gastos este mes', reason: 'The last query, in words, for continuations');
     final sent = jsonEncode(model.received);
     for (final secret in ['TIENDA SECRETA', '150000', '1.500', '3000', '30,00']) {
       expect(sent.contains(secret), isFalse, reason: '«$secret» must never leave the device');

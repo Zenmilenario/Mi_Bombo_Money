@@ -776,13 +776,17 @@ class FinanceRepository extends ChangeNotifier {
 
   /// Assigns the categories the person's own evidence gives (`lib/auto_category.dart`: their rules, then their own
   /// history), remembering where each one came from so it can be explained and taken back.
-  Future<int> applyAutoCategories() async {
+  /// [only] limits it to those movements (Don Bigotes' «ponles categoría»). Returns the movements that got one.
+  Future<List<String>> applyAutoCategories({Set<String>? only}) async {
     final data = finances;
-    if (data == null || _user == null || pending.isNotEmpty) return 0;
+    if (data == null || _user == null || pending.isNotEmpty) return const [];
     final store = AutoCategoryStore.instance;
-    if (!store.loaded) return 0;
-    final found = autoCategories(data, automatic: store.entries.keys.toSet(), rejected: store.rejected);
-    if (found.isEmpty) return 0;
+    if (!store.loaded) return const [];
+    final found = [
+      for (final a in autoCategories(data, automatic: store.entries.keys.toSet(), rejected: store.rejected))
+        if (only == null || only.contains(a.transactionId)) a
+    ];
+    if (found.isEmpty) return const [];
     final now = DateTime.now();
     try {
       await apply(batchOperation([
@@ -793,9 +797,9 @@ class FinanceRepository extends ChangeNotifier {
           }),
       ]));
       await store.remember(found, now);
-      return found.length;
+      return [for (final a in found) a.transactionId];
     } catch (_) {
-      return 0;
+      return const [];
     }
   }
 

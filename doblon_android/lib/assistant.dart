@@ -15,20 +15,31 @@
 //     missing and shows a preview with the same figures as the rest of the app (reserves and bank holds included).
 //     Only `confirm` returns the operation, once.
 //
-// The limit of rules: they understand the phrasings they were built for and close variations, not any sentence. A
-// model (phase 2, Cloudflare Workers AI, decided on 25/11 and not active) would fill the same `AssistantIntent`
-// (`assistantIntentSchema`), so everything after step 1 stays the same.
+// The limit of rules: they understand the phrasings they were built for and close variations, not any sentence. The
+// interpreter on the server (phase 2, Cloudflare Workers AI, `BankingBackend/src/assistant.mjs`) fills the same
+// `AssistantIntent` (`assistantIntentSchema`) when the person turns it on, so everything after step 1 is shared.
+//
+// Capabilities (26 November 2026). The model does not answer: it chooses calls to Doblón's capabilities (`kind`) with
+// their arguments, up to three in order (`also`). The app validates them, applies its own rules and data, and answers
+// from the real result. A request about existing movements is an action (list, summary, categorise) on a
+// `MovementSelection` (period or range, type, without category, category, account) that the session keeps: a
+// follow-up («no, los que no tienen categoría», `refine`) changes only what it states. No period said means none is
+// imposed (a list of the month says so). An action the app lacks is `unsupported` and said, never replaced by another.
 import 'dart:math' as math;
 
+import 'assistant_selection.dart';
+import 'auto_category.dart' show usefulConcept;
 import 'automation.dart' show matchRule;
 import 'banking.dart' show referenceSeconds;
 import 'edits.dart';
 import 'finance.dart';
 import 'installments.dart';
 import 'models.dart';
-import 'presentation.dart' show money;
+import 'presentation.dart' show listTitle, money;
 
-enum IntentKind { expense, income, reserve, listMovements, summary, createPlan, payInstalment, planStatus, describeExisting, simulation, transfer, correction, unknown }
+/// The capabilities Don Bigotes can use. `categorize` assigns categories to existing movements; `unsupported` is
+/// an action the person asked for that the chat cannot do (said, never replaced by another one).
+enum IntentKind { expense, income, reserve, listMovements, summary, categorize, createPlan, payInstalment, planStatus, describeExisting, simulation, transfer, correction, unsupported, unknown }
 
 enum QueryPeriod { today, yesterday, thisWeek, thisMonth, lastMonth, thisYear }
 
@@ -305,6 +316,16 @@ const _continuations = ['y', 'pero', 'no', 'solo', 'tambien', 'entonces', 'vale'
 const _cancelWords = ['cancela*', 'olvidalo', 'olvida', 'dejalo', 'descarta*', 'anula*'];
 const _resumeWords = ['retoma*', 'sigue', 'seguir', 'continua*', 'vuelve'];
 
+/// «sin categoría», «no tienen categoría», «les falta la categoría», «sin clasificar»: a category word with a
+/// negation shortly before it (a condition on the movements, not a category).
+bool negatedCategory(List<String> words) {
+  for (var i = 0; i < words.length; i++) {
+    if (!_any([words[i]], ['categor*', 'clasific*', 'etiquet*'])) continue;
+    if (words.sublist(math.max(0, i - 3), i).any((w) => const {'sin', 'no', 'ninguna', 'ningun', 'falta', 'faltan', 'carecen'}.contains(w))) return true;
+  }
+  return false;
+}
+
 /// What the sentence says, before deciding anything.
 class Signals {
   Signals(this.raw, DateTime now)
@@ -335,7 +356,9 @@ class Signals {
     continuation = _continuations.contains(first) || plain.trimLeft().startsWith('¿y');
     correction = _phrase(plain, ['no eran', 'no era', 'no es', 'eran', 'era', 'fue', 'fueron', 'que fueron', 'en realidad', 'me he equivocado', 'perdona', 'mejor', 'la fecha',
           'el importe', 'la cuenta', 'te he dicho', 'ya te he dicho', 'te dije', 'he dicho', 'no te he dicho', 'que no', 'digo']) ||
-        _any(words, ['cambia*', 'corrige*', 'categoria', 'concepto', 'llamalo', 'ponlo', 'ponla']);
+        _any(words, ['cambia*', 'corrige*', 'concepto', 'llamalo', 'ponlo', 'ponla']) ||
+        // «categoría» changes a draft's category, unless it is a condition («sin categoría»).
+        _any(words, ['categoria']) && !negatedCategory(words);
     cancel = _any(words, _cancelWords) || plain.trim() == 'no' || plain.trim() == 'nada';
     resume = _any(words, _resumeWords);
     // «El ingreso de 4.378 € es el préstamo», «el cargo de 44,53 era gasolina»: what an existing movement is.
@@ -345,6 +368,13 @@ class Signals {
     final says = _phrase(plain, ['es', 'era', 'fue', 'son', 'eran', 'corresponde', 'corresponden', 'viene de', 'es de', 'era de', 'lo use', 'lo he usado']) ||
         _any(words, ['clasifica*', 'vincula*', 'asocia*', 'etiqueta*']);
     existing = refers && says && amountMinor != null && !register;
+    // A condition on which movements («sin categoría», «no tienen categoría», «les falta la categoría»): a category
+    // word with a negation shortly before it. And the action of assigning categories to existing movements.
+    uncategorized = negatedCategory(words);
+    categorize = amountMinor == null &&
+        (_any(words, ['categoriza*', 'clasifica*', 'etiqueta*', 'organiza*']) ||
+            _any(words, ['pon*', 'asigna*', 'mete*', 'anade*', 'rellena*', 'completa*', 'arregla*']) && _any(words, ['categor*']));
+    unsupported = _any(words, ['borra*', 'elimina*', 'suprime*']);
     // «Gracias», «vale, perfecto», «nada más»: a courtesy, not a request.
     final courtesyWords = {'gracias', 'muchas', 'mil', 'vale', 'ok', 'okay', 'perfecto', 'genial', 'estupendo', 'guay', 'bien', 'muy', 'de', 'acuerdo',
       'listo', 'nada', 'mas', 'eso', 'es', 'todo', 'hasta', 'luego', 'adios', 'chao', 'buenas', 'noches', 'gracia', 'grasias', 'thanks', 'top', 'crack', 'dale'};
@@ -356,10 +386,10 @@ class Signals {
   final int? amountMinor, count, instalmentNumber;
   final DateTime? date, dueDate;
   final QueryPeriod? period;
-  late final bool question, consult, register, summary, listNoun, spend, earn, reserve, transfer, plan, pending, paidPast, simulate, continuation, correction, cancel, resume, existing, courtesy;
+  late final bool question, consult, register, summary, listNoun, spend, earn, reserve, transfer, plan, pending, paidPast, simulate, continuation, correction, cancel, resume, existing, courtesy, uncategorized, categorize, unsupported;
 
   /// Says something to record or to look up (not only a detail).
-  bool get mainIntent => spend || earn || reserve || transfer || plan || consult || listNoun || summary || simulate || register || question || existing;
+  bool get mainIntent => spend || earn || reserve || transfer || plan || consult || listNoun || summary || simulate || register || question || existing || categorize;
 }
 
 // ---------------------------------------------------------------- accounts, categories, concepts
@@ -507,8 +537,23 @@ class AssistantIntent {
     this.accountText,
     this.categoryText,
     this.planText,
+    this.uncategorized,
+    this.from,
+    this.to,
+    this.refine,
+    this.also = const [],
   });
   final IntentKind kind;
+
+  /// The selection of existing movements: only those without category, an explicit range.
+  final bool? uncategorized;
+  final DateTime? from, to;
+
+  /// The sentence corrects or narrows the previous request: only what it states changes.
+  final bool? refine;
+
+  /// Further steps of a combined request, run in order after this one (at most two).
+  final List<AssistantIntent> also;
   final int? amountMinor, count, instalmentNumber, dueDay;
   final bool? perInstalment;
   final DateTime? date, dueDate;
@@ -520,8 +565,9 @@ class AssistantIntent {
   /// What an existing movement is (`describeExisting`): loanReceived, loanUse, instalment or category.
   String? role;
 
-  static AssistantIntent? fromJson(Object? json) {
+  static AssistantIntent? fromJson(Object? json, {bool nested = false}) {
     if (json is! Map) return null;
+    if (nested && json.containsKey('also')) return null;
     final allowed = (assistantIntentSchema['properties'] as Map).keys.toSet();
     if (json.keys.any((k) => !allowed.contains(k))) return null;
     final kind = IntentKind.values.where((k) => k.name == json['kind']).firstOrNull;
@@ -553,6 +599,13 @@ class AssistantIntent {
       accountText: text(json['accountText']),
       categoryText: text(json['categoryText']),
       planText: text(json['planText']),
+      uncategorized: json['uncategorized'] is bool ? json['uncategorized'] as bool : null,
+      from: day(json['from']),
+      to: day(json['to']),
+      refine: json['refine'] is bool ? json['refine'] as bool : null,
+      also: nested || json['also'] is! List
+          ? const []
+          : (json['also'] as List).take(2).map((step) => AssistantIntent.fromJson(step, nested: true)).whereType<AssistantIntent>().toList(),
     )..role = const ['loanReceived', 'loanUse', 'instalment', 'category'].contains(json['role']) ? json['role'] as String : null;
   }
 }
@@ -565,7 +618,16 @@ const assistantIntentSchema = <String, Object>{
   'properties': {
     'kind': {
       'type': 'string',
-      'enum': ['expense', 'income', 'reserve', 'listMovements', 'summary', 'createPlan', 'payInstalment', 'planStatus', 'describeExisting', 'simulation', 'transfer', 'correction', 'unknown']
+      'enum': ['expense', 'income', 'reserve', 'listMovements', 'summary', 'categorize', 'createPlan', 'payInstalment', 'planStatus', 'describeExisting', 'simulation', 'transfer', 'correction', 'unsupported', 'unknown']
+    },
+    'uncategorized': {'type': 'boolean'},
+    'from': {'type': 'string', 'description': 'YYYY-MM-DD'},
+    'to': {'type': 'string', 'description': 'YYYY-MM-DD'},
+    'refine': {'type': 'boolean'},
+    'also': {
+      'type': 'array',
+      'maxItems': 2,
+      'items': {'type': 'object'},
     },
     'role': {
       'type': 'string',
@@ -611,6 +673,9 @@ sealed class AssistantReply {
 
   /// A draft was set aside with this reply: the card offers to go back to it (no exact words needed).
   bool canResume = false;
+
+  /// Shown after this one: the other parts of the answer (proposals to confirm, the next step of a combined request).
+  final followUps = <AssistantReply>[];
 }
 
 class AssistantQuestion extends AssistantReply {
@@ -622,7 +687,7 @@ class AssistantQuestion extends AssistantReply {
   final List<(String, String)> options;
 }
 
-enum PreviewKind { movement, reserve, plan, instalment, existing }
+enum PreviewKind { movement, reserve, plan, instalment, existing, categories }
 
 class AssistantPreview extends AssistantReply {
   AssistantPreview({
@@ -640,7 +705,12 @@ class AssistantPreview extends AssistantReply {
     this.proposal,
     this.targetId,
     this.undoOperation,
+    this.assignments = const [],
   });
+
+  /// Categories proposed for existing movements (movement id, category id, why): applied only to those still
+  /// without one when confirmed.
+  final List<(String, String, String)> assignments;
 
   /// The existing movement a preview changes (never a new one), and how to put it back.
   final String? targetId;
@@ -668,7 +738,10 @@ class AssistantPreview extends AssistantReply {
 }
 
 class AssistantResult extends AssistantReply {
-  AssistantResult(this.title, this.lines, {this.transactions = const [], this.totalMinor, this.planId});
+  AssistantResult(this.title, this.lines, {this.transactions = const [], this.totalMinor, this.planId, this.automatic = const []});
+
+  /// Movements that got a category just now from the person's own evidence (rules, history): undoable.
+  final List<String> automatic;
   final String title;
   final List<String> lines;
   final List<Transaction> transactions;
@@ -736,12 +809,20 @@ class _Draft {
       };
 }
 
-typedef _LastQuery = ({IntentKind kind, QueryPeriod period, QueryScope scope, String? categoryId, String? accountId});
+/// The last request about existing movements: what was done and which movements. A follow-up changes only what it states.
+typedef _LastQuery = ({IntentKind kind, MovementSelection selection});
 
 /// One conversation: the draft being prepared, a draft set aside, the last query (for continuations) and the ids
 /// already applied (a preview is applied once).
 class AssistantSession {
-  AssistantSession({required this.newId, this.propose, this.remote});
+  AssistantSession({required this.newId, this.propose, this.remote, this.applyEvidence});
+
+  /// Assigns, among [ids], the categories the person's own evidence gives (rules, history) with their provenance
+  /// (`FinanceRepository.applyAutoCategories`); returns the ids that got one.
+  final Future<List<String>> Function(Set<String> ids)? applyEvidence;
+
+  /// The card of category proposals that can still be confirmed.
+  AssistantPreview? _proposals;
   final String Function() newId;
 
   /// The interpreter on the server (phase 2), only when the person turned it on in Ajustes. It receives
@@ -755,7 +836,7 @@ class AssistantSession {
   _Draft? _parked;
   _LastQuery? _last;
   bool? _comprasIsCategory;
-  ({QueryPeriod period, String? accountId})? _scopeWaiting;
+  ({QueryPeriod? period, String? accountId})? _scopeWaiting;
   final applied = <String>{};
 
   bool get hasDraft => _draft != null;
@@ -853,6 +934,7 @@ class AssistantSession {
       s.summary && s.amountMinor == null ||
       s.listNoun ||
       s.simulate ||
+      s.categorize ||
       s.transfer ||
       s.reserve && d.kind != IntentKind.reserve ||
       s.plan && d.kind != IntentKind.createPlan && d.kind != IntentKind.payInstalment;
@@ -889,7 +971,7 @@ class AssistantSession {
     return AssistantMessage('No te he entendido. Sigo con ${d.describe()}: dime el dato que falta o «cancela».');
   }
 
-  String? _lastTitle;
+  static String _clip(String s) => s.length > 200 ? s.substring(0, 200) : s;
 
   /// The minimal context the model receives: the sentence, today, the names of the person's accounts, cards,
   /// categories and plans, the last query and the draft in words. Never balances, movements, IBANs or bank concepts.
@@ -921,40 +1003,54 @@ class AssistantSession {
       ]),
       'categories': names(data.categories.where((c) => !c.isArchived).map((c) => c.name)),
       'plans': names(data.installmentPlans.where((p) => !p.isArchived).map((p) => p.name)),
-      if (_lastTitle != null) 'lastQuery': _lastTitle,
+      if (_last != null) 'lastQuery': _clip('${switch (_last!.kind) {
+            IntentKind.categorize => 'poner categoría',
+            IntentKind.summary => 'resumen',
+            _ => 'ver',
+          }}: ${_last!.selection.describe(data)}'),
       if (describeDraft() != null) 'draft': describeDraft(),
     };
   }
 
   /// Resolves a model's intent with the same rules as a sentence understood here. Null when it says nothing useful
   /// (the rules then try).
-  Future<AssistantReply?> _fromIntent(AssistantIntent i, Signals s, FinanceCalculator calc, DateTime now, int heldMinor) async {
+  Future<AssistantReply?> _fromIntent(AssistantIntent i, Signals s, FinanceCalculator calc, DateTime now, int heldMinor, {bool nested = false}) async {
     final data = calc.data;
     final draft = _draft;
     if (i.kind == IntentKind.unknown) return null;
     if (i.kind == IntentKind.correction) return null;
-    // A new request: an open draft is set aside, said explicitly.
-    final note = draft == null ? null : _park();
+    // A new request: an open draft is set aside, said explicitly (never by a later step of the same request).
+    final note = draft == null || nested ? null : _park();
     AssistantReply reply;
-    switch (i.kind) {
+    // An action on existing movements is never answered with a list: an interpreter without this capability (or
+    // one that misreads it) reads «ponles categoría» as a query. A correction of a categorisation stays one.
+    var kind = i.kind;
+    if (s.categorize && (kind == IntentKind.listMovements || kind == IntentKind.summary) && !i.also.any((step) => step.kind == IntentKind.categorize)) kind = IntentKind.categorize;
+    if (i.refine == true && _last?.kind == IntentKind.categorize && kind == IntentKind.listMovements && !s.consult) kind = IntentKind.categorize;
+    switch (kind) {
       case IntentKind.simulation || IntentKind.transfer:
         reply = await _start(i.kind, s, calc, now, heldMinor);
       case IntentKind.planStatus:
         reply = _planStatus(Signals(i.planText ?? '', now), data, now);
+      case IntentKind.unsupported:
+        reply = AssistantMessage(_unsupported(i.purpose ?? i.concept));
       case IntentKind.summary:
-        final period = i.period ?? _last?.period ?? QueryPeriod.thisMonth;
+        final period = i.period ?? (i.refine == true ? _last?.selection.period : null) ?? QueryPeriod.thisMonth;
         reply = _summary(calc, now, Signals(i.categoryText ?? '', now), period);
-      case IntentKind.listMovements:
-        final period = i.period ?? _last?.period ?? QueryPeriod.thisMonth;
-        final income = i.scope == QueryScope.income;
+      case IntentKind.listMovements || IntentKind.categorize:
         final accounts = i.accountText == null ? const <AccountChoice>[] : namedAccounts(i.accountText!, data);
         final category = i.categoryText == null ? null : namedCategory(i.categoryText!, data, (_) => true);
-        reply = _list(calc, now,
-            period: period,
-            income: income,
-            accountId: accounts.length == 1 ? accounts.single.account.id : null,
-            categoryId: category?.id,
-            all: i.scope == QueryScope.all);
+        final change = MovementSelection(
+          period: i.period,
+          from: i.from,
+          to: i.to,
+          scope: i.scope,
+          uncategorized: i.uncategorized,
+          categoryId: category?.id,
+          accountId: accounts.length == 1 ? accounts.single.account.id : null,
+        );
+        final selection = i.refine == true && _last != null ? _last!.selection.refinedBy(change) : change;
+        reply = kind == IntentKind.categorize ? await _categorize(selection, calc, now) : _list(calc, now, selection);
       default:
         final d = _draft = _Draft(i.kind)
           ..amountMinor = i.amountMinor
@@ -997,8 +1093,50 @@ class AssistantSession {
     }
     reply.note ??= note;
     reply.canResume = note != null;
+    // The other steps of a combined request, in order (at most two). A step that prepares something to confirm waits
+    // while another one is open, said; a step that fails is said and does not undo the others.
+    if (!nested) {
+      for (final step in i.also) {
+        if (_preparesDraft(step.kind) && _draft != null) {
+          reply.followUps.add(AssistantMessage('${_capital(_stepTitle(step.kind))} que también pediste lo preparo cuando termines con esto: dímelo entonces.'));
+          break;
+        }
+        try {
+          final next = await _fromIntent(step, Signals('', now), calc, now, heldMinor, nested: true);
+          if (next != null) reply.followUps.add(next);
+        } catch (_) {
+          reply.followUps.add(AssistantMessage('No he podido hacer ${_stepTitle(step.kind)}; lo anterior sí está hecho.'));
+        }
+      }
+    }
     return reply;
   }
+
+  static bool _preparesDraft(IntentKind k) => const {
+        IntentKind.expense,
+        IntentKind.income,
+        IntentKind.reserve,
+        IntentKind.createPlan,
+        IntentKind.payInstalment,
+        IntentKind.describeExisting,
+      }.contains(k);
+
+  static String _stepTitle(IntentKind k) => switch (k) {
+        IntentKind.expense => 'el gasto',
+        IntentKind.income => 'el ingreso',
+        IntentKind.reserve => 'la reserva',
+        IntentKind.createPlan => 'el pago a plazos',
+        IntentKind.payInstalment => 'la cuota',
+        IntentKind.describeExisting => 'el cambio del movimiento',
+        IntentKind.categorize => 'lo de las categorías',
+        IntentKind.summary => 'el resumen',
+        _ => 'la consulta',
+      };
+
+  /// An action the chat does not have: said, with what it can do instead. Never replaced by another action.
+  String _unsupported(String? what) =>
+      'Eso no puedo hacerlo desde el chat${what == null ? '' : ' («$what»)'}. Puedo enseñarte movimientos, ponerles categoría o apuntar gastos, '
+      'ingresos, reservas y pagos a plazos. Para borrar o cambiar un movimiento, ábrelo y hazlo desde su detalle.';
 
   bool _saysMonth(Signals s) => RegExp('(${_months.keys.join('|')}|\\d/\\d|mes que viene|proximo mes|siguiente mes|este mes)').hasMatch(s.plain);
 
@@ -1069,11 +1207,13 @@ class AssistantSession {
     _comprasIsCategory = category;
     final w = _scopeWaiting!;
     _scopeWaiting = null;
-    return _list(calc, now, period: w.period, income: false, accountId: w.accountId, compras: true);
+    return _list(calc, now, MovementSelection(period: w.period, scope: QueryScope.expenses, accountId: w.accountId), compras: true);
   }
 
   IntentKind _decide(Signals s, Finances data) {
     if (s.existing) return IntentKind.describeExisting;
+    if (s.unsupported) return IntentKind.unsupported;
+    if (s.categorize) return IntentKind.categorize;
     final plans = data.installmentPlans.where((p) => !p.isArchived).toList();
     if (s.plan || (s.pending && plans.isNotEmpty)) {
       if (s.pending || (s.question && s.amountMinor == null && s.count == null)) return IntentKind.planStatus;
@@ -1085,13 +1225,15 @@ class AssistantSession {
     final query = (s.question || s.consult || s.summary) && !s.register && !(s.amountMinor != null && !s.question && !s.consult);
     if (query) return s.summary && !s.consult && !_phrase(s.plain, ['que cosas', 'que he', 'en que']) ? IntentKind.summary : IntentKind.listMovements;
     if (s.reserve) return IntentKind.reserve;
+    // «y solo los gastos», «los ingresos»: without an amount, a noun of movements after a query continues it.
+    if (s.listNoun && s.amountMinor == null && _last != null && !s.register) return _last!.kind;
     // A statement in the past without amount and with a period asks about it («he comprado cosas este mes»).
     if (s.amountMinor == null && s.period != null && (s.spend || s.earn || s.listNoun) && !s.register) return IntentKind.listMovements;
     if (s.earn && !s.spend) return IntentKind.income;
     if (s.spend) return IntentKind.expense;
     if (s.earn) return IntentKind.income;
     if (s.listNoun && _last != null) return IntentKind.listMovements;
-    if (_last != null && (s.continuation || s.period != null || namedCategory(s.raw, data, (_) => true) != null)) return _last!.kind;
+    if (_last != null && (s.continuation || s.uncategorized || s.period != null || namedCategory(s.raw, data, (_) => true) != null)) return _last!.kind;
     return IntentKind.unknown;
   }
 
@@ -1125,7 +1267,10 @@ class AssistantSession {
         return AssistantPointer('Los traspasos aún no se preparan desde el chat: ábrelo en su formulario. Apuntarlo no mueve dinero en el banco.', kind);
       case IntentKind.listMovements:
       case IntentKind.summary:
+      case IntentKind.categorize:
         return _query(kind, s, calc, now);
+      case IntentKind.unsupported:
+        return AssistantMessage(_unsupported(null));
       case IntentKind.planStatus:
         return _planStatus(s, data, now);
       case IntentKind.describeExisting:
@@ -2052,77 +2197,150 @@ class AssistantSession {
     return AssistantResult(named == null ? 'Pagos a plazos · quedan ${money(pending)}' : named.name, lines, planId: named?.id);
   }
 
+  /// A request about existing movements read with the rules: the conditions the sentence states, applied over the
+  /// last request's when it follows it («no, los que no tienen categoría» changes only that condition).
   Future<AssistantReply> _query(IntentKind kind, Signals s, FinanceCalculator calc, DateTime now) async {
     final data = calc.data;
-    final follows = s.continuation || s.period == null;
-    final last = follows ? _last : null;
-    final period = s.period ?? last?.period ?? QueryPeriod.thisMonth;
+    final last = _last;
+    final follows = last != null && (s.continuation || s.period == null);
     final saysIncome = _any(s.words, ['ingresos', 'cobros', 'ingres*', 'cobr*']);
     final saysExpense = _any(s.words, ['gast*', 'compr*', 'pag*']);
-    final income = saysIncome && !saysExpense ? true : (saysExpense ? false : last?.scope == QueryScope.income);
+    final saysAll = _any(s.words, ['movimientos', 'operaciones', 'transacciones']);
+    final scope = saysIncome && !saysExpense ? QueryScope.income : (saysExpense ? QueryScope.expenses : (saysAll ? QueryScope.all : null));
     final accounts = namedAccounts(s.raw, data);
-    final accountId = accounts.length == 1 ? accounts.single.account.id : last?.accountId;
-    if (kind == IntentKind.summary) return _summary(calc, now, s, period);
+    if (kind == IntentKind.summary) return _summary(calc, now, s, s.period ?? (follows ? last.selection.period : null) ?? QueryPeriod.thisMonth);
     // «compras»: a category of that name, or every expense? From the context, or asked once.
-    final compras = !income && _any(s.words, ['compr*']);
+    final compras = kind == IntentKind.listMovements && scope == QueryScope.expenses && _any(s.words, ['compr*']);
     final comprasCategory = _comprasCategory(data);
+    final accountId = accounts.length == 1 ? accounts.single.account.id : null;
     if (compras && comprasCategory != null && _comprasIsCategory == null) {
-      _scopeWaiting = (period: period, accountId: accountId);
-      return AssistantQuestion('¿Todos los gastos de ${period.title} o solo la categoría «${comprasCategory.name}»?', null,
+      final period = s.period ?? (follows ? last.selection.period : null);
+      _scopeWaiting = (period: period, accountId: accountId ?? (follows ? last.selection.accountId : null));
+      return AssistantQuestion('¿Todos los gastos${period == null ? '' : ' de ${period.title}'} o solo la categoría «${comprasCategory.name}»?', null,
           [('Todos los gastos', 'scope:all'), ('Solo «${comprasCategory.name}»', 'scope:category')]);
     }
-    final named = compras ? null : namedCategory(s.raw, data, (c) => categorySupports(c, income ? TransactionType.income : TransactionType.expense));
-    return _list(calc, now,
-        period: period,
-        income: income,
-        accountId: accountId,
-        categoryId: named?.id ?? (s.continuation && !compras && !saysIncome ? last?.categoryId : null),
-        compras: compras,
-        all: _any(s.words, ['movimientos', 'operaciones', 'transacciones']));
+    final type = scope == QueryScope.income ? TransactionType.income : TransactionType.expense;
+    final named = compras || s.uncategorized ? null : namedCategory(s.raw, data, (c) => categorySupports(c, type));
+    final change = MovementSelection(
+      period: s.period,
+      scope: scope,
+      uncategorized: s.uncategorized ? true : null,
+      categoryId: named?.id,
+      accountId: accountId,
+    );
+    var selection = follows ? last.selection.refinedBy(change) : change;
+    // Another type of movement: a category of the previous type no longer applies.
+    if (follows && scope != null && scope != last.selection.scope && named == null) selection = selection.withoutCategory();
+    if (kind == IntentKind.categorize) return _categorize(selection, calc, now);
+    return _list(calc, now, selection, compras: compras);
   }
 
   Category? _comprasCategory(Finances data) =>
       data.categories.where((c) => !c.isArchived && plainText(c.name).startsWith('compra') && categorySupports(c, TransactionType.expense)).firstOrNull;
 
-  AssistantReply _list(FinanceCalculator calc, DateTime now,
-      {required QueryPeriod period, required bool income, String? accountId, String? categoryId, bool compras = false, bool all = false}) {
+  /// The movements of [asked]. Without a period said, a request about movements without category covers every
+  /// date; any other list covers this month, and says so.
+  AssistantReply _list(FinanceCalculator calc, DateTime now, MovementSelection asked, {bool compras = false}) {
     final data = calc.data;
-    final category = data.category(categoryId ?? (compras && _comprasIsCategory == true ? _comprasCategory(data)?.id : null));
-    final (from, to) = period.range(now);
-    final rows = [
-      for (final t in data.transactions)
-        if (!t.date.isBefore(from) &&
-            t.date.isBefore(to) &&
-            (all || (income ? t.type.countsAsIncome : t.type.countsAsExpense)) &&
-            (category == null || t.categoryId == category.id) &&
-            (accountId == null || t.sourceAccountId == accountId || t.destinationAccountId == accountId))
-          t
-    ];
+    var selection = asked;
+    if (compras && _comprasIsCategory == true && _comprasCategory(data) != null) {
+      selection = selection.refinedBy(MovementSelection(categoryId: _comprasCategory(data)!.id));
+    }
+    _last = (kind: IntentKind.listMovements, selection: selection);
+    final defaulted = !selection.hasPeriod && selection.uncategorized != true;
+    final shown = defaulted ? selection.withDefaultPeriod(QueryPeriod.thisMonth) : selection;
+    final rows = shown.select(data, now);
+    final all = (shown.scope ?? QueryScope.all) == QueryScope.all;
     final total = all ? null : rows.fold(0, (s, t) => s + t.amountMinor.abs());
-    _last = (
-      kind: IntentKind.listMovements,
-      period: period,
-      scope: all ? QueryScope.all : (income ? QueryScope.income : QueryScope.expenses),
-      categoryId: category?.id,
-      accountId: accountId
-    );
-    final what = category?.name ?? (all ? 'Movimientos' : (income ? 'Ingresos' : 'Gastos'));
-    final account = data.account(accountId);
-    _lastTitle = '$what ${period.title}${account == null ? '' : ' en ${account.name}'}';
     return AssistantResult(
-      _lastTitle!,
-      [rows.isEmpty ? 'No hay ninguno.' : '${rows.length} ${rows.length == 1 ? 'movimiento' : 'movimientos'}${total == null ? '' : ' · ${money(total)} en total'}. Tócalos para abrirlos.'],
+      _capital(shown.describe(data)),
+      [
+        rows.isEmpty ? 'No hay ninguno.' : '${rows.length} ${rows.length == 1 ? 'movimiento' : 'movimientos'}${total == null ? '' : ' · ${money(total)} en total'}. Tócalos para abrirlos.',
+        if (defaulted) 'No has dicho periodo: te enseño este mes.',
+      ],
       transactions: rows.take(30).toList(),
       totalMinor: total,
     );
+  }
+
+  /// Puts categories on the existing movements of [asked] that have none («ponles categoría»):
+  ///  1. the person's own evidence (their rules, their history) is applied now, with its provenance and undo;
+  ///  2. the learning's proposals are shown together, to confirm with one tap;
+  ///  3. what has no evidence (only amount and date, a generic bank text) is asked, never guessed.
+  /// A category already chosen is never changed. Repeating the request finds only what is still missing.
+  Future<AssistantReply> _categorize(MovementSelection asked, FinanceCalculator calc, DateTime now) async {
+    final data = calc.data;
+    final selection = asked.refinedBy(const MovementSelection(uncategorized: true));
+    _last = (kind: IntentKind.categorize, selection: selection);
+    final title = 'Poner categoría · ${selection.describe(data)}';
+    final keepsChosen = asked.uncategorized == false || asked.categoryId != null;
+    final candidates = selection.select(data, now);
+    if (candidates.isEmpty) {
+      return AssistantResult(title, [
+        'No hay ninguno sin categoría${selection.hasPeriod ? ' ${selection.periodTitle()}' : ''}.',
+        if (keepsChosen) 'Los que ya tienen categoría no los cambio.',
+      ]);
+    }
+    var automatic = const <String>[];
+    try {
+      automatic = await applyEvidence?.call({for (final t in candidates) t.id}) ?? const [];
+    } catch (_) {}
+    final proposals = <(Transaction, Category, String)>[];
+    final unclear = <Transaction>[];
+    for (final t in candidates.where((t) => !automatic.contains(t.id))) {
+      (String, String)? p;
+      if (usefulConcept(t) && propose != null && proposals.length < 60) {
+        try {
+          p = await propose!(listTitle(t.descriptionText, isBanking: t.isBanking), t.type);
+        } catch (_) {}
+      }
+      final c = data.category(p?.$1);
+      if (c == null || c.isArchived || !categorySupports(c, t.type)) {
+        unclear.add(t);
+      } else {
+        proposals.add((t, c, p!.$2));
+      }
+    }
+    final result = AssistantResult(
+      title,
+      [
+        '${candidates.length} sin categoría.',
+        if (automatic.isNotEmpty) 'He puesto categoría a ${automatic.length} con tus reglas o como ya los habías categorizado tú. Puedes deshacerlo.',
+        if (proposals.isNotEmpty) 'Para ${proposals.length} te propongo una por lo que has categorizado antes: confírmalas abajo.',
+        if (unclear.isNotEmpty)
+          '${unclear.length} no tienen datos para saber qué son (a veces el banco solo envía importe y fecha): tócalos para elegir, '
+              'o dime qué es cada uno, como «el de 44,53 € es gasolina».',
+        if (keepsChosen) 'Los que ya tienen categoría no los cambio.',
+      ],
+      transactions: unclear.take(30).toList(),
+      automatic: automatic,
+    );
+    if (proposals.isNotEmpty) {
+      final shown = proposals.take(25).toList();
+      result.followUps.add(_proposals = AssistantPreview(
+        id: newId(),
+        kind: PreviewKind.categories,
+        title: 'Categorías propuestas (${proposals.length})',
+        lines: [
+          for (final (t, c, _) in shown) ('${listTitle(t.descriptionText, isBanking: t.isBanking)} · ${money(t.amountMinor)}', c.name),
+          if (proposals.length > shown.length) ('Y', '${proposals.length - shown.length} más'),
+        ],
+        effects: [
+          'Solo se aplican a los que sigan sin categoría al confirmar.',
+          'Después puedes deshacerlo o cambiar cualquiera desde su detalle.',
+        ],
+        operation: batchOperation(const []),
+        assignments: [for (final (t, c, source) in proposals) (t.id, c.id, source)],
+      ));
+    }
+    return result;
   }
 
   AssistantReply _summary(FinanceCalculator calc, DateTime now, Signals s, QueryPeriod period) {
     final usable = period == QueryPeriod.lastMonth ? QueryPeriod.lastMonth : QueryPeriod.thisMonth;
     final month = usable == QueryPeriod.lastMonth ? DateTime(now.year, now.month - 1) : DateTime(now.year, now.month);
     final category = namedCategory(s.raw, calc.data, (c) => categorySupports(c, TransactionType.expense));
-    _last = (kind: IntentKind.summary, period: usable, scope: QueryScope.expenses, categoryId: category?.id, accountId: null);
-    _lastTitle = 'Resumen de ${usable.title}${category == null ? '' : ' en ${category.name}'}';
+    _last = (kind: IntentKind.summary, selection: MovementSelection(period: usable, scope: QueryScope.expenses, categoryId: category?.id));
     if (category != null) {
       final (from, to) = usable.range(now);
       final spent = calc.data.transactions
@@ -2142,6 +2360,20 @@ class AssistantSession {
   /// Applies the current preview once. Null for a card that is no longer current (corrected, set aside, cancelled)
   /// or already applied.
   Operation? confirm(AssistantPreview preview, Finances data) {
+    if (preview.kind == PreviewKind.categories) {
+      if (!identical(_proposals, preview) || !applied.add(preview.id)) return null;
+      _proposals = null;
+      final stamp = referenceSeconds(DateTime.now());
+      final ops = [
+        for (final (id, category, _) in preview.assignments)
+          if (data.transactions.any((t) => t.id == id && t.categoryId == null))
+            Operation('patch', {
+              'id': id,
+              'fields': {'categoryID': category, 'updatedAt': stamp}
+            }),
+      ];
+      return ops.isEmpty ? null : batchOperation(ops);
+    }
     if (!identical(_draft?.preview, preview)) return null;
     if (!applied.add(preview.id)) return null;
     if (preview.kind != PreviewKind.existing && data.transactions.any((t) => t.id == preview.id) ||
@@ -2154,7 +2386,10 @@ class AssistantSession {
   }
 
   /// Whether a card is the one that can still be confirmed.
-  bool isCurrent(AssistantPreview preview) => identical(_draft?.preview, preview);
+  bool isCurrent(AssistantPreview preview) => identical(_draft?.preview, preview) || identical(_proposals, preview);
+
+  /// The proposals card is dropped (nothing was applied).
+  void cancelProposals() => _proposals = null;
 
   /// Undoes a confirmed preview: the movement, the reserve (if nothing uses it) or the plan (its payments stay).
   Operation? undo(AssistantPreview preview, Finances data, DateTime now) {
@@ -2169,6 +2404,17 @@ class AssistantSession {
         return data.transactions.any((t) => t.id == preview.id) ? Operation('delete', {'id': preview.id}) : null;
       case PreviewKind.existing:
         return preview.undoOperation;
+      case PreviewKind.categories:
+        final stamp = referenceSeconds(now);
+        final ops = [
+          for (final (id, category, _) in preview.assignments)
+            if (data.transactions.any((t) => t.id == id && t.categoryId == category))
+              Operation('patch', {
+                'id': id,
+                'fields': {'categoryID': null, 'updatedAt': stamp}
+              }),
+        ];
+        return ops.isEmpty ? null : batchOperation(ops);
     }
   }
 }

@@ -14,7 +14,8 @@
     "deploy": "wrangler deploy",
     "setup": "node tools/setup.mjs",
     "pilot-app": "node tools/pilot-app.mjs",
-    "guests": "node tools/guests.mjs"
+    "guests": "node tools/guests.mjs",
+    "evaluate-assistant": "node tools/evaluate-assistant.mjs"
   },
   "devDependencies": {
     "miniflare": "5.20261023.1-beta",
