@@ -13,6 +13,7 @@ import 'bank_sync.dart';
 import 'forecast_store.dart';
 import 'edits.dart';
 import 'contributions.dart';
+import 'assistant_crypto.dart';
 import 'assistant.dart' show AssistantIntent, RemoteInterpretation;
 import 'auto_category.dart';
 import 'reconcile.dart' show ReconcileStore, joinOperation, unequivocalRepeat;
@@ -187,12 +188,15 @@ class FinanceRepository extends ChangeNotifier {
 
   /// Don Bigotes' interpreter on the server, with this person's session. Never throws: an error is returned so the
   /// conversation goes on with its own rules.
-  Future<RemoteInterpretation> interpretRemotely(Map<String, Object?> context, {BankingClient? client}) async {
+  /// The context is already masked (`AssistantMasker`); it travels sealed for the Worker alone (`AssistantEnvelope`)
+  /// and only a sealed answer is accepted.
+  Future<RemoteInterpretation> interpretRemotely(Map<String, Object?> context, {BankingClient? client, String serverKey = assistantServerKey}) async {
     final token = client == null ? _client.auth.currentSession?.accessToken : null;
     if (client == null && token == null) return (intent: null, error: 'unauthorized');
     final api = client ?? BankingClient(token!);
     try {
-      final answer = await api.interpret(context);
+      final (body, envelope) = await AssistantEnvelope.seal(context, serverKey: serverKey);
+      final answer = await envelope.open(await api.interpret(body));
       final intent = AssistantIntent.fromJson(answer['intent']);
       return (intent: intent, error: intent == null ? 'assistant_invalid' : null);
     } on BankingError catch (error) {

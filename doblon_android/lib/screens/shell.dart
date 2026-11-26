@@ -634,7 +634,7 @@ class _SettingsPage extends StatelessWidget {
         SwitchListTile(
           secondary: Icon(Icons.chat_bubble_outline, color: pulso.accent),
           title: const Text('Frases libres con Don Bigotes'),
-          subtitle: const Text('Interpreta lo que escribes con un modelo de Cloudflare. Gratis, 40 frases al día. Apagado: solo reglas en el móvil'),
+          subtitle: const Text('Entiende lo que escribes con un modelo de Cloudflare, sin enviar importes ni tus nombres. Gratis, 40 frases al día. Apagado: solo reglas en el móvil'),
           value: preferences.assistantModelFor(repository.userId),
           onChanged: repository.userId == null
               ? null
@@ -645,10 +645,11 @@ class _SettingsPage extends StatelessWidget {
                             builder: (context) => AlertDialog(
                               title: const Text('¿Activar las frases libres?'),
                               content: const Text(
-                                  'Cada frase que escribas a Don Bigotes se enviará a nuestro servidor y a Cloudflare Workers AI para entenderla, junto con '
-                                  'la fecha de hoy y los nombres de tus cuentas, tarjetas, categorías y pagos a plazos. Nunca se envían saldos, movimientos, '
-                                  'IBAN ni conceptos del banco. Cloudflare no guarda la frase ni la usa para entrenar modelos. Nada se guarda en Doblón sin '
-                                  'que lo confirmes. Puedes apagarlo cuando quieras.'),
+                                  'Lo que escribas a Don Bigotes se entenderá con un modelo de Cloudflare Workers AI. Antes de salir del móvil, los importes, '
+                                  'los nombres de tus cuentas, tarjetas, categorías, pagos a plazos y objetivos, y tus movimientos se cambian por marcadores '
+                                  '(«pagué [N1] con la [CUENTA_1]»). Solo viajan las palabras corrientes de la frase, la fecha de hoy y el tipo de tus cuentas, '
+                                  'cifrado para nuestro servidor, que no lo guarda. Nunca se envían saldos, IBAN ni conceptos del banco. Nada se guarda en '
+                                  'Doblón sin que lo confirmes. Puedes apagarlo cuando quieras.'),
                               actions: [
                                 TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Ahora no')),
                                 FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Activar')),

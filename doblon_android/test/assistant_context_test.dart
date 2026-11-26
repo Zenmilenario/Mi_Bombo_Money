@@ -5,6 +5,7 @@
 // un préstamo», an explicit new total); rough dates; numbers that are days; a real change of subject, cancelling and
 // resuming; and expenses and queries, so nothing that worked gets worse.
 import 'package:doblon/assistant.dart';
+import 'package:doblon/assistant_privacy.dart';
 import 'package:doblon/finance.dart';
 import 'package:doblon/models.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -38,7 +39,13 @@ AssistantSession session([Model? model]) {
 }
 
 /// The open draft in words, as the model would receive it.
-String draft(AssistantSession s) => '${s.contextFor('·', calc.data, now)['draft'] ?? ''}';
+/// The draft as the session describes it, read back here: what is sent is masked (`AssistantMasker`).
+String draft(AssistantSession s) {
+  final masker = AssistantMasker(calc.data);
+  final sent = s.contextFor('·', calc.data, now, masker: masker)['draft'];
+  expect('${sent ?? ''}', isNot(contains('4.378')), reason: 'No amount leaves the phone');
+  return masker.unmask(sent) ?? '';
+}
 
 Future<AssistantQuestion> ask(AssistantSession s, String text, PendingField field) async {
   final reply = await s.say(text, calc, now);
@@ -72,26 +79,29 @@ void main() {
       // What the model answered before the fix: a new plan of 5 € per instalment. The draft must survive it.
       ('the model\'s answer before the fix', Model([
         {'kind': 'createPlan', 'amountMinor': 437800, 'count': 12},
+        {'kind': 'correction', 'purpose': 'Préstamo del coche'},
+        // A correction may only set an amount written in that sentence: here «5» is a day.
         {'kind': 'createPlan', 'amountMinor': 500, 'perInstalment': true, 'count': 12},
       ])),
       // What it answers now: a correction with the day.
       ('the model\'s answer now', Model([
         {'kind': 'createPlan', 'amountMinor': 437800, 'count': 12},
+        {'kind': 'correction', 'purpose': 'Préstamo del coche'},
         {'kind': 'correction', 'dueDay': 5},
       ])),
     ]) {
       test(who, () async {
         final s = session(model);
         await ask(s, 'Quiero dejar grabado una deuda de 4378 € a pagar en 12 meses', PendingField.planKind);
-        expect(draft(s), contains('4.378,00'));
+        expect(draft(s), matches(RegExp(r'4.?378')));
         var reply = await s.choose('loan', calc, now) as AssistantQuestion;
         expect(reply.field, PendingField.planName);
         await ask(s, 'Préstamo del coche', PendingField.dueDate);
-        expect(draft(s), allOf(contains('Préstamo'), contains('4.378,00'), contains('12 cuotas')));
+        expect(draft(s), allOf(contains('Préstamo'), matches(RegExp(r'4.?378')), contains('12 cuotas')));
         reply = await ask(s, 'A primeros de me si pon 5 de cada mes', PendingField.dueMonth);
         expect(reply.text, contains('el día 5 de cada mes'));
         expect(reply.options.first, ('5 de diciembre de 2026', 'due:2026-12-05'));
-        expect(draft(s), allOf(contains('4.378,00'), contains('12 cuotas'), contains('día 5')), reason: 'Amount, count and kind kept');
+        expect(draft(s), allOf(matches(RegExp(r'4.?378')), contains('12 cuotas'), contains('día 5')), reason: 'Amount, count and kind kept');
         expectLoan(await finish(s, first: DateTime(2026, 12, 5)), first: DateTime(2026, 12, 5, 12));
       });
     }
@@ -103,7 +113,7 @@ void main() {
     await s.choose('purchase', calc, now); // tapped by mistake
     final reply = await ask(s, 'Te he dicho que un préstamo', PendingField.planName);
     expect(reply.text, startsWith('¿Cómo lo llamo?'), reason: 'Not taken as the name');
-    expect(draft(s), allOf(startsWith('Préstamo'), contains('4.378,00'), contains('12 cuotas')));
+    expect(draft(s), allOf(startsWith('Préstamo'), matches(RegExp(r'4.?378')), contains('12 cuotas')));
     await ask(s, 'Coche', PendingField.dueDate);
     await ask(s, 'el día 5', PendingField.dueMonth);
     expectLoan(await finish(s, first: DateTime(2026, 12, 5)));
@@ -116,11 +126,11 @@ void main() {
     final rough = await ask(s, 'A principios de mes pon el día que más rabo te dé', PendingField.dueDate);
     expect(rough.text, contains('¿Te vale que la primera cuota sea el 1 de diciembre de 2026?'));
     expect(rough.options.last, ('Otro día', 'due:other'));
-    expect(draft(s), contains('4.378,00'));
+    expect(draft(s), matches(RegExp(r'4.?378')));
     // Not understood at all: the same question again, with everything kept (no generic list, nothing set aside).
     final lost = await ask(s, 'ufff no se tio', PendingField.dueDate);
     expect(lost.text, startsWith('No te he entendido.'));
-    expect(draft(s), contains('4.378,00'));
+    expect(draft(s), matches(RegExp(r'4.?378')));
     expectLoan(await finish(s, first: DateTime(2026, 12, 1)), first: DateTime(2026, 12, 1, 12));
   });
 
@@ -131,7 +141,7 @@ void main() {
     for (final text in ['los dias 10', 'pon el 10 de cada mes porfa', 'el diez... digo el 10']) {
       final reply = await s.say(text, calc, now);
       expect(reply, isA<AssistantQuestion>(), reason: text);
-      expect(draft(s), allOf(contains('4.378,00'), contains('12 cuotas')), reason: text);
+      expect(draft(s), allOf(matches(RegExp(r'4.?378')), contains('12 cuotas')), reason: text);
     }
     var reply = await s.say('pues a partir del 3 del que viene', calc, now);
     expect((reply as AssistantQuestion).field, PendingField.account, reason: 'A full date: no month to ask');
@@ -168,7 +178,7 @@ void main() {
     expect(query.canResume, isTrue, reason: 'The card offers to go back, no exact words needed');
     final back = await s.resume(calc, now) as AssistantQuestion;
     expect(back.field, PendingField.planName);
-    expect(draft(s), contains('4.378,00'));
+    expect(draft(s), matches(RegExp(r'4.?378')));
     // Another operation with its own amount is another subject too.
     final expense = await s.say('he gastado 20 euros en gasolina con la de ahorro', calc, now) as AssistantPreview;
     expect(expense.note, contains('Dejo aparte'));

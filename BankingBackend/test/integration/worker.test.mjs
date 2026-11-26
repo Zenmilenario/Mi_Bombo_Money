@@ -501,3 +501,42 @@ test('production refuses sandbox, lookalike hosts, HTTP, credentials and alterna
     assert.equal((await db.prepare('SELECT count(*) AS n FROM auth_requests').first()).n, 0, 'Rejected destinations leave no pending flow');
   }
 });
+
+test('the sealed envelope of Don Bigotes works inside the Workers runtime (X25519, HKDF and AES-GCM in workerd)', async () => {
+  const pair = await crypto.subtle.generateKey({ name: 'X25519' }, true, ['deriveBits']);
+  const jwk = await crypto.subtle.exportKey('jwk', pair.privateKey);
+  const publicRaw = new Uint8Array(await crypto.subtle.exportKey('raw', pair.publicKey));
+  // The app's side, as in doblon_android/lib/assistant_crypto.dart.
+  const own = await crypto.subtle.generateKey({ name: 'X25519' }, true, ['deriveBits']);
+  const epk = new Uint8Array(await crypto.subtle.exportKey('raw', own.publicKey));
+  const shared = await crypto.subtle.deriveBits({ name: 'X25519', public: await crypto.subtle.importKey('raw', publicRaw, { name: 'X25519' }, false, []) },
+    own.privateKey, 256);
+  const info = new TextEncoder().encode('doblon-assistant-v1');
+  const key = await crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: epk, info }, await crypto.subtle.importKey('raw', shared, 'HKDF', false, ['deriveKey']),
+    { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  const nonce = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce, additionalData: new TextEncoder().encode('request') }, key,
+    new TextEncoder().encode(JSON.stringify({ sentence: 'apunta [N1]', today: '2026-11-26' })));
+  const b64 = bytes => Buffer.from(bytes).toString('base64');
+  const probe = new Miniflare(convertV4MiniflareOptions({
+    sendMetrics: false,
+    modules: [
+      { type: 'ESModule', path: fileURLToPath(new URL('../../src/probe.mjs', import.meta.url)), contents: `import { openSealed, seal } from './assistant.mjs';
+export default { async fetch(request) { const { sealed, jwk } = await request.json(); const { context, key } = await openSealed(sealed, jwk);
+  return Response.json({ context, answer: await seal({ ok: true }, key) }); } };` },
+      ...['assistant', 'security', 'store'].map(name => ({ type: 'ESModule', path: fileURLToPath(new URL(`../../src/${name}.mjs`, import.meta.url)) })),
+    ],
+    compatibilityDate: '2026-10-12', compatibilityFlags: ['nodejs_compat'],
+  }));
+  try {
+    const response = await probe.dispatchFetch('https://probe.test/', { method: 'POST', body: JSON.stringify({ sealed: { epk: b64(epk), nonce: b64(nonce), data: b64(data) }, jwk }) });
+    assert.equal(response.status, 200, await response.clone().text());
+    const { context, answer } = await response.json();
+    assert.deepEqual(context, { sentence: 'apunta [N1]', today: '2026-11-26' });
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: Buffer.from(answer.nonce, 'base64'), additionalData: new TextEncoder().encode('response') }, key,
+      Buffer.from(answer.data, 'base64'));
+    assert.deepEqual(JSON.parse(new TextDecoder().decode(plain)), { ok: true });
+  } finally {
+    await probe.dispose();
+  }
+});

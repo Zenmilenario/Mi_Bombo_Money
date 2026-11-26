@@ -10,7 +10,7 @@ import '../auto_category.dart' show AutoCategoryStore;
 import '../automation.dart' show matchRule;
 import '../bank_activity.dart' show spendableHolds;
 import '../data.dart';
-import '../edits.dart' show categorySupports;
+import '../edits.dart' show categorySupports, rawRecord;
 import '../models.dart';
 import '../finance.dart';
 import '../presentation.dart';
@@ -56,6 +56,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
     },
     remote: widget.remote,
     applyEvidence: (ids) => widget.repository.applyAutoCategories(only: ids),
+    record: (entity, id) => rawRecord(widget.repository.document, entity, id),
   );
   final _input = TextEditingController();
   final _focus = FocusNode();
@@ -176,7 +177,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
   Future<void> _undo(_Entry entry, AssistantPreview preview) async {
     final op = session.undo(preview, widget.repository.finances!, _now);
     if (op == null) {
-      setState(() => _entries.add(_Entry.reply(AssistantMessage('Ya no se puede deshacer desde aquí: hay pagos hechos con esa reserva.'))));
+      setState(() => _entries.add(_Entry.reply(AssistantMessage('Ya no se puede deshacer desde aquí: algo depende de ello (por ejemplo, pagos hechos con esa reserva).'))));
       return;
     }
     await widget.repository.apply(op);
@@ -212,7 +213,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
       PreviewKind.movement => TransactionFormScreen(repository: widget.repository, prefill: preview.draft),
       PreviewKind.instalment => InstallmentsScreen(repository: widget.repository),
       PreviewKind.existing => TransactionDetailScreen(repository: widget.repository, transactionId: preview.targetId!),
-      PreviewKind.categories => null,
+      PreviewKind.categories || PreviewKind.delete || PreviewKind.setting || PreviewKind.batch => null,
     };
     if (page == null) return;
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
@@ -294,10 +295,19 @@ class _AssistantScreenState extends State<AssistantScreen> {
             context,
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               ...note,
-              Text(done ? (entry.undone ? 'Deshecho' : 'Guardado') : 'Esto es lo que voy a guardar:', style: TextStyle(color: hint, fontSize: 12)),
+              Text(
+                  done
+                      ? (entry.undone ? 'Deshecho' : (reply.kind == PreviewKind.delete ? 'Borrado' : 'Guardado'))
+                      : (reply.kind == PreviewKind.delete ? 'Esto es lo que voy a borrar:' : 'Esto es lo que voy a guardar:'),
+                  style: TextStyle(color: hint, fontSize: 12)),
               Text(reply.title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
               const SizedBox(height: 6),
               for (final (label, value) in reply.lines) _line(context, label, value),
+              for (final part in reply.parts) ...[
+                const SizedBox(height: 8),
+                Text(part.title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                for (final (label, value) in part.lines) _line(context, label, value),
+              ],
               if (reply.calendar.isNotEmpty)
                 ExpansionTile(
                   tilePadding: EdgeInsets.zero,
@@ -328,7 +338,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
               else if (!done)
                 Wrap(spacing: 8, runSpacing: 8, children: [
                   FilledButton(onPressed: entry.busy ? null : () => _confirm(entry, reply), child: const Text('Confirmar')),
-                  if (reply.kind != PreviewKind.categories)
+                  if (reply.kind != PreviewKind.categories && reply.kind != PreviewKind.batch && reply.kind != PreviewKind.setting && reply.kind != PreviewKind.delete)
                     OutlinedButton(onPressed: entry.busy ? null : () => _correct(entry, reply), child: const Text('Corregir')),
                   TextButton(onPressed: entry.busy ? null : () => _cancel(entry, reply), child: const Text('Cancelar')),
                 ])
@@ -560,13 +570,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
                       const Text('Dime qué quieres apuntar o consultar. Antes de guardar nada te enseño lo que voy a hacer.'),
                       const SizedBox(height: 6),
                       Text(
-                          '«He gastado 44,53 en la gasolinera» · «Reserva 200 € para vacaciones» · «4.378 € en 12 meses» · «¿Qué he comprado este mes?» · «¿Cuánto me queda del préstamo?»',
+                          '«Ayer pagué la cena, unos 62, y me devolvieron 20 del cine» · «Pasa 300 a la de ahorro» · «Ponme 200 al mes para restaurantes» · «El segundo era de 15» · «¿Qué tengo sin categoría?»',
                           style: TextStyle(fontSize: 12, color: hint)),
                       const SizedBox(height: 6),
                       Text(
                           widget.remote == null
                               ? 'Lo entiendo en este dispositivo: lo que escribes no sale de él. Para frases más libres, activa el intérprete en Ajustes.'
-                              : 'Con el intérprete activado, la frase y los nombres de tus cuentas, categorías y pagos a plazos se envían a Cloudflare para entenderla; nunca saldos ni movimientos. Nada se guarda sin tu confirmación.',
+                              : 'Escribe como hablas. Para entenderte, tu frase sale cifrada y sin importes ni nombres de tus cuentas, categorías o movimientos (se cambian por marcadores en el móvil). Nada se guarda sin tu confirmación.',
                           style: TextStyle(fontSize: 12, color: hint)),
                     ])),
                 for (final e in _entries)

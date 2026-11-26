@@ -178,10 +178,13 @@ void main() {
       expect(status.planId, 'sofa');
     });
 
-    test('unsupported operations point to their screen and never become an expense', () async {
+    test('a simulation points to its screen; a transfer is prepared between own accounts; neither becomes an expense', () async {
       final calc = FinanceCalculator(data());
       expect((await session().say('¿Cómo quedaría mi disponible si gasto 600 €?', calc, now) as AssistantPointer).kind, IntentKind.simulation);
-      expect((await session().say('Traspasa 100 € a Naranja', calc, now) as AssistantPointer).text, contains('no mueve dinero en el banco'));
+      // A transfer between the person's own accounts is prepared (only recorded, never moved in the bank).
+      final transfer = await session().say('Traspasa 100 € a Naranja', calc, now) as AssistantQuestion;
+      expect(transfer.text, '¿Desde qué cuenta?');
+      expect(transfer.options.map((o) => o.$2), isNot(contains('to:ahorro')));
     });
   });
 

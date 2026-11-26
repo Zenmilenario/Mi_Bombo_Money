@@ -169,8 +169,13 @@ void main() {
     });
 
     test('an action the chat does not have is said, never replaced by another one', () async {
-      final reply = await session().say('borra los movimientos de ayer', calc, now) as AssistantMessage;
-      expect(reply.text, startsWith('Eso no puedo hacerlo desde el chat'));
+      // Without the interpreter, deleting is not understood: said, with where to do it.
+      final rules = await session().say('borra los movimientos de ayer', calc, now) as AssistantMessage;
+      expect(rules.text, startsWith('Sin el intérprete no puedo borrar'));
+      // With it, what the app does not have at all (moving real money) is said and never turned into something else.
+      final model = FakeModel([said({'kind': 'unsupported', 'purpose': 'enviar dinero a otra persona'})]);
+      final reply = await session(model: model).say('mándale 50 pavos a mi hermano por el banco', calc, now) as AssistantMessage;
+      expect(reply.text, startsWith('Eso no puedo hacerlo desde el chat («enviar dinero a otra persona»)'));
     });
   });
 
@@ -230,12 +235,13 @@ void main() {
       expect(shown(two), ['sin-12', 'generico']);
     });
 
-    test('with the interpreter: its number, and the number said if it drops it; a list step is not repeated', () async {
+    test('with the interpreter: its number (a marker resolved here); a list step of the same movements is not repeated', () async {
       final model = FakeModel([
-        said({'kind': 'categorize', 'uncategorized': true, 'limit': 3}),
+        said({'kind': 'categorize', 'uncategorized': true, 'limit': 'N1'}),
         said({
           'kind': 'listMovements',
           'uncategorized': true,
+          'limit': 2,
           'also': [
             {'kind': 'categorize', 'uncategorized': true}
           ]
@@ -243,8 +249,9 @@ void main() {
       ]);
       final s = session(model: model, over: many());
       expect(shown(await s.say('los 3 más nuevos sin categoría, clasifícalos', busy, now)), ['sin-12', 'generico', 'sin-11']);
+      expect(model.received.first['sentence'], 'los [N1] más nuevos sin categoría, clasifícalos');
       final combined = await s.say('enséñame los últimos 2 sin categoría y pónselas', busy, now) as AssistantPreview;
-      expect(shown(combined), ['sin-12', 'generico'], reason: 'The model dropped the number; the sentence\'s number is kept');
+      expect(shown(combined), ['sin-12', 'generico']);
       expect(combined.followUps, isEmpty, reason: 'The cards already show them: no second list');
     });
 
@@ -294,13 +301,6 @@ void main() {
       expect(shown(second).toSet(), {'pan', 'generico', 'cine', 'libro'}, reason: 'The correction changed only the type');
     });
 
-    test('an interpreter that reads it as a query does not turn it into a list', () async {
-      final model = FakeModel([said({'kind': 'listMovements', 'scope': 'all'})]);
-      final reply = await session(model: model).say('Tengo movimientos sin categorías puedes ponérselas?', calc, now);
-      expect(reply, isA<AssistantPreview>());
-      expect((reply as AssistantPreview).automatic, ['pan']);
-    });
-
     test('when it fails the rules do the same, and say so', () async {
       final reply = await session(model: FakeModel([])).say('Tengo movimientos sin categorías puedes ponérselas?', calc, now);
       expect(reply, isA<AssistantPreview>());
@@ -320,21 +320,31 @@ void main() {
         }),
       ]);
       final s = session(model: model);
-      final expense = await s.say('apunta 20 € de comida, dime cómo voy y reserva 50 para el viaje', calc, now);
-      expect(expense, isA<AssistantQuestion>(), reason: 'The expense asks its account first');
-      expect((expense.followUps[0] as AssistantResult).title, startsWith('Resumen'));
-      expect((expense.followUps[1] as AssistantMessage).text, startsWith('La reserva que también pediste lo preparo cuando termines'));
+      // The expense is ready (the usual account); the reserve needs its account; the summary is answered meanwhile.
+      final question = await s.say('apunta 20 € de comida, dime cómo voy y reserva 50 para el viaje', calc, now) as AssistantQuestion;
+      expect(question.text, '¿En qué cuenta lo reservo?');
+      expect(question.note!.replaceAll(' ', ' '), 'Ya tengo gasto · 20,00 €; para lo siguiente me falta un dato.');
+      expect((question.followUps.single as AssistantResult).title, startsWith('Resumen'));
       expect(s.hasParked, isFalse, reason: 'The expense was not set aside by its own steps');
+      // Both, confirmed together with one tap.
+      final both = await s.choose('nomina', calc, now) as AssistantPreview;
+      expect(both.kind, PreviewKind.batch);
+      expect(both.parts.map((p) => p.title.replaceAll(' ', ' ')), ['Gasto · 20,00 €', 'Reserva · 50,00 €']);
+      final ops = s.confirm(both, data())!.data['ops'] as List;
+      expect(ops, hasLength(2));
+      expect(s.confirm(both, data()), isNull, reason: 'Never twice');
     });
 
     test('topic changes keep each thing: a draft set aside comes back intact', () async {
       final s = session();
-      await s.say('he gastado 12 € en un café', calc, now);
+      // Fewer questions: the account the person uses for most of their expenses is proposed, said on the card.
+      final first = await s.say('he gastado 12 € en un café', calc, now) as AssistantPreview;
+      expect(first.lines, contains(('Cuenta', 'Nómina ficticia (la que sueles usar)')));
       final aside = await s.say('por cierto, ¿qué tengo sin categoría?', calc, now) as AssistantResult;
       expect(aside.note, startsWith('Dejo aparte el gasto de 12,00'));
       expect(ids(aside), isNot(contains('cafe')));
-      final back = await s.resume(calc, now) as AssistantQuestion;
-      expect(back.text, contains('cuenta'), reason: 'The expense comes back with its amount, asking what was missing');
+      final back = await s.resume(calc, now) as AssistantPreview;
+      expect(back.draft!.amountMinor, 1200, reason: 'The expense comes back intact');
     });
   });
 

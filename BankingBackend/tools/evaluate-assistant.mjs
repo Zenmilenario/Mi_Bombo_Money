@@ -1,8 +1,10 @@
 // Evaluates Don Bigotes' interpreter with fictitious conversations (26 November 2026): the repository's prompt,
-// schema and validation, run on Workers AI. It checks the capability chosen and its arguments, not how it sounds.
-// Uses the free daily allocation (about 80 neurons a request, 24 requests). Nothing is stored.
+// schema and validation, run on Workers AI. The sentences are written as the app sends them (masked: amounts and the
+// person's names are markers). It checks the capability chosen and its arguments, not how the answer sounds. Varied on
+// purpose: long stories, colloquial and misspelled sentences, corrections, several things at once, new capabilities.
+// Uses the free daily allocation (about 100 neurons a request, 24 requests). Nothing is stored.
 //
-//   $env:CLOUDFLARE_ACCOUNT_ID = '...'; $env:CLOUDFLARE_API_TOKEN = '...'   # a token with Workers AI read/run
+//   $env:CLOUDFLARE_ACCOUNT_ID = '...'; $env:CLOUDFLARE_API_TOKEN = '...'   # a token with Workers AI permission
 //   node tools/evaluate-assistant.mjs [model]
 import { messages, INTENT_SCHEMA, validateIntent, MODEL } from '../src/assistant.mjs';
 
@@ -18,7 +20,7 @@ async function interpret(context) {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
     signal: AbortSignal.timeout(60000),
-    body: JSON.stringify({ messages: messages(context), response_format: { type: 'json_schema', json_schema: INTENT_SCHEMA }, max_tokens: 256, temperature: 0 })
+    body: JSON.stringify({ messages: messages(context), response_format: { type: 'json_schema', json_schema: INTENT_SCHEMA }, max_tokens: 400, temperature: 0 })
   });
   const body = await res.json();
   const raw = body.result?.response ?? body.result;
@@ -27,35 +29,41 @@ async function interpret(context) {
 
 const base = {
   today: '2026-11-26',
-  accounts: ['Nómina ficticia', 'Inversión ficticia'],
-  categories: ['Supermercado', 'Restaurantes', 'Ocio', 'Sueldo'],
-  plans: ['Préstamo coche'],
+  accounts: ['CUENTA_1: corriente (nomina)', 'CUENTA_2: ahorro (ahorro)', 'TARJETA_1: tarjeta de CUENTA_1'],
+  plans: ['PLAN_1: préstamo'],
+  goals: ['OBJETIVO_1'],
 };
+const shown = ['MOV_1: gasto de [N1] el 2026-11-25 en CUENTA_1, sin categoría', 'MOV_2: gasto de [N2] el 2026-11-24 en CUENTA_1, categoría CATEGORIA_1'];
 const cases = [
-  ['Tengo movimientos sin categorías puedes ponérselas?', {}, { kind: 'categorize', uncategorized: true }],
-  ['No pero los que no tienen categoría', { lastQuery: 'poner categoría: Movimientos sin categoría de cualquier fecha' }, { kind: 'categorize', uncategorized: true }],
-  ['me ayudas a clasificar lo q esta sin categoria del mes pasado', {}, { kind: 'categorize', uncategorized: true, period: 'lastMonth' }],
-  ['enseñame los gastos sin categorizar', {}, { kind: 'listMovements', scope: 'expenses', uncategorized: true }],
-  ['no, solo los que no tienen categoría', { lastQuery: 'ver: Movimientos este mes' }, { kind: 'listMovements', uncategorized: true, refine: true }],
-  ['y los ingresos?', { lastQuery: 'ver: Gastos sin categoría de cualquier fecha' }, { kind: 'listMovements', scope: 'income', refine: true }],
-  ['borra los movimientos de ayer', {}, { kind: 'unsupported' }],
-  ['enséñame los sin categoría y pónselas', {}, { kind: 'listMovements', uncategorized: true, also: [{ kind: 'categorize' }] }],
-  ['apunta 20 € de comida y dime cómo voy este mes', {}, { kind: 'expense', amountMinor: 2000, also: [{ kind: 'summary' }] }],
-  ['he pagado 44,53 en la gasolinera', {}, { kind: 'expense', amountMinor: 4453 }],
-  ['reserva 200 pa las vacaciones', {}, { kind: 'reserve', amountMinor: 20000 }],
-  ['4.378 € en 12 meses del coche, primera cuota el 5 de diciembre', {}, { kind: 'createPlan', amountMinor: 437800, count: 12, dueDate: '2026-12-05' }],
-  ['cuánto me queda del préstamo coche', {}, { kind: 'planStatus' }],
-  ['el ingreso de 4.378 € es el dinero del préstamo', {}, { kind: 'describeExisting', amountMinor: 437800, role: 'loanReceived' }],
-  ['q he gastado en restaurantes esta semana', {}, { kind: 'listMovements', period: 'thisWeek', categoryText: 'Restaurantes' }],
-  ['con la de nómina', { draft: 'gasto de 20,00 € (Comida) ; pregunta pendiente: ¿Con qué cuenta?' }, { kind: 'correction', accountText: 'Nómina ficticia' }],
-  ['manda 50 euros a mi hermano', {}, { kind: 'unsupported' }],
-  ['categoriza los de inversión ficticia', {}, { kind: 'categorize', accountText: 'Inversión ficticia' }],
-  ['ponles categoría a los gastos de octubre', {}, { kind: 'categorize', scope: 'expenses', from: '2026-10-01', to: '2026-10-31' }],
-  ['organiza un poco lo que me falta por clasificar', {}, { kind: 'categorize', uncategorized: true }],
-  ['clasifícame los 5 más nuevos que siguen sin categoría', {}, { kind: 'categorize', uncategorized: true, limit: 5 }],
-  ['no, solo dos', { lastQuery: 'poner categoría: Movimientos sin categoría de cualquier fecha (los 5 más recientes)' }, { kind: 'categorize', refine: true, limit: 2 }],
-  ['enséñame el último gasto sin categoría', {}, { kind: 'listMovements', scope: 'expenses', uncategorized: true, limit: 1 }],
-  ['categoriza los de nómina ficticia anteriores a octubre', {}, { kind: 'categorize', accountText: 'Nómina ficticia', to: '2026-09-30' }],
+  // Stories and colloquial sentences
+  ['Ayer pagué la cena, unos [N1], y me devolvieron [N2] de la entrada del cine', {}, { kind: 'expense', amount: 'N1', also: [{ kind: 'income' }] }],
+  ['buah vaya día, fui a echar gasolina que estaba carísima, [N1] me costó llenar el depósito con la [CUENTA_1]', {}, { kind: 'expense', amount: 'N1', account: 'CUENTA_1' }],
+  ['éramos [N1] y al final pagué yo toda la cena, [N2] en total', {}, { kind: 'expense', amount: 'N2' }],
+  ['oye q me e dejado [N1] pavos en el super esta mañana', {}, { kind: 'expense', amount: 'N1' }],
+  ['me acaban de ingresar la nómina, [N1]', {}, { kind: 'income', amount: 'N1' }],
+  ['quiero guardar [N1] para las vacaciones, en la de ahorro', {}, { kind: 'reserve', amount: 'N1', account: 'CUENTA_2' }],
+  // Answers and corrections with something open
+  ['con la de nómina', { draft: 'el gasto de [N1] € (Cena) ; pregunta pendiente: ¿Con qué cuenta o tarjeta?' }, { kind: 'correction', account: 'CUENTA_1' }],
+  ['uy no, fueron [N2]', { draft: 'el gasto de [N1] € (Cena) ; enseñado para confirmar' }, { kind: 'correction', amount: 'N2' }],
+  ['el 5 de cada mes', { draft: 'Préstamo de [N1] € en total en [N2] cuotas ; pregunta pendiente: ¿Qué día del mes se paga cada cuota?' }, { kind: 'correction', dueDay: 5 }],
+  ['déjalo, no lo apuntes', { draft: 'el gasto de [N1] € ; enseñado para confirmar' }, { kind: 'cancel' }],
+  ['gracias crack', {}, { kind: 'courtesy' }],
+  // Existing movements: what is on screen and by amount
+  ['el segundo era de [N3], no de [N2]', { shown }, { kind: 'editMovement', target: 'MOV_2', amount: 'N3' }],
+  ['el primero ponlo en [CATEGORIA_2]', { shown }, { kind: 'editMovement', target: 'MOV_1' }],
+  ['borra el de [N1] de ayer, que está repetido', {}, { kind: 'deleteMovement', findAmount: 'N1', findDate: '2026-11-25' }],
+  ['el ingreso de [N1] es el dinero del préstamo', {}, { kind: 'describeExisting', role: 'loanReceived' }],
+  // Selections
+  ['clasifícame los [N1] más recientes que siguen sin categoría', {}, { kind: 'categorize', uncategorized: true, limit: 'N1' }],
+  ['no, solo [N2]', { lastQuery: 'poner categoría: Movimientos sin categoría de cualquier fecha (los 4 más recientes)' }, { kind: 'categorize', refine: true, limit: 'N2' }],
+  ['y los ingresos?', { lastQuery: 'ver: Gastos este mes' }, { kind: 'listMovements', refine: true, scope: 'income' }],
+  // The new capabilities
+  ['pasa [N1] de la nómina a la de ahorro', {}, { kind: 'transfer', amount: 'N1', account: 'CUENTA_1', toAccount: 'CUENTA_2' }],
+  ['ponme un tope de [N1] al mes en [CATEGORIA_1]', {}, { kind: 'setBudget', amount: 'N1', category: 'CATEGORIA_1' }],
+  ['quiero juntar [N1] para irme a Japón el verano que viene', {}, { kind: 'createGoal', amount: 'N1' }],
+  ['he apartado [N1] para lo del viaje', {}, { kind: 'addToGoal', amount: 'N1', goal: 'OBJETIVO_1' }],
+  ['siempre que salga Mercadona mételo en súper', {}, { kind: 'createRule' }],
+  ['mándale [N1] a mi hermano por el banco', {}, { kind: 'unsupported' }],
 ];
 
 function check(got, want) {
@@ -80,5 +88,5 @@ for (const [sentence, extra, want] of cases) {
   console.log(`${misses.length ? 'FALLA' : 'ok   '} ${out.ms}ms «${sentence}» → ${JSON.stringify(out.intent)}${misses.length ? '  · ' + misses.join(', ') : ''}`);
 }
 times.sort((a, b) => a - b);
-console.log(`\n${ok}/${total} correctas · mediana ${times[Math.floor(times.length / 2)]} ms · máx ${times.at(-1)} ms`);
+console.log(`\n${model}: ${ok}/${total} correctas · mediana ${times[Math.floor(times.length / 2)]} ms · máx ${times.at(-1)} ms`);
 process.exitCode = ok === total ? 0 : 1;

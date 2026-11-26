@@ -120,16 +120,44 @@ Después de validar la demostración:
 4. Cambia solo `PROVIDER_MODE` a `sandbox`, vuelve a desplegar y actualiza las conexiones en la app. Se consulta el catálogo sandbox para ES y particulares y se muestran BBVA, Banco de Sabadell y Mock ASPSP únicamente cuando estén disponibles en ese entorno. Si el catálogo de pruebas no los ofrece, se mostrará vacío: no se inventa cobertura. El despliegue personal de este repositorio ya está configurado; no repitas la generación de claves.
 5. Usa exclusivamente las identidades de prueba que facilite el sandbox. Una conexión sandbox no comprueba que funcione tu cuenta real. Las conexiones demo no aparecen en sandbox y sus datos no pueden descifrarse cambiando de modo; se eliminan al caducar.
 
-## Intérprete de Don Bigotes (fase 2, 25/11/2026)
+## Intérprete de Don Bigotes (25/11/2026; rehecho el 26/11/2026)
 
-`POST /v1/assistant/interpret` (`src/assistant.mjs`) convierte una frase en una intención cerrada con Cloudflare Workers AI (binding `AI`, modelo `@cf/meta/llama-3.3-70b-instruct-fp8-fast`, plan gratuito):
+`POST /v1/assistant/interpret` (`src/assistant.mjs`) convierte lo que una persona escribe, como lo diría, en llamadas a las capacidades de Doblón. Usa Cloudflare Workers AI (binding `AI`, modelo `@cf/meta/llama-3.3-70b-instruct-fp8-fast`) dentro del cupo gratuito.
+
 - **Acceso:** exige la misma sesión de Supabase que el resto de rutas (propietario o invitados).
-- **Límites:** 40 peticiones al día por persona y 110 para todo el servidor, por debajo de las 10.000 neuronas gratuitas diarias; la respuesta se valida contra un esquema cerrado.
-- **Qué recibe:** la frase y un contexto mínimo (nombres de cuentas, categorías y pagos a plazos, la última consulta y el borrador en palabras).
-- **Qué no hace:** no lee ni escribe finanzas, no llama a ningún banco, no guarda ni registra la frase y no usa AI Gateway.
-- **Configuración:** el binding se declara en la configuración personal (`tools/setup-personal.mjs`).
+- **Límites:** 40 peticiones al día por persona y 110 para todo el servidor, por debajo de las 10.000 neuronas gratuitas diarias. La respuesta se valida contra un esquema cerrado.
+- **Privacidad (decidido el 26/11):** no llega nada sensible.
+  - La app cambia en el teléfono los importes (también los escritos en palabras), los nombres de cuentas, tarjetas, categorías, pagos a plazos y objetivos, y los movimientos por marcadores: `[N1]`, `[CUENTA_1]`, `[MOV_2]`…
+  - El modelo responde con esos marcadores y la app los traduce dentro del teléfono.
+  - Solo viajan las palabras corrientes de la frase, la fecha, el tipo de cada cuenta (y sus palabras genéricas, como «nómina») y los últimos turnos, también enmascarados.
+- **Sobre cifrado:** además de HTTPS, la app sella la petición para este Worker (X25519 efímera, HKDF-SHA256 y AES-256-GCM) y la respuesta vuelve sellada.
+  - Con el secreto `ASSISTANT_KEY` configurado, se rechaza cualquier petición sin sellar (`sealed_required`).
+  - La clave pública está en `doblon_android/lib/assistant_crypto.dart`.
+  - `tools/assistant-key.mjs` crea el par de claves: guarda la privada en `.personal/assistant-key.json` (fuera de Git) y solo imprime la pública.
+- **Capacidades:**
+  - apuntar gastos, ingresos y reservas;
+  - traspasos entre cuentas propias (solo se apuntan);
+  - ver movimientos, resumen y categorizar;
+  - decir qué es un movimiento, editarlo o borrarlo;
+  - presupuestos, objetivos y aportaciones a objetivos;
+  - reglas de categoría;
+  - pagos a plazos y sus cuotas;
+  - corrección, cancelación y cortesía;
+  - «no disponible».
+
+  Un relato con varias cosas trae hasta dos pasos más (`also`).
+- **Qué no hace:** no lee ni escribe finanzas, no llama a ningún banco, no guarda ni registra lo recibido y no usa AI Gateway.
 - **Respaldo:** sin el binding, la ruta responde `assistant_disabled` y la app sigue con sus reglas.
-- **Pruebas:** `test/assistant.test.mjs`, con un modelo falso.
+- **Pruebas:**
+  - `test/assistant.test.mjs`, con un modelo falso;
+  - en `test/integration/worker.test.mjs`, el sobre dentro de `workerd`;
+  - `doblon_android/test/assistant_envelope_test.dart`, el sobre entre la app y este código.
+- **Evaluación del modelo:** `npm run evaluate-assistant`, 24 conversaciones ficticias enmascaradas. Requiere `CLOUDFLARE_ACCOUNT_ID` y `CLOUDFLARE_API_TOKEN` de la persona.
+- **Despliegue, con confirmación:** primero el secreto, después el código.
+  ```
+  npx wrangler secret put ASSISTANT_KEY --config .personal/wrangler.jsonc < .personal/assistant-key.json
+  npx wrangler deploy --config .personal/wrangler.jsonc
+  ```
 
 ## Seguridad y límites
 

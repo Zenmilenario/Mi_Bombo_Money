@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../banking.dart' show referenceSeconds;
+import '../budget_edit.dart';
 import '../data.dart';
 import '../edits.dart';
 import '../finance.dart';
@@ -14,8 +15,6 @@ import 'chrome.dart' show tabListPadding;
 import 'widgets.dart';
 import 'navigation.dart';
 
-/// A month as the cloud stores it: the first day at noon UTC.
-num monthSeconds(DateTime month) => referenceSeconds(DateTime.utc(month.year, month.month, 1, 12));
 
 /// Presupuestos: the chosen month, what carries over, spending without budget, and the savings goals.
 class BudgetsScreen extends StatelessWidget {
@@ -450,49 +449,17 @@ class _BudgetEditorScreenState extends State<BudgetEditorScreen> {
   Future<void> _save() async {
     final amount = amountFrom(_amount);
     if (amount == null || amount < 0) return setState(() => _message = 'Escribe el límite del mes.');
-    final now = referenceSeconds(DateTime.now());
-    final ops = <Operation>[];
-    if (_everyMonth) {
-      if (monthOverride != null) ops.add(removeOperation('budgets', monthOverride!.id));
-      final current = plan;
-      if (current != null && monthKey(current.startMonth) == key) {
-        ops.add(upsertOperation('recurringBudgets', {'id': current.id, 'baseLimitMinor': amount, 'remainderChoiceRaw': _remainder.name, 'updatedAt': now},
-            create: false));
-      } else {
-        if (current != null) {
-          ops.add(upsertOperation('recurringBudgets', {'id': current.id, 'endMonth': monthSeconds(widget.month), 'updatedAt': now}, create: false));
-        }
-        ops.add(upsertOperation(
-            'recurringBudgets',
-            {
-              'id': widget.repository.newId(),
-              'startMonth': monthSeconds(widget.month),
-              'endMonth': null,
-              'baseLimitMinor': amount,
-              'remainderChoiceRaw': _remainder.name,
-              'createdAt': now,
-              'updatedAt': now,
-              'categoryID': widget.category.id,
-            },
-            create: true));
-      }
-    } else {
-      ops.add(monthOverride != null
-          ? upsertOperation('budgets', {'id': monthOverride!.id, 'limitMinor': amount, 'updatedAt': now}, create: false)
-          : upsertOperation(
-              'budgets',
-              {
-                'id': widget.repository.newId(),
-                'monthStart': monthSeconds(widget.month),
-                'limitMinor': amount,
-                'notes': '',
-                'createdAt': now,
-                'updatedAt': now,
-                'categoryID': widget.category.id,
-              },
-              create: true));
-    }
-    await widget.repository.apply(batchOperation(ops));
+    final planned = budgetOperations(
+      data: data,
+      category: widget.category,
+      month: widget.month,
+      amountMinor: amount,
+      everyMonth: _everyMonth,
+      remainder: _remainder,
+      newId: widget.repository.newId,
+      now: DateTime.now(),
+    );
+    await widget.repository.apply(planned.operation);
     if (mounted) closeOwnScreen(context);
   }
 
