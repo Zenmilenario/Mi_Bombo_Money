@@ -12,14 +12,18 @@ import { Fault, json, limitedBytes } from './security.mjs';
 import { ownerTag } from './store.mjs';
 
 export const MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
-/// Requests a day: per person (decided on 25/11) and for the whole server, below the free 10,000 neurons a day.
+/// Requests a day per person (decided on 25/11), and calls to the model a day for the whole server: each sentence
+/// takes two or more calls (27/11), about 70 neurons each, so 130 calls stay below the free 10,000 neurons a day.
 export const PERSON_DAILY = 40;
-export const SERVER_DAILY = 110;
+export const SERVER_DAILY = 130;
 
 const KINDS = ['expense', 'income', 'reserve', 'transfer', 'listMovements', 'summary', 'categorize', 'describeExisting', 'editMovement',
   'deleteMovement', 'setBudget', 'createGoal', 'addToGoal', 'createRule', 'createPlan', 'payInstalment', 'planStatus', 'simulation', 'correction',
   'cancel', 'courtesy', 'unsupported', 'unknown'];
 const ROLES = ['loanReceived', 'loanUse', 'instalment', 'category'];
+/// What may come together in one sentence (a story): new records and queries. Anything else is one thing at a time.
+const RECORDS = ['expense', 'income', 'transfer', 'reserve'];
+const COMBINES = [...RECORDS, 'listMovements', 'summary', 'categorize'];
 const PERIODS = ['today', 'yesterday', 'thisWeek', 'thisMonth', 'lastMonth', 'thisYear'];
 const SCOPES = ['expenses', 'income', 'all'];
 const PLAN_KINDS = ['purchase', 'loan', 'other'];
@@ -164,11 +168,19 @@ export function validateIntent(value, nested = false) {
   if (ROLES.includes(value.role)) out.role = value.role;
   for (const key of ['account', 'toAccount', 'plan', 'goal', 'target']) set(key, marker(value[key], MARKER));
   for (const key of ['category', 'concept', 'purpose']) set(key, text(value[key], 80));
-  if (!nested && Array.isArray(value.also)) {
-    // A step that repeats the main action (or another step) is not another thing to do.
-    const seen = [out];
-    const steps = value.also.slice(0, 2).map(step => validateIntent(step, true)).filter(Boolean)
-      .filter(step => !seen.some(other => other.kind === step.kind && other.amount === step.amount) && seen.push(step));
+  if (!nested && Array.isArray(value.also) && COMBINES.includes(out.kind)) {
+    // Only records and queries combine. Another record needs an amount of its own (two operations, two amounts);
+    // a query is not asked twice. A step that repeats the main action is not another thing to do.
+    const used = new Set([out.amount].filter(Boolean));
+    const steps = [];
+    for (const raw of value.also.slice(0, 2)) {
+      const step = validateIntent(raw, true);
+      if (!step || !COMBINES.includes(step.kind)) continue;
+      if (RECORDS.includes(step.kind) && (!step.amount || used.has(step.amount))) continue;
+      if (!RECORDS.includes(step.kind) && (step.kind === out.kind || steps.some(other => other.kind === step.kind))) continue;
+      if (step.amount) used.add(step.amount);
+      steps.push(step);
+    }
     if (steps.length) out.also = steps;
   }
   return out;
@@ -190,6 +202,87 @@ export function readContext(value) {
   const optional = v => { if (v === undefined || v === null) return undefined; const t = text(v, 400); if (!t) throw new Fault(400, 'invalid_request'); return t; };
   return { sentence, today: value.today, accounts: list(value.accounts, 40, 80), plans: list(value.plans, 40, 80), goals: list(value.goals, 40, 80),
     shown: list(value.shown, 12, 200), history: list(value.history, 6, 600), lastQuery: optional(value.lastQuery), draft: optional(value.draft) };
+}
+
+// ------------------------------------------------------------ two steps (27/11/2026)
+// Measured on 27/11 with 24 fictitious conversations: with one large schema the model chose the right action but often
+// left out its data (the amount of a budget or a goal, how many movements) and added conditions nobody said. So it
+// answers in two steps: first only which actions the sentence asks for; then, for each one, only that action's data,
+// with a small schema that requires what the action cannot do without.
+
+/// Step 1: which actions, in order (a story may have up to three).
+export const KIND_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  properties: {
+    kind: { type: 'string', enum: KINDS },
+    also: { type: 'array', maxItems: 2, items: { type: 'object', additionalProperties: false, required: ['kind'], properties: { kind: { type: 'string', enum: KINDS } } } }
+  }
+};
+
+const SELECTION = ['scope', 'uncategorized', 'period', 'from', 'to', 'account', 'category', 'limit', 'refine', 'clearCategory', 'clearAccount'];
+const MOVEMENT = ['amount', 'date', 'account', 'category', 'concept'];
+/// Step 2: the data each action may carry, and what it cannot do without.
+const FIELDS = {
+  expense: MOVEMENT, income: MOVEMENT,
+  reserve: ['amount', 'purpose', 'account'],
+  transfer: ['amount', 'account', 'toAccount', 'date', 'concept'],
+  listMovements: SELECTION, summary: SELECTION, categorize: SELECTION,
+  describeExisting: ['target', 'findAmount', 'findDate', 'role', 'category'],
+  editMovement: ['target', 'findAmount', 'findDate', 'amount', 'date', 'account', 'category', 'clearCategory', 'concept'],
+  deleteMovement: ['target', 'findAmount', 'findDate'],
+  setBudget: ['category', 'amount', 'recurring'],
+  createGoal: ['purpose', 'amount', 'date', 'account'],
+  addToGoal: ['goal', 'amount'],
+  createRule: ['concept', 'category', 'scope'],
+  createPlan: ['amount', 'perInstalment', 'count', 'dueDate', 'dueDay', 'planKind', 'purpose', 'recorded', 'account'],
+  payInstalment: ['plan', 'instalmentNumber', 'amount'],
+  planStatus: ['plan'],
+  simulation: ['amount'],
+  unsupported: ['purpose'],
+  correction: Object.keys(STEP_PROPERTIES).filter(k => k !== 'kind')
+};
+const REQUIRED = {
+  expense: ['amount'], income: ['amount'], reserve: ['amount'], transfer: ['amount'], setBudget: ['category', 'amount'],
+  createGoal: ['purpose', 'amount'], addToGoal: ['amount'], createRule: ['concept', 'category'], describeExisting: ['role']
+};
+
+export function stepSchema(kind) {
+  const fields = FIELDS[kind] ?? [];
+  return { type: 'object', additionalProperties: false, required: REQUIRED[kind] ?? [], properties: Object.fromEntries(fields.map(f => [f, STEP_PROPERTIES[f]])) };
+}
+
+function parsed(raw) {
+  if (typeof raw === 'string') { try { return JSON.parse(raw); } catch { return null; } }
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null;
+}
+
+/// The two steps with any model call ([run] receives the messages, the schema and the maximum tokens). Returns the
+/// validated intent, or null when the first step is not a known action.
+export async function interpretInTwoSteps(run, context) {
+  const first = parsed(await run([...messages(context), {
+    role: 'user',
+    content: 'Primer paso: decide solo qué acciones pide la frase. also casi siempre va vacío: úsalo solo si la frase cuenta otra operación distinta '
+      + 'con su propio importe (otro gasto, ingreso, traspaso o reserva) o pide además una consulta. Nunca repitas la acción ni añadas una que no pida.'
+  }], KIND_SCHEMA, 60));
+  if (!first || !KINDS.includes(first.kind)) return null;
+  // Only what can come together is asked for its data (fewer calls); the amounts are checked when validating.
+  const extra = COMBINES.includes(first.kind) && Array.isArray(first.also) ? first.also.map(step => step?.kind).filter(k => COMBINES.includes(k)) : [];
+  const kinds = [first.kind, ...extra.filter((k, i) => RECORDS.includes(k) || (k !== first.kind && extra.indexOf(k) === i)).slice(0, 2)];
+  const steps = await Promise.all(kinds.map(async (kind, index) => {
+    if (!(FIELDS[kind]?.length)) return { kind };
+    const which = kinds.length > 1 ? ` La frase pide, en orden: ${kinds.join(', ')}. Ahora solo los datos de la número ${index + 1} (${kind}).` : '';
+    const data = parsed(await run([...messages(context), {
+      role: 'user',
+      content: `Acción decidida: ${kind}.${which} Devuelve solo los datos de esa acción que dice la frase (o el contexto, si es una corrección). No añadas nada que no diga.`
+    }], stepSchema(kind), 220)) ?? {};
+    delete data.kind;
+    delete data.also;
+    return validateIntent({ ...data, kind }, true) ?? { kind };
+  }));
+  const [main, ...rest] = steps;
+  return validateIntent(rest.length ? { ...main, also: rest } : main);
 }
 
 export function messages(context) {
@@ -265,20 +358,18 @@ export async function interpret(request, env, user) {
   }
   const context = readContext(body);
   const remaining = await dailyLimit(env, `assistant:${(await ownerTag(user)).slice(0, 32)}`, PERSON_DAILY);
-  await dailyLimit(env, 'assistant-server', SERVER_DAILY);
-  let result;
-  try {
-    result = await env.AI.run(MODEL, {
-      messages: messages(context),
-      response_format: { type: 'json_schema', json_schema: INTENT_SCHEMA },
-      max_tokens: 400,
-      temperature: 0
-    });
-  } catch {
-    // The free allocation used up, the model busy or the schema not met: the app goes on with its own rules.
-    throw new Fault(503, 'assistant_unavailable');
-  }
-  const intent = validateIntent(result?.response ?? result);
+  // Each call to the model counts for the server's daily total (two or more per sentence).
+  const run = async (input, schema, maxTokens) => {
+    await dailyLimit(env, 'assistant-server', SERVER_DAILY);
+    try {
+      const result = await env.AI.run(MODEL, { messages: input, response_format: { type: 'json_schema', json_schema: schema }, max_tokens: maxTokens, temperature: 0 });
+      return result?.response ?? result;
+    } catch {
+      // The free allocation used up, the model busy or the schema not met: the app goes on with its own rules.
+      throw new Fault(503, 'assistant_unavailable');
+    }
+  };
+  const intent = await interpretInTwoSteps(run, context);
   if (!intent) throw new Fault(502, 'assistant_invalid');
   return json(key ? { sealed: await seal({ intent, remaining }, key) } : { intent, remaining });
 }

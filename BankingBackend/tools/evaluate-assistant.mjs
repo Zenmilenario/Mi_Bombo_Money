@@ -2,13 +2,13 @@
 // schema and validation, run on Workers AI. The sentences are written as the app sends them (masked: amounts and the
 // person's names are markers). It checks the capability chosen and its arguments, not how the answer sounds. Varied on
 // purpose: long stories, colloquial and misspelled sentences, corrections, several things at once, new capabilities.
-// Uses the free daily allocation (about 100 neurons a request, 24 requests). Nothing is stored.
+// Uses the free daily allocation (two or more calls a sentence, about 70 neurons each). Nothing is stored.
 //
 //   .personal/cloudflare-ai.json: {"accountId": "...", "token": "..."} (a token with Workers AI permission; outside Git)
 //   or the variables CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN
 //   node tools/evaluate-assistant.mjs [model]
 import { existsSync, readFileSync } from 'node:fs';
-import { messages, INTENT_SCHEMA, validateIntent, MODEL } from '../src/assistant.mjs';
+import { interpretInTwoSteps, MODEL } from '../src/assistant.mjs';
 
 const model = process.argv[2] ?? MODEL;
 // From the environment, or from .personal/cloudflare-ai.json ({"accountId": "...", "token": "..."}, outside Git).
@@ -25,15 +25,27 @@ if (!accountId || !token) {
 }
 async function interpret(context) {
   const started = Date.now();
-  const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    signal: AbortSignal.timeout(60000),
-    body: JSON.stringify({ messages: messages(context), response_format: { type: 'json_schema', json_schema: INTENT_SCHEMA }, max_tokens: 400, temperature: 0 })
-  });
-  const body = await res.json();
-  const raw = body.result?.response ?? body.result;
-  return { ms: Date.now() - started, intent: body.success ? validateIntent(raw) : null, raw, error: body.success ? null : JSON.stringify(body.errors) };
+  let calls = 0;
+  // The same two steps as the Worker (interpretInTwoSteps), with the REST API instead of the binding.
+  const run = async (input, schema, maxTokens) => {
+    calls++;
+    const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      signal: AbortSignal.timeout(60000),
+      body: JSON.stringify({ messages: input, response_format: { type: 'json_schema', json_schema: schema }, max_tokens: maxTokens, temperature: 0 })
+    });
+    const body = await res.json();
+    if (!body.success) throw new Error(JSON.stringify(body.errors));
+    return body.result?.response ?? body.result;
+  };
+  try {
+    return { ms: Date.now() - started, intent: await interpretInTwoSteps(run, context), calls, finished: Date.now() };
+  } catch (error) {
+    return { ms: Date.now() - started, intent: null, calls, error: String(error.message ?? error) };
+  } finally {
+    // (ms is measured when the answer is complete)
+  }
 }
 
 const base = {
@@ -91,13 +103,16 @@ function check(got, want) {
   return misses;
 }
 
-let ok = 0, total = 0;
+let ok = 0, total = 0, calls = 0;
 const times = [];
 for (const [sentence, extra, want] of cases) {
   total++;
+  const begin = Date.now();
   const out = await interpret({ sentence, ...base, ...extra });
+  out.ms = Date.now() - begin;
+  calls += out.calls;
   times.push(out.ms);
-  const misses = out.intent ? check(out.intent, want) : ['sin respuesta válida: ' + (out.error ?? JSON.stringify(out.raw))];
+  const misses = out.intent ? check(out.intent, want) : ['sin respuesta válida: ' + (out.error ?? 'acción desconocida')];
   if (!misses.length) ok++;
   console.log(`${misses.length ? 'FALLA' : 'ok   '} ${out.ms}ms «${sentence}» → ${JSON.stringify(out.intent)}${misses.length ? '  · ' + misses.join(', ') : ''}`);
 }

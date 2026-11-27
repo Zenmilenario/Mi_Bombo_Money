@@ -125,7 +125,10 @@ Después de validar la demostración:
 `POST /v1/assistant/interpret` (`src/assistant.mjs`) convierte lo que una persona escribe, como lo diría, en llamadas a las capacidades de Doblón. Usa Cloudflare Workers AI (binding `AI`, modelo `@cf/meta/llama-3.3-70b-instruct-fp8-fast`) dentro del cupo gratuito.
 
 - **Acceso:** exige la misma sesión de Supabase que el resto de rutas (propietario o invitados).
-- **Límites:** 40 peticiones al día por persona y 110 para todo el servidor, por debajo de las 10.000 neuronas gratuitas diarias. La respuesta se valida contra un esquema cerrado.
+- **Dos pasos (27/11):** primero el modelo decide solo qué acciones pide la frase y después, para cada una, solo sus datos, con un esquema pequeño que exige lo imprescindible (un presupuesto, su importe y su categoría).
+  - Solo se combinan registros (gasto, ingreso, traspaso, reserva) y consultas; otro registro necesita un importe distinto.
+  - Medido con 24 conversaciones ficticias: 22/24 con la evaluación estricta (antes, 14/24 con un solo paso), mediana de 1,3 s.
+- **Límites:** 40 frases al día por persona y 130 llamadas al modelo al día para todo el servidor (unas 70 neuronas cada una), por debajo de las 10.000 neuronas gratuitas diarias. La respuesta se valida contra un esquema cerrado.
 - **Privacidad (decidido el 26/11):** no llega nada sensible.
   - La app cambia en el teléfono los importes (también los escritos en palabras), los nombres de cuentas, tarjetas, categorías, pagos a plazos y objetivos, y los movimientos por marcadores: `[N1]`, `[CUENTA_1]`, `[MOV_2]`…
   - El modelo responde con esos marcadores y la app los traduce dentro del teléfono.
