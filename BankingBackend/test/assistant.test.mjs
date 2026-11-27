@@ -187,4 +187,9 @@ test('validateIntent keeps only known values: markers, numbers of movements, cap
     validateIntent({ kind: 'expense', amount: 'N1', also: [{ kind: 'income', amount: 'N2' }, { kind: 'hack' }, { kind: 'summary' }] }),
     { kind: 'expense', amount: 'N1', also: [{ kind: 'income', amount: 'N2' }] });
   assert.deepEqual(validateIntent({ kind: 'listMovements', also: [{ kind: 'categorize', also: [{ kind: 'summary' }] }] }), { kind: 'listMovements' });
+  // Repeating the main action is not another thing to do (seen with the real model on 26/11).
+  assert.deepEqual(validateIntent({ kind: 'setBudget', category: 'CATEGORIA_1', amount: 'N1', also: [{ kind: 'setBudget', category: 'CATEGORIA_1', amount: 'N1' }] }),
+    { kind: 'setBudget', amount: 'N1', category: 'CATEGORIA_1' });
+  assert.deepEqual(validateIntent({ kind: 'expense', amount: 'N1', also: [{ kind: 'expense', amount: 'N2' }, { kind: 'expense', amount: 'N2' }] }),
+    { kind: 'expense', amount: 'N1', also: [{ kind: 'expense', amount: 'N2' }] });
 });

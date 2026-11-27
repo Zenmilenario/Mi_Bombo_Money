@@ -4,14 +4,23 @@
 // purpose: long stories, colloquial and misspelled sentences, corrections, several things at once, new capabilities.
 // Uses the free daily allocation (about 100 neurons a request, 24 requests). Nothing is stored.
 //
-//   $env:CLOUDFLARE_ACCOUNT_ID = '...'; $env:CLOUDFLARE_API_TOKEN = '...'   # a token with Workers AI permission
+//   .personal/cloudflare-ai.json: {"accountId": "...", "token": "..."} (a token with Workers AI permission; outside Git)
+//   or the variables CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN
 //   node tools/evaluate-assistant.mjs [model]
+import { existsSync, readFileSync } from 'node:fs';
 import { messages, INTENT_SCHEMA, validateIntent, MODEL } from '../src/assistant.mjs';
 
 const model = process.argv[2] ?? MODEL;
-const accountId = process.env.CLOUDFLARE_ACCOUNT_ID, token = process.env.CLOUDFLARE_API_TOKEN;
+// From the environment, or from .personal/cloudflare-ai.json ({"accountId": "...", "token": "..."}, outside Git).
+// Never printed.
+let saved = {};
+const file = new URL('../.personal/cloudflare-ai.json', import.meta.url);
+if (existsSync(file)) {
+  try { saved = JSON.parse(readFileSync(file, 'utf8')); } catch { console.error('.personal/cloudflare-ai.json no es un JSON válido.'); process.exit(2); }
+}
+const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || saved.accountId, token = process.env.CLOUDFLARE_API_TOKEN || saved.token;
 if (!accountId || !token) {
-  console.error('Faltan CLOUDFLARE_ACCOUNT_ID y CLOUDFLARE_API_TOKEN.');
+  console.error('Faltan el identificador de cuenta y el token (variables de entorno o .personal/cloudflare-ai.json).');
   process.exit(2);
 }
 async function interpret(context) {
@@ -68,6 +77,11 @@ const cases = [
 
 function check(got, want) {
   const misses = [];
+  // Strict: steps or conditions that were not asked count as mistakes.
+  if (!want.also && got?.also?.length) misses.push(`also no pedido (${got.also.map(s => s.kind).join(', ')})`);
+  if (['listMovements', 'categorize', 'summary'].includes(want.kind)) {
+    for (const k of ['account', 'category', 'period']) if (got?.[k] !== undefined && want[k] === undefined) misses.push(`${k} no pedido=${JSON.stringify(got[k])}`);
+  }
   for (const [k, v] of Object.entries(want)) {
     if (k === 'also') {
       const steps = got?.also ?? [];

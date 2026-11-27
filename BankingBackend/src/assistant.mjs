@@ -81,7 +81,7 @@ Privacidad: los importes vienen como marcadores [N1], [N2]…; las cuentas como 
 
 Capacidades (kind) y sus datos:
 - expense / income: apuntar un gasto o ingreso NUEVO que ya ha ocurrido: amount, date, account, category (marcador o palabra), concept (qué fue, corto).
-- reserve: apartar dinero para algo: amount, purpose, account.
+- reserve: apartar dinero de una cuenta para un gasto futuro que NO es un objetivo de la lista goals: amount, purpose, account.
 - transfer: traspaso entre cuentas propias (solo se apunta): amount, account (origen), toAccount (destino), date.
 - listMovements: enseñar movimientos. summary: totales del mes. categorize: poner categoría a movimientos que no la tienen.
   Para las tres: scope (expenses, income, all), uncategorized, period o from/to (solo si se dicen), account, category, limit (cuántos, los más recientes primero).
@@ -89,9 +89,9 @@ Capacidades (kind) y sus datos:
 - describeExisting: qué es un movimiento que ya existe (role: loanReceived, loanUse, instalment, category; y category).
 - editMovement: cambiar un movimiento existente; los datos NUEVOS en amount, date, account, category, concept.
 - deleteMovement: borrar un movimiento existente.
-- setBudget: presupuesto de una categoría: category, amount, recurring (true si es cada mes).
-- createGoal: un objetivo de ahorro: purpose (nombre), amount (meta), date (fecha objetivo), account.
-- addToGoal: apuntar lo ahorrado para un objetivo: goal, amount.
+- setBudget: presupuesto o tope de gasto de una categoría: category y SIEMPRE amount (el límite), recurring (true si es cada mes, false si es solo este mes).
+- createGoal: un objetivo de ahorro nuevo: purpose (nombre corto) y SIEMPRE amount (la meta), date (fecha objetivo) si se dice.
+- addToGoal: dinero apartado para un objetivo que ya está en goals («he metido / apartado [N1] para lo del viaje»): goal y amount.
 - createRule: «siempre que aparezca X, ponlo en Y»: concept (el texto que aparece), category, scope (expenses o income).
 - createPlan: un compromiso a plazos («4.378 € en 12 meses»): amount (total salvo perInstalment), count, dueDate o dueDay, planKind, purpose, recorded. payInstalment: una cuota pagada (plan, instalmentNumber, amount). planStatus: cuánto queda (plan).
 - simulation: «¿y si gasto…?».
@@ -104,7 +104,7 @@ Conversación:
 - history son los últimos turnos; shown son los movimientos que la persona tiene en pantalla («el segundo», «ese», «el de [N3]» se refieren a ellos: usa target).
 - lastQuery es la última petición sobre movimientos: si la frase la corrige o acota («no, solo cuatro», «y los ingresos»), devuelve refine true, el mismo kind y solo lo que cambia.
 - Si hay draft, la frase casi siempre es correction, salvo que pida claramente otra cosa con sus propios datos.
-- Si cuenta varias cosas que apuntar («pagué la cena y me devolvieron lo del cine»), la primera en el objeto principal y las demás en also (máximo dos), cada una con su amount.
+- Si cuenta varias cosas DISTINTAS que apuntar («pagué la cena y me devolvieron lo del cine»), la primera en el objeto principal y las demás en also (máximo dos), cada una con su amount. Si pide una sola cosa, NO uses also; nunca repitas la misma acción en also.
 
 Reglas:
 - Lo primero es la acción que pide: «categorizar», «clasificar», «ponles categoría» es categorize; «ver», «enséñame», «qué he gastado» es listMovements.
@@ -121,7 +121,11 @@ Ejemplos (otras frases, la misma forma de responder):
 «no, quita lo de la categoría» (lastQuery con categoría) → {"kind":"listMovements","refine":true,"clearCategory":true}
 «comí fuera, [N1], y después un taxi de [N2]» → {"kind":"expense","amount":"N1","concept":"Comida","also":[{"kind":"expense","amount":"N2","concept":"Taxi"}]}
 «el segundo es de [CATEGORIA_3]» (con shown) → {"kind":"editMovement","target":"MOV_2","category":"CATEGORIA_3"}
-«vale gracias» → {"kind":"courtesy"}`;
+«vale gracias» → {"kind":"courtesy"}
+«quiero gastar como mucho [N1] en [CATEGORIA_2] cada mes» → {"kind":"setBudget","category":"CATEGORIA_2","amount":"N1","recurring":true}
+«me gustaría ahorrar [N1] para la boda» → {"kind":"createGoal","purpose":"Boda","amount":"N1"}
+«he metido [N1] en lo de la boda» (goals: OBJETIVO_1) → {"kind":"addToGoal","goal":"OBJETIVO_1","amount":"N1"}
+«no, solo [N2]» (lastQuery: poner categoría…) → {"kind":"categorize","refine":true,"limit":"N2"}`;
 
 function text(value, max) {
   return typeof value === 'string' && value.trim() && value.length <= max ? value.trim() : undefined;
@@ -161,7 +165,10 @@ export function validateIntent(value, nested = false) {
   for (const key of ['account', 'toAccount', 'plan', 'goal', 'target']) set(key, marker(value[key], MARKER));
   for (const key of ['category', 'concept', 'purpose']) set(key, text(value[key], 80));
   if (!nested && Array.isArray(value.also)) {
-    const steps = value.also.slice(0, 2).map(step => validateIntent(step, true)).filter(Boolean);
+    // A step that repeats the main action (or another step) is not another thing to do.
+    const seen = [out];
+    const steps = value.also.slice(0, 2).map(step => validateIntent(step, true)).filter(Boolean)
+      .filter(step => !seen.some(other => other.kind === step.kind && other.amount === step.amount) && seen.push(step));
     if (steps.length) out.also = steps;
   }
   return out;
