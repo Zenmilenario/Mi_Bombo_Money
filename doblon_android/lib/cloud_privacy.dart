@@ -35,6 +35,11 @@ class CloudCipher {
       utf8.encode(
           'doblon:e2ee:1:${owner.toLowerCase()}:${workspace.toLowerCase()}:$kind:$revision:$keyId');
 
+  /// The format of a sealed finance document (27/11/2026): 2 says it was written by a client that knows every list of
+  /// the current contract (pagos a plazos included). The server refuses a version 1 save over a version 2 document,
+  /// so an older client can never write a copy that drops what it does not know. Learning documents stay version 1.
+  static const financeVersion = 2;
+
   Future<Map<String, dynamic>> seal(Map<String, dynamic> document, String owner,
       String workspace, String kind, int revision,
       {List<int>? nonce}) async {
@@ -43,7 +48,7 @@ class CloudCipher {
         nonce: nonce,
         aad: _aad(owner, workspace, kind, revision));
     return {
-      'v': 1,
+      'v': kind == 'finance' ? financeVersion : 1,
       'alg': 'A256GCM',
       'key_id': keyId,
       'nonce': base64Encode(box.nonce),
@@ -54,7 +59,7 @@ class CloudCipher {
 
   Future<Map<String, dynamic>> open(Map<String, dynamic> envelope, String owner,
       String workspace, String kind, int revision) async {
-    if (envelope['v'] != 1 ||
+    if (!(envelope['v'] == 1 || (kind == 'finance' && envelope['v'] == financeVersion)) ||
         envelope['alg'] != 'A256GCM' ||
         envelope['key_id'] != keyId ||
         envelope.length != 6) {

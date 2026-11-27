@@ -49,6 +49,8 @@ struct CloudCipher {
     }
     func open(_ envelope: CloudJSON, owner: UUID, workspace: UUID, kind: String, revision: Int64) throws -> CloudJSON {
         let values = envelope.object
+        // A newer format (written by an updated app): not read, and never written over.
+        if let version = values["v"]?.double, version > 1 { throw CloudTransportError.outdated }
         guard values.count == 6, values["v"] == .integer(1), values["alg"]?.string == "A256GCM", values["key_id"]?.string == keyID,
               let nonce = values["nonce"]?.string.flatMap({ Data(base64Encoded: $0) }), nonce.count == 12,
               let tag = values["tag"]?.string.flatMap({ Data(base64Encoded: $0) }), tag.count == 16,

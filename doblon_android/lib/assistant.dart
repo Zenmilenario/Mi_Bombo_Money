@@ -2476,7 +2476,13 @@ class AssistantSession {
       _draft = null;
       return AssistantMessage('Ese pago a plazos no tiene cuenta: complétalo en su pantalla.');
     }
-    final id = d.previewId ??= newId();
+    // The payment's id is the instalment's own: confirming twice or from two devices records it once.
+    final id = d.previewId = installmentPaymentId(plan, state.number);
+    final operation = paymentOperation(plan, state.number, amount, date, now, data);
+    if (operation == null) {
+      _draft = null;
+      return AssistantMessage('La cuota ${state.number} de «${plan.name}» ya tiene un pago apuntado.');
+    }
     final balance = calc.balance(account);
     return d.preview = AssistantPreview(
       id: id,
@@ -2498,7 +2504,7 @@ class AssistantSession {
         if (amount != state.installment.amountMinor)
           'Es distinto de la cuota prevista (${money(state.installment.amountMinor)}): luego podrás ajustar el calendario del plan.'
       ],
-      operation: paymentOperation(plan, state.number, amount, date, now, id),
+      operation: operation,
     );
   }
 
@@ -2670,7 +2676,7 @@ class AssistantSession {
           lines: [('Movimiento', _label(target, data)), ('Plan', plan.name), ('Cuota', '${next.number} de ${plan.count}')],
           effects: ['El cargo queda como el pago de esa cuota; no se crea ningún movimiento nuevo.'],
           warnings: [if (target.amountMinor != next.installment.amountMinor) 'Es distinto de la cuota prevista (${money(next.installment.amountMinor)}).'],
-          operation: linkOperation(plan, next.number, target, now),
+          operation: linkOperation(plan, next.number, target, now, data) ?? batchOperation(const []),
           targetId: target.id,
           undoOperation: restore,
         );

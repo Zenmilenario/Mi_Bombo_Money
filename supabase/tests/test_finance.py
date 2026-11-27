@@ -207,6 +207,36 @@ class CloudStorageTests(unittest.TestCase):
             self.expect_sqlstate('22023', lambda: self.db.execute("SELECT public.finance_encrypted_save(%s,'finance',1,%s)", (WB, Jsonb(bad))))
         self.assertEqual(self.db.execute("SELECT public.finance_encrypted_snapshot('finance')").fetchone()[0]['revision'], 1)
 
+    def test_older_client_cannot_overwrite_a_newer_encrypted_document(self):
+        # 27/11/2026: an older client (envelope v1) rebuilds the document without the lists it does not know (the
+        # instalment plans). Reproduced here: before the migration the server accepted it. Now a v1 save over a v2
+        # document is refused with client_outdated, the stored copy stays, and a current client keeps saving.
+        self.guest(); self.enroll_guest()
+        def save(revision, version):
+            return self.db.execute("SELECT public.finance_encrypted_save(%s,'finance',%s,%s)", (WB, revision, Jsonb(self.envelope() | {'v': version}))).fetchone()[0]
+        self.assertEqual(save(1, 1)['revision'], 2, 'Before any newer client wrote it, a v1 save is still accepted')
+        self.assertEqual(save(2, 2)['revision'], 3, 'A current client writes v2')
+        with self.assertRaises(psycopg.Error) as caught:
+            with self.db.transaction():
+                save(3, 1)
+        self.assertEqual(caught.exception.sqlstate, '22023')
+        self.assertIn('client_outdated', str(caught.exception))
+        stored = self.db.execute("SELECT public.finance_encrypted_snapshot('finance')").fetchone()[0]
+        self.assertEqual((stored['revision'], stored['document']['v']), (3, 2), 'The newer copy is kept as it was')
+        self.assertEqual(save(3, 2)['revision'], 4)
+        # Learning documents have no version 2.
+        self.expect_sqlstate('22023', lambda: self.db.execute("SELECT public.finance_encrypted_save(%s,'learning',1,%s)", (WB, Jsonb(self.envelope() | {'v': 2}))))
+        self.expect_sqlstate('22023', lambda: save(4, 3))
+
+    def test_plaintext_save_without_instalment_plans_is_refused_and_keeps_them(self):
+        # The older iPhone app's plaintext save leaves out installmentPlans: refused (it would mark them deleted).
+        current = self.snapshot()
+        old = {k: v for k, v in current['document'].items() if k != 'installmentPlans'}
+        self.expect_sqlstate('22023', lambda: self.db.execute('SELECT public.finance_save_snapshot(%s,%s,%s)', (WA, current['revision'], Jsonb(old))))
+        after = self.snapshot()
+        self.assertEqual(after['revision'], current['revision'])
+        self.assertEqual(len(after['document']['installmentPlans']), len(current['document']['installmentPlans']))
+
     def test_anonymous_cannot_access_encryption(self):
         self.as_user(None, 'anon')
         for query in ['SELECT public.finance_privacy_profile()', 'SELECT public.finance_encryption_source()', "SELECT public.finance_encrypted_snapshot('finance')"]:

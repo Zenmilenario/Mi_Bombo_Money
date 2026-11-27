@@ -416,21 +416,30 @@ class InstallmentDetailScreen extends StatelessWidget {
             subtitle: Text('${_day.format(s.installment.dueDate)} · ${money(s.installment.amountMinor)} · ${s.status.title}'),
           ),
           if (s.status == InstallmentStatus.paid) ...[
-            ListTile(
-              leading: const Icon(Icons.receipt_long_outlined),
-              title: Text('Pagada ${_day.format(s.payment!.date)} · ${money(s.payment!.amountMinor)}'),
-              subtitle: Text(s.payment!.bankEntryKey != null ? 'Cargo del banco' : 'Apuntada a mano'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.undo),
-              title: const Text('Deshacer el pago'),
-              subtitle: Text(
-                  s.payment!.bankEntryKey != null ? 'El cargo del banco se conserva, solo deja de ser esta cuota.' : 'Se borra el movimiento apuntado a mano.'),
-              onTap: () async {
-                Navigator.pop(sheet);
-                await repository.apply(undoPaymentOperation(s.payment!, DateTime.now()));
-              },
-            ),
+            if (s.paidTwice)
+              ListTile(
+                leading: Icon(Icons.warning_amber_rounded, color: Pulso.of(context).warning),
+                title: Text('Tiene ${s.payments.length} pagos'),
+                subtitle: const Text('Cuentan todos en tu saldo. Deshaz el que sobre; nada se borra solo.'),
+              ),
+            // Each payment linked to it, with its own undo (normally one).
+            for (final payment in s.payments) ...[
+              ListTile(
+                leading: const Icon(Icons.receipt_long_outlined),
+                title: Text('Pagada ${_day.format(payment.date)} · ${money(payment.amountMinor)}'),
+                subtitle: Text(payment.bankEntryKey != null ? 'Cargo del banco' : 'Apuntada a mano'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.undo),
+                title: Text(s.paidTwice ? 'Deshacer este pago' : 'Deshacer el pago'),
+                subtitle: Text(
+                    payment.bankEntryKey != null ? 'El cargo del banco se conserva, solo deja de ser esta cuota.' : 'Se borra el movimiento apuntado a mano.'),
+                onTap: () async {
+                  Navigator.pop(sheet);
+                  await repository.apply(undoPaymentOperation(payment, DateTime.now()));
+                },
+              ),
+            ],
           ],
           if (s.isOpen) ...[
             for (final (_, t) in mine)
@@ -441,7 +450,8 @@ class InstallmentDetailScreen extends StatelessWidget {
                 trailing: const Icon(Icons.link),
                 onTap: () async {
                   Navigator.pop(sheet);
-                  await repository.apply(linkOperation(plan, s.number, t, DateTime.now()));
+                  final op = linkOperation(plan, s.number, t, DateTime.now(), repository.finances!);
+                  if (op != null) await repository.apply(op);
                 },
               ),
             ListTile(
@@ -573,7 +583,12 @@ class InstallmentDetailScreen extends StatelessWidget {
                         title: Text('¿El cargo de ${money(t.amountMinor)} del ${_day.format(t.date)} es la cuota ${s.number}?'),
                         subtitle: Text(t.descriptionText),
                         trailing:
-                            TextButton(onPressed: () => repository.apply(linkOperation(plan, s.number, t, DateTime.now())), child: const Text('Sí, es esta')),
+                            TextButton(
+                                onPressed: () async {
+                                  final op = linkOperation(plan, s.number, t, DateTime.now(), repository.finances!);
+                                  if (op != null) await repository.apply(op);
+                                },
+                                child: const Text('Sí, es esta')),
                       ),
                     ),
                   const SectionTitle('Cómo cuenta'),
@@ -661,7 +676,12 @@ class _PaymentFormState extends State<_PaymentForm> {
                   if (amount == null || amount <= 0) return setState(() => _message = 'Escribe el importe pagado.');
                   setState(() => _saving = true);
                   try {
-                    await widget.repository.apply(paymentOperation(widget.plan, widget.state.number, amount, _date, DateTime.now(), widget.repository.newId()));
+                    final op = paymentOperation(widget.plan, widget.state.number, amount, _date, DateTime.now(), widget.repository.finances!);
+                    if (op == null) {
+                      setState(() => _message = 'Esta cuota ya tiene un pago apuntado: no se apunta dos veces.');
+                      return;
+                    }
+                    await widget.repository.apply(op);
                     if (mounted) closeOwnScreen(this.context);
                   } catch (error) {
                     if (mounted) setState(() => _message = 'No se ha podido guardar: $error');

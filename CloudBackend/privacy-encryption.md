@@ -66,3 +66,12 @@ Para el TFM: conservar el esquema relacional con datos propios o sintéticos per
 - Auditoría externa criptográfica y prueba física: pendientes. No se afirma que este cambio constituya una certificación de seguridad.
 
 Referencias técnicas: [CryptoKit AES.GCM](https://developer.apple.com/documentation/cryptokit/aes/gcm), [cryptography para Dart](https://pub.dev/packages/cryptography), [Flutter Secure Storage](https://pub.dev/packages/flutter_secure_storage), [aprendizaje federado con privacidad diferencial](https://www.tensorflow.org/federated/tutorials/federated_learning_with_differential_privacy).
+
+
+## Versión del sobre financiero (27/11/2026)
+
+- Las apps que conocen todas las listas del contrato actual (incluidos los pagos a plazos) sellan el documento `finance` con `v: 2`. Los de aprendizaje siguen en `v: 1`.
+- `finance_encrypted_save` rechaza con `client_outdated` (22023) un guardado cuya versión sea menor que la del documento guardado, así que una app antigua no puede sobrescribir una copia más nueva. Sus cambios se quedan en su dispositivo.
+- La versión no forma parte de los datos autenticados: las apps antiguas no leen un sobre `v: 2` y lo dicen, sin perder nada.
+- Migración: `supabase/migrations/20261127000100_finance_envelope_version.sql`. No cambia ningún dato guardado.
+- Sin cifrar: el guardado sin `installmentPlans` ya se rechaza (`Missing entity array`). La app Swift 0.7.19 muestra en ambos casos un mensaje claro de actualizar.

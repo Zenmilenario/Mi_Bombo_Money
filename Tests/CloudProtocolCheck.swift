@@ -232,5 +232,24 @@ struct CloudProtocolCheck {
             _=try await client.save(session:session,workspace:UUID(),revision:1,document:CloudDocument.empty)
             preconditionFailure("Expected server revision conflict")
         } catch CloudTransportError.conflict { }
+        // 27/11/2026, reproduced: this version rebuilds the document with the lists it knows, so a save would leave out
+        // the instalment plans a newer app keeps. The server refuses it (plaintext: missing list; encrypted: older
+        // envelope over a newer one) and this version says it must be updated, keeping its local changes.
+        let withPlans = CloudJSON.object(["installmentPlans":.array([record(90,"Plan ficticio")]),"accounts":.array([record(1,"Cuenta")])])
+        try check(CloudDocument.normalized(withPlans).object["installmentPlans"] == nil, "Reproduced: the older document drops the plans")
+        try check(CloudTransportError.isOutdated("client_outdated"))
+        try check(CloudTransportError.isOutdated("Missing entity array: installmentPlans"))
+        try check(!CloudTransportError.isOutdated("cloud_revision_conflict"))
+        MockCloudProtocol.handler = { request in
+            if request.url?.path == "/rest/v1/rpc/finance_privacy_profile" {
+                return (200,Data("{\"encryption_required\":false,\"workspace_id\":\"00000000-0000-4000-8000-000000000011\",\"key_check\":null}".utf8))
+            }
+            return (400, Data(#"{"code":"22023","message":"Missing entity array: installmentPlans"}"#.utf8))
+        }
+        do {
+            _=try await client.save(session:session,workspace:UUID(),revision:1,document:CloudDocument.empty)
+            preconditionFailure("Expected an outdated client")
+        } catch CloudTransportError.outdated { }
+        print("Cloud compatibility: an older document without instalment plans is refused with an update message.")
     }
 }

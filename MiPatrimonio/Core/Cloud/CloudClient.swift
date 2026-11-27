@@ -29,7 +29,7 @@ struct CloudSession: Codable, Sendable {
 }
 
 enum CloudTransportError: Error, LocalizedError {
-    case configuration, invalidData, authentication, unavailable, conflict, requestRejected(String)
+    case configuration, invalidData, authentication, unavailable, conflict, outdated, requestRejected(String)
     var errorDescription: String? {
         switch self {
         case .configuration: "La conexión cloud de esta versión no está configurada."
@@ -37,8 +37,18 @@ enum CloudTransportError: Error, LocalizedError {
         case .authentication: "La sesión ha caducado. Vuelve a iniciar sesión; tus cambios locales se conservan."
         case .unavailable: "No se ha podido conectar con la nube. Tus cambios permanecen en este dispositivo."
         case .conflict: "Otro dispositivo ha actualizado los datos. Vuelve a sincronizar para combinar los cambios."
+        // 27/11/2026: the cloud holds data this version does not know (for example, payments in instalments). Saving
+        // would lose it, so the server refuses; nothing is changed locally.
+        case .outdated: "Tu nube tiene datos de una versión más nueva (por ejemplo, pagos a plazos) que esta app no puede guardar sin perderlos. Usa Doblón actualizado; tus cambios de este dispositivo se conservan."
         case .requestRejected(let message): message
         }
+    }
+}
+
+extension CloudTransportError {
+    /// The server's refusals that mean "this app is older than the data": saving would drop what it does not know.
+    static func isOutdated(_ message: String) -> Bool {
+        message.contains("client_outdated") || message.contains("Missing entity array") || message.contains("Invalid snapshot format")
     }
 }
 
@@ -260,6 +270,7 @@ actor CloudClient {
             guard (200..<300).contains(response.statusCode) else {
                 let error = try? JSONDecoder().decode(CloudJSON.self, from: data)
                 if error?.object["code"]?.string == "40001" { throw CloudTransportError.conflict }
+                if let message = error?.object["message"]?.string, CloudTransportError.isOutdated(message) { throw CloudTransportError.outdated }
                 if response.statusCode == 401 || response.statusCode == 403 || (query == "grant_type=refresh_token" && response.statusCode == 400) { throw CloudTransportError.authentication }
                 if path.hasPrefix("/auth/") {
                     if response.statusCode == 429 { throw CloudTransportError.requestRejected("Has realizado varios intentos. Espera un momento antes de repetir.") }

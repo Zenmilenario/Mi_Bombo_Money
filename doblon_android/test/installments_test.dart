@@ -133,7 +133,7 @@ void main() {
     final found = compatibleCharges(progress, d);
     expect(found.single.$1.number, 1);
     expect(found.single.$2.id, 'banco');
-    final linked = linkOperation(p, 1, charge, now);
+    final linked = linkOperation(p, 1, charge, now, d)!;
     expect(linked.data['fields']['externalID'], '${installmentMarker}plan:1');
     // Applied: the same movement, now its payment. One effect on the balance.
     final doc = <String, dynamic>{
@@ -202,7 +202,8 @@ void main() {
     final remote = RemoteAccount(id: 'banco-cuenta', currency: 'EUR', lastFour: '0000');
     final connection = RemoteConnection(id: '00000000-0000-4000-8000-0000000000bb', bank: 'Banco ficticio', validUntil: '2027-01-01', accounts: [remote]);
     final p = plan();
-    final manual = paymentOperation(p, 1, 36483, DateTime(2026, 11, 5, 12), now, 'manual');
+    final manual = paymentOperation(p, 1, 36483, DateTime(2026, 11, 5, 12), now, data(p, const []))!;
+    final manualId = installmentPaymentId(p, 1);
     final doc = <String, dynamic>{
       'formatVersion': 2,
       'accounts': [
@@ -217,8 +218,8 @@ void main() {
         ]);
     final (_, proposed) = importFeeds(doc, [feed()], now);
     expect(proposed.inserted, 0);
-    expect(proposed.proposals.single.candidateIds, ['manual'], reason: 'Five days later: still proposed');
-    final (done, result) = importFeeds(doc, [feed()], now, decisions: {proposed.proposals.single.key: 'manual'});
+    expect(proposed.proposals.single.candidateIds, [manualId], reason: 'Five days later: still proposed');
+    final (done, result) = importFeeds(doc, [feed()], now, decisions: {proposed.proposals.single.key: manualId});
     expect((result.matched, result.inserted), (1, 0));
     final rows = (done['transactions'] as List).cast<Map<String, dynamic>>();
     expect(rows.single['externalID'], '${installmentMarker}plan:1', reason: 'Still the payment of the instalment');

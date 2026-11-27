@@ -5,7 +5,17 @@
 // purchase or the money of the loan is already recorded. Each paid instalment is an ordinary movement linked to it by
 // its `externalID` (`installment:<plan>:<number>[:<spending part>]`): one payment per instalment, so the bank import
 // and the cloud keep it once. Future instalments are only planned: they never move a balance before being paid.
+//
+// An instalment is identified by its plan and its number, never by its amount (27 November 2026): a payment recorded
+// here gets an id derived from both (`installmentPaymentId`), so confirming twice, a retry or two devices recording
+// the same instalment produce one record. Partial payments are not supported: a payment of another amount is the
+// whole instalment, with its difference. If two payments ever end up linked to one instalment (a bank charge linked
+// on one device while another recorded it by hand), both count everywhere (balance, paid, pending) and it is shown
+// for review; nothing is deleted on its own.
+import 'dart:convert';
 import 'dart:math' as math;
+
+import 'package:crypto/crypto.dart' show sha1;
 
 import 'automation.dart' show CompanionNote, addMonths;
 import 'banking.dart' show referenceSeconds;
@@ -47,13 +57,19 @@ extension InstallmentStatusTitle on InstallmentStatus {
 }
 
 class InstallmentState {
-  InstallmentState(this.number, this.installment, this.status, this.payment);
+  InstallmentState(this.number, this.installment, this.status, [this.payments = const []]);
   final int number;
   final Installment installment;
   final InstallmentStatus status;
 
+  /// Every movement linked to it, the earliest first: one normally; more is an error to review.
+  final List<Transaction> payments;
+
   /// The movement that paid it (null for the ones paid before using the app, or not paid yet).
-  final Transaction? payment;
+  Transaction? get payment => payments.firstOrNull;
+
+  /// More than one payment linked to the same instalment: shown for review, never removed on its own.
+  bool get paidTwice => payments.length > 1;
   bool get isOpen => status == InstallmentStatus.overdue || status == InstallmentStatus.upcoming;
 
   /// A payment of another amount than the planned one.
@@ -66,7 +82,10 @@ class InstallmentProgress {
   final InstallmentPlan plan;
   final List<InstallmentState> states;
 
-  int get paidMinor => plan.paidBeforeMinor + states.where((s) => s.status == InstallmentStatus.paid).fold(0, (sum, s) => sum + s.payment!.amountMinor);
+  /// Every payment counts, as in the balance (an instalment paid twice is never counted once here and twice there).
+  int get paidMinor =>
+      plan.paidBeforeMinor + states.where((s) => s.status == InstallmentStatus.paid).fold(0, (sum, s) => sum + s.payments.fold(0, (a, t) => a + t.amountMinor));
+  List<InstallmentState> get paidTwice => [for (final s in states) if (s.paidTwice) s];
   int get pendingMinor => math.max(0, plan.totalMinor - paidMinor);
   int get paidCount => states.where((s) => !s.isOpen).length;
   InstallmentState? get next => states.where((s) => s.isOpen).firstOrNull;
@@ -80,10 +99,13 @@ class InstallmentProgress {
 
 InstallmentProgress installmentProgress(InstallmentPlan plan, Finances data, DateTime now) {
   final today = DateTime(now.year, now.month, now.day);
-  final payments = {
-    for (final t in data.transactions)
-      if (t.installmentPlanId?.toLowerCase() == plan.id.toLowerCase() && t.installmentNumber != null) t.installmentNumber!: t
-  };
+  final payments = <int, List<Transaction>>{};
+  for (final t in data.transactions) {
+    if (t.installmentPlanId?.toLowerCase() == plan.id.toLowerCase() && t.installmentNumber != null) (payments[t.installmentNumber!] ??= []).add(t);
+  }
+  for (final list in payments.values) {
+    list.sort((a, b) => a.date.compareTo(b.date) != 0 ? a.date.compareTo(b.date) : a.createdAt.compareTo(b.createdAt));
+  }
   return InstallmentProgress(plan, [
     for (final (i, installment) in plan.schedule.indexed)
       InstallmentState(
@@ -96,10 +118,26 @@ InstallmentProgress installmentProgress(InstallmentPlan plan, Finances data, Dat
                 : installment.dueDate.isBefore(today)
                     ? InstallmentStatus.overdue
                     : InstallmentStatus.upcoming,
-        payments[i + 1],
+        payments[i + 1] ?? const [],
       ),
   ]);
 }
+
+/// The id of the payment of instalment [number] of [plan] recorded in the app: the same on every device and every
+/// attempt, so the same instalment is never recorded twice (a second insert of an existing id is not applied).
+String installmentPaymentId(InstallmentPlan plan, int number) {
+  final bytes = sha1.convert(utf8.encode('doblon-installment-payment:${plan.id.toLowerCase()}:$number')).bytes.sublist(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x50; // version 5 (name based)
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // RFC 4122 variant
+  final hex = [for (final b in bytes) b.toRadixString(16).padLeft(2, '0')].join();
+  return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+}
+
+/// The movements already linked to instalment [number] of [plan].
+List<Transaction> instalmentPayments(InstallmentPlan plan, int number, Finances data) => [
+      for (final t in data.transactions)
+        if (t.installmentPlanId?.toLowerCase() == plan.id.toLowerCase() && t.installmentNumber == number) t
+    ];
 
 /// The `externalID` that links a payment to its instalment. When the purchase or the loan was already recorded, only
 /// the instalment's share of the costs (interest and fees) is spending, and it is written in the link.
@@ -111,8 +149,11 @@ String installmentLink(InstallmentPlan plan, int number, int amountMinor) {
 }
 
 /// Records the payment of an instalment that the bank does not send (or not yet): an ordinary payment from the
-/// plan's account. When the bank's charge arrives later, the import proposes it as this same payment.
-Operation paymentOperation(InstallmentPlan plan, int number, int amountMinor, DateTime date, DateTime now, String id) {
+/// plan's account. When the bank's charge arrives later, the import proposes it as this same payment. Null when that
+/// instalment already has a payment: it is not paid twice.
+Operation? paymentOperation(InstallmentPlan plan, int number, int amountMinor, DateTime date, DateTime now, Finances data) {
+  if (instalmentPayments(plan, number, data).isNotEmpty) return null;
+  final id = installmentPaymentId(plan, number);
   final description = 'Cuota $number/${plan.count} · ${plan.name}';
   return Operation('insert', {
     'record': {
@@ -142,10 +183,15 @@ Operation paymentOperation(InstallmentPlan plan, int number, int amountMinor, Da
 }
 
 /// A bank charge confirmed as the payment of an instalment: the same movement, now linked (one effect on balance).
-Operation linkOperation(InstallmentPlan plan, int number, Transaction charge, DateTime now) => Operation('patch', {
-      'id': charge.id,
-      'fields': {'externalID': installmentLink(plan, number, charge.amountMinor), 'updatedAt': referenceSeconds(now)}
-    });
+/// Null when the instalment already has another payment, or the charge is linked to something else.
+Operation? linkOperation(InstallmentPlan plan, int number, Transaction charge, DateTime now, Finances data) {
+  if (instalmentPayments(plan, number, data).any((t) => t.id != charge.id)) return null;
+  if (charge.externalId != null && charge.installmentPlanId?.toLowerCase() != plan.id.toLowerCase()) return null;
+  return Operation('patch', {
+    'id': charge.id,
+    'fields': {'externalID': installmentLink(plan, number, charge.amountMinor), 'updatedAt': referenceSeconds(now)}
+  });
+}
 
 /// Undoes a payment: one recorded by hand is deleted; a bank charge stays, only unlinked from the instalment.
 Operation undoPaymentOperation(Transaction payment, DateTime now) => payment.bankEntryKey != null
@@ -308,6 +354,14 @@ List<CompanionNote> installmentNotes(Finances data, DateTime now) {
           title: overdue.length == 1 ? 'Cuota vencida: ${plan.name}' : '${overdue.length} cuotas vencidas: ${plan.name}',
           detail:
               'La ${first.number}/${plan.count}, de ${money(first.installment.amountMinor)}, vencía el ${first.installment.dueDate.day}/${first.installment.dueDate.month}',
+          tab: 2,
+          urgent: true));
+    }
+    for (final s in progress.paidTwice) {
+      notes.add(CompanionNote(
+          id: 'installment:${plan.id}:${s.number}:twice:${s.payments.length}',
+          title: 'La cuota ${s.number} de ${plan.name} tiene ${s.payments.length} pagos',
+          detail: 'Cuentan todos en tu saldo: revisa el plan y deshaz el que sobre',
           tab: 2,
           urgent: true));
     }

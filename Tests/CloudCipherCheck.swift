@@ -25,6 +25,11 @@ import Foundation
         var bad = a.object; bad["tag"] = .string(Data(repeating:0,count:16).base64EncodedString())
         do { _ = try cipher.open(.object(bad),owner:owner,workspace:workspace,kind:"finance",revision:4); preconditionFailure("Tampered tag accepted") }
         catch CloudPrivacyError.invalidCode { }
+        // 27/11/2026: a finance document sealed by a newer app (format 2) is not read by this version, and never
+        // written over: it says the app is outdated instead of failing as damaged data.
+        var newer = a.object; newer["v"] = .integer(2)
+        do { _ = try cipher.open(.object(newer),owner:owner,workspace:workspace,kind:"finance",revision:4); preconditionFailure("A newer format was read") }
+        catch CloudTransportError.outdated { }
         print("Cloud encryption: independent AES-GCM vector, recovery, context binding, random nonces and exact cents passed.")
     }
 }

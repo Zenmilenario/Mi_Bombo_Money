@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 
 import 'banking.dart' show referenceSeconds;
 import 'finance.dart' show ReservedEntry, fundEntries, reservedBalances;
+import 'installments.dart' show installmentLink;
 import 'models.dart';
 
 extension TransactionTypeTitle on TransactionType {
@@ -302,6 +303,12 @@ Operation saveOperation(TransactionDraft draft, Finances data, DateTime now, {Tr
         amountMinor: editing.amountMinor,
         description: editing.descriptionText);
     fields['duplicateStateRaw'] = duplicateStateAfterEdit(editing.duplicateState, previous, print, candidates.isNotEmpty);
+    // The payment of an instalment keeps its link (plan and number); only the share that counts as spending follows
+    // a new amount.
+    final plan = data.installmentPlans.where((p) => p.id.toLowerCase() == editing.installmentPlanId?.toLowerCase()).firstOrNull;
+    if (plan != null && editing.installmentNumber != null && draft.amountMinor.abs() != editing.amountMinor) {
+      fields['externalID'] = installmentLink(plan, editing.installmentNumber!, draft.amountMinor.abs());
+    }
     return Operation('patch', {'id': editing.id, 'fields': fields});
   }
   return Operation('insert', {

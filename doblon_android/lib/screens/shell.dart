@@ -379,6 +379,25 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
         _ => Icons.lightbulb_outline,
       };
 
+  /// The change the cloud refused: set it aside (kept privately, never deleted) so the rest can be uploaded, or retry.
+  Future<void> _reviewRejected(BuildContext context, FinanceRepository repository) async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Un cambio no se puede subir'),
+        content: Text('La nube ha rechazado el cambio número ${(repository.rejectedAt ?? 0) + 1} de los ${repository.pending.length} que esperan en este '
+            'dispositivo. Los anteriores ya se han subido. Puedes apartarlo (se guarda en el dispositivo, no se borra) para subir el resto en orden, '
+            'o reintentar si crees que era algo pasajero.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, 'retry'), child: const Text('Reintentar')),
+          FilledButton(onPressed: () => Navigator.pop(context, 'aside'), child: const Text('Apartar ese cambio')),
+        ],
+      ),
+    );
+    if (choice == 'aside') await repository.setAsideRejected();
+    if (choice == 'retry') await repository.retrySync();
+  }
+
   @override
   Widget build(BuildContext context) {
     final calc = calculator;
@@ -483,7 +502,9 @@ class _ShellState extends State<Shell> with WidgetsBindingObserver, SingleTicker
                       dense: true,
                       leading: Icon(Icons.cloud_off_outlined, color: pulso.warning),
                       title: Text(repository.error!, maxLines: 2, overflow: TextOverflow.ellipsis),
-                      trailing: TextButton(onPressed: repository.refresh, child: const Text('Reintentar')),
+                      trailing: repository.rejectedAt != null
+                          ? TextButton(onPressed: () => _reviewRejected(context, repository), child: const Text('Revisar'))
+                          : TextButton(onPressed: repository.retrySync, child: const Text('Reintentar')),
                     ),
                   ),
                 ),

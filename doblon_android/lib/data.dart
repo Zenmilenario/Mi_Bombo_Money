@@ -59,13 +59,45 @@ class LocalStore {
     }
   }
 
-  Future<List<Operation>> loadPending(String user) async {
+  Future<List<Operation>> loadPending(String user) async => (await readPending(user)).$1;
+
+  /// The changes not yet uploaded. A queue that cannot be read is never taken as empty nor written over (27/11/2026):
+  /// it is copied aside, privately, and the changes that can still be read in order are recovered; what follows
+  /// the first unreadable one stays only in the copy, for diagnosis and recovery.
+  Future<(List<Operation>, PendingDamage?)> readPending(String user) async {
+    final file = _file(user, 'pending');
+    if (!await file.exists()) return (<Operation>[], null);
+    String text;
     try {
-      final list = jsonDecode(await _file(user, 'pending').readAsString()) as List;
-      return [for (final item in list) Operation.fromJson(Map<String, dynamic>.from(item as Map))];
+      text = await file.readAsString();
     } catch (_) {
-      return [];
+      return (<Operation>[], await _keepDamaged(user, file, null, const [], 'unreadable'));
     }
+    try {
+      final list = jsonDecode(text) as List;
+      return ([for (final item in list) Operation.fromJson(Map<String, dynamic>.from(item as Map))], null);
+    } catch (_) {
+      final recovered = salvagePending(text);
+      return (recovered, await _keepDamaged(user, file, text, recovered, 'corrupt'));
+    }
+  }
+
+  Future<PendingDamage> _keepDamaged(String user, File file, String? text, List<Operation> recovered, String reason) async {
+    final copy = File('${directory.path}${Platform.pathSeparator}pending-$user.damaged-${DateTime.now().millisecondsSinceEpoch}.json');
+    try {
+      await file.copy(copy.path);
+    } catch (_) {}
+    return PendingDamage(copyPath: copy.path, bytes: text?.length ?? 0, recovered: recovered.length, reason: reason);
+  }
+
+  /// Changes set aside by the person because the cloud refused them: kept, never deleted on their own.
+  Future<void> keepRejected(String user, List<Operation> ops) async {
+    final file = _file(user, 'rejected');
+    var kept = <dynamic>[];
+    try {
+      if (await file.exists()) kept = jsonDecode(await file.readAsString()) as List;
+    } catch (_) {}
+    await _write(file, [...kept, for (final op in ops) op.toJson()]);
   }
 
   /// Written to a temporary file and renamed, so a crash never leaves half a file.
@@ -110,6 +142,98 @@ class LocalStore {
       if (await file.exists()) await file.delete();
     }
   }
+}
+
+/// The complete changes at the start of a damaged queue, in order, up to the first that cannot be read.
+List<Operation> salvagePending(String text) {
+  final found = <Operation>[];
+  final start = text.indexOf('[');
+  if (start < 0) return found;
+  var depth = 0, from = -1;
+  var inString = false, escaped = false;
+  for (var i = start + 1; i < text.length; i++) {
+    final c = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (c == r'\') {
+        escaped = true;
+      } else if (c == '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (c == '"') {
+      inString = true;
+    } else if (c == '{') {
+      if (depth == 0) from = i;
+      depth++;
+    } else if (c == '}') {
+      depth--;
+      if (depth == 0 && from >= 0) {
+        try {
+          found.add(Operation.fromJson(Map<String, dynamic>.from(jsonDecode(text.substring(from, i + 1)) as Map)));
+        } catch (_) {
+          return found;
+        }
+        from = -1;
+      }
+      if (depth < 0) return found;
+    }
+  }
+  return found;
+}
+
+/// A queue of changes that could not be read: where its private copy is and how much was recovered (no content).
+class PendingDamage {
+  PendingDamage({required this.copyPath, required this.bytes, required this.recovered, required this.reason});
+  final String copyPath;
+  final int bytes, recovered;
+
+  /// `corrupt` (not valid) or `unreadable` (the file could not be read).
+  final String reason;
+}
+
+/// Why changes could not be uploaded (27/11/2026). Only [offline] and [conflict] are retried on their own; the others
+/// need something else (signing in again, updating the app, a change the cloud refuses), so they are not retried
+/// in a loop: the changes stay on the device until the person acts.
+enum SyncProblem { offline, sessionExpired, conflict, outdatedClient, rejected, permission }
+
+extension SyncProblemText on SyncProblem {
+  bool get retriedAlone => this == SyncProblem.offline || this == SyncProblem.conflict;
+  String get message => switch (this) {
+        SyncProblem.offline => 'Sin conexión: tus cambios están guardados en este dispositivo y se subirán solos.',
+        SyncProblem.sessionExpired => 'Tu sesión ha caducado. Vuelve a entrar: tus cambios siguen en este dispositivo.',
+        SyncProblem.conflict => 'Otro dispositivo estaba guardando a la vez. Lo vuelvo a intentar.',
+        SyncProblem.outdatedClient => 'Tu nube tiene un formato más nuevo que esta versión. Actualiza Doblón: tus cambios se conservan aquí.',
+        SyncProblem.rejected => 'La nube ha rechazado un cambio. No lo reintento solo: revísalo para seguir subiendo el resto.',
+        SyncProblem.permission => 'La nube no permite este guardado (permisos). Vuelve a entrar; tus cambios siguen aquí.',
+      };
+}
+
+/// Classifies an error of a sync without exposing data: by type and the server's code.
+SyncProblem classifySyncError(Object error) {
+  if (error is AuthException) return SyncProblem.sessionExpired;
+  if (error is BankingError) {
+    if (error.code == 'cloud_conflict') return SyncProblem.conflict;
+    if (error.code == 'unauthorized') return SyncProblem.sessionExpired;
+    return SyncProblem.offline;
+  }
+  if (error is PostgrestException) {
+    final text = '${error.code} ${error.message}';
+    if (error.code == '40001' || text.contains('cloud_revision_conflict')) return SyncProblem.conflict;
+    if (text.contains('client_outdated') || text.contains('Missing entity array') || text.contains('Invalid snapshot format')) {
+      return SyncProblem.outdatedClient;
+    }
+    if (error.code == 'PGRST301' || error.code == 'PGRST303' || text.contains('JWT')) return SyncProblem.sessionExpired;
+    if (error.code == '42501') return SyncProblem.permission;
+    if (error.code != null && (error.code!.startsWith('22') || error.code!.startsWith('23'))) return SyncProblem.rejected;
+    final status = int.tryParse(error.code ?? '');
+    if (status != null && status >= 400 && status < 500) return SyncProblem.rejected;
+    return SyncProblem.offline;
+  }
+  if (error is FormatException) return SyncProblem.outdatedClient;
+  return SyncProblem.offline;
 }
 
 /// Downloads and saves the person's finances with the same functions the iPhone uses to sync.
@@ -164,6 +288,13 @@ class FinanceRepository extends ChangeNotifier {
   CloudCopy? copy;
   List<Operation> pending = [];
   String? error;
+
+  /// Why the last sync failed (null when it worked), and the damaged queue found when opening, if any.
+  SyncProblem? syncProblem;
+  PendingDamage? pendingDamage;
+
+  /// The change the cloud refused, when it could be told apart (its position in [pending]).
+  int? rejectedAt;
   bool loading = false;
   DateTime? loadedAt;
   bool _opened = false;
@@ -240,7 +371,8 @@ class FinanceRepository extends ChangeNotifier {
     try {
       if (!_opened) {
         final store = await _local();
-        final savedPending = await store.loadPending(user);
+        final (savedPending, damage) = await store.readPending(user);
+        pendingDamage = damage;
         final saved = await store.loadCopy(user);
         if (_disposed || generation != _generation || user != _user) return;
         pending = savedPending;
@@ -264,7 +396,8 @@ class FinanceRepository extends ChangeNotifier {
         }
         _opened = true;
       }
-      if (pending.isNotEmpty) {
+      // A problem that retrying does not fix is not retried on its own: the cloud copy is still read.
+      if (pending.isNotEmpty && (syncProblem == null || syncProblem!.retriedAlone)) {
         await _upload();
       } else {
         final fetched = await _fetch();
@@ -274,12 +407,17 @@ class FinanceRepository extends ChangeNotifier {
       unawaited(syncLearning());
       unawaited(_moveDeviceChoiceToCloud());
       unawaited(applyAutoCategories());
-    } on AuthException {
-      error = 'Tu sesión ha caducado. Vuelve a entrar.';
-    } catch (_) {
-      error = copy == null
-          ? 'No se han podido cargar tus finanzas. Comprueba la conexión y vuelve a intentarlo.'
-          : 'Sin conexión: ves la última copia de este dispositivo.';
+      if (pending.isEmpty) syncProblem = null;
+      // Still waiting for the person (sign in, update, a refused change): said, not hidden by a good download.
+      if (syncProblem != null && !syncProblem!.retriedAlone) error = syncProblem!.message;
+      if (pendingDamage != null && error == null) {
+        error = 'Había cambios en este dispositivo que no se podían leer: se han recuperado ${pendingDamage!.recovered} y se guarda una copia privada del resto.';
+      }
+    } catch (e) {
+      _setProblem(classifySyncError(e));
+      if (copy == null && syncProblem == SyncProblem.offline) {
+        error = 'No se han podido cargar tus finanzas. Comprueba la conexión y vuelve a intentarlo.';
+      }
     } finally {
       loading = false;
       _updateMood();
@@ -354,12 +492,43 @@ class FinanceRepository extends ChangeNotifier {
     await (await _local()).savePending(user, pending);
     if (copy != null) _show(copy!);
     notifyListeners();
+    if (syncProblem != null && !syncProblem!.retriedAlone) {
+      // Kept in order after the change that is waiting; uploaded when that is solved.
+      notifyListeners();
+      return;
+    }
     try {
       await _upload();
-    } catch (_) {
-      error = 'Guardado en este dispositivo. Se subirá a tu nube cuando haya conexión.';
+    } catch (e) {
+      _setProblem(classifySyncError(e));
       notifyListeners();
     }
+  }
+
+  void _setProblem(SyncProblem problem) {
+    syncProblem = problem;
+    error = problem == SyncProblem.offline && pending.isNotEmpty
+        ? 'Guardado en este dispositivo. Se subirá a tu nube cuando haya conexión.'
+        : problem.message;
+  }
+
+  /// The person asks to try again (after signing in, updating, or reviewing the refused change).
+  Future<void> retrySync() async {
+    syncProblem = null;
+    rejectedAt = null;
+    await refresh();
+  }
+
+  /// Sets aside the change the cloud refused (kept privately, never deleted) and uploads the rest, in order.
+  Future<void> setAsideRejected() async {
+    final user = _user, at = rejectedAt;
+    if (user == null || at == null || at >= pending.length) return;
+    final refused = pending[at];
+    await (await _local()).keepRejected(user, [refused]);
+    pending = [for (final (i, op) in pending.indexed) if (i != at) op];
+    await (await _local()).savePending(user, pending);
+    if (copy != null) _show(copy!);
+    await retrySync();
   }
 
   bool _uploading = false;
@@ -378,16 +547,42 @@ class FinanceRepository extends ChangeNotifier {
       do {
         _again = false;
         final sending = List<Operation>.from(pending);
-        await update((document) => (withPending(document, sending), null));
+        try {
+          await update((document) => (withPending(document, sending), null));
+        } on PostgrestException catch (e) {
+          if (classifySyncError(e) != SyncProblem.rejected || sending.length < 2) {
+            if (classifySyncError(e) == SyncProblem.rejected) rejectedAt = 0;
+            rethrow;
+          }
+          // The cloud refused the whole: the changes go one by one, in order, to find the refused one. The ones before
+          // it are saved; it and the ones after it stay queued.
+          await _uploadInOrder(user, sending);
+          rethrow;
+        }
         // Only what was sent is cleared: a change made meanwhile stays queued.
         pending = [for (final op in pending) if (!sending.any((sent) => identical(sent, op))) op];
         await (await _local()).savePending(user, pending);
         if (copy != null) _show(copy!);
         error = null;
+        syncProblem = null;
+        rejectedAt = null;
         notifyListeners();
       } while (_again && pending.isNotEmpty);
     } finally {
       _uploading = false;
+    }
+  }
+
+  Future<void> _uploadInOrder(String user, List<Operation> sending) async {
+    for (final op in sending) {
+      try {
+        await update((document) => (withPending(document, [op]), null));
+      } on PostgrestException {
+        rejectedAt = pending.indexWhere((p) => identical(p, op));
+        return;
+      }
+      pending = [for (final p in pending) if (!identical(p, op)) p];
+      await (await _local()).savePending(user, pending);
     }
   }
 
