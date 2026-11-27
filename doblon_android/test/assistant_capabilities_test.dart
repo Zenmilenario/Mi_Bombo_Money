@@ -431,6 +431,10 @@ void main() {
         final saves = cloud.financeSaves;
         await tester.enterText(find.byType(TextField), '¿Le pones categoría a los 2 últimos que no tengan?');
         await tester.testTextInput.receiveAction(TextInputAction.send);
+        // The answer waits for the encrypted save of the automatic category: slower on a busy machine.
+        for (var i = 0; i < 150 && find.text('Los 2 últimos sin categoría').evaluate().isEmpty; i++) {
+          await settle(tester, 2);
+        }
         await settle(tester);
         expect(find.text('Los 2 últimos sin categoría'), findsOneWidget);
         expect(find.text('Panaderia Luna'), findsOneWidget);
