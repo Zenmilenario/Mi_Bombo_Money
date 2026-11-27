@@ -448,38 +448,76 @@ const _stop = {
 /// Words of a name that tell it apart (not «cuenta», «tarjeta», «de»…).
 List<String> _nameWords(String name) => wordsOf(name).where((w) => w.length >= 3 && !_stop.contains(w)).toList();
 
+/// The words of an account's name that a sentence can name it by: «gasto» or «ingreso» in a sentence is the kind of
+/// operation, not the account «Gastos casa» (unless they are all its name has).
+List<String> _accountWords(String name) {
+  const kinds = {'gasto', 'gastos', 'ingreso', 'ingresos', 'pago', 'pagos', 'compra', 'compras'};
+  final words = _nameWords(name);
+  final telling = words.where((w) => !kinds.contains(w)).toList();
+  return telling.isEmpty ? words : telling;
+}
+
 bool _mentions(List<String> phrase, String word) =>
     phrase.any((p) => p == word || (p.length >= 5 && word.length >= 5 && (like(p, word) || p.substring(0, 5) == word.substring(0, 5))));
 
 class AccountChoice {
-  AccountChoice(this.account, [this.card]);
+  AccountChoice(this.account, [this.card, this.bank]);
   final Account account;
   final PaymentCard? card;
-  String get label => card == null ? account.name : '${card!.name} · ${account.name}';
+
+  /// The bank the account belongs to, shown to tell apart accounts of different banks.
+  final String? bank;
+  String get label {
+    final name = card == null ? account.name : '${card!.name} · ${account.name}';
+    final b = bank;
+    return b == null || b.trim().isEmpty || plainText(name).contains(plainText(b)) ? name : '$b · $name';
+  }
 }
 
-/// Accounts (and cards) the sentence names, best first; several with the same score are all returned (asked).
-List<AccountChoice> namedAccounts(String text, Finances data, {bool Function(Account)? allowed}) {
+/// An account as an option: its bank and its name («Trade Republic · Inversión»).
+AccountChoice accountChoice(Account a, Finances data) => AccountChoice(a, null, data.institutionName(a.institutionId));
+
+/// Where an everyday expense or income can go: not a securities account (said explicitly, it is still accepted).
+bool fitsMovement(Account a) => a.type != AccountType.investment;
+
+/// Accounts (and cards) the sentence names by their name, their bank or a card, best first; several with the same
+/// score are all returned (asked). A name counts more than the bank («la de valores de Trade Republic» is that one).
+/// Among several tied, [prefer] keeps the ones that fit the operation (an expense «en Trade Republic» goes to its
+/// current account, not to its securities account), when any does.
+List<AccountChoice> namedAccounts(String text, Finances data, {bool Function(Account)? allowed, bool Function(Account)? prefer}) {
   final phrase = wordsOf(text);
   final ok = allowed ?? (Account a) => true;
   final scored = <(AccountChoice, int)>[];
+  int bankScore(Account a) {
+    final name = _accountWords(a.name);
+    final bank = _nameWords(data.institutionName(a.institutionId) ?? '').where((w) => !name.contains(w)).toList();
+    return bank.isNotEmpty && bank.every((w) => _mentions(phrase, w)) ? 1 : 0;
+  }
+
   for (final a in data.accounts.where((a) => !a.isArchived && ok(a))) {
-    final score = _nameWords(a.name).where((w) => _mentions(phrase, w)).length + (a.type == AccountType.cash && _any(phrase, ['efectivo', 'metalico', 'cash']) ? 2 : 0);
-    if (score > 0) scored.add((AccountChoice(a), score));
+    final score = 2 * _accountWords(a.name).where((w) => _mentions(phrase, w)).length +
+        bankScore(a) +
+        (a.type == AccountType.cash && _any(phrase, ['efectivo', 'metalico', 'cash']) ? 4 : 0);
+    if (score > 0) scored.add((AccountChoice(a, null, data.institutionName(a.institutionId)), score));
   }
   for (final c in data.cards.where((c) => !c.isArchived)) {
     final account = data.account(c.linkedAccountId);
     if (account == null || account.isArchived || !ok(account)) continue;
-    final score = _nameWords(c.name).where((w) => _mentions(phrase, w)).length + (c.lastFour.isNotEmpty && text.contains(c.lastFour) ? 2 : 0);
-    if (score > 0) scored.add((AccountChoice(account, c), score));
+    final score = 2 * _nameWords(c.name).where((w) => _mentions(phrase, w)).length + (c.lastFour.isNotEmpty && text.contains(c.lastFour) ? 4 : 0);
+    if (score > 0) scored.add((AccountChoice(account, c, data.institutionName(account.institutionId)), score));
   }
   if (scored.isEmpty) return const [];
   final top = scored.map((s) => s.$2).reduce(math.max);
   final seen = <String>{};
-  return [
+  final best = [
     for (final (c, score) in scored)
       if (score == top && seen.add('${c.account.id}|${c.card?.id}')) c
   ];
+  if (best.length > 1 && prefer != null) {
+    final fitting = best.where((c) => prefer(c.account)).toList();
+    if (fitting.isNotEmpty) return fitting;
+  }
+  return best;
 }
 
 /// A category whose name the sentence says, of the kind that fits.
@@ -521,6 +559,9 @@ const _hints = <(List<String>, List<String>, bool)>[
 /// The concept of a movement: a known everyday word, or what follows «en», «de» or «para» (not an account, a date
 /// or a number): «en la gasolinera» → «Gasolinera».
 String? extractConcept(String text, Finances data) {
+  // «con concepto X», «concepto: X»: said explicitly, up to where the account, the day or another clause begins.
+  final explicit = RegExp(r'\bconcepto\s*:?\s+(.+?)(?=\s+(?:en|con|desde|de la cuenta|el dia|el día|ayer|hoy)\b|[,.;]|$)', caseSensitive: false).firstMatch(text);
+  if (explicit != null && explicit.group(1)!.trim().isNotEmpty) return _capital(explicit.group(1)!.trim());
   final words = wordsOf(text);
   // Exact words first («gasolinera» is not «gasolina»), then with a slip.
   for (final w in words) {
@@ -1316,7 +1357,7 @@ class AssistantSession {
         }
         if (_batch != null) return AssistantMessage('Para cambiar algo de estas operaciones, pulsa Cancelar y cuéntamelo de nuevo con el cambio.');
         if (draft != null) {
-          var changed = _applyIntent(draft, i, data, now);
+          var changed = _applyIntent(draft, i, data, now, sentence: s.raw);
           // A short answer to the question asked that the interpreter did not turn into data («sí», «la segunda»).
           if (!changed && draft.pending != null) changed = _fill(draft, draft.pending!, s, data, now);
           return changed ? _next(calc, now, heldMinor) : _clarify(draft);
@@ -1348,11 +1389,39 @@ class AssistantSession {
               ..kind = i.kind
               ..pending = null;
           }
-          final changed = _applyIntent(draft, i, data, now) || kindChanged || draft.pending != null && _fill(draft, draft.pending!, s, data, now);
+          final changed = _applyIntent(draft, i, data, now, sentence: s.raw) || kindChanged || draft.pending != null && _fill(draft, draft.pending!, s, data, now);
+          return changed ? _next(calc, now, heldMinor) : _clarify(draft);
+        }
+        // A change that names no saved movement, while something is being prepared, is about what is being prepared
+        // («ponle categoría Compras», «el de la freidora, a Ocio»): it is corrected there, never set aside to look for
+        // it among the saved ones. Naming another amount, day or a movement on screen is about a saved one.
+        if (draft != null && _aboutDraft(i, draft, now)) {
+          final changed = _applyIntent(draft, i, data, now, sentence: s.raw);
           return changed ? _next(calc, now, heldMinor) : _clarify(draft);
         }
         return _fromIntent(i, s, calc, now, heldMinor);
     }
+  }
+
+  /// Whether an edit the interpreter read is about the draft being prepared, not about a saved movement: it names no
+  /// movement on screen, and the amount or day it uses to find one (if any) are the draft's. A concept that repeats
+  /// the draft's («el de la freidora») identifies it and is not a new concept.
+  bool _aboutDraft(AssistantIntent i, _Draft d, DateTime now) {
+    const editable = {IntentKind.expense, IntentKind.income, IntentKind.reserve, IntentKind.transfer};
+    const edits = {IntentKind.editMovement, IntentKind.describeExisting, IntentKind.categorize};
+    if (!editable.contains(d.kind) || !edits.contains(i.kind) || i.targetId != null) return false;
+    if (i.findAmountMinor != null && i.findAmountMinor != d.amountMinor) return false;
+    if (i.findDate != null && !_sameDay(i.findDate!, d.date ?? now)) return false;
+    // «Ponles categoría a los sin categoría de este mes» is about saved movements.
+    if (i.kind == IntentKind.categorize && (i.period != null || i.from != null || i.to != null || i.uncategorized == true || i.limit != null)) return false;
+    final concept = i.concept;
+    if (concept != null && d.concept != null) {
+      final said = _nameWords(concept), own = _nameWords(d.concept!);
+      if (said.isNotEmpty && said.every((w) => own.any((o) => o == w || like(w, o)))) i.concept = null;
+    }
+    // The amount it is found by is not a new amount.
+    if (i.amountMinor != null && i.amountMinor == i.findAmountMinor) i.amountMinor = null;
+    return true;
   }
 
   Category? _categoryFor(AssistantIntent i, TransactionType type, Finances data) {
@@ -1369,7 +1438,7 @@ class AssistantSession {
   }
 
   /// The interpreter's correction applied to the open draft: only what it states changes. Returns whether anything did.
-  bool _applyIntent(_Draft d, AssistantIntent i, Finances data, DateTime now) {
+  bool _applyIntent(_Draft d, AssistantIntent i, Finances data, DateTime now, {String? sentence}) {
     var changed = false;
     void apply(bool condition, void Function() change) {
       if (!condition) return;
@@ -1400,11 +1469,16 @@ class AssistantSession {
       final future = d.kind == IntentKind.createGoal;
       apply(i.date != null && i.date != d.date && (future || !i.date!.isAfter(now)), () => d.date = i.date);
     }
-    final account = data.account(i.accountId) ?? (i.accountText == null ? null : _onlyAccount(i.accountText!, data));
-    apply(account != null && account.id != d.accountId, () {
-      d.accountId = account!.id;
-      d.accountGuessed = false;
-    });
+    // The account the sentence names (its name, its bank) prevails over the interpreter's pick.
+    if (sentence != null && (i.accountId != null || i.accountText != null) && namedAccounts(sentence, data).isNotEmpty) {
+      if (_sentenceAccount(d, sentence, data, keepCurrent: true)) changed = true;
+    } else {
+      final account = data.account(i.accountId) ?? (i.accountText == null ? null : _onlyAccount(i.accountText!, data));
+      apply(account != null && account.id != d.accountId, () {
+        d.accountId = account!.id;
+        d.accountGuessed = false;
+      });
+    }
     apply(i.toAccountId != null && i.toAccountId != d.toAccountId, () => d.toAccountId = i.toAccountId);
     apply(i.goalId != null && i.goalId != d.goalId, () => d.goalId = i.goalId);
     apply(i.targetId != null && i.targetId != d.targetId, () => d.targetId = i.targetId);
@@ -1437,6 +1511,34 @@ class AssistantSession {
     apply(purposed && i.purpose != null && i.purpose != d.purpose, () => d.purpose = _capital(i.purpose!));
     if (changed) d.pending = null;
     return changed;
+  }
+
+  /// The account the sentence itself names (its name, its bank or a card) for a draft of one account: it prevails over
+  /// the interpreter's choice and over habits. One is taken (said, not guessed); several are asked, only those; none
+  /// leaves the draft as it was. With [keepCurrent], a current account among the named ones stays (a correction that
+  /// repeats the bank). Returns whether the account changed.
+  bool _sentenceAccount(_Draft d, String text, Finances data, {bool keepCurrent = false}) {
+    final named = namedAccounts(text, data,
+        allowed: d.kind == IntentKind.reserve ? _reservable : null,
+        prefer: d.kind == IntentKind.expense || d.kind == IntentKind.income ? fitsMovement : null);
+    if (named.isEmpty) return false;
+    if (keepCurrent && named.any((c) => c.account.id == d.accountId)) {
+      final changed = d.accountGuessed;
+      d.accountGuessed = false;
+      return changed;
+    }
+    final before = (d.accountId, d.accountGuessed);
+    if (named.length == 1) {
+      d
+        ..accountId = named.single.account.id
+        ..accountOptions = null;
+    } else {
+      d
+        ..accountId = null
+        ..accountOptions = named;
+    }
+    d.accountGuessed = false;
+    return before != (d.accountId, false) || named.length > 1;
   }
 
   Account? _onlyAccount(String text, Finances data) {
@@ -1534,8 +1636,12 @@ class AssistantSession {
           d.incoming = i.scope == QueryScope.income ? true : (i.scope == QueryScope.expenses ? false : null);
           d.date = i.date;
         }
-        if (d.accountId == null && i.accountText != null) {
-          final named = namedAccounts(i.accountText!, data, allowed: i.kind == IntentKind.reserve ? _reservable : null);
+        // What the sentence names (an account, its bank, a card) prevails over the interpreter's pick, when the
+        // interpreter read an account at all (a category word such as «inversiones» is not one).
+        final single = i.kind == IntentKind.expense || i.kind == IntentKind.income || i.kind == IntentKind.reserve;
+        final saysAccount = i.accountId != null || i.accountText != null;
+        if (!(single && saysAccount && _sentenceAccount(d, s.raw, data)) && d.accountId == null && i.accountText != null) {
+          final named = namedAccounts(i.accountText!, data, allowed: i.kind == IntentKind.reserve ? _reservable : null, prefer: single ? fitsMovement : null);
           if (named.length == 1) d.accountId = named.single.account.id;
           if (named.length > 1) d.accountOptions = named;
         }
@@ -1878,9 +1984,7 @@ class AssistantSession {
           d.planId = _namedPlan(s.raw, data)?.id;
           if (d.amountMinor == null || !RegExp(r'(€|euros?)').hasMatch(s.plain)) d.amountMinor = null;
         }
-        final named = namedAccounts(s.raw, data, allowed: kind == IntentKind.reserve ? _reservable : null);
-        if (named.length == 1) d.accountId = named.single.account.id;
-        if (named.length > 1) d.accountOptions = named;
+        _sentenceAccount(d, s.raw, data);
         if (kind == IntentKind.expense || kind == IntentKind.income) {
           final type = kind == IntentKind.income ? TransactionType.income : TransactionType.expense;
           final category = namedCategory(s.raw, data, (c) => categorySupports(c, type));
@@ -1999,14 +2103,7 @@ class AssistantSession {
           return false;
         }
       case PendingField.account:
-        final named = namedAccounts(s.raw, data, allowed: d.kind == IntentKind.reserve ? _reservable : null);
-        if (named.isEmpty) return false;
-        if (named.length > 1) {
-          d.accountOptions = named;
-        } else {
-          d.accountId = named.single.account.id;
-          d.accountOptions = null;
-        }
+        if (!_sentenceAccount(d, s.raw, data)) return false;
       case PendingField.category:
         if (_phrase(s.plain, ['sin categoria', 'ninguna', 'ninguno'])) {
           d.categoryId = null;
@@ -2113,15 +2210,7 @@ class AssistantSession {
       }
     }
     final accountText = namedAccounts(s.raw, data).isNotEmpty ? s.raw : i?.accountText;
-    final named = accountText == null ? const <AccountChoice>[] : namedAccounts(accountText, data, allowed: d.kind == IntentKind.reserve ? _reservable : null);
-    if (named.length == 1 && named.single.account.id != d.accountId) {
-      d.accountId = named.single.account.id;
-      changed = true;
-    } else if (named.length > 1) {
-      d.accountId = null;
-      d.accountOptions = named;
-      changed = true;
-    }
+    if (accountText != null && _sentenceAccount(d, accountText, data, keepCurrent: true)) changed = true;
     if (d.kind == IntentKind.expense || d.kind == IntentKind.income) {
       final type = d.kind == IntentKind.income ? TransactionType.income : TransactionType.expense;
       if (_phrase(s.plain, ['sin categoria'])) {
@@ -2139,7 +2228,9 @@ class AssistantSession {
           changed = true;
         }
       }
-      final concept = RegExp(r'(?:concepto|llamalo|ponle)\s*:?\s*(.+)$').firstMatch(plainText(s.raw));
+      // «ponle categoría X» names the category, not the concept.
+      final concept = RegExp(r'(?:(?:ponle\s+(?:de\s+|como\s+)?)?concepto|llamalo|ponle(?!\s+(?:de\s+|la\s+|una\s+)?categoria))\s*:?\s*(.+)$')
+          .firstMatch(plainText(s.raw));
       if (concept != null) {
         d.concept = _capital(s.raw.substring(s.raw.length - concept.group(1)!.length).trim());
         changed = true;
@@ -2251,7 +2342,7 @@ class AssistantSession {
       _draft = null;
       return AssistantMessage('Primero necesitas una cuenta. Créala en Cuentas › «Añadir cuenta».');
     }
-    final choices = options ?? [for (final a in active) AccountChoice(a)];
+    final choices = options ?? [for (final a in active) accountChoice(a, data)];
     d.accountOptions = null;
     return _ask(d, PendingField.account, options != null ? 'Tienes ${options.length} que encajan. ¿Cuál es?' : question,
         [for (final c in choices.take(8)) (c.label, c.account.id)]);
@@ -3324,6 +3415,12 @@ class AssistantSession {
   }
 
   /// Whether a card is the one that can still be confirmed.
+  /// The person saved [preview]'s operation in its form (same id): the draft is done and its card can no longer apply.
+  void savedElsewhere(AssistantPreview preview) {
+    applied.add(preview.id);
+    if (identical(_draft?.preview, preview)) cancel();
+  }
+
   bool isCurrent(AssistantPreview preview) => identical(_draft?.preview, preview) || identical(_proposals, preview) || identical(_batch, preview);
 
   /// The proposals card is dropped (nothing was applied).

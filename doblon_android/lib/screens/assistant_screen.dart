@@ -23,6 +23,9 @@ import 'shell.dart' show DonBigotesMark;
 import 'transaction_detail.dart';
 import 'transaction_form.dart';
 
+/// Where a prepared operation's card stands, shown on it: only a prepared one can be confirmed.
+enum CardState { prepared, parked, cancelled, replaced, outdated, saved }
+
 class _Entry {
   _Entry.person(this.text) : reply = null;
   _Entry.reply(this.reply) : text = null;
@@ -30,8 +33,17 @@ class _Entry {
   final AssistantReply? reply;
   bool confirmed = false, undone = false, busy = false;
 
-  /// Why a card can no longer be confirmed: cancelled, corrected or set aside.
+  /// Why a card can no longer be confirmed (cancelled, corrected, set aside, saved in its form), said on it.
   String? retired;
+  CardState state = CardState.prepared;
+
+  /// Open in its form right now: its buttons wait for the person to come back.
+  bool inForm = false;
+
+  void retire(CardState why, String text) {
+    state = why;
+    retired = text;
+  }
 }
 
 class AssistantScreen extends StatefulWidget {
@@ -95,10 +107,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
   void _hideKeyboard() => FocusScope.of(context).unfocus();
 
   /// Older cards of a draft that changed (corrected, set aside or cancelled) can no longer be confirmed.
-  void _retireOld(String reason) {
+  void _retireOld(CardState why, String reason) {
     for (final e in _entries) {
       final r = e.reply;
-      if (r is AssistantPreview && !e.confirmed && e.retired == null && !session.isCurrent(r)) e.retired = reason;
+      if (r is AssistantPreview && !e.confirmed && e.retired == null && !session.isCurrent(r)) e.retire(why, reason);
     }
   }
 
@@ -111,7 +123,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final reply = await work();
     if (!mounted) return;
     setState(() {
-      _retireOld(reply.note != null ? 'Apartado sin guardar.' : (reply is AssistantPreview ? 'Sustituido por la versión corregida.' : 'Ya no está pendiente.'));
+      if (reply.note != null) {
+        _retireOld(CardState.parked, 'Apartado sin guardar: «Seguir con lo apartado» lo recupera tal cual.');
+      } else if (reply is AssistantPreview) {
+        _retireOld(CardState.replaced, 'Sustituido por la versión de abajo.');
+      } else {
+        _retireOld(CardState.outdated, 'Ya no está pendiente.');
+      }
       _entries.add(_Entry.reply(reply));
       for (final more in reply.followUps) {
         _entries.add(_Entry.reply(more));
@@ -133,13 +151,18 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final data = widget.repository.finances!;
     final op = session.confirm(preview, data);
     if (op == null) {
-      setState(() => entry.retired = 'Ya no está pendiente.');
+      setState(() => entry.retire(CardState.outdated, 'Ya no está pendiente: no se ha guardado otra vez.'));
       return;
     }
     setState(() => entry.busy = true);
     try {
       await widget.repository.apply(op);
-      if (mounted) setState(() => entry.confirmed = true);
+      if (mounted) {
+        setState(() {
+          entry.confirmed = true;
+          entry.state = CardState.saved;
+        });
+      }
       if (preview.kind == PreviewKind.categories) {
         // What really happened to the movements shown: saved now or on their own, and still pending.
         final saved = (op.data['ops'] as List).length + preview.automatic.length;
@@ -149,6 +172,18 @@ class _AssistantScreenState extends State<AssistantScreen> {
               'Clasificados: $saved de ${preview.items.length}.${pending > 0 ? ' Siguen pendientes $pending de esta selección.' : ''}'))));
         }
       }
+    } catch (error) {
+      session.applied.remove(preview.id);
+      if (mounted) {
+        setState(() {
+          entry.busy = false;
+          _entries.add(_Entry.reply(AssistantMessage('No se ha podido guardar: $error. No se ha apuntado nada.')));
+        });
+      }
+      return;
+    }
+    // Saved. What follows only teaches the learning: if it fails, the operation stays saved and is said so.
+    try {
       // Confirmed categories count as the person's choices (metrics and learning), as choosing them one by one would.
       final confirmed = {for (final (id, _, _) in preview.assignments) id};
       for (final item in preview.items.where((i) => confirmed.contains(i.transaction.id))) {
@@ -166,9 +201,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
             ?.recordCategoryOutcome(proposedName: preview.proposal?.categoryName, source: preview.proposal?.source, chosenName: category.name);
         await learnFromEdit(widget.repository, null, preview.targetId ?? preview.id, categoryConfirmed: true);
       }
-    } catch (error) {
-      session.applied.remove(preview.id);
-      if (mounted) setState(() => _entries.add(_Entry.reply(AssistantMessage('No se ha podido guardar: $error. No se ha apuntado nada.'))));
+    } catch (_) {
+      // The learning file could not be written now: the operation is saved all the same.
     } finally {
       if (mounted) setState(() => entry.busy = false);
     }
@@ -200,23 +234,62 @@ class _AssistantScreenState extends State<AssistantScreen> {
     } else {
       session.cancel();
     }
-    setState(() => entry.retired = 'Cancelado: no se ha guardado nada.');
+    setState(() => entry.retire(CardState.cancelled, 'Cancelado: no se ha guardado nada.'));
   }
 
-  void _correct(_Entry entry, AssistantPreview preview) {
-    session.cancel();
-    setState(() => entry.retired = 'Abierto en el formulario: guárdalo allí.');
+  /// «Corregir»: the same draft opens in its form (same id, so it can never be saved twice). What happened there is
+  /// said on return: saved (with the data saved), or closed without saving (the card is still pending here).
+  Future<void> _correct(_Entry entry, AssistantPreview preview) async {
     final Widget? page = switch (preview.kind) {
       PreviewKind.reserve => ReserveFormScreen(
-          repository: widget.repository, accountId: preview.reserve!.accountId, name: preview.reserve!.name, amountMinor: preview.reserve!.amountMinor),
+          repository: widget.repository,
+          accountId: preview.reserve!.accountId,
+          name: preview.reserve!.name,
+          amountMinor: preview.reserve!.amountMinor,
+          newId: preview.id),
       PreviewKind.plan => InstallmentFormScreen(repository: widget.repository, prefill: preview.plan),
-      PreviewKind.movement => TransactionFormScreen(repository: widget.repository, prefill: preview.draft),
+      PreviewKind.movement => TransactionFormScreen(repository: widget.repository, prefill: preview.draft, newId: preview.id),
       PreviewKind.instalment => InstallmentsScreen(repository: widget.repository),
       PreviewKind.existing => TransactionDetailScreen(repository: widget.repository, transactionId: preview.targetId!),
       PreviewKind.categories || PreviewKind.delete || PreviewKind.setting || PreviewKind.batch => null,
     };
-    if (page == null) return;
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+    if (page == null || entry.inForm) return;
+    final target = preview.targetId;
+    final before = target == null ? null : widget.repository.finances?.transactions.where((t) => t.id == target).firstOrNull?.updatedAt;
+    setState(() => entry.inForm = true);
+    await Navigator.of(context).push<Object?>(MaterialPageRoute(builder: (_) => page));
+    if (!mounted) return;
+    final data = widget.repository.finances!;
+    // Saved there: the record with the draft's id exists now (or the movement shown was changed in its detail).
+    final saved = switch (preview.kind) {
+      PreviewKind.existing => data.transactions.where((t) => t.id == target).firstOrNull?.updatedAt != before,
+      PreviewKind.reserve => data.reservedFunds.any((f) => f.id == preview.id),
+      PreviewKind.plan => data.installmentPlans.any((p) => p.id == preview.id),
+      _ => data.transactions.any((t) => t.id == preview.id),
+    };
+    setState(() {
+      entry.inForm = false;
+      if (!saved) {
+        _entries.add(_Entry.reply(AssistantMessage(session.isCurrent(preview)
+            ? 'Has cerrado el formulario sin guardar: no se ha apuntado nada y la tarjeta sigue pendiente aquí.'
+            : 'Has cerrado el formulario sin guardar: no se ha apuntado nada.')));
+        return;
+      }
+      session.savedElsewhere(preview);
+      entry.retire(CardState.saved, 'Guardado desde el formulario.');
+      final record = data.transactions.where((t) => t.id == (preview.kind == PreviewKind.existing ? target : preview.id)).firstOrNull;
+      _entries.add(_Entry.reply(record == null
+          ? AssistantMessage('Guardado desde el formulario.')
+          : AssistantResult('Guardado desde el formulario', [
+              [
+                record.type.countsAsIncome ? 'Ingreso' : (record.type == TransactionType.transfer ? 'Traspaso' : 'Gasto'),
+                money(record.amountMinor),
+                data.account(record.sourceAccountId)?.name ?? '',
+                data.category(record.categoryId)?.name ?? 'Sin categoría',
+              ].where((p) => p.isNotEmpty).join(' · '),
+            ], transactions: [record])));
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _toEnd());
   }
 
   void _open(IntentKind kind) {
@@ -228,8 +301,36 @@ class _AssistantScreenState extends State<AssistantScreen> {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
   }
 
-  Widget _bubble(BuildContext context, Widget child, {bool mine = false}) {
+  /// Prepared, in the form, set aside, cancelled, replaced or saved: said on the card, never inferred from its place.
+  Widget _stateLabel(BuildContext context, _Entry entry) {
     final pulso = Pulso.of(context);
+    final (IconData icon, String text, Color color) = entry.undone
+        ? (Icons.undo, 'Deshecho', Theme.of(context).hintColor)
+        : entry.confirmed || entry.state == CardState.saved
+            ? (Icons.check_circle_outline, 'Guardado', pulso.income)
+            : entry.inForm
+                ? (Icons.edit_note, 'En el formulario', pulso.accent)
+                : switch (entry.state) {
+                    CardState.prepared => (Icons.pending_outlined, 'Preparado · sin guardar', pulso.accent),
+                    CardState.parked => (Icons.pause_circle_outline, 'Apartado', Theme.of(context).hintColor),
+                    CardState.cancelled => (Icons.cancel_outlined, 'Cancelado', Theme.of(context).hintColor),
+                    CardState.replaced => (Icons.swap_vert, 'Sustituido', Theme.of(context).hintColor),
+                    CardState.outdated => (Icons.block, 'Ya no aplica', Theme.of(context).hintColor),
+                    CardState.saved => (Icons.check_circle_outline, 'Guardado', pulso.income),
+                  };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 4),
+        Flexible(child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color))),
+      ]),
+    );
+  }
+
+  Widget _bubble(BuildContext context, Widget child, {bool mine = false, bool dimmed = false}) {
+    final pulso = Pulso.of(context);
+    if (dimmed) child = Opacity(opacity: 0.6, child: child);
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
@@ -293,12 +394,16 @@ class _AssistantScreenState extends State<AssistantScreen> {
         final format = DateFormat('d MMM yyyy', 'es');
         return _bubble(
             context,
+            dimmed: entry.retired != null && !done || entry.undone,
             Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               ...note,
+              _stateLabel(context, entry),
               Text(
                   done
                       ? (entry.undone ? 'Deshecho' : (reply.kind == PreviewKind.delete ? 'Borrado' : 'Guardado'))
-                      : (reply.kind == PreviewKind.delete ? 'Esto es lo que voy a borrar:' : 'Esto es lo que voy a guardar:'),
+                      : entry.retired != null
+                          ? 'Lo que estaba preparado:'
+                          : (reply.kind == PreviewKind.delete ? 'Esto es lo que voy a borrar:' : 'Esto es lo que voy a guardar:'),
                   style: TextStyle(color: hint, fontSize: 12)),
               Text(reply.title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
               const SizedBox(height: 6),
@@ -337,10 +442,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 Text(entry.retired!, style: TextStyle(color: hint, fontSize: 12))
               else if (!done)
                 Wrap(spacing: 8, runSpacing: 8, children: [
-                  FilledButton(onPressed: entry.busy ? null : () => _confirm(entry, reply), child: const Text('Confirmar')),
+                  FilledButton(onPressed: entry.busy || entry.inForm ? null : () => _confirm(entry, reply), child: const Text('Confirmar')),
                   if (reply.kind != PreviewKind.categories && reply.kind != PreviewKind.batch && reply.kind != PreviewKind.setting && reply.kind != PreviewKind.delete)
-                    OutlinedButton(onPressed: entry.busy ? null : () => _correct(entry, reply), child: const Text('Corregir')),
-                  TextButton(onPressed: entry.busy ? null : () => _cancel(entry, reply), child: const Text('Cancelar')),
+                    OutlinedButton(onPressed: entry.busy || entry.inForm ? null : () => _correct(entry, reply), child: const Text('Corregir')),
+                  TextButton(onPressed: entry.busy || entry.inForm ? null : () => _cancel(entry, reply), child: const Text('Cancelar')),
                 ])
               else if (!entry.undone)
                 Wrap(spacing: 8, children: [

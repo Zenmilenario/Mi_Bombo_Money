@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show FileSystemException;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -33,12 +34,15 @@ int? parseAmount(String text) {
 
 /// New movement or edition of an existing one, with the iPhone's fields and checks.
 class TransactionFormScreen extends StatefulWidget {
-  const TransactionFormScreen({super.key, required this.repository, this.editing, this.prefill});
+  const TransactionFormScreen({super.key, required this.repository, this.editing, this.prefill, this.newId});
   final FinanceRepository repository;
   final Transaction? editing;
 
   /// A new movement already filled in (Don Bigotes' «Corregir»): every field stays editable.
   final TransactionDraft? prefill;
+
+  /// The id of the movement prepared in the chat: saved here or confirmed there, it is one movement, never two.
+  final String? newId;
   @override
   State<TransactionFormScreen> createState() => _TransactionFormScreenState();
 }
@@ -193,7 +197,7 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
 
   Future<void> _store() async {
     final now = DateTime.now();
-    final id = widget.editing?.id ?? widget.repository.newId();
+    final id = widget.editing?.id ?? widget.newId ?? widget.repository.newId();
     final op = saveOperation(draft, data, now, editing: widget.editing, newId: id);
     final category = data.category(draft.categoryId);
     // A new movement categorised without a rule: count whether the proposal shown was used.
@@ -212,8 +216,11 @@ class _TransactionFormScreenState extends State<TransactionFormScreen> {
         now: now);
     final ops = [op, ...fee, if (rule != null) rule];
     await widget.repository.apply(ops.length == 1 ? op : batchOperation(ops));
-    // What the person decided teaches the models: the category chosen and, in a bank movement, the correction.
-    await learnFromEdit(widget.repository, _before, id, categoryConfirmed: _categoryChosen && category != null);
+    // What the person decided teaches the models: the category chosen and, in a bank movement, the correction. The
+    // movement is already saved: a learning file that cannot be written now never turns it into «not saved».
+    try {
+      await learnFromEdit(widget.repository, _before, id, categoryConfirmed: _categoryChosen && category != null);
+    } on FileSystemException catch (_) {}
   }
 
   /// For a payment or a move, the reserves that have money in the chosen account (plus the one already used by this

@@ -211,6 +211,10 @@ class AssistantMasker {
 
     for (final a in data.accounts.where((a) => !a.isArchived)) {
       add(a.name, account(a), partial: true);
+      // Its bank («en Trade Republic») is a name of the person's too: it becomes the marker of its accounts (several
+      // accounts of one bank: all their markers, and this device asks among them).
+      final bank = data.institutionName(a.institutionId);
+      if (bank != null && bank.trim().isNotEmpty) add(bank, account(a), partial: true);
     }
     for (final c in data.cards.where((c) => !c.isArchived)) {
       add(c.name, card(c), partial: true);

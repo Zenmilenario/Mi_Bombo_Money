@@ -826,7 +826,7 @@ class _CardFormScreenState extends State<CardFormScreen> {
 
 /// Money set aside in an account for a purpose. Payments made with it do not count against budgets.
 class ReserveFormScreen extends StatefulWidget {
-  const ReserveFormScreen({super.key, required this.repository, this.editing, this.accountId, this.name, this.amountMinor});
+  const ReserveFormScreen({super.key, required this.repository, this.editing, this.accountId, this.name, this.amountMinor, this.newId});
   final FinanceRepository repository;
   final ReservedFund? editing;
   final String? accountId;
@@ -834,6 +834,9 @@ class ReserveFormScreen extends StatefulWidget {
   /// A new reserve already filled in (Don Bigotes' «Corregir»).
   final String? name;
   final int? amountMinor;
+
+  /// The id of the reserve prepared in the chat: saved here or there, it is one reserve.
+  final String? newId;
   @override
   State<ReserveFormScreen> createState() => _ReserveFormScreenState();
 }
@@ -883,7 +886,7 @@ class _ReserveFormScreenState extends State<ReserveFormScreen> {
             : upsertOperation(
                 'reservedFunds',
                 {
-                  'id': widget.repository.newId(),
+                  'id': widget.newId ?? widget.repository.newId(),
                   'name': name,
                   'amountMinor': amount,
                   'notes': '',
@@ -892,7 +895,7 @@ class _ReserveFormScreenState extends State<ReserveFormScreen> {
                   'accountID': _account,
                 },
                 create: true));
-        if (mounted) Navigator.of(this.context).pop();
+        if (mounted) Navigator.of(this.context).pop(true);
       },
       children: [
         TextInput(controller: _name, label: 'Para qué es'),

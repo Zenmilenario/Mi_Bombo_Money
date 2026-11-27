@@ -145,7 +145,8 @@ class _InstallmentFormScreenState extends State<InstallmentFormScreen> {
   InstallmentPlan? _plan(List<Installment> schedule) {
     final paidBefore = _startedBefore ? (int.tryParse(_paidBefore.text.trim()) ?? 0) : 0;
     return InstallmentPlan(
-      id: e?.id ?? widget.repository.newId(),
+      // A plan prepared in the chat keeps its id: saved here or there, it is one plan.
+      id: e?.id ?? widget.prefill?.id ?? widget.repository.newId(),
       name: _name.text.trim(),
       kind: _kind!,
       totalMinor: amountFrom(_total)!,
@@ -199,7 +200,7 @@ class _InstallmentFormScreenState extends State<InstallmentFormScreen> {
     ];
     try {
       await widget.repository.apply(pauses.isEmpty ? save : batchOperation([save, ...pauses]));
-      if (mounted) closeOwnScreen(context);
+      if (mounted) closeOwnScreen(context, true);
     } catch (error) {
       if (mounted) setState(() => _message = 'No se ha podido guardar: $error');
     } finally {
